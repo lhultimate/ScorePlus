@@ -511,22 +511,35 @@ public sealed class ScorebugIconView : Grid
     readonly Ellipse? _dot;
     readonly StackPanel? _bars;
     readonly Canvas? _bases;
+    readonly List<Rectangle> _baseSquares = [];
+    readonly List<ScaleTransform> _baseScales = [];
+    readonly bool[] _baseLit = new bool[3];
+    Brush _baseBrush = Brushes.White;
+    Brush _baseFaint = Brushes.White;
     string _appliedForeground = "";
     string _baseSignature = "";
+
+    /// <summary>
+    /// Which live artwork this view was built for, so the studio can tell one icon from another.
+    /// It is captured at construction rather than read from the element: the element is edited in
+    /// place, so reading it would let a view that draws bars claim it is already a dot.
+    /// </summary>
+    public ScorebugIcon Icon { get; }
 
     public ScorebugIconView(ScorebugElement item, Func<GameState>? state, string? text = null)
     {
         _item = item;
         _state = state;
+        Icon = item.Icon;
         ClipToBounds = true;
-        if (item.Icon == ScorebugIcon.Bases)
+        if (Icon == ScorebugIcon.Bases)
         {
             // Three bases in a diamond: a base a runner is standing on is filled, an empty one is
             // only a faint outline, so the graphic reads at a glance like the field does.
             _bases = new Canvas { ClipToBounds = true };
             Children.Add(_bases);
         }
-        else if (item.Icon == ScorebugIcon.TimeoutBars)
+        else if (Icon == ScorebugIcon.TimeoutBars)
         {
             // One short horizontal line per timeout, in a row from left to right.
             _bars = new StackPanel
@@ -562,25 +575,33 @@ public sealed class ScorebugIconView : Grid
             var first = state is not null && SportValues.Read(state, "baseball.first") != 0;
             var second = state is not null && SportValues.Read(state, "baseball.second") != 0;
             var third = state is not null && SportValues.Read(state, "baseball.third") != 0;
-            var signature = $"{_item.Width:0.#}x{_item.Height:0.#}|{foreground}|{first}{second}{third}";
-            if (signature != _baseSignature)
+            var width = Math.Max(24, _item.Width);
+            var height = Math.Max(24, _item.Height);
+            // The three bases are built once for a given size and colour, then only lit and cleared.
+            // Rebuilding them on every runner (what this used to do) threw away the squares mid-change,
+            // so a value-change animation had nothing to animate.
+            var lit = new[] { third, second, first };
+            var geometry = $"{width:0.#}x{height:0.#}|{foreground}";
+            if (geometry != _baseSignature)
             {
-                _baseSignature = signature;
+                _baseSignature = geometry;
                 _bases.Children.Clear();
-                var width = Math.Max(24, _item.Width);
-                var height = Math.Max(24, _item.Height);
+                _baseSquares.Clear();
+                _baseScales.Clear();
                 var size = Math.Clamp(Math.Min(width, height) * 0.34, 9, 70);
-                var brush = ScorebugRender.ParseBrush(foreground);
-                var faint = (Brush)brush.Clone();
+                _baseBrush = ScorebugRender.ParseBrush(foreground);
+                var faint = (Brush)_baseBrush.Clone();
                 faint.Opacity = 0.32;
-                (double X, double Y, bool On)[] spots =
+                _baseFaint = faint;
+                (double X, double Y)[] spots =
                 [
-                    (width * 0.30, height * 0.70, third),
-                    (width * 0.50, height * 0.24, second),
-                    (width * 0.70, height * 0.70, first)
+                    (width * 0.30, height * 0.70),
+                    (width * 0.50, height * 0.24),
+                    (width * 0.70, height * 0.70)
                 ];
-                foreach (var (x, y, on) in spots)
+                for (var index = 0; index < spots.Length; index++)
                 {
+                    var scale = new ScaleTransform(1, 1);
                     var square = new Rectangle
                     {
                         Width = size,
@@ -588,15 +609,32 @@ public sealed class ScorebugIconView : Grid
                         RadiusX = Math.Max(1, size * 0.10),
                         RadiusY = Math.Max(1, size * 0.10),
                         RenderTransformOrigin = new Point(0.5, 0.5),
-                        RenderTransform = new RotateTransform(45),
-                        Fill = on ? brush : Brushes.Transparent,
-                        Stroke = on ? brush : faint,
+                        RenderTransform = new TransformGroup { Children = { new RotateTransform(45), scale } },
                         StrokeThickness = Math.Max(1.5, size * 0.12)
                     };
-                    Canvas.SetLeft(square, x - size / 2);
-                    Canvas.SetTop(square, y - size / 2);
+                    Canvas.SetLeft(square, spots[index].X - size / 2);
+                    Canvas.SetTop(square, spots[index].Y - size / 2);
+                    _baseSquares.Add(square);
+                    _baseScales.Add(scale);
                     _bases.Children.Add(square);
                 }
+                // A fresh set of squares starts from the game as it stands, painted instantly: the
+                // first paint and every thumbnail are stills, not animated changes.
+                for (var index = 0; index < _baseSquares.Count; index++)
+                {
+                    _baseLit[index] = lit[index];
+                    PaintBase(index, lit[index], null);
+                }
+            }
+            var seconds = Math.Clamp(_item.TransitionSeconds, 0, 5);
+            // Only a real value-change animation is honoured, and only once the view is on screen:
+            // thumbnails and the studio's first paint land instantly.
+            var animate = _item.Transition != ScorebugTransition.Cut && seconds > 0.02 && IsLoaded;
+            for (var index = 0; index < lit.Length; index++)
+            {
+                if (_baseLit[index] == lit[index]) continue;
+                _baseLit[index] = lit[index];
+                PaintBase(index, lit[index], animate ? TimeSpan.FromSeconds(seconds) : null);
             }
             return;
         }
@@ -649,5 +687,33 @@ public sealed class ScorebugIconView : Grid
             var value = text ?? (state is null ? _item.Content : ScoreboardTemplates.Bind(_item.Content, state, _item.PeriodFormat));
             _text.UpdateText(value, _item.Transition, _item.TransitionSeconds);
         }
+    }
+
+    /// <summary>
+    /// Lights or clears one base. A runner arriving fades and pops the base in over the element's own
+    /// value-change time, so the diamond moves the way the rest of the graphic does; clearing a base
+    /// is a quiet change and lands at once.
+    /// </summary>
+    void PaintBase(int index, bool on, TimeSpan? duration)
+    {
+        if (index < 0 || index >= _baseSquares.Count) return;
+        var square = _baseSquares[index];
+        var scale = _baseScales[index];
+        square.BeginAnimation(UIElement.OpacityProperty, null);
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        square.Fill = on ? _baseBrush : Brushes.Transparent;
+        square.Stroke = on ? _baseBrush : _baseFaint;
+        if (duration is null || !on)
+        {
+            square.Opacity = 1;
+            scale.ScaleX = 1;
+            scale.ScaleY = 1;
+            return;
+        }
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        square.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, duration.Value) { EasingFunction = easing });
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.55, 1, duration.Value) { EasingFunction = easing });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.55, 1, duration.Value) { EasingFunction = easing });
     }
 }

@@ -43,9 +43,17 @@ internal static class ScreenFit
     {
         window.SourceInitialized += (_, _) => Apply(window);
         window.LocationChanged += (_, _) => Apply(window);
+        // Maximizing is a size change too: without this the clamp set while the window was still
+        // small stayed in place and the window never filled the screen.
+        window.StateChanged += (_, _) => Apply(window);
     }
 
-    /// <summary>Clamps the window to the work area of the monitor it is on, in layout units.</summary>
+    /// <summary>
+    /// Keeps the window inside the monitor it is on, in layout units. A maximized window is measured
+    /// against the whole monitor rather than the work area: clamping it to the work area minus a
+    /// frame margin left a strip of desktop down the side and bottom, which is exactly the window
+    /// that would not go full screen on any monitor, portrait included.
+    /// </summary>
     public static void Apply(Window window)
     {
         var handle = new WindowInteropHelper(window).Handle;
@@ -56,12 +64,16 @@ internal static class ScreenFit
         if (!GetMonitorInfo(monitor, ref info)) return;
 
         var dpi = VisualTreeHelper.GetDpi(window);
-        // Leave a little room for the window frame, which Windows measures outside the client area.
-        var width = Math.Max(320, info.Work.Width / dpi.DpiScaleX - 8);
-        var height = Math.Max(240, info.Work.Height / dpi.DpiScaleY - 8);
+        var maximized = window.WindowState == WindowState.Maximized;
+        var area = maximized ? info.Monitor : info.Work;
+        var width = Math.Max(320, area.Width / dpi.DpiScaleX);
+        var height = Math.Max(240, area.Height / dpi.DpiScaleY);
 
         window.MaxWidth = width;
         window.MaxHeight = height;
+        // Only a floating window is pulled back in; resizing a maximized one would knock it out of
+        // the maximized state Windows just applied.
+        if (maximized) return;
         if (window.Width > width) window.Width = width;
         if (window.Height > height) window.Height = height;
     }

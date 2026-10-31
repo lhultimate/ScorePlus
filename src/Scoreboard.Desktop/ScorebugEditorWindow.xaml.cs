@@ -302,7 +302,7 @@ public partial class ScorebugEditorWindow : Window
         foreach(var item in _catalog.Layout.Elements)
         {
             Border host;
-            if(previousVisuals.TryGetValue(item.Id,out var prior)&&prior.Kind==item.Kind)
+            if(previousVisuals.TryGetValue(item.Id,out var prior)&&CanReuseVisual(item,prior))
             {
                 host=prior.Host;
                 if(prior.Content is VideoSurface video)video.SetElement(item);
@@ -532,6 +532,21 @@ public partial class ScorebugEditorWindow : Window
         LinkLayoutBox.ItemsSource=options;
         LinkLayoutBox.IsEnabled=target is not null;
         LinkLayoutBox.SelectedItem=options.FirstOrDefault(option=>string.Equals(option.Id,selectedLayoutId,StringComparison.OrdinalIgnoreCase))??options[0];
+    }
+
+    /// <summary>
+    /// True when an existing visual still draws what this element now asks for. Live artwork (the
+    /// timeout bars, the possession dot, the bases) is its own kind of content, so switching an
+    /// element to an icon — or from one icon to another — has to build it instead of reusing the
+    /// text block that was there before, which is why icons never appeared in the studio.
+    /// </summary>
+    static bool CanReuseVisual(ScorebugElement item,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind) prior)
+    {
+        if(prior.Kind!=item.Kind)return false;
+        var wantsIcon=item.Kind==ScorebugElementKind.Text&&item.Icon!=ScorebugIcon.None;
+        var hasIcon=prior.Content is ScorebugIconView;
+        if(wantsIcon!=hasIcon)return false;
+        return !hasIcon||((ScorebugIconView)prior.Content).Icon==item.Icon;
     }
 
     Border CreateVisual(ScorebugElement item,Dictionary<string,VideoSurface>? previous=null)
@@ -954,6 +969,9 @@ public partial class ScorebugEditorWindow : Window
             &&(!opacityOk||Math.Abs(item.Opacity-opacity)<0.001)
             &&(!transitionSpeedOk||Math.Abs(item.TransitionSeconds-transitionSpeed)<0.001))return;
         var id=item.Id;
+        // Switching an element to live artwork changes what it draws, so that one edit has to build
+        // the new content rather than paint over the old text.
+        var artworkChanged=false;
         // The save raises Changed, which would rebuild the canvas and restart every video; this
         // edit paints in place through RefreshAllVisuals instead.
         _skipRebuild=true;
@@ -987,7 +1005,7 @@ public partial class ScorebugEditorWindow : Window
                 target.PreserveVideoAspect=preserveAspect;
                 if(aspectOk)target.VideoAspect=Math.Clamp(aspect,0.1,10);
                 target.AudioDevice=string.IsNullOrWhiteSpace(audioDevice)?null:audioDevice;
-                if(icon is not null)target.Icon=icon.Value;
+                if(icon is not null&&target.Icon!=icon.Value){target.Icon=icon.Value;artworkChanged=true;}
                 target.IconVisitors=iconVisitors; target.IconFlipped=iconFlipped;
                 if(font is not null)target.FontFamily=font;
                 target.Bold=bold; target.Italic=italic;
@@ -1012,6 +1030,7 @@ public partial class ScorebugEditorWindow : Window
         });
         }
         finally { _skipRebuild=false; }
+        if(artworkChanged)Render();
     }
 
     static bool TryColor(string value,out Color color){try{color=(Color)ColorConverter.ConvertFromString(value)!;return true;}catch{color=Colors.White;return false;}}

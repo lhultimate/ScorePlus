@@ -1475,15 +1475,14 @@ internal static class Program
                 var contextEditor = new ScorebugEditorWindow(contextCatalog, engine);
                 contextEditor.Show();
                 contextEditor.UpdateLayout();
-                // The studio must never open taller than the desktop: a window that runs past the
-                // bottom of the screen hides the lower edge of the artwork.
-                if (contextEditor.MaxHeight > SystemParameters.WorkArea.Height ||
-                    contextEditor.MaxWidth > SystemParameters.WorkArea.Width)
-                    throw new Exception($"FAIL: the studio can open past the work area ({contextEditor.MaxWidth:0}x{contextEditor.MaxHeight:0})");
-                // A maximized window reports the work area plus its resize border, which sits off
-                // the edge of the screen; anything more than that would put content below the desk.
-                if (contextEditor.Height > SystemParameters.WorkArea.Height + 40)
-                    throw new Exception($"FAIL: the studio opened {contextEditor.Height:0} tall on a {SystemParameters.WorkArea.Height:0} desktop");
+                // The studio must never open past the desktop: a window that runs past the edge hides
+                // part of the artwork. Its allowance (MaxWidth/MaxHeight) is the whole monitor so a
+                // maximized window can fill every pixel; what matters is the size it actually takes.
+                // A maximized window reports the work area plus its resize border, which sits off the
+                // edge of the screen, so the tolerance covers that.
+                if (contextEditor.ActualWidth > SystemParameters.WorkArea.Width + 40 ||
+                    contextEditor.ActualHeight > SystemParameters.WorkArea.Height + 40)
+                    throw new Exception($"FAIL: the studio opened {contextEditor.ActualWidth:0}x{contextEditor.ActualHeight:0} on a {SystemParameters.WorkArea.Width:0}x{SystemParameters.WorkArea.Height:0} desktop");
                 if (contextEditor.WindowState != WindowState.Maximized)
                     throw new Exception($"FAIL: the studio opened {contextEditor.WindowState} instead of full windowed");
                 var contextLayers = (ListBox)contextEditor.FindName("Layers")!;
@@ -2698,6 +2697,25 @@ internal static class Program
                     throw new Exception($"FAIL: a fresh game from the launcher is not a blank slate ({cold.Engine.State.HomeScore}-{cold.Engine.State.AwayScore}, period {cold.Engine.State.Period}, {cold.Engine.State.Events.Count} events)");
                 cold.Close();
                 Console.WriteLine("PASS: the main window opens locked behind the launch box, keeps its tab outline, and starts blank");
+
+                // ---------- the console fills the screen when maximized ----------
+                {
+                    var fillMain = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+                    fillMain.Show();
+                    Pump(TimeSpan.FromMilliseconds(250));
+                    fillMain.WindowState = WindowState.Maximized;
+                    Pump(TimeSpan.FromMilliseconds(450));
+                    var desk = SystemParameters.WorkArea;
+                    // A maximized window has to be allowed the whole monitor: capping it to the work
+                    // area minus a frame margin is what left a strip of desktop down the side of the
+                    // screen, on a wide monitor and a portrait one alike.
+                    if (fillMain.MaxWidth < desk.Width - 1 || fillMain.MaxHeight < desk.Height - 1)
+                        throw new Exception($"FAIL: a maximized console is capped at {fillMain.MaxWidth:0}x{fillMain.MaxHeight:0} on a {desk.Width:0}x{desk.Height:0} screen");
+                    if (fillMain.ActualWidth < desk.Width - 40 || fillMain.ActualHeight < desk.Height - 40)
+                        throw new Exception($"FAIL: a maximized console fills only {fillMain.ActualWidth:0}x{fillMain.ActualHeight:0} of {desk.Width:0}x{desk.Height:0}");
+                    fillMain.Close();
+                    Console.WriteLine("PASS: a maximized console fills the screen instead of leaving a strip of desktop");
+                }
             }
 
             // ---------- program preview: the audience monitor shows what is on air ----------
@@ -3017,6 +3035,76 @@ internal static class Program
                     if (square.Background is not SolidColorBrush onBrush || onBrush.Color.A < 200)
                         throw new Exception("FAIL: an occupied base did not light up");
                     Console.WriteLine("PASS: baseball draws three bases (lit for runners) and the console flags are square bases");
+                }
+
+                // ---------- live artwork: any element can become an icon, and the diamond animates ----------
+                {
+                    var artPath = Path.Combine(Path.GetTempPath(), $"smoke-artwork-{Guid.NewGuid():N}.json");
+                    var artEngine = new GameEngine();
+                    artEngine.NewGame("football");
+                    artEngine.SetTimeoutCount(true, 2);
+                    var artCatalog = new ScorebugCatalog(artPath);
+                    artCatalog.Update(layout =>
+                    {
+                        layout.Elements.Clear();
+                        layout.Elements.Add(new ScorebugElement { Name = "Timeouts", Content = "{{POSSESSION}}", X = 60, Y = 60, Width = 260, Height = 70, FontSize = 30 });
+                    });
+                    var artStudio = new ScorebugEditorWindow(artCatalog, artEngine) { Width = 1400, Height = 900 };
+                    artStudio.Show();
+                    artStudio.UpdateLayout();
+                    ((ListBox)artStudio.FindName("Layers")!).SelectedIndex = 0;
+                    artStudio.UpdateLayout();
+                    var artCanvas = (Canvas)artStudio.FindName("DesignCanvas")!;
+                    // A plain text element to begin with, as the operator would add it.
+                    if (FindAll<ScorebugIconView>(artCanvas).Any()) throw new Exception("FAIL: a text element already draws artwork");
+                    ((ComboBox)artStudio.FindName("IconInput")!).SelectedItem = ScorebugIcon.TimeoutBars;
+                    Pump(TimeSpan.FromMilliseconds(250));
+                    var barsView = FindAll<ScorebugIconView>(artCanvas).FirstOrDefault();
+                    if (barsView is null)
+                        throw new Exception("FAIL: switching an element to timeout bars draws no live artwork in the studio");
+                    if (FindAll<System.Windows.Shapes.Rectangle>(barsView).Count() != 2)
+                        throw new Exception($"FAIL: timeout bars show {FindAll<System.Windows.Shapes.Rectangle>(barsView).Count()} bars for two timeouts");
+                    if (FindAll<ScorebugTextBlock>(artCanvas).Any(t => t.Text.Contains("POSSESSION", StringComparison.Ordinal)))
+                        throw new Exception("FAIL: the old text is still drawn under the artwork");
+                    // Live: another timeout removes a bar without any studio edit.
+                    artEngine.SetTimeoutCount(true, 1);
+                    Pump(TimeSpan.FromMilliseconds(200));
+                    if (FindAll<System.Windows.Shapes.Rectangle>(barsView).Count() != 1)
+                        throw new Exception("FAIL: the timeout bars did not follow the game");
+                    // Switching to a different icon builds that artwork instead of keeping the bars.
+                    ((ComboBox)artStudio.FindName("IconInput")!).SelectedItem = ScorebugIcon.PossessionDot;
+                    Pump(TimeSpan.FromMilliseconds(250));
+                    if (!FindAll<System.Windows.Shapes.Ellipse>(artCanvas).Any())
+                        throw new Exception("FAIL: switching to the possession dot drew no dot");
+                    artStudio.Close();
+
+                    // The diamond lights a base through the element's own value-change animation.
+                    var diamondItem = new ScorebugElement
+                    {
+                        Name = "Bases", Icon = ScorebugIcon.Bases, Width = 220, Height = 150, Foreground = "#FFFF8800",
+                        Transition = ScorebugTransition.Fade, TransitionSeconds = 1
+                    };
+                    var diamondEngine = new GameEngine();
+                    diamondEngine.NewGame("baseball");
+                    var diamondView = new ScorebugIconView(diamondItem, () => diamondEngine.State);
+                    var diamondHost = new Window { Content = diamondView, Width = 300, Height = 240, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+                    diamondHost.Show();
+                    Pump(TimeSpan.FromMilliseconds(250));
+                    diamondEngine.SetSportValue("baseball.first", 1);
+                    diamondView.Update();
+                    var diamondSquares = FindAll<System.Windows.Shapes.Rectangle>(diamondView).ToArray();
+                    if (diamondSquares.Length != 3) throw new Exception("FAIL: the animated diamond lost a base");
+                    // Order on the canvas is third, second, first; the first base is the one just lit.
+                    if (!diamondSquares[2].HasAnimatedProperties)
+                        throw new Exception("FAIL: a lit base snaps in even though the element has a value-change animation");
+                    if (diamondSquares[2].Fill is not SolidColorBrush litBase || litBase.Color.A < 200)
+                        throw new Exception("FAIL: the animated base never lit");
+                    diamondEngine.SetSportValue("baseball.first", 0);
+                    diamondView.Update();
+                    if (diamondSquares[2].Fill is not SolidColorBrush cleared || cleared.Color.A > 40)
+                        throw new Exception("FAIL: clearing a base left it lit");
+                    diamondHost.Close();
+                    Console.WriteLine("PASS: any element can become live artwork in the studio, and runners light the diamond through its own transition");
                 }
 
                 // ---------- phone remote: password, state and actions ----------

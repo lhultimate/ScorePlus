@@ -33,6 +33,9 @@ public partial class App : Application
             return;
         }
         window.Closed += (_, _) => Shutdown();
+        // The console opens filling the screen — full windowed, so the title bar and taskbar stay —
+        // and ScreenFit keeps that true on a portrait monitor as well as a wide one.
+        window.WindowState = WindowState.Maximized;
         window.Show();
 
         var launcher = new LauncherWindow { Owner = window };
