@@ -1,6 +1,4 @@
 # ScorePlus
-# Disclaimer!! The linux release for this will often be behind or skip versions, the current linux way to run it just wine until I rebuild it.
-
 **Currently in alpha. The project is updated frequently and extremely buggy. I would not recommend building unless for experimental purposes.**
 
 **ScorePlus** is a native Windows scoreboard for live production. The main window is the operator console — every control for the game on one page — and a separate audience output shows the score, clock, and broadcast-style graphics. No browser, server, internet connection, or separately installed .NET runtime required. The app ships with its own **SP+** mark: the transparent one sits in the title bar and the launch box, the taskbar, Start Menu and shortcuts carry it, and the phone remote serves and shows it too.
