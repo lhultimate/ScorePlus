@@ -69,8 +69,6 @@ either way.
 
 ## Publishing a release
 
-`scripts/publish-release.sh` does the whole ritual: build, checksum, manifest, upload.
-
 ```sh
 ./scripts/publish-release.sh a1.2 --release                        # build + publish to GitHub
 ./scripts/publish-release.sh a1.2 --release --notes "Adds X, fixes Y"
@@ -81,7 +79,7 @@ either way.
 
 Releases are named the way they ship — `a1.0`, `a1.01`, `a1.1` — and the label becomes both the folder and the tag, while the manifest carries the numeric version the app compares. It runs `build-release.sh` into `dist/ScorePlus-win-x64-a1.2`, hashes the setup exe, writes
 `win.json` beside the build (JSON-escaped, so quotes and line breaks in the notes are safe), and —
-with `--release` — creates the tag `v1.4.0` and uploads **`ScorePlusPortable.exe`**, **`ScorePlusSetup.exe`** and **`win.json`**. Every release carries the same two build assets under the same two names, so the built-in feed never has to guess.
+with `--release` — creates the tag from the release label and uploads **`ScorePlusPortable.exe`**, **`ScorePlusSetup.exe`** and **`win.json`**. Every release carries the same two build assets under the same two names, so the built-in feed never has to guess.
 Without `--notes` it lets `gh --generate-notes` write them from the commits. If the tag already
 exists, its two assets are replaced instead of failing. The repository is read from `origin`, so a
 fork publishes to itself — and a fork should also change `UpdateFeed.BuiltIn` in `Updates.cs` to its
