@@ -96,6 +96,7 @@ public sealed class SetupWindow : Window
         _folder.Background = Brushes.Transparent;
         _folder.FontSize = 13;
         _folder.MinHeight = 34;
+        _folder.TextChanged += (_, _) => ValidateFolder();
         root.Children.Add(_folderRow);
 
         _desktop.Content = "Create a shortcut on the desktop";
@@ -147,8 +148,31 @@ public sealed class SetupWindow : Window
         };
 
         if (uninstall) _folderRow.Visibility = Visibility.Collapsed;
+        else ValidateFolder();
         Loaded += (_, _) => { if (!uninstall) _folder.Focus(); };
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
+    }
+
+    /// <summary>
+    /// Says immediately when a folder is not a safe home for the app — a drive root, Downloads, the
+    /// Desktop, or a folder already full of somebody's files — rather than letting an install point an
+    /// uninstaller at it.
+    /// </summary>
+    void ValidateFolder()
+    {
+        if (_uninstall || _done || _primary is null || _status is null) return;
+        if (Installer.IsSafeInstallDirectory(_folder.Text, out var reason))
+        {
+            _primary.IsEnabled = true;
+            _status.Foreground = Muted;
+            _status.Text = $"ScorePlus will be installed in {_folder.Text.Trim()}.";
+        }
+        else
+        {
+            _primary.IsEnabled = false;
+            _status.Foreground = Frozen(Color.FromRgb(0xFF, 0x72, 0x72));
+            _status.Text = reason;
+        }
     }
 
     async Task RunAsync()

@@ -317,3 +317,39 @@ public sealed class MediaPlayback
         return Matches(entry, elementTag) ? entry : null;
     }
 }
+
+/// <summary>
+/// The manifest inside a ScorePlus Media Folder (.spf). A folder and everything under it leaves the
+/// library as one zip: this manifest plus the clips themselves, so the folder can be handed to
+/// another machine and come back exactly as it was — nested folders, tags, loops, levels, speakers
+/// and camera items included.
+/// </summary>
+public sealed class MediaFolderManifest
+{
+    public const string FileName = "folder.json";
+
+    public int Version { get; set; } = 1;
+
+    /// <summary>The folder that was exported; empty for the unfiled bucket.</summary>
+    public string Folder { get; set; } = "";
+
+    /// <summary>Every folder in the export, parents included, so empty folders survive the trip.</summary>
+    public List<string> Folders { get; set; } = [];
+
+    public List<MediaFolderClip> Clips { get; set; } = [];
+}
+
+/// <summary>One clip in a folder export. <see cref="File"/> is its name inside the zip; a camera
+/// item carries its <c>camera:N</c> path and no file at all.</summary>
+public sealed class MediaFolderClip
+{
+    public string File { get; set; } = "";
+    public string Path { get; set; } = "";
+    public string Tag { get; set; } = MediaLibrary.DefaultTag;
+    public string Folder { get; set; } = "";
+    public bool Loop { get; set; }
+    public double Volume { get; set; } = 1;
+    public string? AudioDevice { get; set; }
+    public string? Name { get; set; }
+    public int? CameraDevice { get; set; }
+}

@@ -28,7 +28,10 @@ public sealed class UserPreferences
     public int RemotePort { get; set; } = 8080;
     public string RemotePassword { get; set; } = "";
 
-    /// <summary>Where the installed app looks for a release manifest. Empty turns checking off.</summary>
+    /// <summary>
+    /// An optional override for where the installed app looks for releases. Empty means the
+    /// built-in GitHub feed (prereleases included); a URL here points at a manifest on another host.
+    /// </summary>
     public string UpdateFeedUrl { get; set; } = "";
     public bool CheckForUpdates { get; set; } = true;
 

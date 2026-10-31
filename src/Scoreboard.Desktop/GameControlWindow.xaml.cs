@@ -70,7 +70,7 @@ public partial class GameControlWindow : Window
         _engine = engine;
         _catalog = catalog;
         Program = new ProgramSelection(catalog);
-        _preview = new ScorebugCanvasView(catalog, previewEngine, playback: media?.Playback, layoutProvider: () => Program!.Layout);
+        _preview = new ScorebugCanvasView(catalog, previewEngine, playback: media?.Playback, layoutProvider: () => Program!.Layout, displayId: Program!.DisplayId);
         PreviewHost.Content = _preview;
         // The monitor reads the published engine and layout, so it reflects a real audience window.
         _audience = new AudiencePreview(catalog, previewEngine, media?.Playback, Program.DisplayId);

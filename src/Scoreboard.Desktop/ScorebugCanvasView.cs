@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -16,6 +17,13 @@ public sealed class ScorebugCanvasView : Grid
     // window preview resolves it from that window's staged selection.
     readonly Func<ScorebugLayout> _layoutProvider;
     readonly Canvas _canvas = new() { Background=new SolidColorBrush(Color.FromRgb(9,16,24)), ClipToBounds=true };
+    // Everything the view draws sits on this stage, so a layout hand-over can hold the outgoing
+    // artwork on top of the incoming one while it slides or dissolves away.
+    readonly Grid _stage = new() { ClipToBounds = true };
+    // Which display this view is a feed of; null means the display being edited.
+    readonly string? _displayId;
+    string? _drawnLayoutId;
+    FrameworkElement? _swapOverlay;
     readonly MediaPlayback? _playback;
     readonly bool _muteVideo;
     // A silent monitor of the audience picture (not a preview), so it follows the on-air cue.
@@ -23,6 +31,7 @@ public sealed class ScorebugCanvasView : Grid
     readonly Dictionary<string, (FrameworkElement Host, FrameworkElement Content)> _visuals = [];
     // Keyed by element id so a rebuild can keep the surface (and the running picture) alive.
     readonly Dictionary<string, VideoSurface> _videoSurfaces = [];
+    readonly Dictionary<string, HtmlSurface> _htmlSurfaces = [];
     readonly Dictionary<string, (ScorebugAnimation Animation, double Opacity)> _animations = [];
     readonly Dictionary<string,string> _backgrounds = [];
     readonly Dictionary<string,bool> _transparentStates = [];
@@ -42,13 +51,15 @@ public sealed class ScorebugCanvasView : Grid
     /// actually published, not the one being designed in the preview.</param>
     /// <param name="layoutProvider">Draws exactly the layout this view belongs to (a specific
     /// display's on-air layout, or a window's staged one). Overrides <paramref name="publishedLayout"/>.</param>
-    public ScorebugCanvasView(ScorebugCatalog catalog, GameEngine engine, Func<GameState>? stateProvider=null, MediaPlayback? playback=null, bool muteVideo=true, bool publishedLayout=false, Func<ScorebugLayout>? layoutProvider=null, bool onAirVideo=false)
+    public ScorebugCanvasView(ScorebugCatalog catalog, GameEngine engine, Func<GameState>? stateProvider=null, MediaPlayback? playback=null, bool muteVideo=true, bool publishedLayout=false, Func<ScorebugLayout>? layoutProvider=null, bool onAirVideo=false, string? displayId=null)
     {
         _catalog=catalog;_engine=engine;_live=stateProvider is null;
+        _displayId=displayId;
         _layoutProvider = layoutProvider ?? (publishedLayout ? () => _catalog.PublishedLayout : () => _catalog.Layout);
         _stateProvider=stateProvider??(()=>_engine.State);
         _playback=playback;_muteVideo=muteVideo;_onAirVideo=onAirVideo;
-        Children.Add(new Viewbox { Stretch=Stretch.Uniform, Child=_canvas });
+        _stage.Children.Add(_canvas);
+        Children.Add(new Viewbox { Stretch=Stretch.Uniform, Child=_stage });
         _catalog.Changed+=Rebuild;
         // A roster edit changes what a specific-player binding prints, without touching the game.
         RosterStore.Changed+=UpdateValues;
@@ -64,11 +75,19 @@ public sealed class ScorebugCanvasView : Grid
     public void Rebuild()
     {
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(Rebuild);return;}
+        // A different layout on the same feed is a hand-over: keep what is currently on screen as a
+        // still, so the new layout can be revealed through it rather than snapping into place. Any
+        // other rebuild (an edit, a palette change) must never trigger the animation.
+        var incoming = Layout;
+        var swapping = _drawnLayoutId is not null && !string.Equals(_drawnLayoutId, incoming.Id, StringComparison.OrdinalIgnoreCase);
+        var outgoing = swapping ? CaptureCanvas() : null;
         var previousVideos=new Dictionary<string,VideoSurface>(_videoSurfaces);
+        var previousHtml=new Dictionary<string,HtmlSurface>(_htmlSurfaces);
         var previousVisuals=new Dictionary<string,(FrameworkElement Host, FrameworkElement Content)>(_visuals);
         foreach(var (id,_) in _pendingText) CancelPending(id);
-        _videoSurfaces.Clear();_visuals.Clear();_animations.Clear();_backgrounds.Clear();_transparentStates.Clear();_borders.Clear();_shownText.Clear();
-        var layout = Layout;
+        _videoSurfaces.Clear();_htmlSurfaces.Clear();_visuals.Clear();_animations.Clear();_backgrounds.Clear();_transparentStates.Clear();_borders.Clear();_shownText.Clear();
+        var layout = incoming;
+        _stage.Width=layout.Width;_stage.Height=layout.Height;
         _canvas.Width=layout.Width;_canvas.Height=layout.Height;
         // The artwork backdrop belongs to the layout, so a green-screen design and the studio agree.
         _canvas.Background=ScorebugRender.ParseBrush(layout.Background);
@@ -82,8 +101,12 @@ public sealed class ScorebugCanvasView : Grid
             // decoder and re-opened the file, which is why editing the studio restarted playback.
             FrameworkElement content;
             if(previousVideos.TryGetValue(item.Id,out var surface)){surface.SetElement(item);content=surface;}
+            else if(previousHtml.TryGetValue(item.Id,out var page)){page.Update(item);content=page;}
             else content=ScorebugRender.CreateContent(item,_stateProvider,_playback,_muteVideo,showVideoPlaceholder:false,onAirVideo:_onAirVideo);
             if(content is VideoSurface video) _videoSurfaces[item.Id]=video;
+            // An HTML element keeps its browser and its last frame across a rebuild, so editing the
+            // graphic never blanks or restarts it.
+            if(content is HtmlSurface htmlPage) _htmlSurfaces[item.Id]=htmlPage;
             // The host border is reused as well. Moving a MediaElement to a new parent takes it out
             // of the visual tree, which stops the decoder and restarts the picture from frame one:
             // that is what made a video jump back to the start on every studio edit.
@@ -104,7 +127,107 @@ public sealed class ScorebugCanvasView : Grid
             if(!live.Contains(child))_canvas.Children.Remove(child);
         foreach(var (id,orphan) in previousVideos)
             if(!_videoSurfaces.ContainsKey(id))orphan.Dispose();
+        foreach(var (id,orphan) in previousHtml)
+            if(!_htmlSurfaces.ContainsKey(id))orphan.Dispose();
         UpdateValues();
+        _drawnLayoutId=layout.Id;
+        if(outgoing is not null) PlaySwap(outgoing,incoming);
+    }
+
+    /// <summary>A still of exactly what this feed is showing right now, used as the outgoing frame.</summary>
+    RenderTargetBitmap? CaptureCanvas()
+    {
+        try
+        {
+            var width=Math.Max(1,(int)Math.Round(_canvas.Width));
+            var height=Math.Max(1,(int)Math.Round(_canvas.Height));
+            // Already laid out inside its Viewbox; rendering the tree as it stands avoids kicking
+            // layout in the middle of a live feed.
+            var bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
+            bitmap.Render(_canvas);
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Runs the incoming layout's own hand-over: the outgoing still dissolves, slides or swings away
+    /// while the new artwork comes in from the other side. Duration 0 or Cut lands instantly.
+    /// </summary>
+    void PlaySwap(RenderTargetBitmap outgoing,ScorebugLayout incoming)
+    {
+        var transition=incoming.Transition;
+        var seconds=Math.Clamp(incoming.TransitionSeconds,0,5);
+        FinishSwap();
+        if(transition==LayoutTransition.Cut||seconds<=0)return;
+        var width=Math.Max(1,_canvas.Width);
+        var height=Math.Max(1,_canvas.Height);
+        var duration=TimeSpan.FromSeconds(seconds);
+        var easing=new CubicEase{EasingMode=EasingMode.EaseInOut};
+        var overlay=new Image{Source=outgoing,Width=width,Height=height,Stretch=Stretch.Fill,IsHitTestVisible=false};
+        var leaving=new TranslateTransform();
+        var arriving=new TranslateTransform();
+        overlay.RenderTransform=leaving;
+        _canvas.RenderTransform=arriving;
+        _stage.Children.Add(overlay);
+        _swapOverlay=overlay;
+        // A newer hand-over removes this overlay and starts its own; this callback must not then
+        // tear that newer one down when its animation finishes in the background.
+        void Finish(){ if(ReferenceEquals(_swapOverlay,overlay)) FinishSwap(); }
+        // The new artwork moves in from the side the old one moves towards, so the two never overlap
+        // in the same place for longer than a frame.
+        var arrive=new DoubleAnimation(0,0,duration){EasingFunction=easing};
+        switch(transition)
+        {
+            case LayoutTransition.SlideLeft:
+                arrive=new DoubleAnimation(width,0,duration){EasingFunction=easing};
+                leaving.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(0,-width,duration){EasingFunction=easing});
+                break;
+            case LayoutTransition.SlideRight:
+                arrive=new DoubleAnimation(-width,0,duration){EasingFunction=easing};
+                leaving.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(0,width,duration){EasingFunction=easing});
+                break;
+            case LayoutTransition.SlideUp:
+                arrive=new DoubleAnimation(height,0,duration){EasingFunction=easing};
+                leaving.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,-height,duration){EasingFunction=easing});
+                break;
+            case LayoutTransition.SlideDown:
+                arrive=new DoubleAnimation(-height,0,duration){EasingFunction=easing};
+                leaving.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,height,duration){EasingFunction=easing});
+                break;
+            case LayoutTransition.Zoom:
+            {
+                overlay.RenderTransformOrigin=new Point(0.5,0.5);
+                _canvas.RenderTransformOrigin=new Point(0.5,0.5);
+                var scaleOut=new ScaleTransform(1,1);
+                var scaleIn=new ScaleTransform(0.92,0.92);
+                overlay.RenderTransform=scaleOut;
+                _canvas.RenderTransform=scaleIn;
+                scaleOut.BeginAnimation(ScaleTransform.ScaleXProperty,new DoubleAnimation(1,1.14,duration){EasingFunction=easing});
+                scaleOut.BeginAnimation(ScaleTransform.ScaleYProperty,new DoubleAnimation(1,1.14,duration){EasingFunction=easing});
+                scaleIn.BeginAnimation(ScaleTransform.ScaleXProperty,new DoubleAnimation(0.92,1,duration){EasingFunction=easing});
+                scaleIn.BeginAnimation(ScaleTransform.ScaleYProperty,new DoubleAnimation(0.92,1,duration){EasingFunction=easing});
+                break;
+            }
+        }
+        arriving.BeginAnimation(TranslateTransform.XProperty,arrive);
+        var fade=new DoubleAnimation(1,0,duration){EasingFunction=easing};
+        fade.Completed+=(_,_)=>Finish();
+        overlay.BeginAnimation(UIElement.OpacityProperty,fade);
+    }
+
+    /// <summary>Stops a hand-over in progress and leaves the new layout alone on the stage.</summary>
+    void FinishSwap()
+    {
+        if(_swapOverlay is not null)
+        {
+            _stage.Children.Remove(_swapOverlay);
+            _swapOverlay=null;
+        }
+        _canvas.BeginAnimation(UIElement.OpacityProperty,null);
+        _canvas.RenderTransform=Transform.Identity;
+        _canvas.RenderTransformOrigin=new Point(0.5,0.5);
     }
 
     void ApplyAnimation(ScorebugElement item,FrameworkElement host)
@@ -273,5 +396,7 @@ public sealed class ScorebugCanvasView : Grid
         if(_live)_engine.Changed-=UpdateValues;else _engine.Changed-=UpdateClockValues;
         foreach(var surface in _videoSurfaces.Values) surface.Dispose();
         _videoSurfaces.Clear();
+        foreach(var page in _htmlSurfaces.Values) page.Dispose();
+        _htmlSurfaces.Clear();
     }
 }

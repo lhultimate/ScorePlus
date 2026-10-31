@@ -53,16 +53,18 @@
     <StackPanel Grid.ColumnSpan="3" Margin="2,0,2,10">
       <DockPanel Margin="0,0,0,8">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-          <Button Content="Add text" Style="{StaticResource ToolButton}" Click="AddText_Click"/>
-          <Button Content="Add logo" Style="{StaticResource ToolButton}" Click="AddLogo_Click"/>
-          <Button Content="Add shape" Style="{StaticResource ToolButton}" Click="AddShape_Click"/>
-          <Button Content="Add sport data" Style="{StaticResource ToolButton}" Click="AddData_Click"/>
-          <Button Content="Add player data" Style="{StaticResource ToolButton}" Click="AddPlayerData_Click"
+          <Button Content="TEXT +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddText_Click"/>
+          <Button Content="LOGO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddLogo_Click"/>
+          <Button Content="SHAPE +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddShape_Click"/>
+          <Button Content="SPORT DATA +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddData_Click"/>
+          <Button Content="PLAYER DATA +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddPlayerData_Click"
                   ToolTip="A value from the player currently on the graphic, set in the Rosters tab"/>
-          <Button Content="Add video" Style="{StaticResource ToolButton}" Click="AddVideo_Click"/>
-          <Button Content="Add parts…" Style="{StaticResource ToolButton}" Click="ImportParts_Click"
+          <Button Content="VIDEO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddVideo_Click"/>
+          <Button Content="HTML +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddHtml_Click"
+                  ToolTip="A live HTML/CSS widget, drawn by a browser engine on every screen"/>
+          <Button Content="PARTS +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="ImportParts_Click"
                   ToolTip="Copy elements from another layout instead of rebuilding them"/>
-          <Button Content="Remove" Style="{StaticResource ToolButton}" Click="Remove_Click" ToolTip="Delete the selected element"/>
+          <Button Content="REMOVE" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Remove_Click" ToolTip="Delete the selected element"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal">
           <TextBlock Text="SCOREPLUS · SCOREBUG STUDIO" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -76,6 +78,8 @@
           <DockPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
               <Button Content="New display…" Style="{StaticResource LayoutButton}" Click="DisplayNew_Click" ToolTip="Add another screen, for example a lower-thirds display"/>
+              <Button Content="Import .spd…" Style="{StaticResource LayoutButton}" Click="DisplayImport_Click" ToolTip="Add a whole ScorePlus Display file — every layout it holds — to this game"/>
+              <Button Content="Export .spd…" Style="{StaticResource LayoutButton}" Click="DisplayExport_Click" ToolTip="Write this display and all its layouts to a ScorePlus Display file"/>
               <Button Content="Rename…" Style="{StaticResource LayoutButton}" Click="DisplayRename_Click"/>
               <Button Content="Delete" Style="{StaticResource LayoutButton}" Click="DisplayDelete_Click" ToolTip="Remove this display and its layouts (the last one cannot be deleted)"/>
             </StackPanel>
@@ -84,6 +88,19 @@
               <TextBlock Text="DISPLAY" FontSize="11" FontWeight="Bold" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,8,0"/>
               <ComboBox x:Name="DisplayBox" Width="220" SelectionChanged="DisplayBox_Changed" ToolTip="Which screen these layouts belong to"/>
               <TextBlock Text="  Each display gets its own audience window." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
+          </DockPanel>
+          <!-- How this layout lands on air: dissolve, slide or swing, over 0–5 seconds. -->
+          <DockPanel Margin="0,7,0,0">
+            <StackPanel Orientation="Horizontal">
+              <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,7,0"/>
+              <TextBlock Text="TRANSITION IN" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <ComboBox x:Name="TransitionBox" Width="128" FontSize="11" SelectionChanged="Transition_Changed"
+                        ToolTip="How this layout arrives on air when it goes to output"/>
+              <TextBox x:Name="TransitionSecondsInput" Width="54" FontSize="11" Margin="6,0,0,0" TextChanged="TransitionSeconds_Changed"
+                       ToolTip="Seconds this layout's hand-over takes: 0 cuts, 5 is a slow dissolve"/>
+              <TextBlock Text="s" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="2,0,0,0"/>
+              <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
           <DockPanel Margin="0,7,0,0">
@@ -125,6 +142,9 @@
                     ToolTip="Move this layout, artwork and all, onto another display"/>
             <Button Content="Copy to…" Style="{StaticResource LayoutButton}" Click="LayoutCopy_Click"
                     ToolTip="Copy this layout onto another display, leaving this one untouched"/>
+            <Button Content="Import .spl…" Style="{StaticResource LayoutButton}" Click="LayoutImport_Click" ToolTip="Add a ScorePlus Layout file to this display"/>
+            <Button Content="Export .spl…" Style="{StaticResource LayoutButton}" Click="LayoutExport_Click" ToolTip="Write this layout to a ScorePlus Layout file"/>
+            <Button Content="HTML page…" Style="{StaticResource LayoutButton}" Click="LayoutHtml_Click" ToolTip="Export this layout as a web page you can embed on a website"/>
             <Button Content="Rename…" Style="{StaticResource LayoutButton}" Click="LayoutRename_Click"/>
             <Button Content="Delete" Style="{StaticResource LayoutButton}" Click="LayoutDelete_Click" ToolTip="Remove this layout (the last one cannot be deleted)"/>
           </StackPanel>
@@ -282,7 +302,9 @@
 
         <StackPanel x:Name="TextSection">
           <TextBlock Text="TEXT" Style="{StaticResource SectionTitle}"/>
-          <TextBox x:Name="ContentInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"/>
+          <TextBox x:Name="ContentInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                   AcceptsReturn="True" TextWrapping="Wrap" MinHeight="52" MaxHeight="180"
+                   VerticalScrollBarVisibility="Auto" ToolTip="Text, a {{TOKEN}}, or the markup of an HTML element"/>
           <!-- Which player and stat this element prints, whatever is selected on the desk. -->
           <StackPanel x:Name="PlayerDataSection">
             <TextBlock Text="PLAYER DATA" Style="{StaticResource SectionTitle}"/>

@@ -33,8 +33,13 @@ public static class Program
         {
             // Optional switches make the installer testable and usable in a folder: /DIR=<path>
             // chooses where it goes, /NOICONS skips shortcuts, /NOREG keeps the registry untouched.
-            var directory = args.FirstOrDefault(a => a.StartsWith("/DIR=", StringComparison.OrdinalIgnoreCase))?["/DIR=".Length..].Trim('"')
-                ?? Installer.InstalledDirectory() ?? Installer.DefaultDirectory;
+            var explicitDirectory = args.FirstOrDefault(a => a.StartsWith("/DIR=", StringComparison.OrdinalIgnoreCase))?["/DIR=".Length..].Trim('"');
+            // An update reuses the folder it was installed into — but only if that folder is a sane
+            // home for a program. A copy installed into Downloads or the Desktop is moved to the
+            // proper per-user folder rather than being written over again.
+            var existing = Installer.InstalledDirectory();
+            if (existing is not null && !Installer.IsSafeInstallDirectory(existing, out _)) existing = null;
+            var directory = explicitDirectory ?? existing ?? Installer.DefaultDirectory;
             var shortcuts = !args.Any(a => string.Equals(a, "/NOICONS", StringComparison.OrdinalIgnoreCase));
             var register = !args.Any(a => string.Equals(a, "/NOREG", StringComparison.OrdinalIgnoreCase));
             var result = uninstall

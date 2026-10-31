@@ -12,5 +12,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Scoreboard.Desktop/Scoreboard.Desktop.csproj" />
+    <ProjectReference Include="../../src/ScorePlus.Setup/ScorePlus.Setup.csproj" />
   </ItemGroup>
 </Project>

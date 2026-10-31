@@ -14,8 +14,8 @@ public enum LaunchMode { New, Open }
 /// </summary>
 public partial class LauncherWindow : Window
 {
-    /// <summary>The product version shown on the side strip.</summary>
-    public const string Version = "v0.0";
+    /// <summary>The release label shown on the side strip: a1.1, a1.02, and so on.</summary>
+    public static string Version => AppInfo.Release;
 
     public LaunchMode Mode { get; private set; } = LaunchMode.New;
 

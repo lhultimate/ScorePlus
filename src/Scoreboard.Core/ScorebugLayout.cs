@@ -3,7 +3,13 @@ using System.Text.Json.Nodes;
 
 namespace Scoreboard.Core;
 
-public enum ScorebugElementKind { Text, Logo, Shape, Video }
+public enum ScorebugElementKind { Text, Logo, Shape, Video, Html }
+
+/// <summary>
+/// How one layout hands over to the next on the audience output when a display switches. The
+/// duration lives beside it on the display, so a slow dissolve and a hard cut are one setting apart.
+/// </summary>
+public enum LayoutTransition { Cut, Fade, SlideLeft, SlideRight, SlideUp, SlideDown, Zoom }
 
 /// <summary>Ambient motion that runs all the time, whatever the value is.</summary>
 public enum ScorebugAnimation { None, Pulse, Drift }
@@ -192,6 +198,16 @@ public sealed class ScorebugLayout
     /// </summary>
     public string Background { get; set; } = "#FF091018";
 
+    /// <summary>
+    /// How this layout arrives when the operator switches to it: cut, dissolve, swing, slide or
+    /// zoom. The hand-over belongs to the incoming layout, so a main scorebug can snap on while a
+    /// lower third dissolves in beside it.
+    /// </summary>
+    public LayoutTransition Transition { get; set; } = LayoutTransition.Fade;
+
+    /// <summary>How long this layout's hand-over takes, in seconds: 0 cuts, 5 is a slow dissolve.</summary>
+    public double TransitionSeconds { get; set; } = 0.5;
+
     public static readonly (string Name, int Width, int Height)[] SizePresets =
     [
         ("HD · 1280 × 720", 1280, 720),
@@ -250,7 +266,7 @@ public sealed class ScorebugDisplay
 /// <summary>What is written to scorebug.json: every display, with its layouts and what is on air.</summary>
 public sealed class ScorebugDocument
 {
-    public int Version { get; set; } = 4;
+    public int Version { get; set; } = 5;
     public List<ScorebugDisplay> Displays { get; set; } = [];
     public int ActiveDisplayIndex { get; set; }
 
@@ -424,6 +440,32 @@ public sealed class ScorebugCatalog
             var document = root.Deserialize<ScorebugDocument>() ?? new ScorebugDocument();
             Displays = document.Displays ?? [];
             ActiveDisplayIndex = document.ActiveDisplayIndex;
+            // A v4 file kept one hand-over per display; every layout now carries its own. Each layout
+            // inherits the display transition it was last saved with, so an existing game still
+            // switches the way the operator set it up.
+            if (document.Version < 5 && root["Displays"] is JsonArray storedDisplays)
+            {
+                for (var i = 0; i < Math.Min(storedDisplays.Count, Displays.Count); i++)
+                {
+                    if (storedDisplays[i] is not JsonObject stored) continue;
+                    var transition = LayoutTransition.Fade;
+                    var seconds = 0.5;
+                    try
+                    {
+                        if (stored["Transition"] is JsonValue kind) transition = (LayoutTransition)kind.GetValue<int>();
+                        if (stored["TransitionSeconds"] is JsonValue span) seconds = span.GetValue<double>();
+                    }
+                    catch
+                    {
+                        // A file written by hand may spell the transition out; the defaults are fine.
+                    }
+                    foreach (var layout in Displays[i].Layouts)
+                    {
+                        layout.Transition = transition;
+                        layout.TransitionSeconds = seconds;
+                    }
+                }
+            }
         }
         else if (node is JsonObject legacy && legacy["Layouts"] is not null)
         {
@@ -531,6 +573,8 @@ public sealed class ScorebugCatalog
                 layout.Height = (int)Math.Clamp(layout.Height, 240, 7680);
                 if (string.IsNullOrWhiteSpace(layout.Name)) layout.Name = "Untitled layout";
                 if (!IsColor(layout.Background)) layout.Background = "#FF091018";
+                layout.TransitionSeconds = Math.Clamp(double.IsFinite(layout.TransitionSeconds) ? layout.TransitionSeconds : 0.5, 0, 5);
+                if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Fade;
                 foreach (var item in layout.Elements)
                 {
                     item.X = Math.Clamp(double.IsFinite(item.X) ? item.X : 0, 0, layout.Width);
@@ -733,6 +777,83 @@ public sealed class ScorebugCatalog
         layout.LinkLayoutId = string.IsNullOrWhiteSpace(linkLayoutId) ? null : linkLayoutId;
         Validate();
         Save(); Changed?.Invoke();
+    }
+
+    /// <summary>Sets how one layout crosses in on air. The hand-over travels with the layout.</summary>
+    public void SetLayoutTransition(int displayIndex, int layoutIndex, LayoutTransition transition, double seconds)
+    {
+        if (displayIndex < 0 || displayIndex >= Displays.Count) return;
+        var display = Displays[displayIndex];
+        if (layoutIndex < 0 || layoutIndex >= display.Layouts.Count) return;
+        var layout = display.Layouts[layoutIndex];
+        var clamped = Math.Clamp(double.IsFinite(seconds) ? seconds : 0, 0, 5);
+        if (layout.Transition == transition && Math.Abs(layout.TransitionSeconds - clamped) < 0.0001) return;
+        layout.Transition = transition;
+        layout.TransitionSeconds = clamped;
+        Save();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Sets the hand-over of the layout being designed.</summary>
+    public void SetTransition(LayoutTransition transition, double seconds) =>
+        SetLayoutTransition(ActiveDisplayIndex, ActiveDisplay.ActiveIndex, transition, seconds);
+
+    /// <summary>A deep copy of one display, for writing an .spd file without touching the game.</summary>
+    public ScorebugDisplay? SnapshotDisplay(int index) => index < 0 || index >= Displays.Count
+        ? null
+        : JsonSerializer.Deserialize<ScorebugDisplay>(JsonSerializer.Serialize(Displays[index]));
+
+    /// <summary>A deep copy of one layout, for writing an .spl file.</summary>
+    public ScorebugLayout? SnapshotLayout(int index)
+    {
+        var layouts = ActiveDisplay.Layouts;
+        return index < 0 || index >= layouts.Count
+            ? null
+            : JsonSerializer.Deserialize<ScorebugLayout>(JsonSerializer.Serialize(layouts[index]));
+    }
+
+    /// <summary>
+    /// Adds an imported layout to the display being edited. Its ids are fresh, so importing the same
+    /// file twice leaves two independent layouts rather than two views of one.
+    /// </summary>
+    public int ImportLayout(ScorebugLayout source, string? name = null)
+    {
+        var layout = source.Copy(name ?? source.Name);
+        if (string.IsNullOrWhiteSpace(layout.Name)) layout.Name = $"Layout {ActiveDisplay.Layouts.Count + 1}";
+        ActiveDisplay.Layouts.Add(layout);
+        ActiveDisplay.ActiveIndex = ActiveDisplay.Layouts.Count - 1;
+        Validate();
+        Save();
+        Changed?.Invoke();
+        return ActiveDisplay.ActiveIndex;
+    }
+
+    /// <summary>
+    /// Adds a whole imported display — its layouts, their order and what is on air — and selects it.
+    /// Layouts and elements get fresh ids, and links out of the file are dropped because the display
+    /// they pointed at is not part of it.
+    /// </summary>
+    public int ImportDisplay(ScorebugDisplay source, string? name = null)
+    {
+        var copy = JsonSerializer.Deserialize<ScorebugDisplay>(JsonSerializer.Serialize(source)) ?? new ScorebugDisplay();
+        copy.Id = Guid.NewGuid().ToString("N");
+        if (!string.IsNullOrWhiteSpace(name)) copy.Name = name.Trim();
+        if (copy.Layouts.Count == 0) copy.Layouts.Add(new ScorebugLayout { Name = "Layout 1" });
+        foreach (var layout in copy.Layouts)
+        {
+            layout.Id = Guid.NewGuid().ToString("N");
+            layout.LinkDisplayId = null;
+            layout.LinkLayoutId = null;
+            foreach (var element in layout.Elements) element.Id = Guid.NewGuid().ToString("N");
+        }
+        copy.ActiveIndex = Math.Clamp(copy.ActiveIndex, 0, copy.Layouts.Count - 1);
+        copy.PublishedIndex = Math.Clamp(copy.PublishedIndex, 0, copy.Layouts.Count - 1);
+        Displays.Add(copy);
+        ActiveDisplayIndex = Displays.Count - 1;
+        Validate();
+        Save();
+        Changed?.Invoke();
+        return ActiveDisplayIndex;
     }
 
     /// <summary>

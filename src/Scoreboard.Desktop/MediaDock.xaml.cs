@@ -10,8 +10,10 @@ namespace Scoreboard.Desktop;
 /// <summary>
 /// The one media dock. The main window and each detached control panel host their own copy of this
 /// control against the same <see cref="MediaSession"/>, so imports, folders, tags, playlists and
-/// playback stay in step. Folders and playlists are shelves of thumbnails: a clip is filed by
-/// dragging it onto a folder, and a playlist opens into its own clip list instead of a dropdown.
+/// playback stay in step.
+/// The library browses like a file explorer: folders and playlists are items in the grid beside the
+/// clips, a folder opens on a double-click, and a folder can hold other folders. The path bar above
+/// the grid says where you are, takes you back out, and moves whole folders in and out as .spf files.
 /// Docks are hosted in resizable panels by their windows; the dock itself just fills what it is given.
 /// </summary>
 public partial class MediaDock : UserControl
@@ -52,6 +54,13 @@ public partial class MediaDock : UserControl
     Point _dragOrigin;
     MediaEntry? _dragEntry;
 
+    // The folder card the operator picked, so Export folder and the drop targets know what is meant.
+    // "" is the unfiled bucket; null means nothing is picked yet. _rememberedFilter lets a folder
+    // opened from another panel take the selection over instead of leaving a stale one here.
+    string? _selectedFolderPath;
+    string? _rememberedFilter;
+    string? _selectedPlaylistName;
+
     // "Default output" plus every active speaker. Enumerated once per dock: asking WASAPI on
     // every transport tick would be far too expensive.
     static readonly AudioRouter.OutputDevice DefaultOutput = new("", "Default output");
@@ -62,7 +71,6 @@ public partial class MediaDock : UserControl
     // A dock used as a full-width tab gets console-sized controls; the rail version stays compact.
     bool _large;
     double _tileWidth = 108, _tileHeight = 116, _thumbHeight = 70;
-    double _folderWidth = 94, _folderHeight = 50, _playlistWidth = 106, _newShelfWidth = 64;
 
     /// <summary>A capture device in the LIVE picker; <see cref="ToString"/> is what the combo shows.</summary>
     sealed record CameraChoice(MediaEntry Entry)
@@ -139,6 +147,9 @@ public partial class MediaDock : UserControl
         ClearSearch(refresh: false);
         _view = MediaView.Library;
         _openPlaylistName = null;
+        _selectedPlaylistName = null;
+        _selectedFolderPath = null;
+        _rememberedFilter = null;
         Refresh();
     }
 
@@ -154,15 +165,19 @@ public partial class MediaDock : UserControl
             _openPlaylistName = null;
         }
 
+        // The open folder is shared by every dock; if another panel moved, follow it here too.
+        if (!string.Equals(_rememberedFilter, _session.FolderFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            _rememberedFilter = _session.FolderFilter;
+            _selectedFolderPath = _session.FolderFilter;
+        }
+
         _syncing = true;
         try
         {
-            BuildFolderRail();
-            BuildPlaylistRail();
-
             var playlist = _view == MediaView.Playlist ? OpenPlaylist() : null;
             var inPlaylist = playlist is not null;
-            FolderRailRow.Visibility = PlaylistRailRow.Visibility = inPlaylist ? Visibility.Collapsed : Visibility.Visible;
+            BrowserBar.Visibility = inPlaylist ? Visibility.Collapsed : Visibility.Visible;
             BackToLibraryButton.Visibility = inPlaylist ? Visibility.Visible : Visibility.Collapsed;
             PlaylistActions.Visibility = inPlaylist ? Visibility.Visible : Visibility.Collapsed;
             PlaylistLoopBox.Visibility = inPlaylist ? Visibility.Visible : Visibility.Collapsed;
@@ -170,6 +185,7 @@ public partial class MediaDock : UserControl
             RemoveButton.ToolTip = inPlaylist
                 ? "Take the selected clip out of this playlist (it stays in the library)"
                 : "Remove the selected clip from the library";
+            SyncBrowserBar();
 
             if (playlist is not null)
             {
@@ -193,7 +209,7 @@ public partial class MediaDock : UserControl
                     ? $"{visible.Count} match{(visible.Count == 1 ? "" : "es")} · across every folder and playlist"
                     : _session.Library.Count == 0
                         ? "import a clip to begin"
-                        : $"{visible.Count} of {_session.Library.Count} clips · drag a clip onto a folder or playlist";
+                        : $"{visible.Count} of {_session.Library.Count} clips · double-click a folder to open it";
                 PlaylistLoopBox.IsChecked = false;
                 PlaylistLoopBox.IsEnabled = false;
                 RefreshTiles(visible, null);
@@ -294,10 +310,6 @@ public partial class MediaDock : UserControl
         _tileWidth = large ? 158 : 108;
         _tileHeight = large ? 168 : 116;
         _thumbHeight = large ? 106 : 70;
-        _folderWidth = large ? 128 : 94;
-        _folderHeight = large ? 64 : 50;
-        _playlistWidth = large ? 150 : 106;
-        _newShelfWidth = large ? 88 : 64;
         ApplyControlSize(this);
         Refresh();
     }
@@ -401,92 +413,170 @@ public partial class MediaDock : UserControl
         if (refresh) Refresh();
     }
 
-    // ---------- shelves ----------
+    // ---------- the browser ----------
 
-    void BuildFolderRail()
+    /// <summary>Every folder the library knows, including the parent folders a nested path implies.</summary>
+    IReadOnlyList<string> AllFolders()
     {
-        FolderRail.Children.Clear();
-        if (_session is null) return;
-
-        var folders = Searching ? _session.Folders.Where(Matches).ToArray() : _session.Folders.ToArray();
-        if (!Searching)
+        if (_session is null) return [];
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in _session.Folders)
         {
-            FolderRail.Children.Add(BuildFolderTile(null, "ALL", _session.Library.Count, all: true, "Every clip in the library"));
-            var unfiled = _session.Library.Count(e => MediaLibrary.NormalizeFolder(e.Folder).Length == 0);
-            if (unfiled > 0)
-                FolderRail.Children.Add(BuildFolderTile("", "UNFILED", unfiled, all: false, "Clips that are not in a folder"));
+            // A clip filed in Ads/2026 makes Ads a folder too, so the browser can walk into it.
+            var path = name;
+            while (path.Length > 0)
+            {
+                folders.Add(path);
+                path = ParentOf(path);
+            }
         }
-        foreach (var folder in folders)
-        {
-            var count = _session.Library.Count(e => string.Equals(MediaLibrary.NormalizeFolder(e.Folder), folder, StringComparison.OrdinalIgnoreCase));
-            FolderRail.Children.Add(BuildFolderTile(folder, folder.ToUpperInvariant(), count, all: false, $"Show the clips in {folder}. Drop a clip here to file it."));
-        }
-        if (Searching && folders.Length == 0) FolderRail.Children.Add(RailNote("NO FOLDERS MATCH"));
-        if (!Searching) FolderRail.Children.Add(BuildNewShelfTile("+", "NEW FOLDER", "Create a folder", (_, _) => NewFolder()));
+        return folders.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    FrameworkElement RailNote(string text) => new TextBlock
+    /// <summary>The folder a path sits in; an empty string is the library root.</summary>
+    static string ParentOf(string path)
     {
-        Text = text,
-        FontSize = 9,
-        FontWeight = FontWeights.Bold,
-        Foreground = _muted,
-        VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(2, 0, 8, 0)
-    };
+        var cut = path.LastIndexOf('/');
+        return cut < 0 ? "" : path[..cut];
+    }
 
-    FrameworkElement BuildFolderTile(string? filter, string label, int count, bool all, string tooltip)
+    /// <summary>The folder cards the grid shows above the clips: the open folder's children, or every match.</summary>
+    IReadOnlyList<string> BrowserFolders()
     {
-        var selected = all
-            ? _session?.FolderFilter is null
-            : string.Equals(_session?.FolderFilter, filter ?? "", StringComparison.OrdinalIgnoreCase);
+        if (_session is null) return [];
+        if (Searching) return AllFolders().Where(Matches).ToArray();
+        var open = _session.FolderFilter ?? "";
+        var children = AllFolders()
+            .Where(name => string.Equals(ParentOf(name), open, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        // Unfiled clips are reachable like a folder, so nothing in the library can hide.
+        if (_session.FolderFilter is null && _session.Library.Any(entry => MediaLibrary.NormalizeFolder(entry.Folder).Length == 0))
+            children.Insert(0, "");
+        return children;
+    }
+
+    /// <summary>Playlists sit at the library root like shortcuts; a search finds them from anywhere.</summary>
+    IReadOnlyList<MediaPlaylist> BrowserPlaylists()
+    {
+        if (_session is null) return [];
+        if (Searching) return _session.Playlists.Where(playlist => Matches(playlist.Name)).ToArray();
+        return _session.FolderFilter is null ? _session.Playlists.ToArray() : [];
+    }
+
+    void SyncBrowserBar()
+    {
+        if (_session is null) return;
+        var folder = _session.FolderFilter;
+        BreadcrumbText.Text = Searching
+            ? "SEARCH · WHOLE LIBRARY"
+            : folder is null ? "LIBRARY"
+            : folder.Length == 0 ? "LIBRARY / UNFILED"
+            : "LIBRARY / " + string.Join(" / ", folder.Split('/', StringSplitOptions.RemoveEmptyEntries));
+        UpButton.IsEnabled = !Searching && folder is not null;
+        ExportFolderButton.IsEnabled = _session.CanExportFolder(_selectedFolderPath ?? folder);
+    }
+
+    int ClipsIn(string folder) =>
+        _session?.Library.Count(entry => string.Equals(MediaLibrary.NormalizeFolder(entry.Folder), folder, StringComparison.OrdinalIgnoreCase)) ?? 0;
+
+    int FoldersIn(string folder) =>
+        AllFolders().Count(name => string.Equals(ParentOf(name), folder, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Opens a folder card. Null goes back to the whole library.</summary>
+    void OpenFolder(string? folder)
+    {
+        if (_session is null) return;
+        ClearSearch(refresh: false);
+        _selectedFolderPath = folder;
+        _rememberedFilter = folder;
+        _session.SetFolderFilter(folder);
+        Refresh();
+    }
+
+    FrameworkElement BuildFolderCard(string folder)
+    {
+        var label = folder.Length == 0 ? "UNFILED" : Searching ? folder : folder[(folder.LastIndexOf('/') + 1)..];
+        var clips = ClipsIn(folder);
+        var subFolders = folder.Length == 0 ? 0 : FoldersIn(folder);
+        var selected = string.Equals(_selectedFolderPath, folder, StringComparison.OrdinalIgnoreCase);
         var tile = new Border
         {
-            Width = _folderWidth,
-            Height = _folderHeight,
-            Margin = new Thickness(0, 0, 6, 0),
-            CornerRadius = new CornerRadius(7),
+            Width = _tileWidth,
+            Height = _tileHeight,
+            Margin = new Thickness(0, 0, 8, 8),
+            CornerRadius = new CornerRadius(8),
             Background = selected ? _accentSoft : _tilePanel,
             BorderThickness = new Thickness(selected ? 2 : 1),
             BorderBrush = selected ? BorderSelected : _tileBorderIdle,
             Cursor = Cursors.Hand,
             AllowDrop = true,
-            Tag = filter,
-            ToolTip = $"{tooltip}\n{count} clip{(count == 1 ? "" : "s")}\nDrop library clips or files here"
+            Tag = folder,
+            ToolTip = $"{(folder.Length == 0 ? "Unfiled clips" : folder)}\n{clips} clip{(clips == 1 ? "" : "s")}"
+                + (subFolders > 0 ? $" · {subFolders} folder{(subFolders == 1 ? "" : "s")}" : "")
+                + "\nDouble-click to open · drop a clip or files here to file them"
         };
         ThemeManager.SetSkipTheme(tile, true);
 
-        var grid = new Grid { IsHitTestVisible = false, Margin = new Thickness(7, 5, 6, 5) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.Children.Add(FolderGlyph(selected ? BorderSelected : BorderOnAir, 24, 18));
+        var grid = new Grid { IsHitTestVisible = false };
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(_thumbHeight) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var text = new StackPanel { Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(new TextBlock
+        var thumb = new Grid { Background = _thumbBackground, ClipToBounds = true };
+        thumb.Children.Add(FolderGlyph(selected ? BorderSelected : BorderOnAir, 48, 38));
+        if (subFolders > 0)
+        {
+            thumb.Children.Add(new Border
+            {
+                Background = Frozen("#CC05080D"),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Padding = new Thickness(5, 1, 5, 1),
+                CornerRadius = new CornerRadius(0, 0, 0, 6),
+                Child = new TextBlock
+                {
+                    Text = $"{subFolders} ⊂",
+                    Foreground = Brushes.White,
+                    FontSize = 9,
+                    FontWeight = FontWeights.Bold
+                }
+            });
+        }
+        Grid.SetRow(thumb, 0);
+        grid.Children.Add(thumb);
+
+        var name = new TextBlock
         {
             Text = label,
-            FontSize = 9,
+            FontSize = 10,
             FontWeight = FontWeights.Bold,
             Foreground = _tileText,
-            TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        text.Children.Add(new TextBlock
-        {
-            Text = $"{count} clip{(count == 1 ? "" : "s")}",
-            FontSize = 9,
-            Foreground = _muted,
-            Margin = new Thickness(0, 1, 0, 0)
-        });
-        Grid.SetColumn(text, 1);
-        grid.Children.Add(text);
-        tile.Child = grid;
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(6, 5, 6, 0)
+        };
+        Grid.SetRow(name, 1);
+        grid.Children.Add(name);
 
+        var meta = new TextBlock
+        {
+            Text = $"{clips} clip{(clips == 1 ? "" : "s")}"
+                + (subFolders > 0 ? $" · {subFolders} folder{(subFolders == 1 ? "" : "s")}" : ""),
+            FontSize = 9,
+            FontWeight = FontWeights.Bold,
+            Foreground = _muted,
+            Margin = new Thickness(6, 1, 6, 6),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        Grid.SetRow(meta, 2);
+        grid.Children.Add(meta);
+
+        tile.Child = grid;
         tile.MouseLeftButtonDown += (_, e) =>
         {
-            if (_session is null) return;
-            ClearSearch(refresh: false);
-            _session.SetFolderFilter(filter);
-            Refresh();
+            // One click picks the folder (Export folder, drop tests); two opens it.
+            _selectedFolderPath = folder;
+            if (e.ClickCount == 2) OpenFolder(folder);
+            else Refresh();
             e.Handled = true;
         };
         tile.DragEnter += (s, e) => HighlightDrop(s, e);
@@ -499,150 +589,131 @@ public partial class MediaDock : UserControl
             // Files dropped from Explorer join the library in this folder; library clips move here.
             if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
             {
-                _session.Import(files, MediaLibrary.NormalizeTag(TagBox.Text), filter ?? "");
+                _session.Import(files, MediaLibrary.NormalizeTag(TagBox.Text), folder);
                 Refresh();
                 return;
             }
             var entry = DraggedEntry(e);
             if (entry is null) return;
-            _session.MoveToFolder(entry, filter ?? "");
+            _session.MoveToFolder(entry, folder);
             Refresh();
         };
         return tile;
     }
 
-    void BuildPlaylistRail()
+    FrameworkElement BuildPlaylistCard(MediaPlaylist playlist)
     {
-        PlaylistRail.Children.Clear();
-        if (_session is null) return;
-        var playlists = Searching ? _session.Playlists.Where(playlist => Matches(playlist.Name)).ToArray() : _session.Playlists.ToArray();
-        foreach (var playlist in playlists)
-        {
-            var onAir = string.Equals(_session.ActivePlaylist?.Name, playlist.Name, StringComparison.OrdinalIgnoreCase);
-            var tile = new Border
-            {
-                Width = _playlistWidth,
-                Height = _folderHeight,
-                Margin = new Thickness(0, 0, 6, 0),
-                CornerRadius = new CornerRadius(7),
-                Background = onAir ? _accentSoft : _tilePanel,
-                BorderThickness = new Thickness(onAir ? 2 : 1),
-                BorderBrush = onAir ? BorderOnAir : _tileBorderIdle,
-                Cursor = Cursors.Hand,
-                AllowDrop = true,
-                Tag = playlist,
-                ToolTip = $"Open {playlist.Name} ({playlist.Count} clip{(playlist.Count == 1 ? "" : "s")}){(playlist.Loop ? " · loop" : "")}\nDrop a clip or files here to add them, double-click to play."
-            };
-            ThemeManager.SetSkipTheme(tile, true);
-
-            var grid = new Grid { IsHitTestVisible = false, Margin = new Thickness(7, 5, 6, 5) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.Children.Add(new TextBlock
-            {
-                Text = "≡",
-                FontSize = 19,
-                FontWeight = FontWeights.Bold,
-                Foreground = onAir ? BorderOnAir : BorderSelected,
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Width = 22
-            });
-
-            var text = new StackPanel { Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            text.Children.Add(new TextBlock
-            {
-                Text = playlist.Name,
-                FontSize = 10,
-                FontWeight = FontWeights.Bold,
-                Foreground = _tileText,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
-            text.Children.Add(new TextBlock
-            {
-                Text = $"{playlist.Count} clip{(playlist.Count == 1 ? "" : "s")}{(playlist.Loop ? " · ⟳" : "")}",
-                FontSize = 9,
-                Foreground = _muted,
-                Margin = new Thickness(0, 1, 0, 0)
-            });
-            Grid.SetColumn(text, 1);
-            grid.Children.Add(text);
-            tile.Child = grid;
-
-        tile.MouseLeftButtonDown += (_, e) =>
-        {
-            OpenPlaylist(playlist);
-            if (e.ClickCount == 2)
-            {
-                _session?.PlayPlaylist(playlist);
-                Refresh();
-            }
-            e.Handled = true;
-        };
-            tile.DragEnter += (s, e) => HighlightDrop(s, e);
-            tile.DragOver += (s, e) => HighlightDrop(s, e);
-            tile.DragLeave += (s, e) => { if (s is Border border) border.BorderBrush = onAir ? BorderOnAir : _tileBorderIdle; };
-            tile.Drop += (s, e) =>
-            {
-                e.Handled = true;
-                if (_session is null) return;
-                // Files from Explorer are imported, then appended to the playlist in one step.
-                if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
-                {
-                    _session.Import(files, MediaLibrary.NormalizeTag(TagBox.Text));
-                    foreach (var path in files)
-                    {
-                        var added = _session.Library.FirstOrDefault(entry => string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase));
-                        if (added is not null) _session.AddToPlaylist(playlist, added);
-                    }
-                    Refresh();
-                    return;
-                }
-                var entry = DraggedEntry(e);
-                if (entry is null) return;
-                _session.AddToPlaylist(playlist, entry);
-                Refresh();
-            };
-            PlaylistRail.Children.Add(tile);
-        }
-        if (Searching && playlists.Length == 0) PlaylistRail.Children.Add(RailNote("NO PLAYLISTS MATCH"));
-        if (!Searching) PlaylistRail.Children.Add(BuildNewShelfTile("+", "NEW LIST", "Create a playlist", (_, _) => NewPlaylist()));
-    }
-
-    FrameworkElement BuildNewShelfTile(string glyph, string label, string tooltip, RoutedEventHandler click)
-    {
+        var onAir = string.Equals(_session?.ActivePlaylist?.Name, playlist.Name, StringComparison.OrdinalIgnoreCase);
+        var selected = string.Equals(_selectedPlaylistName, playlist.Name, StringComparison.OrdinalIgnoreCase);
         var tile = new Border
         {
-            Width = _newShelfWidth,
-            Height = _folderHeight,
-            Margin = new Thickness(0, 0, 6, 0),
-            CornerRadius = new CornerRadius(7),
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(1),
-            BorderBrush = _tileBorderIdle,
+            Width = _tileWidth,
+            Height = _tileHeight,
+            Margin = new Thickness(0, 0, 8, 8),
+            CornerRadius = new CornerRadius(8),
+            Background = onAir || selected ? _accentSoft : _tilePanel,
+            BorderThickness = new Thickness(onAir || selected ? 2 : 1),
+            BorderBrush = onAir ? BorderOnAir : selected ? BorderSelected : _tileBorderIdle,
             Cursor = Cursors.Hand,
-            ToolTip = tooltip
+            AllowDrop = true,
+            Tag = playlist,
+            ToolTip = $"Playlist · {playlist.Name} · {playlist.Count} clip{(playlist.Count == 1 ? "" : "s")}{(playlist.Loop ? " · loop" : "")}"
+                + "\nDouble-click to open · drop a clip or files here to add them"
         };
         ThemeManager.SetSkipTheme(tile, true);
-        var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
-        stack.Children.Add(new TextBlock
+
+        var grid = new Grid { IsHitTestVisible = false };
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(_thumbHeight) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var thumb = new Grid { Background = _thumbBackground, ClipToBounds = true };
+        thumb.Children.Add(new TextBlock
         {
-            Text = glyph,
-            FontSize = 17,
+            Text = "≡",
+            FontSize = 38,
+            FontWeight = FontWeights.Bold,
+            Foreground = onAir ? BorderOnAir : BorderSelected,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        if (onAir)
+        {
+            thumb.Children.Add(new Border
+            {
+                Background = Frozen("#B3000000"),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Padding = new Thickness(5, 2, 5, 2),
+                CornerRadius = new CornerRadius(0, 0, 6, 0),
+                Child = new TextBlock
+                {
+                    Text = "ON AIR",
+                    Foreground = BorderOnAir,
+                    FontSize = 9,
+                    FontWeight = FontWeights.Bold
+                }
+            });
+        }
+        Grid.SetRow(thumb, 0);
+        grid.Children.Add(thumb);
+
+        var name = new TextBlock
+        {
+            Text = playlist.Name,
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = _tileText,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(6, 5, 6, 0)
+        };
+        Grid.SetRow(name, 1);
+        grid.Children.Add(name);
+
+        var meta = new TextBlock
+        {
+            Text = $"{playlist.Count} clip{(playlist.Count == 1 ? "" : "s")}{(playlist.Loop ? " · ⟳" : "")}",
+            FontSize = 9,
             FontWeight = FontWeights.Bold,
             Foreground = _muted,
-            HorizontalAlignment = HorizontalAlignment.Center
-        });
-        stack.Children.Add(new TextBlock
+            Margin = new Thickness(6, 1, 6, 6)
+        };
+        Grid.SetRow(meta, 2);
+        grid.Children.Add(meta);
+
+        tile.Child = grid;
+        tile.MouseLeftButtonDown += (_, e) =>
         {
-            Text = label,
-            FontSize = 8,
-            FontWeight = FontWeights.Bold,
-            Foreground = _muted,
-            HorizontalAlignment = HorizontalAlignment.Center
-        });
-        tile.Child = stack;
-        tile.MouseLeftButtonDown += (_, e) => { click(tile, e); e.Handled = true; };
+            // One click picks the playlist, two opens it into its own clip list.
+            _selectedPlaylistName = playlist.Name;
+            if (e.ClickCount == 2) OpenPlaylist(playlist);
+            else Refresh();
+            e.Handled = true;
+        };
+        tile.DragEnter += (s, e) => HighlightDrop(s, e);
+        tile.DragOver += (s, e) => HighlightDrop(s, e);
+        tile.DragLeave += (s, e) => { if (s is Border border) border.BorderBrush = onAir ? BorderOnAir : _tileBorderIdle; };
+        tile.Drop += (s, e) =>
+        {
+            e.Handled = true;
+            if (_session is null) return;
+            // Files from Explorer are imported, then appended to the playlist in one step.
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
+            {
+                _session.Import(files, MediaLibrary.NormalizeTag(TagBox.Text));
+                foreach (var path in files)
+                {
+                    var added = _session.Library.FirstOrDefault(entry => string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase));
+                    if (added is not null) _session.AddToPlaylist(playlist, added);
+                }
+                Refresh();
+                return;
+            }
+            var entry = DraggedEntry(e);
+            if (entry is null) return;
+            _session.AddToPlaylist(playlist, entry);
+            Refresh();
+        };
         return tile;
     }
 
@@ -681,7 +752,16 @@ public partial class MediaDock : UserControl
         _shownClips = list;
         _shownPlaylist = playlist;
         Tiles.Children.Clear();
-        EmptyText.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        // Folders and playlists are browser items, not shelves: they lead the grid like a file list.
+        if (playlist is null)
+        {
+            foreach (var folder in BrowserFolders()) Tiles.Children.Add(BuildFolderCard(folder));
+            foreach (var card in BrowserPlaylists()) Tiles.Children.Add(BuildPlaylistCard(card));
+        }
+        for (var index = 0; index < list.Count; index++)
+            Tiles.Children.Add(BuildTile(list[index], playlist is null ? -1 : index, playlist));
+        var anything = Tiles.Children.Count > 0;
+        EmptyText.Visibility = anything ? Visibility.Collapsed : Visibility.Visible;
         EmptyText.Text = Searching
             ? $"Nothing matches “{_search}” in the library, folders or playlists."
             : playlist is not null
@@ -690,9 +770,7 @@ public partial class MediaDock : UserControl
                     : "This playlist is empty — go back to the library and drag a clip onto it, or select a clip and press +."
                 : _session.Library.Count == 0
                     ? "No media yet — Import adds anthems, ads and clips. Give each clip a tag so scorebug video elements know what to show."
-                    : "No clips in this folder — drag one here from All, or import a clip.";
-        for (var index = 0; index < list.Count; index++)
-            Tiles.Children.Add(BuildTile(list[index], playlist is null ? -1 : index, playlist));
+                    : "This folder is empty — drag a clip onto its card, or import a clip here.";
     }
 
     FrameworkElement BuildTile(MediaEntry entry, int index, MediaPlaylist? playlist)
@@ -891,6 +969,7 @@ public partial class MediaDock : UserControl
         ClearSearch(refresh: false);
         _view = MediaView.Playlist;
         _openPlaylistName = playlist.Name;
+        _selectedPlaylistName = playlist.Name;
         Refresh();
     }
 
@@ -903,14 +982,32 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
+    void Up_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session?.FolderFilter is not { } folder) return;
+        OpenFolder(folder.Length == 0 ? null : ParentOf(folder));
+    }
+
+    void NewFolder_Click(object sender, RoutedEventArgs e) => NewFolder();
+
+    void NewPlaylist_Click(object sender, RoutedEventArgs e) => NewPlaylist();
+
     void NewFolder()
     {
         if (_session is null) return;
-        var name = PromptName("New folder", "Name this folder. Clips can be dragged onto its tile at any time.", "");
+        var open = _session.FolderFilter;
+        var name = PromptName("New folder",
+            string.IsNullOrEmpty(open)
+                ? "Name this folder. Folders can hold other folders, so this one can become a parent."
+                : $"Name the folder to put inside {open}.",
+            "");
         if (string.IsNullOrWhiteSpace(name)) return;
-        var folder = _session.CreateFolder(name);
+        // A new folder is made where the operator is standing, so nesting is one click away.
+        var folder = _session.CreateFolder(string.IsNullOrEmpty(open) ? name : $"{open}/{name}");
         if (folder.Length == 0) return;
+        _selectedFolderPath = folder;
         ClearSearch(refresh: false);
+        _rememberedFilter = folder;
         _session.SetFolderFilter(folder);
         Refresh();
     }
@@ -918,10 +1015,9 @@ public partial class MediaDock : UserControl
     void NewPlaylist()
     {
         if (_session is null) return;
-        var name = PromptName("New playlist", "Name this playlist. Drag clips onto its tile, or open it and add the selected clip.", $"Playlist {_session.Playlists.Count + 1}");
+        var name = PromptName("New playlist", "Name this playlist. Drag clips onto its card, or open it and add the selected clip.", $"Playlist {_session.Playlists.Count + 1}");
         if (string.IsNullOrWhiteSpace(name)) return;
         var playlist = _session.CreatePlaylist(name);
-        ClearSearch(refresh: false);
         OpenPlaylist(playlist);
     }
 
@@ -937,6 +1033,43 @@ public partial class MediaDock : UserControl
         if (dialog.ShowDialog() != true) return;
         // Import into the folder on screen; "All" means unfiled.
         _session.Import(dialog.FileNames, MediaLibrary.NormalizeTag(TagBox.Text), _session.FolderFilter ?? "");
+    }
+
+    /// <summary>Brings a whole folder back in from a ScorePlus Media Folder (.spf).</summary>
+    void ImportFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import folder",
+            Filter = "ScorePlus Media Folder (*.spf)|*.spf|All files (*.*)|*.*",
+            DefaultExt = "spf"
+        };
+        if (dialog.ShowDialog() != true) return;
+        _session.ImportFolder(dialog.FileName);
+        Refresh();
+    }
+
+    /// <summary>Saves the selected (or open) folder, everything under it, as one .spf file.</summary>
+    void ExportFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        var folder = _selectedFolderPath ?? _session.FolderFilter;
+        if (folder is null)
+        {
+            _session.Report("OPEN OR SELECT A FOLDER FIRST");
+            return;
+        }
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export folder",
+            Filter = "ScorePlus Media Folder (*.spf)|*.spf",
+            DefaultExt = "spf",
+            FileName = folder.Length == 0 ? "unfiled" : folder.Replace('/', '-')
+        };
+        if (dialog.ShowDialog() != true) return;
+        _session.ExportFolder(folder, dialog.FileName);
+        Refresh();
     }
 
     void Remove_Click(object sender, RoutedEventArgs e)

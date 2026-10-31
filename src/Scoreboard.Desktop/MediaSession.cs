@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.IO.Compression;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -368,6 +370,170 @@ public sealed class MediaSession
         Save();
         StateChanged?.Invoke();
         Status?.Invoke($"FOLDER · {updated.Label} → {updated.FolderLabel}");
+    }
+
+    // ---------- a folder as a file ----------
+
+    /// <summary>True when a folder path is this folder or lives somewhere under it.</summary>
+    static bool InFolder(string path, string folder) =>
+        folder.Length == 0
+            ? path.Length == 0
+            : string.Equals(path, folder, StringComparison.OrdinalIgnoreCase)
+              || path.StartsWith(folder + "/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The folder the operator would export right now, for the dock's button state.</summary>
+    public bool CanExportFolder(string? folder)
+    {
+        var normalized = MediaLibrary.NormalizeFolder(folder);
+        return Library.Any(entry => InFolder(MediaLibrary.NormalizeFolder(entry.Folder), normalized))
+            || _folders.Any(name => InFolder(name, normalized));
+    }
+
+    /// <summary>
+    /// Writes a folder, everything under it and the clips inside it to one ScorePlus Media Folder
+    /// (.spf). It is a zip rather than a bare manifest, so the folder really carries its media with
+    /// it and round-trips on another machine: nested folders, tags, loops, levels, speakers, cameras.
+    /// </summary>
+    public bool ExportFolder(string? folderPath, string destination)
+    {
+        try
+        {
+            var folder = MediaLibrary.NormalizeFolder(folderPath);
+            var manifest = new MediaFolderManifest { Folder = folder };
+            foreach (var name in Folders.Where(candidate => InFolder(candidate, folder)))
+                if (!manifest.Folders.Contains(name, StringComparer.OrdinalIgnoreCase)) manifest.Folders.Add(name);
+            if (folder.Length > 0 && !manifest.Folders.Contains(folder, StringComparer.OrdinalIgnoreCase)) manifest.Folders.Insert(0, folder);
+
+            using (var stream = File.Create(destination))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+            {
+                var index = 0;
+                foreach (var entry in Library.Where(item => InFolder(MediaLibrary.NormalizeFolder(item.Folder), folder)).ToArray())
+                {
+                    var clip = new MediaFolderClip
+                    {
+                        Path = entry.IsCamera ? entry.Path : "",
+                        Tag = entry.Tag,
+                        Folder = MediaLibrary.NormalizeFolder(entry.Folder),
+                        Loop = entry.Loop,
+                        Volume = entry.Volume,
+                        AudioDevice = entry.AudioDevice,
+                        Name = entry.Name,
+                        CameraDevice = entry.CameraDevice
+                    };
+                    if (!entry.IsCamera && File.Exists(entry.Path))
+                    {
+                        clip.File = $"files/{index:000}-{Path.GetFileName(entry.Path)}";
+                        var item = archive.CreateEntry(clip.File, CompressionLevel.Optimal);
+                        using var target = item.Open();
+                        using var source = File.OpenRead(entry.Path);
+                        source.CopyTo(target);
+                        index++;
+                    }
+                    manifest.Clips.Add(clip);
+                }
+
+                var json = archive.CreateEntry(MediaFolderManifest.FileName, CompressionLevel.Optimal);
+                using var writer = new StreamWriter(json.Open());
+                writer.Write(JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+            }
+
+            Status?.Invoke($"FOLDER EXPORTED · {(folder.Length == 0 ? "unfiled" : folder)} · {manifest.Clips.Count} clip{(manifest.Clips.Count == 1 ? "" : "s")} → {Path.GetFileName(destination)}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Status?.Invoke($"FOLDER EXPORT FAILED · {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Brings a ScorePlus Media Folder (.spf) back in. Its clips are unpacked into the library's own
+    /// media folder, never over an existing file, and every folder in the manifest is recreated —
+    /// nested ones included — before the clips are filed into them.
+    /// </summary>
+    public bool ImportFolder(string source)
+    {
+        try
+        {
+            using var archive = ZipFile.OpenRead(source);
+            var manifestEntry = archive.GetEntry(MediaFolderManifest.FileName);
+            if (manifestEntry is null)
+            {
+                Status?.Invoke("FOLDER IMPORT · that file is not a ScorePlus Media Folder");
+                return false;
+            }
+
+            MediaFolderManifest? manifest;
+            using (var reader = new StreamReader(manifestEntry.Open()))
+                manifest = JsonSerializer.Deserialize<MediaFolderManifest>(reader.ReadToEnd());
+            if (manifest is null)
+            {
+                Status?.Invoke("FOLDER IMPORT · its manifest could not be read");
+                return false;
+            }
+
+            var landing = AppPaths.Combine("media");
+            Directory.CreateDirectory(landing);
+            foreach (var name in manifest.Folders.Select(MediaLibrary.NormalizeFolder).Where(name => name.Length > 0))
+                if (!_folders.Contains(name, StringComparer.OrdinalIgnoreCase)) _folders.Add(name);
+
+            var added = 0;
+            foreach (var clip in manifest.Clips)
+            {
+                var folder = MediaLibrary.NormalizeFolder(clip.Folder);
+                if (folder.Length > 0 && !_folders.Contains(folder, StringComparer.OrdinalIgnoreCase)) _folders.Add(folder);
+
+                if (MediaLibrary.CameraIndex(clip.Path) is not null)
+                {
+                    if (Library.Any(entry => string.Equals(entry.Path, clip.Path, StringComparison.OrdinalIgnoreCase))) continue;
+                    Library.Add(new MediaEntry(clip.Path, MediaLibrary.NormalizeTag(clip.Tag), folder, clip.Loop,
+                        Math.Clamp(clip.Volume, 0, 1), clip.AudioDevice, clip.Name, clip.CameraDevice));
+                    added++;
+                    continue;
+                }
+
+                var zipEntry = string.IsNullOrWhiteSpace(clip.File) ? null : archive.GetEntry(clip.File);
+                if (zipEntry is null) continue;
+                var name = Path.GetFileName(zipEntry.FullName);
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                var target = UniqueFile(landing, name);
+                zipEntry.ExtractToFile(target, true);
+                Library.Add(new MediaEntry(target, MediaLibrary.NormalizeTag(clip.Tag), folder, clip.Loop,
+                    Math.Clamp(clip.Volume, 0, 1), clip.AudioDevice, clip.Name, clip.CameraDevice));
+                added++;
+            }
+
+            var landed = MediaLibrary.NormalizeFolder(manifest.Folder);
+            if (landed.Length > 0) FolderFilter = landed;
+            Save();
+            StateChanged?.Invoke();
+            Status?.Invoke(added == 0
+                ? "FOLDER IMPORT · that folder is already in the library"
+                : $"FOLDER IMPORTED · {(landed.Length == 0 ? "unfiled" : landed)} · {added} clip{(added == 1 ? "" : "s")}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Status?.Invoke($"FOLDER IMPORT FAILED · {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>A name in the media folder nothing else uses, so an import never overwrites a clip.</summary>
+    static string UniqueFile(string directory, string name)
+    {
+        var target = Path.Combine(directory, name);
+        if (!File.Exists(target)) return target;
+        var stem = Path.GetFileNameWithoutExtension(name);
+        var extension = Path.GetExtension(name);
+        for (var attempt = 1; attempt < 1000; attempt++)
+        {
+            target = Path.Combine(directory, $"{stem}-{attempt}{extension}");
+            if (!File.Exists(target)) return target;
+        }
+        return Path.Combine(directory, $"{Guid.NewGuid():N}{extension}");
     }
 
     /// <summary>Turns this one clip's own loop on or off.</summary>

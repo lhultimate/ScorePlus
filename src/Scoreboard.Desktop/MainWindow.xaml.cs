@@ -83,7 +83,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
         _program = new ProgramSelection(_scorebug);
         _program.Changed += ProgramChanged;
-        _preview = new ScorebugCanvasView(_scorebug, _publishedEngine, playback: _playback, layoutProvider: () => _program.Layout);
+        _preview = new ScorebugCanvasView(_scorebug, _publishedEngine, playback: _playback, layoutProvider: () => _program.Layout, displayId: _program.DisplayId);
         PreviewHost.Content = _preview;
         // The monitor reads the published engine and the published layout, so it is a real
         // reflection of the audience window rather than another staged preview.
@@ -428,7 +428,7 @@ public partial class MainWindow : Window, IControlPanelHost
     /// </summary>
     async Task CheckForUpdatesAsync()
     {
-        if (!_preferences.CheckForUpdates || string.IsNullOrWhiteSpace(_preferences.UpdateFeedUrl) || !AppInfo.IsInstalled) return;
+        if (!_preferences.CheckForUpdates || !AppInfo.IsInstalled) return;
         var manifest = await UpdateChecker.CheckAsync(_preferences.UpdateFeedUrl);
         if (manifest is null) return;
         var detail = $"Version {manifest.Version} is ready (this build is {AppInfo.Version}). " +
@@ -646,7 +646,9 @@ public partial class MainWindow : Window, IControlPanelHost
     {
         var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "HTML game report (*.html)|*.html", DefaultExt = "html", FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}-report" };
         if (dialog.ShowDialog() != true) return;
-        File.WriteAllText(dialog.FileName, GameReport.Build(_engine.State));
+        // The report carries every player on every roster, including the ones who never touched the
+        // ball, so a zero is printed rather than an empty table.
+        File.WriteAllText(dialog.FileName, GameReport.Build(_engine.State, RosterStore.Book.Rosters));
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dialog.FileName) { UseShellExecute = true });
         StatusText.Text = "GAME REPORT EXPORTED";
     }

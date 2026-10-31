@@ -30,6 +30,116 @@ public static class Installer
 
     public sealed record Result(bool Ok, string Message);
 
+    /// <summary>
+    /// The only files the installer puts in a folder. Everything else there belongs to the user, which
+    /// is why uninstalling never walks the directory: a wrong install folder must not become a way to
+    /// delete somebody's documents.
+    /// </summary>
+    static readonly string[] OwnFileNames = [AppExecutable, "Uninstall.exe", "install.json"];
+
+    public static bool IsOwnFile(string? name) =>
+        name is not null && OwnFileNames.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Refuses folders that are never a program's home: a drive root, the profile itself, Desktop,
+    /// Downloads, Documents, Music, Pictures, Videos, OneDrive, Windows, Program Files, AppData, and
+    /// any existing folder that already holds files ScorePlus did not put there. A safe folder is one
+    /// of its own, empty or already an install of ours.
+    /// </summary>
+    public static bool IsSafeInstallDirectory(string directory, out string reason)
+    {
+        reason = "";
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            reason = "Choose where ScorePlus should be installed.";
+            return false;
+        }
+
+        string full;
+        try { full = Path.GetFullPath(directory.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
+        catch
+        {
+            reason = "That is not a usable folder name.";
+            return false;
+        }
+
+        if (string.Equals(full, Path.GetPathRoot(full)?.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            reason = "Choose a folder of its own, not a whole drive.";
+            return false;
+        }
+
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var protectedFolders = new List<string>
+        {
+            profile,
+            Path.Combine(profile, "Downloads"),
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
+            Environment.GetFolderPath(Environment.SpecialFolder.Programs)
+        };
+        var oneDrive = Environment.GetEnvironmentVariable("OneDrive");
+        if (!string.IsNullOrWhiteSpace(oneDrive))
+        {
+            protectedFolders.Add(oneDrive);
+            protectedFolders.Add(Path.Combine(oneDrive, "Downloads"));
+            protectedFolders.Add(Path.Combine(oneDrive, "Desktop"));
+            protectedFolders.Add(Path.Combine(oneDrive, "Documents"));
+        }
+
+        foreach (var folder in protectedFolders.Where(folder => !string.IsNullOrWhiteSpace(folder)).Select(folder => folder.TrimEnd(Path.DirectorySeparatorChar)))
+        {
+            if (string.Equals(full, folder, StringComparison.OrdinalIgnoreCase))
+            {
+                reason = $"{Path.GetFileName(full)} already holds your own files, so ScorePlus will not install there. Use a folder made for it.";
+                return false;
+            }
+        }
+
+        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows).TrimEnd(Path.DirectorySeparatorChar);
+        if (windows.Length > 0 && (full.Equals(windows, StringComparison.OrdinalIgnoreCase) || full.StartsWith(windows + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+        {
+            reason = "Windows will not let a program live in its own folder. Choose somewhere else.";
+            return false;
+        }
+
+        // An existing folder is only usable if it is empty or already ours; never overwrite somebody
+        // else's files, and never leave the uninstaller pointing at a folder full of them.
+        if (Directory.Exists(full) && !LooksLikeOurInstall(full))
+        {
+            string? foreign = null;
+            try { foreign = Directory.EnumerateFileSystemEntries(full).FirstOrDefault(entry => !IsOwnFile(Path.GetFileName(entry))); }
+            catch { foreign = "something"; }
+            if (foreign is not null)
+            {
+                reason = $"That folder already holds other files (for example {Path.GetFileName(foreign)}). Let ScorePlus make its own folder instead.";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>True when the folder holds the markers an install of ours leaves behind.</summary>
+    static bool LooksLikeOurInstall(string directory)
+    {
+        try
+        {
+            return File.Exists(Path.Combine(directory, "install.json")) || File.Exists(Path.Combine(directory, AppExecutable));
+        }
+        catch { return false; }
+    }
+
     /// <summary>Unpacks the app, writes shortcuts and the install marker.</summary>
     /// <param name="shortcuts">False for a silent or portable install that must not touch the shell.</param>
     /// <param name="register">False keeps the registry untouched, for a folder-only install.</param>
@@ -37,8 +147,8 @@ public static class Installer
     {
         try
         {
+            if (!IsSafeInstallDirectory(directory, out var refusal)) return new(false, refusal);
             directory = Path.GetFullPath(directory.Trim());
-            if (string.IsNullOrWhiteSpace(directory)) return new(false, "Choose where ScorePlus should be installed.");
 
             CloseRunningApp(progress);
             Directory.CreateDirectory(directory);
@@ -98,47 +208,74 @@ public static class Installer
         }
     }
 
-    /// <summary>Removes the app, its shortcuts and its registry entries. Game files stay untouched.</summary>
+    /// <summary>
+    /// Removes the app, its shortcuts and its registry entries. Game files stay untouched, and so does
+    /// everything else in the install folder: only the three files the installer wrote are deleted. A
+    /// folder that was chosen badly must never turn an uninstall into a way to erase a Downloads folder.
+    /// </summary>
     public static Result Uninstall(Action<string>? progress = null)
     {
         try
         {
-            var directory = InstalledDirectory();
-            if (string.IsNullOrWhiteSpace(directory))
+            var directory = RegisteredDirectory();
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory) || !LooksLikeOurInstall(directory))
             {
                 RemoveRegistry();
-                return new(true, "ScorePlus is not registered on this computer, so there was nothing to remove.");
+                progress?.Invoke("Removed.");
+                return new(true, "ScorePlus is not installed on this computer. Its saved games, media and preferences are still in your profile.");
             }
+
             CloseRunningApp(progress);
             progress?.Invoke("Removing shortcuts…");
             TryDelete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", $"{ProductName}.lnk"));
             TryDelete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), $"{ProductName}.lnk"));
 
-            progress?.Invoke("Removing files…");
-            // The uninstaller may be running from this folder; the copy in %TEMP% is what finishes
-            // the job, so a locked file can never stop the removal.
-            var payload = Path.Combine(directory, AppExecutable);
-            TryDelete(payload);
-            foreach (var file in Directory.Exists(directory) ? Directory.GetFiles(directory) : [])
-                TryDelete(file);
-            try { if (Directory.Exists(directory)) Directory.Delete(directory, true); } catch { }
+            progress?.Invoke("Removing ScorePlus files…");
+            // Only what this installer wrote. The uninstaller itself may be running from this folder;
+            // the copy in %TEMP% is what finishes the job, so a locked file cannot stop the removal.
+            var leftovers = RemoveOwnFiles(directory);
 
             RemoveRegistry();
             progress?.Invoke("Removed.");
-            return new(true, "ScorePlus was removed. Your saved games, media and preferences are still in your profile.");
+            var kept = leftovers == 0
+                ? ""
+                : $" {leftovers} other item(s) in that folder were not part of ScorePlus and were left untouched.";
+            return new(true, $"ScorePlus was removed. Your saved games, media and preferences are still in your profile.{kept}");
         }
         catch (Exception ex) { return new(false, ex.Message); }
     }
 
-    public static string? InstalledDirectory()
+    /// <summary>
+    /// Deletes exactly the three files the installer wrote and, only if that leaves the folder empty,
+    /// the folder itself. Returns how many items were left behind — a number that is expected to be
+    /// non-zero whenever the app was installed somewhere it had no business being.
+    /// </summary>
+    public static int RemoveOwnFiles(string directory)
+    {
+        foreach (var name in OwnFileNames) TryDelete(Path.Combine(directory, name));
+        var leftovers = Directory.Exists(directory) ? Directory.GetFileSystemEntries(directory).Length : 0;
+        if (leftovers == 0) { try { Directory.Delete(directory, false); } catch { } }
+        return leftovers;
+    }
+
+    /// <summary>Where the registry says ScorePlus lives, whether or not anything is there.</summary>
+    public static string? RegisteredDirectory()
     {
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(AppKey);
-            if (key?.GetValue("InstallDir") is string dir && Directory.Exists(dir)) return dir;
+            if (key?.GetValue("InstallDir") is string dir && !string.IsNullOrWhiteSpace(dir)) return dir;
         }
         catch { }
         return null;
+    }
+
+    /// <summary>A folder that really holds this app, used to offer an upgrade in place.</summary>
+    public static string? InstalledDirectory()
+    {
+        var directory = RegisteredDirectory();
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return null;
+        return LooksLikeOurInstall(directory) ? directory : null;
     }
 
     static void RemoveRegistry()

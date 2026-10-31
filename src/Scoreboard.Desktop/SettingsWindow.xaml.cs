@@ -147,18 +147,19 @@ public partial class SettingsWindow : Window
 
     async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
-        var feed = UpdateFeedInput.Text.Trim();
-        if (feed.Length == 0) { UpdateStatus.Text = "Add the address of your release manifest first."; return; }
         if (!AppInfo.IsInstalled)
         {
             UpdateStatus.Text = "This copy runs from a folder, so it does not update itself. Use the installer, then updates work here.";
             return;
         }
-        UpdateStatus.Text = "Checking…";
+        var feed = UpdateFeed.Resolve(UpdateFeedInput.Text);
+        UpdateStatus.Text = string.IsNullOrWhiteSpace(UpdateFeedInput.Text)
+            ? "Checking the built-in feed…"
+            : "Checking…";
         var manifest = await UpdateChecker.CheckAsync(feed);
         UpdateStatus.Text = manifest is null
             ? $"You are on the newest version ({AppInfo.Version})."
-            : $"Version {manifest.Version} is available. {(string.IsNullOrWhiteSpace(manifest.Notes) ? "" : manifest.Notes)}";
+            : $"Version {manifest.Version} is ready. {(string.IsNullOrWhiteSpace(manifest.Notes) ? "" : manifest.Notes)}";
     }
 
     void Theme_Changed(object sender, SelectionChangedEventArgs e)

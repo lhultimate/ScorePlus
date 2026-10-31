@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 namespace Scoreboard.Desktop;
@@ -14,6 +17,17 @@ public static class AppInfo
     public static string Version { get; } = typeof(AppInfo).Assembly.GetName().Version is { } version
         ? $"{version.Major}.{Math.Max(0, version.Minor)}.{Math.Max(0, version.Build)}"
         : "1.0.0";
+
+    /// <summary>
+    /// The release the operator knows this build by — a1.1, a1.02 — written into the assembly by the
+    /// release build. Assembly versions stay numeric because the updater compares them, so the label
+    /// lives beside it rather than replacing it.
+    /// </summary>
+    public static string Release { get; } =
+        typeof(AppInfo).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            is { Length: > 0 } label && !string.Equals(label, Version, StringComparison.OrdinalIgnoreCase)
+            ? label.Split('+')[0]
+            : Version;
 
     public const string RegistryKey = @"Software\ScorePlus";
 
@@ -54,36 +68,150 @@ public static class AppInfo
 public sealed record UpdateManifest(string Version, string Url, string? Sha256, string? Notes);
 
 /// <summary>
-/// Checks a release manifest for a newer build and can fetch and verify it. This is deliberately
-/// small and explicit: the app asks a URL you control for JSON, compares versions, and hands the
-/// verified installer to Windows. There is no background service and no account.
+/// The feed an installed copy asks by default: this project's own releases, newest first. It is the
+/// GitHub API rather than a hand-uploaded win.json so that publishing a release — a prerelease
+/// included — is the entire update ritual, and nothing can go stale or be forgotten.
+/// </summary>
+public static class UpdateFeed
+{
+    public const string BuiltIn = "https://api.github.com/repos/lhultimate/ScorePlus/releases?per_page=20";
+
+    /// <summary>
+    /// The two assets every release carries: the installer an installed copy updates from, and the
+    /// portable build. Their names are fixed, but the extension is not assumed — GitHub happily
+    /// takes <c>ScorePlusSetup</c>, <c>ScorePlusSetup.exe</c> or a versioned spelling — so an asset is
+    /// matched on its base name. <c>ScorePlusPortable</c> is deliberately never offered as an update:
+    /// a copy run from a folder replaces itself when you download the new one.
+    /// </summary>
+    public const string SetupAssetName = "ScorePlusSetup";
+
+    /// <summary>The portable build's asset name, kept here so both release files are named in one place.</summary>
+    public const string PortableAssetName = "ScorePlusPortable";
+
+    /// <summary>True for the release's installer asset, whatever extension it was uploaded with.</summary>
+    public static bool IsSetupAsset(string? assetName) =>
+        assetName is { Length: > 0 }
+        && string.Equals(Path.GetFileNameWithoutExtension(assetName), SetupAssetName, StringComparison.OrdinalIgnoreCase);
+
+    public static string Resolve(string? preferred) => string.IsNullOrWhiteSpace(preferred) ? BuiltIn : preferred.Trim();
+}
+
+/// <summary>
+/// Checks a release feed for a newer build and can fetch and verify it. Two shapes are understood:
+/// a GitHub releases array (prereleases included, which is what /releases/latest skips) and a plain
+/// manifest object for any other host. This is deliberately small and explicit: the app asks one
+/// URL for JSON, compares versions, and hands the verified installer to Windows. There is no
+/// background service and no account.
 /// </summary>
 public static class UpdateChecker
 {
     static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(20) };
 
+    static readonly JsonSerializerOptions Options = new() { PropertyNameCaseInsensitive = true };
+
+    static UpdateChecker()
+    {
+        // GitHub's API refuses a request with no User-Agent, and asks for its own media type.
+        try
+        {
+            Client.DefaultRequestHeaders.UserAgent.ParseAdd($"ScorePlus/{AppInfo.Version}");
+            Client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json, application/json");
+        }
+        catch { }
+    }
+
     /// <summary>
-    /// Returns the newer release, or null when this build is current, the feed is not set, or the
-    /// download cannot be read. A failed check is silent: an offline laptop must not nag mid-show.
+    /// Returns the newer release, or null when this build is current, the feed cannot be read, or
+    /// nothing suitable is published. A failed check is silent: an offline laptop must not nag
+    /// mid-show.
     /// </summary>
     public static async Task<UpdateManifest?> CheckAsync(string? feedUrl, CancellationToken token = default)
     {
-        if (string.IsNullOrWhiteSpace(feedUrl)) return null;
         try
         {
-            var json = await Client.GetStringAsync(feedUrl, token);
-            var manifest = JsonSerializer.Deserialize<UpdateManifest>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var json = await Client.GetStringAsync(UpdateFeed.Resolve(feedUrl), token);
+            var manifest = json.TrimStart().StartsWith('[') ? ParseReleases(json) : ParseManifest(json);
             if (manifest is null || string.IsNullOrWhiteSpace(manifest.Version) || string.IsNullOrWhiteSpace(manifest.Url)) return null;
             return IsNewer(manifest.Version, AppInfo.Version) ? manifest : null;
         }
         catch { return null; }
     }
 
+    /// <summary>A single-object manifest, for a feed hosted outside GitHub.</summary>
+    public static UpdateManifest? ParseManifest(string json)
+    {
+        try
+        {
+            var manifest = JsonSerializer.Deserialize<UpdateManifest>(json, Options);
+            return manifest is { Version: not null, Url: not null } ? manifest : null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Reads a GitHub releases array and returns the newest published release that actually carries
+    /// an installer. Drafts are ignored (their assets are not served), prereleases are kept — that is
+    /// the whole point — and the highest version wins rather than the first entry, so a back-dated
+    /// tag cannot hide a newer build. The checksum comes from the asset's own digest, which GitHub
+    /// computes on upload, so there is no manifest to publish or forget.
+    /// </summary>
+    public static UpdateManifest? ParseReleases(string json)
+    {
+        List<GithubRelease>? releases;
+        try { releases = JsonSerializer.Deserialize<List<GithubRelease>>(json, Options); }
+        catch { return null; }
+        if (releases is null) return null;
+
+        UpdateManifest? best = null;
+        Version? bestVersion = null;
+
+        foreach (var release in releases)
+        {
+            if (release.Draft) continue;
+            var version = VersionFromTag(release.TagName);
+            if (version is null) continue;
+
+            var setup = release.Assets.FirstOrDefault(asset =>
+                UpdateFeed.IsSetupAsset(asset.Name)
+                && !string.Equals(asset.State, "starter", StringComparison.OrdinalIgnoreCase));
+            if (setup is null || string.IsNullOrWhiteSpace(setup.BrowserDownloadUrl)) continue;
+
+            var parsed = Version.Parse(version);
+            if (bestVersion is not null && parsed <= bestVersion) continue;
+
+            bestVersion = parsed;
+            best = new UpdateManifest(version, setup.BrowserDownloadUrl, Sha256Of(setup.Digest), NotesOf(release));
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Turns a tag into a comparable version: "v1.2.0", "1.2", "release-1.2.3" and "a1.01" all work.
+    /// Anything with no number in it cannot be compared, so it is not offered as an update.
+    /// </summary>
+    public static string? VersionFromTag(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag)) return null;
+        var match = Regex.Match(tag, @"\d+(?:\.\d+)*");
+        if (!match.Success) return null;
+
+        var parts = match.Value.Split('.');
+        if (parts.Length > 3) parts = parts[..3];
+        var numbers = new int[3];
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (!int.TryParse(parts[i], out var value) || value < 0) return null;
+            numbers[i] = value;
+        }
+        return $"{numbers[0]}.{numbers[1]}.{numbers[2]}";
+    }
+
     public static bool IsNewer(string remote, string current) =>
         Version.TryParse(remote, out var newer) && Version.TryParse(current, out var mine) && newer > mine;
 
     /// <summary>
-    /// Downloads the release to a temp file and verifies its SHA-256 when the manifest carries one.
+    /// Downloads the release to a temp file and verifies its SHA-256 when the feed carries one.
     /// A mismatch deletes the file: an update that cannot be proven is never run.
     /// </summary>
     public static async Task<(string? Path, string? Error)> DownloadAsync(UpdateManifest manifest, CancellationToken token = default)
@@ -93,7 +221,7 @@ public static class UpdateChecker
             var directory = Path.Combine(Path.GetTempPath(), "ScorePlusUpdate");
             Directory.CreateDirectory(directory);
             var fileName = Path.GetFileName(new Uri(manifest.Url).AbsolutePath);
-            if (string.IsNullOrWhiteSpace(fileName)) fileName = "ScorePlusSetup.exe";
+            if (string.IsNullOrWhiteSpace(fileName)) fileName = UpdateFeed.SetupAssetName + ".exe";
             var path = Path.Combine(directory, fileName);
 
             using (var response = await Client.GetAsync(manifest.Url, HttpCompletionOption.ResponseHeadersRead, token))
@@ -129,5 +257,42 @@ public static class UpdateChecker
             return true;
         }
         catch { return false; }
+    }
+
+    /// <summary>GitHub's asset digest reads "sha256:HEX"; the manifest wants the bare hex.</summary>
+    static string? Sha256Of(string? digest)
+    {
+        if (string.IsNullOrWhiteSpace(digest)) return null;
+        const string prefix = "sha256:";
+        var value = digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? digest[prefix.Length..] : digest;
+        return value.Length == 64 && value.All(Uri.IsHexDigit) ? value.ToUpperInvariant() : null;
+    }
+
+    /// <summary>One or two sentences for the prompt: the release title, else its first line.</summary>
+    static string? NotesOf(GithubRelease release)
+    {
+        var name = release.Name?.Trim();
+        if (!string.IsNullOrEmpty(name)) return name;
+        var line = release.Body?.Split('\n').Select(text => text.Trim()).FirstOrDefault(text => text.Length > 0);
+        if (line is null) return null;
+        return line.Length > 180 ? line[..180] : line;
+    }
+
+    sealed class GithubRelease
+    {
+        [JsonPropertyName("tag_name")] public string? TagName { get; set; }
+        [JsonPropertyName("name")] public string? Name { get; set; }
+        [JsonPropertyName("body")] public string? Body { get; set; }
+        [JsonPropertyName("draft")] public bool Draft { get; set; }
+        [JsonPropertyName("prerelease")] public bool Prerelease { get; set; }
+        [JsonPropertyName("assets")] public List<GithubAsset> Assets { get; set; } = [];
+    }
+
+    sealed class GithubAsset
+    {
+        [JsonPropertyName("name")] public string? Name { get; set; }
+        [JsonPropertyName("browser_download_url")] public string? BrowserDownloadUrl { get; set; }
+        [JsonPropertyName("digest")] public string? Digest { get; set; }
+        [JsonPropertyName("state")] public string? State { get; set; }
     }
 }

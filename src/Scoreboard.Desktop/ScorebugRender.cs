@@ -78,6 +78,9 @@ internal static class ScorebugRender
     public static FrameworkElement CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false)
     {
         if (item.Kind == ScorebugElementKind.Video) return new VideoSurface(item, playback, muteVideo, showVideoPlaceholder, onAirVideo);
+        // HTML is drawn by a browser engine and captured as a frame, so every feed shows the same
+        // picture at the element's design size.
+        if (item.Kind == ScorebugElementKind.Html) return new HtmlSurface(item, showVideoPlaceholder);
         // Icons are drawn from live data rather than typed text: small bars per timeout, or a dot
         // showing which team has the ball.
         if (item.Kind == ScorebugElementKind.Text && item.Icon != ScorebugIcon.None) return new ScorebugIconView(item, state);
@@ -154,6 +157,9 @@ internal static class ScorebugRender
             case ScorebugLogoView logo:
                 // Logos are set from the console: pick one up, drop one, all without a rebuild.
                 logo.Update(item, state);
+                break;
+            case HtmlSurface htmlPage:
+                htmlPage.Update(item);
                 break;
             case Image image:
                 var path = ResolveLogoPath(item, state);
