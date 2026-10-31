@@ -1,6 +1,6 @@
 # ScorePlus
 
-**Currently in alpha. The project is updated frequently and extremely buggy. I would not recommend building unless for experimental purposes.**
+**Currently in alpha. The project is updated frequently and extremely buggy. I would not recommend building unless for experimental purposes. The setup exe is also very buggy, so I would not use it right now.**
 
 **ScorePlus** is a native Windows scoreboard for live production. The main window is the operator console — every control for the game on one page — and a separate audience output shows the score, clock, and broadcast-style graphics. No browser, server, internet connection, or separately installed .NET runtime required.
 
