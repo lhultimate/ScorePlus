@@ -276,7 +276,10 @@ try
     rosterEngine.NewGame("football");
     rosterEngine.AssignRoster(true,home.Id);
     rosterEngine.AssignRoster(false,away.Id);
-    Check(rosterEngine.State.HomePlayer?.Number==12&&rosterEngine.State.AwayPlayer?.Name=="Brown","assigning a roster puts its first player on the graphic");
+    Check(rosterEngine.State.HomePlayer is null&&rosterEngine.State.AwayPlayer is null,"assigning a roster leaves the graphic empty until a player is selected");
+    rosterEngine.SelectPlayer(true,qb.Id);
+    rosterEngine.SelectPlayer(false,wr.Id);
+    Check(rosterEngine.State.HomePlayer?.Number==12&&rosterEngine.State.AwayPlayer?.Name=="Brown","selecting a player puts them on the graphic");
     Check(ScoreboardTemplates.Bind("{{PLAYER:HOME:Name}} #{{PLAYER:HOME:NUMBER}} {{PLAYER:HOME:Position}}",rosterEngine.State)=="Smith #12 QB","player tokens print the selected player's name, number and position");
     Check(ScoreboardTemplates.Bind("{{PLAYER:HOME:Yards}} yds · {{PLAYER:HOME:Touchdowns}} TD",rosterEngine.State)=="184 yds · 2 TD","player stat tokens print the selected player's stats");
     Check(ScoreboardTemplates.Bind("{{PLAYER:AWAY:stat:yards}}",rosterEngine.State)=="64","player stat tokens accept the Stat: prefix and any case");
@@ -408,6 +411,40 @@ foreach(var sport in SportDefinition.BuiltIns)
     var columns=PlayerStatPresets.For(sport.Id);
     Check(columns.Count>=20,"a sport ships with at least twenty player stat columns ("+sport.Id+" has "+columns.Count+")");
     Check(columns.Distinct(StringComparer.OrdinalIgnoreCase).Count()==columns.Count,"a sport's stat columns are unique ("+sport.Id+")");
+}
+
+// ---------- sport-specific data, and a game that carries its screens ----------
+var sportData=new GameEngine();sportData.NewGame("baseball");
+Check(!sportData.HasSportSpecificData(),"a fresh game carries no sport-specific data");
+sportData.BaseballBall();
+Check(sportData.HasSportSpecificData(),"a ball in the count counts as sport-specific data worth warning about");
+
+var designPath=Path.Combine(Path.GetTempPath(),$"design-{Guid.NewGuid():N}.json");
+var reopenedPath=Path.Combine(Path.GetTempPath(),$"design-{Guid.NewGuid():N}.json");
+var gamePath=Path.Combine(Path.GetTempPath(),$"design-game-{Guid.NewGuid():N}.spg");
+var legacyPath=Path.Combine(Path.GetTempPath(),$"legacy-{Guid.NewGuid():N}.spg");
+try
+{
+    var designCatalog=new ScorebugCatalog(designPath);
+    designCatalog.AddDisplay("Lower thirds");
+    designCatalog.SetTransition(LayoutTransition.Zoom,1.5);
+    var designEngine=new GameEngine();designEngine.NewGame("football");
+    designEngine.Save(gamePath,designCatalog.ExportDocument());
+    var reopened=new GameEngine();var design=reopened.Load(gamePath);
+    Check(design is {Displays.Count:2},"a saved game carries every display and its layouts");
+    var reopenedCatalog=new ScorebugCatalog(reopenedPath);
+    reopenedCatalog.ApplyDocument(design);
+    Check(reopenedCatalog.Displays.Count==2&&reopenedCatalog.Displays[1].Name=="Lower thirds"
+        &&reopenedCatalog.Displays[1].Layouts[0].Transition==LayoutTransition.Zoom,"opening a game restores its layouts and their hand-over");
+    designEngine.Save(legacyPath);
+    Check(new GameEngine().Load(legacyPath) is null,"a game written without a design still loads, with no design to apply");
+}
+finally
+{
+    foreach(var path in new[]{gamePath,designPath,reopenedPath,legacyPath})
+    {
+        try{if(File.Exists(path))File.Delete(path);}catch{}
+    }
 }
 
 // ---------- no player on the graphic is a choice ----------

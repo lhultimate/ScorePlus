@@ -780,7 +780,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconVisitorsInput,IconFlipInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacityInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconVisitorsInput,IconFlipInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacityInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -813,6 +813,8 @@ public partial class ScorebugEditorWindow : Window
             LogoInput.SelectedItem=Logos.FirstOrDefault(l=>l.Side==e.LogoSide)??Logos[0];
             PeriodFormatInput.SelectedItem=PeriodOptions.FirstOrDefault(o=>o.Key==e.PeriodFormat)??PeriodOptions[0];
             IconInput.SelectedItem=e.Icon; IconVisitorsInput.IsChecked=e.IconVisitors; IconFlipInput.IsChecked=e.IconFlipped;
+            IconFillInput.Text=e.IconFillColor;
+            IconFillSourceInput.SelectedItem=ColorSources.FirstOrDefault(c=>c.Source==e.IconFillSource)??ColorSources[0];
         }
         if(e is not null&&e.Kind==ScorebugElementKind.Text) LoadPlayerBinding(e);
         _loading=false;
@@ -831,10 +833,12 @@ public partial class ScorebugEditorWindow : Window
         BackgroundColorSwatch.Background=item is null||item.TransparentBackground?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveBackground(item,_engine.State));
         GradientColorSwatch.Background=item is null||item.TransparentBackground||!item.BackgroundGradient?Brushes.Transparent:ScorebugRender.ParseBrush(_engine.State.ColorFor(item.BackgroundSource2)??item.BackgroundColor2);
         BorderColorSwatch.Background=item is null||item.BorderThickness<=0?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveBorder(item,_engine.State));
+        IconFillSwatch.Background=item is null||item.Icon!=ScorebugIcon.Bases?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveIconFill(item,_engine.State));
         TextColorSwatch.ToolTip=item is null?null:$"Text colour: {ScorebugRender.ResolveForeground(item,_engine.State)}";
         BackgroundColorSwatch.ToolTip=item is null?null:item.TransparentBackground?"No background box":$"Background colour: {ScorebugRender.ResolveBackground(item,_engine.State)}";
         GradientColorSwatch.ToolTip=item is null||!item.BackgroundGradient?"No gradient":$"Second gradient colour: {_engine.State.ColorFor(item.BackgroundSource2)??item.BackgroundColor2}";
         BorderColorSwatch.ToolTip=item is null||item.BorderThickness<=0?"No border":$"Border colour: {ScorebugRender.ResolveBorder(item,_engine.State)}";
+        IconFillSwatch.ToolTip=item is null||item.Icon!=ScorebugIcon.Bases?"No bases":$"Base fill: {ScorebugRender.ResolveIconFill(item,_engine.State)}";
     }
 
     /// <summary>A colour box only takes typing when the element uses a fixed colour.</summary>
@@ -847,6 +851,10 @@ public partial class ScorebugEditorWindow : Window
         GradientSourceInput.IsEnabled=gradientOn;
         GradientAngleInput.IsEnabled=gradientOn;
         BorderColorInput.IsEnabled=Selected is not null && (BorderSourceInput.SelectedItem as ColorSourceOption)?.Source==ScorebugColorSource.Custom;
+        // The base fill only means something on a diamond, and only when it is not a palette slot.
+        IconFillInput.IsEnabled=Selected is not null
+            && IconInput.SelectedItem is ScorebugIcon.Bases
+            && (IconFillSourceInput.SelectedItem as ColorSourceOption)?.Source==ScorebugColorSource.Custom;
     }
 
     /// <summary>Shows only the properties that mean something for this kind of element.</summary>
@@ -881,6 +889,8 @@ public partial class ScorebugEditorWindow : Window
         // "Add player data" button instead, so the pickers stay off every other element.
         PlayerDataSection.Visibility=text&&PlayerToken.IsMatch(e!.Content)?Visibility.Visible:Visibility.Collapsed;
         IconSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
+        // The fill only appears for the diamond: bars and the possession dot have one colour.
+        BaseFillPanel.Visibility=text&&IconInput.SelectedItem is ScorebugIcon.Bases?Visibility.Visible:Visibility.Collapsed;
         // A value transition needs a printed value to cross to.
         TransitionSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         var icon=e?.Icon??ScorebugIcon.None;
@@ -895,11 +905,15 @@ public partial class ScorebugEditorWindow : Window
     void ApplyProperties(object sender)
     {
         if(_loading||Selected is null)return;
-        if(sender==ForegroundSourceInput||sender==BackgroundSourceInput||sender==GradientSourceInput){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();return;}
+        if(sender==ForegroundSourceInput||sender==BackgroundSourceInput||sender==GradientSourceInput||sender==IconFillSourceInput){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();return;}
         if(sender is ComboBox)
         {
             // Shape/font/animation changes need fresh geometry or a new face.
-            SaveProperties(); Render(); return;
+            SaveProperties();
+            // Choosing a different icon changes which properties exist (a diamond has a base fill)
+            // and whether the fill colour can be typed, so the panel is repainted with it.
+            if(sender==IconInput){UpdatePropertyVisibility();UpdateColorAvailability();RefreshColorSwatches();}
+            Render(); return;
         }
         if(sender is CheckBox){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();return;}
         if(sender==ColorInput||sender==BackgroundInput||sender==GradientColorInput){SaveProperties();RefreshAllVisuals();return;}
@@ -944,6 +958,9 @@ public partial class ScorebugEditorWindow : Window
         var periodFormat=PeriodFormatInput.SelectedItem is PeriodOption period?(string?)period.Key:null;
         var icon=IconInput.SelectedItem is ScorebugIcon chosenIcon?(ScorebugIcon?)chosenIcon:null;
         var iconVisitors=IconVisitorsInput.IsChecked==true; var iconFlipped=IconFlipInput.IsChecked==true;
+        var iconFillText=IconFillInput.Text.Trim();
+        var iconFillOk=iconFillText.Length==0||TryColor(iconFillText,out _);
+        var iconFillSource=(IconFillSourceInput.SelectedItem as ColorSourceOption)?.Source;
         var font=(FontInput.SelectedItem as FontChoice)?.Source;
         var bold=BoldInput.IsChecked==true; var italic=ItalicInput.IsChecked==true;
         var underline=UnderlineInput.IsChecked==true; var strike=StrikeInput.IsChecked==true;
@@ -960,6 +977,8 @@ public partial class ScorebugEditorWindow : Window
             &&(shape is null||item.Shape==shape)&&item.Visible==visible&&item.TransparentBackground==transparent
             &&item.MediaTag==mediaTag&&(periodFormat is null||item.PeriodFormat==periodFormat)
             &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped
+            &&(!iconFillOk||string.Equals(item.IconFillColor,iconFillText,StringComparison.OrdinalIgnoreCase))
+            &&(iconFillSource is null||item.IconFillSource==iconFillSource)
             &&(font is null||item.FontFamily==font)&&item.Bold==bold&&item.Italic==italic&&item.Underline==underline&&item.StrikeThrough==strike
             &&(foregroundSource is null||item.ForegroundSource==foregroundSource)&&(backgroundSource is null||item.BackgroundSource==backgroundSource)
             &&(logoSide is null||item.LogoSide==logoSide)
@@ -1008,6 +1027,8 @@ public partial class ScorebugEditorWindow : Window
                 target.AudioDevice=string.IsNullOrWhiteSpace(audioDevice)?null:audioDevice;
                 if(icon is not null&&target.Icon!=icon.Value){target.Icon=icon.Value;artworkChanged=true;}
                 target.IconVisitors=iconVisitors; target.IconFlipped=iconFlipped;
+                if(iconFillOk)target.IconFillColor=iconFillText;
+                if(iconFillSource is not null)target.IconFillSource=iconFillSource.Value;
                 if(font is not null)target.FontFamily=font;
                 target.Bold=bold; target.Italic=italic;
                 target.Underline=underline; target.StrikeThrough=strike;
@@ -1317,6 +1338,60 @@ public partial class ScorebugEditorWindow : Window
 
     /// <summary>The baseball diamond as one element: three bases that light up with a runner on.</summary>
     void AddLogo_Click(object sender,RoutedEventArgs e)=>Add(new ScorebugElement{Name="New logo",Kind=ScorebugElementKind.Logo,LogoSide=ScorebugLogoSide.Home,Content="HOME LOGO",X=520,Y=470,Width=140,Height=90,TransparentBackground=true});
+
+    /// <summary>
+    /// Imports a still picture onto the graphic. The file is copied into the app's Images folder so
+    /// the design keeps working after the original is moved, and the element starts at the picture's
+    /// own shape instead of a guessed box.
+    /// </summary>
+    void AddImage_Click(object sender,RoutedEventArgs e)
+    {
+        var dialog=new OpenFileDialog
+        {
+            Title="Add an image to the scorebug",
+            Filter="Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp|All files (*.*)|*.*"
+        };
+        if(dialog.ShowDialog()!=true)return;
+        var path=dialog.FileName;
+        try
+        {
+            var folder=AppPaths.Combine("Images");
+            Directory.CreateDirectory(folder);
+            var name=System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
+            var extension=System.IO.Path.GetExtension(dialog.FileName);
+            var target=System.IO.Path.Combine(folder,$"{name}-{DateTime.Now:yyyyMMdd-HHmmss}{extension}");
+            File.Copy(dialog.FileName,target,true);
+            path=target;
+        }
+        catch
+        {
+            // A read-only source still draws from where it is; the design keeps a usable path.
+        }
+        var width=Math.Round(_catalog.Layout.Width*0.25);
+        var height=width;
+        try
+        {
+            var bitmap=new BitmapImage();
+            bitmap.BeginInit(); bitmap.CacheOption=BitmapCacheOption.OnLoad; bitmap.UriSource=new Uri(path); bitmap.EndInit();
+            if(bitmap.PixelWidth>0&&bitmap.PixelHeight>0)height=Math.Max(16,Math.Round(width*(double)bitmap.PixelHeight/bitmap.PixelWidth));
+        }
+        catch
+        {
+            // An unreadable picture still adds the element so the box can be laid out now.
+        }
+        Add(new ScorebugElement
+        {
+            Name=System.IO.Path.GetFileNameWithoutExtension(path),
+            Kind=ScorebugElementKind.Image,
+            ImagePath=path,
+            Content="",
+            X=Math.Round((_catalog.Layout.Width-width)/2),
+            Y=Math.Round((_catalog.Layout.Height-height)/2),
+            Width=width,
+            Height=height,
+            TransparentBackground=true
+        });
+    }
     void AddShape_Click(object sender,RoutedEventArgs e)
     {
         var picker=new Window{Title="Add shape",Width=340,Height=190,ResizeMode=ResizeMode.NoResize,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner};
@@ -1907,6 +1982,7 @@ public partial class ScorebugEditorWindow : Window
     void BackgroundColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(BackgroundInput);
     void BorderColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(BorderColorInput);
     void GradientColor2_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(GradientColorInput);
+    void IconFillColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(IconFillInput);
     void Done_Click(object sender,RoutedEventArgs e)=>Close();
 
     // Enter inside a property field commits that value. It must never close the studio.

@@ -36,6 +36,9 @@ internal static class Program
                 throw new Exception("FAIL: the unsaved-game prompt is not on by default");
             // The checks open and close windows constantly; a modal prompt would stall the run.
             MainWindow.PromptOnExit = false;
+            // The sport-switch warning is a real operator guard, but these checks change sports on
+            // purpose, so it is off for the run and covered by the core suite instead.
+            MainWindow.WarnOnSportSwitch = false;
 
             // The exit prompt is the app's own chrome, not a system message box.
             var unsavedPrompt = new UnsavedChangesWindow("Dark", "detail");
@@ -2517,12 +2520,12 @@ internal static class Program
                 rosterWindow.UpdateLayout();
                 if (rosterEngine.State.HomePlayer?.Name != "Jones")
                     throw new Exception($"FAIL: selecting a player after clearing left {rosterEngine.State.HomePlayer?.Name}");
-                // The desk paints itself in charcoal, not the older navy with white wells.
-                var listCard = FindAll<Border>(homePanel).FirstOrDefault(b => b.Background is SolidColorBrush s && s.Color == Color.FromRgb(36, 36, 36))
-                    ?? throw new Exception("FAIL: the roster desk is not painted in its charcoal palette");
+                // The desk shares the console's navy surfaces instead of its own charcoal palette.
+                var listCard = FindAll<Border>(homePanel).FirstOrDefault(b => b.Background is SolidColorBrush s && s.Color == Color.FromRgb(16, 22, 31))
+                    ?? throw new Exception("FAIL: the roster desk does not use the console's surface colour");
                 var inputWell = FindAll<TextBox>(homePanel).FirstOrDefault() ?? throw new Exception("FAIL: the roster desk has no fields");
-                if (inputWell.Background is not SolidColorBrush well || well.Color != Color.FromRgb(25, 25, 25))
-                    throw new Exception($"FAIL: a roster field is not a dark input well ({inputWell.Background})");
+                if (inputWell.Background is not SolidColorBrush well || well.Color != Color.FromRgb(11, 15, 20))
+                    throw new Exception($"FAIL: a roster field is not the console's input well colour ({inputWell.Background})");
                 if (listCard.ActualHeight <= 0) throw new Exception("FAIL: the roster list column did not lay out");
 
                 // The whole stat sheet is laid out as two compact columns, so it fills the desk

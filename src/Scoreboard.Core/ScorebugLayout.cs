@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace Scoreboard.Core;
 
-public enum ScorebugElementKind { Text, Logo, Shape, Video, Html }
+public enum ScorebugElementKind { Text, Logo, Shape, Video, Html, Image }
 
 /// <summary>
 /// How one layout hands over to the next on the audience output when a display switches. The
@@ -163,6 +163,15 @@ public sealed class ScorebugElement
 
     /// <summary>For timeout bars: count the visitors' timeouts instead of the home team's.</summary>
     public bool IconVisitors { get; set; }
+
+    /// <summary>
+    /// For baseball's bases: the colour inside a lit base, independent of the element's outline
+    /// colour. Empty follows the text colour, which is how the diamond looked before it was a setting.
+    /// </summary>
+    public string IconFillColor { get; set; } = "";
+
+    /// <summary>A team palette slot for the base fill, or Custom for the colour above.</summary>
+    public ScorebugColorSource IconFillSource { get; set; } = ScorebugColorSource.Custom;
 
     /// <summary>For the possession dot: mirror it, putting the home side on the left.</summary>
     public bool IconFlipped { get; set; }
@@ -865,5 +874,32 @@ public sealed class ScorebugCatalog
         Displays = [DefaultDisplay()];
         ActiveDisplayIndex = 0;
         Save(); Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// A detached copy of every display, its layouts and what each one has on air, for writing into
+    /// a saved game without handing the file a live object.
+    /// </summary>
+    public ScorebugDocument ExportDocument()
+    {
+        var json = JsonSerializer.Serialize(new ScorebugDocument { Displays = Displays, ActiveDisplayIndex = ActiveDisplayIndex });
+        return JsonSerializer.Deserialize<ScorebugDocument>(json) ?? new ScorebugDocument();
+    }
+
+    /// <summary>
+    /// Replaces the whole design with the one a saved game carries. A file with no displays is
+    /// ignored, so a damaged save leaves the current scorebug on screen instead of blanking it.
+    /// </summary>
+    public void ApplyDocument(ScorebugDocument? document)
+    {
+        if (document?.Displays is not { Count: > 0 }) return;
+        var json = JsonSerializer.Serialize(document);
+        var copy = JsonSerializer.Deserialize<ScorebugDocument>(json);
+        if (copy?.Displays is not { Count: > 0 }) return;
+        Displays = copy.Displays;
+        ActiveDisplayIndex = copy.ActiveDisplayIndex;
+        Validate();
+        Save();
+        Changed?.Invoke();
     }
 }

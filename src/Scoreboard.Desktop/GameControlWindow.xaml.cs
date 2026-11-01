@@ -53,6 +53,8 @@ public partial class GameControlWindow : Window
         PanelHost.Content = Panel;
         RosterControl.Attach(engine);
         ProgramStrip.Visibility = Visibility.Collapsed;
+        // Without a display there is nothing for a show line to describe, so the meter stays hidden.
+        Meter.Visibility = Visibility.Collapsed;
         AttachMedia(media);
         ApplyTheme(PreferencesStore.Load().Theme);
     }
@@ -80,6 +82,7 @@ public partial class GameControlWindow : Window
         PanelHost.Content = Panel;
         Program.Changed += ProgramChanged;
         catalog.Changed += CatalogChanged;
+        _engine.Changed += MeterChanged;
         RosterControl.Attach(engine);
         AttachMedia(media);
         ApplyTheme(theme);
@@ -99,12 +102,15 @@ public partial class GameControlWindow : Window
     public void ApplyTheme(string theme)
     {
         ThemeManager.Apply(this, theme);
-        // The theme pass repaints buttons; the selected tab keeps its green outline on top.
+        // The theme pass repaints buttons; the selected tab keeps its accent outline on top. Both
+        // Loaded and ContentRendered are hooked because the first render can repaint the buttons
+        // after Loaded, which is why a brand-new panel used to show no outline at all.
         if (ControlTab is not null) ApplyTabVisuals();
         if (!_tabHook)
         {
             _tabHook = true;
             Loaded += (_, _) => ApplyTabVisuals();
+            ContentRendered += (_, _) => ApplyTabVisuals();
         }
         MediaControl.ApplyTheme(theme);
         RosterControl.ApplyTheme(theme);
@@ -148,6 +154,23 @@ public partial class GameControlWindow : Window
             : "This display is on air with the layout shown here.";
         _preview?.Rebuild();
         Panel.Refresh();
+        RefreshMeterStatus();
+    }
+
+    /// <summary>Keeps the panel's meter line in step with the game as it is played.</summary>
+    void MeterChanged()
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(MeterChanged); return; }
+        RefreshMeterStatus();
+    }
+
+    void RefreshMeterStatus()
+    {
+        if (Program is null) return;
+        var state = _engine.State;
+        Meter.SetStatus(
+            Program.HasStagedChanges ? "STAGED · UPDATE TO AIR" : $"ON AIR · {Program.Display.Name.ToUpperInvariant()}",
+            $"{state.AwayAbbreviation} {state.AwayScore} · {state.HomeAbbreviation} {state.HomeScore} · {GameEngine.FormatClock(state.ClockSeconds)} · {PeriodDisplay.Format(state)}");
     }
 
     /// <summary>Fills the display picker without treating the sync as the operator's choice.</summary>
@@ -211,9 +234,11 @@ public partial class GameControlWindow : Window
     /// </summary>
     void ApplyTabVisuals()
     {
-        var on = (Brush)new BrushConverter().ConvertFromString("#123C33")!;
+        // The operator's own accent, the same one the main window's tabs use.
+        var accent = UiPalette.Accent(PreferencesStore.Load());
+        var on = UiPalette.Frozen(UiPalette.Soft(accent));
         var off = (Brush)new BrushConverter().ConvertFromString("#141A23")!;
-        var onBorder = (Brush)new BrushConverter().ConvertFromString("#38D7A3")!;
+        var onBorder = UiPalette.Frozen(accent);
         var offBorder = (Brush)new BrushConverter().ConvertFromString("#28323F")!;
         var muted = (Brush)new BrushConverter().ConvertFromString("#93A0B2")!;
         Button[] tabs = [ControlTab, MediaTab, RosterTab];
@@ -254,6 +279,7 @@ public partial class GameControlWindow : Window
             Program.Dispose();
         }
         if (_catalog is not null) _catalog.Changed -= CatalogChanged;
+        _engine.Changed -= MeterChanged;
         _preview?.Dispose();
         base.OnClosed(e);
     }

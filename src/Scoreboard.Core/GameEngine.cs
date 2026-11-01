@@ -505,11 +505,13 @@ public sealed class GameEngine
         if ((home ? State.HomeRosterId : State.AwayRosterId) == rosterId) return;
         SaveUndo(home ? "Home roster" : "Visitors roster");
         if (home) State.HomeRosterId = rosterId; else State.AwayRosterId = rosterId;
-        // Picking a roster puts its first player up unless the operator clears them again.
-        if (home) State.HomePlayerCleared = false; else State.AwayPlayerCleared = false;
+        // A roster on its own never puts a name on the graphic: the operator selects the player they
+        // want, so assigning a roster cannot print a stranger by accident. A player who is already
+        // on air stays on air when the new roster also holds them.
         var roster = RosterStore.Book.Find(rosterId);
         var previous = home ? State.HomePlayer : State.AwayPlayer;
-        var player = roster?.Find(previous?.PlayerId) ?? roster?.Players.FirstOrDefault();
+        var player = roster?.Find(previous?.PlayerId);
+        if (home) State.HomePlayerCleared = player is null; else State.AwayPlayerCleared = player is null;
         ApplySelected(home, roster, player);
         Log("Roster", roster is null
             ? $"{(home ? State.HomeTeam : State.AwayTeam)} has no roster"
@@ -564,10 +566,11 @@ public sealed class GameEngine
         // A game opened where the roster library is missing keeps the player it carries, so the
         // graphic never goes blank just because the library moved with someone else.
         if (roster is null) return;
-        // A deliberate "no player" is a choice, not an empty slot to fill in.
+        // No player on the graphic is a normal state, not an empty slot to fill in: a side shows a
+        // player only after the operator selected one for it.
         if (home ? State.HomePlayerCleared : State.AwayPlayerCleared) { ApplySelected(home, roster, null); return; }
         var current = home ? State.HomePlayer : State.AwayPlayer;
-        var player = roster.Find(current?.PlayerId) ?? roster.Players.FirstOrDefault();
+        var player = roster.Find(current?.PlayerId);
         ApplySelected(home, roster, player);
     }
 
@@ -592,16 +595,26 @@ public sealed class GameEngine
         Log("Game", "Game reset"); Changed?.Invoke();
     }
 
-    public void Save(string path)
+    /// <summary>
+    /// Writes the game, and — when a design is supplied — every display and layout with it, so the
+    /// show reopens on the same screens. A plain call writes just the game state, which is what the
+    /// suites and the older tooling expect.
+    /// </summary>
+    public void Save(string path, ScorebugDocument? design = null)
     {
-        Tick(); State.SavedAt = DateTimeOffset.Now; var json = JsonSerializer.Serialize(State, JsonOptions);
+        Tick(); State.SavedAt = DateTimeOffset.Now; var json = GameFiles.Serialize(State, design);
         var full = Path.GetFullPath(path); Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         var temporary = full + ".tmp"; File.WriteAllText(temporary, json); File.Move(temporary, full, true);
     }
 
-    public void Load(string path)
+    /// <summary>
+    /// Reads a game and returns the design it carried, or null for a file written before designs
+    /// were saved with the game (the current scorebug then stays put).
+    /// </summary>
+    public ScorebugDocument? Load(string path)
     {
-        State = JsonSerializer.Deserialize<GameState>(File.ReadAllText(path), JsonOptions) ?? new GameState();
+        var (game, design) = GameFiles.Read(path);
+        State = game;
         // Older saves could hold a spot past midfield; bring it back into the 0–50 range.
         State.YardsToGoal = Math.Clamp(State.YardsToGoal, 0, 50);
         // A file written before sport values existed keeps the current profile's control list, so
@@ -613,6 +626,24 @@ public sealed class GameEngine
         // Roster edits made since the file was written still reach the graphic on load.
         RefreshSelectedPlayers();
         _undo.Clear(); _lastTick = _watch.ElapsedTicks; Changed?.Invoke();
+        return design;
+    }
+
+    /// <summary>
+    /// True when the game holds values that only mean something for the sport being played — a
+    /// count, power play, bases, wickets, cards. Switching sport starts a new game, so the operator
+    /// is warned that these are about to be cleared rather than losing them silently.
+    /// </summary>
+    public bool HasSportSpecificData()
+    {
+        if (State.Controls.Any(control => SportValues.Read(State, control.Id) != control.Default)) return true;
+        return State.Balls != 0 || State.Strikes != 0 || State.Outs != 0
+            || State.HomeFouls != 0 || State.AwayFouls != 0
+            || State.HomeHits != 0 || State.AwayHits != 0
+            || State.HomeShots != 0 || State.AwayShots != 0
+            || State.HomeCorners != 0 || State.AwayCorners != 0
+            || State.HomeYellowCards != 0 || State.AwayYellowCards != 0
+            || State.HomeRedCards != 0 || State.AwayRedCards != 0;
     }
 
     /// <summary>

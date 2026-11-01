@@ -18,7 +18,8 @@ public partial class RosterDock : UserControl
     public RosterDock()
     {
         InitializeComponent();
-        // The desk paints itself from its own charcoal palette; the theme pass must not flatten it.
+        // The desk paints itself from its own palette (the theme's page and surfaces); the generic
+        // theme pass must not flatten those shades into one colour.
         ThemeManager.SetSkipTheme(this, true);
         ApplyTheme("Dark");
         Loaded += (_, _) => RefreshSummary();
@@ -36,7 +37,7 @@ public partial class RosterDock : UserControl
         RefreshSummary();
     }
 
-    /// <summary>Matches the desk to the operator theme (charcoal is dark, a cool white is light).</summary>
+    /// <summary>Matches the desk to the operator theme (near-black page in Dark, light page in Light).</summary>
     public void ApplyTheme(string theme)
     {
         RosterPalette.Apply(theme, Resources);
@@ -96,13 +97,15 @@ public partial class RosterDock : UserControl
 
     void UpdateTabs()
     {
-        var selected = new SolidColorBrush(Color.FromArgb(0x3D, 0, 0, 0));
-        selected.Freeze();
-        var idle = Brushes.Transparent;
+        // The side on the desk wears the operator's accent, like a selected tab in the console.
+        var selected = (Brush)(Resources["RosterAccentBrush"] ?? Brushes.LimeGreen);
+        var selectedText = (Brush)(Resources["RosterAccentTextBrush"] ?? Brushes.Black);
+        var idle = (Brush)(Resources["RosterTabBrush"] ?? Brushes.Transparent);
+        var idleText = (Brush)(Resources["RosterMutedBrush"] ?? Brushes.Gray);
         AwaySideTab.Background = _showingHome ? idle : selected;
         HomeSideTab.Background = _showingHome ? selected : idle;
-        AwaySideTab.Opacity = _showingHome ? 0.7 : 1;
-        HomeSideTab.Opacity = _showingHome ? 1 : 0.7;
+        AwaySideTab.Foreground = _showingHome ? idleText : selectedText;
+        HomeSideTab.Foreground = _showingHome ? selectedText : idleText;
     }
 
     void NewRoster_Click(object sender, RoutedEventArgs e) => (ShowingHome ? HomePanel : AwayPanel).CreateRoster();

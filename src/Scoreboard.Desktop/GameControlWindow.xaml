@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Scoreboard.Desktop"
-        Title="ScorePlus — Control Panel" Width="1360" Height="930" MinWidth="1040" MinHeight="860"
+        Title="ScorePlus — Control Panel" Width="1360" Height="985" MinWidth="1040" MinHeight="915"
         Background="#0B0F14" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <Window.Resources>
     <Style x:Key="TabButton" TargetType="Button">
@@ -44,6 +44,7 @@
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
       </Grid.RowDefinitions>
 
@@ -82,14 +83,18 @@
         </Grid>
       </Border>
 
-      <StackPanel Grid.Row="1" Orientation="Horizontal">
+      <!-- The same peak meter and show line as the main rail, so a panel on a second monitor can
+           see the output level without turning back to the main window. -->
+      <local:SoundMeterView x:Name="Meter" Grid.Row="1"/>
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal">
         <Button x:Name="ControlTab" Style="{StaticResource TabButton}" Content="CONTROL PANEL" Click="ControlTab_Click"/>
         <Button x:Name="MediaTab" Style="{StaticResource TabButton}" Content="MEDIA" Click="MediaTab_Click" ToolTip="Clips, camera, replay and playlists"/>
         <Button x:Name="RosterTab" Style="{StaticResource TabButton}" Content="ROSTERS" Click="RosterTab_Click"
                 ToolTip="Team rosters, player stats and the player on the graphic"/>
       </StackPanel>
 
-      <Grid Grid.Row="2" Margin="0,9,0,0">
+      <Grid Grid.Row="3" Margin="0,9,0,0">
         <ContentControl x:Name="PanelHost"/>
         <local:MediaDock x:Name="MediaControl" Visibility="Collapsed"/>
         <local:RosterDock x:Name="RosterControl" Visibility="Collapsed"/>

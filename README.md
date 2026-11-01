@@ -121,7 +121,7 @@ This walkthrough takes you from a cold launch to a scorebug on a second screen. 
 
 **Step 6 — Publish the staged values.** Set the down, the distance, who has the ball and how many timeouts are left. Nothing appears until you press **Update Output** — then all of it lands at once. The **Live: ON** toggle pauses that live feed for scores, clocks and names (useful when you're correcting a typo and don't want it on air); click it again to resume.
 
-**Step 7 — Save.** Press **Save Game** and choose a folder. You get a `.spg` file you can double-click next week. If you forget, autosaves run every five seconds and the newest eight points are kept on the launch screen.
+**Step 7 — Save.** Press **Save Game** and choose a folder. You get a `.spg` file you can double-click next week, and it carries every display and layout with it — reopening the game returns to the same screens and the same layout on air. If you forget, autosaves run every five seconds and the newest eight points are kept on the launch screen.
 
 That's a working show. Everything from here is refinement.
 
@@ -198,7 +198,9 @@ Three elements can draw artwork from game state instead of (or alongside) typed 
 | **Possession dot** | A dot on the left edge for the visitors, on the right for home (mirrorable) | Possession |
 | **Bases** | Three diamond bases, filled when a runner is on, faint outline when empty | The runner on each base |
 
-They update themselves with no studio edit, and a base lighting up plays the element's own value transition — so a runner arriving fades and pops the base in, in time with the rest of the graphic. The possession dot and the text are exclusive: turning on the dot removes the text rather than sitting under it. Small icons keep their size when you resize the box, unless you hold `Ctrl`, exactly like text.
+They update themselves with no studio edit, and **every icon animates** with the element's own value transition: a base fades and pops in as a runner arrives and shrinks away when they leave, new timeout bars slide or dissolve into the row, and the possession dot slides across the plate when the ball changes hands. The possession dot and the text are exclusive: turning on the dot removes the text rather than sitting under it. Small icons keep their size when you resize the box, unless you hold `Ctrl`, exactly like text.
+
+A baseball base has two colours of its own: the **outline** follows the element's text colour, while **Base fill** sets the inside independently — a fixed colour, or one of the team palette slots, so a lit base can wear the scoring team's colour.
 
 ### Canvas Size and Background
 
@@ -238,7 +240,7 @@ When a display switches layouts, the hand-over belongs to the layout **arriving*
 
 ### Per-Window Layout Choice
 
-The staged layout and display are chosen **per window**. Open a second console with **New Panel** (the ⧉ icon) and it can be lining up a lower third on display 2 while the first window works the scorebug on display 1. Nothing you stage moves until **Update Output**.
+The staged layout and display are chosen **per window**. Open a second console with **New Panel** (the ⧉ icon) and it can be lining up a lower third on display 2 while the first window works the scorebug on display 1. Nothing you stage moves until **Update Output**. A detached panel carries its own **sound level meter** and show line under the preview, so the operator at that screen sees the output level and what is on air without turning back to the main window.
 
 Below the staged preview sits a second, smaller thumbnail: the **audience view**. It mirrors exactly what the chosen display is really showing on air, and it follows Update Output, not your staging. It's a monitor, not another preview — you can point it at any display to check what that screen looks like.
 
@@ -495,7 +497,7 @@ Layout: toolbar across the top, layers down the left, canvas in the middle, prop
 
 ### Toolbar
 
-Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **SHAPE +**, **SPORT DATA +**, **PLAYER DATA +**, **VIDEO +**, **HTML +**, **PARTS +**.
+Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE +**, **SHAPE +**, **SPORT DATA +**, **PLAYER DATA +**, **VIDEO +**, **HTML +**, **PARTS +**.
 
 ### Element Types
 
@@ -503,6 +505,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **SHAPE
 | --- | --- | --- |
 | **Text** | Any bound or typed string | Font, size, bold/italic/underline/strike, rotation, colour, value transition, icon, quarter style |
 | **Logo** | One team's logo | Which side (Home/Away); the artwork itself comes from the console |
+| **Image** | A still picture imported with **IMAGE +** | The file is copied into the app, so the design survives the original being moved |
 | **Shape** | Rectangle, circle or triangle | Shape type, fill or gradient, border, opacity |
 | **Video** | Live clip from one tag | Media tag (or **ANY**), preserve aspect ratio, audio output, border, radius |
 | **HTML** | A live web widget | Free HTML/CSS/JS, `data-token` bindings |
@@ -772,11 +775,13 @@ The console and studio reflow onto portrait monitors and high-DPI scaling. The s
 
 ScorePlus is an evolving production tool, not yet a full broadcast package. Still ahead:
 
-- sponsor and commercial reporting
-- network and hardware control
-- broadcast transparency handling
-- code signing (the setup exe is currently unsigned, so SmartScreen may warn)
-- broader reliability testing across capture hardware
+- Sponsor and commercial reporting
+- Network and hardware control
+- Broadcast transparency handling
+- A transition maker — build your own layout hand-overs instead of picking from the seven that ship
+- An animation maker — keyframe an element's motion rather than choosing one of the presets
+- Code signing (the setup exe is currently unsigned, so SmartScreen may warn)
+- Broader reliability testing across capture hardware
 
 Also worth knowing: video sound plays through the audience output window while the preview and studio stay muted, so you never hear a cue twice — and a video element with its own audio output is only routed when it is on an audience screen, so several preview windows never open the same speaker more than once.
 

@@ -42,6 +42,9 @@ public partial class RosterPanel : UserControl
     public RosterPanel()
     {
         InitializeComponent();
+        // A panel can be used on its own (an export box, the checks) before any window applies a
+        // theme, so it paints itself with the saved theme's palette straight away.
+        RosterPalette.Apply(PreferencesStore.Load().Theme, Resources);
         Loaded += (_, _) => Refresh(force: true);
     }
 

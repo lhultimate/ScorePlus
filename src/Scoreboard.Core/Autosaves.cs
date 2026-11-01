@@ -35,7 +35,7 @@ public static class AutosaveStore
 
     /// <param name="startNewPoint">Forces a fresh recoverable point instead of updating the newest
     /// one. Used when a new game starts, so the game that just ended keeps its own autosave.</param>
-    public static IReadOnlyList<AutosaveEntry> Save(GameEngine engine, bool startNewPoint = false)
+    public static IReadOnlyList<AutosaveEntry> Save(GameEngine engine, bool startNewPoint = false, ScorebugDocument? design = null)
     {
         try
         {
@@ -53,7 +53,8 @@ public static class AutosaveStore
                 path = stem + ".spg";
                 for (var n = 2; File.Exists(path); n++) path = $"{stem}-{n}.spg";
             }
-            engine.Save(path);
+            // A recovery point keeps the screens too, so restoring one really continues the show.
+            engine.Save(path, design);
             Prune();
         }
         catch
@@ -165,7 +166,7 @@ public static class AutosaveStore
     {
         try
         {
-            var state = JsonSerializer.Deserialize<GameState>(File.ReadAllText(path), JsonOptions);
+            var (state, _) = GameFiles.Read(path);
             if (state is null) return null;
             var saved = state.SavedAt == default ? new DateTimeOffset(File.GetLastWriteTime(path)) : state.SavedAt;
             return new AutosaveEntry(path, saved, state.SportId, state.AwayTeam, state.HomeTeam, state.AwayScore, state.HomeScore);

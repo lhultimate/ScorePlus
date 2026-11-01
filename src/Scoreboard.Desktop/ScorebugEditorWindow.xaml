@@ -55,6 +55,8 @@
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
           <Button Content="TEXT +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddText_Click"/>
           <Button Content="LOGO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddLogo_Click"/>
+          <Button Content="IMAGE +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddImage_Click"
+                  ToolTip="Import a picture onto the graphic — a sponsor board, a crest, a full-frame image"/>
           <Button Content="SHAPE +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddShape_Click"/>
           <Button Content="SPORT DATA +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddData_Click"/>
           <Button Content="PLAYER DATA +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddPlayerData_Click"
@@ -386,6 +388,21 @@
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
           <CheckBox x:Name="IconFlipInput" Content="Put the home side on the left" Margin="10,2,10,8"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
+          <!-- Baseball's bases: the inside can be its own colour, separate from the outline. -->
+          <StackPanel x:Name="BaseFillPanel">
+            <TextBlock Text="Base fill" Style="{StaticResource FieldLabel}"/>
+            <ComboBox x:Name="IconFillSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
+                      ToolTip="Fill a base with a fixed colour or one of the team palette colours"/>
+            <DockPanel Margin="0,0,10,8">
+              <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconFillColor_Click"
+                      ToolTip="Open the colour palette for the base fill"/>
+              <Border x:Name="IconFillSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                      BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                      local:ThemeManager.SkipTheme="True" ToolTip="What a lit base is filled with"/>
+              <TextBox x:Name="IconFillInput" Margin="0" TextChanged="Property_Changed"
+                       ToolTip="Leave empty to use the element's text colour"/>
+            </DockPanel>
+          </StackPanel>
         </StackPanel>
 
         <StackPanel x:Name="VideoPanel">
