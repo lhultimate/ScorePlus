@@ -5,6 +5,7 @@
 
 Everything runs locally on one PC. Scores and clocks publish to the audience output as they change, so the operator never has to "refresh" the display mid-game.
 
+Linux builds can be found at: https://github.com/MysteriousJose/ScorePlus-Linux - Linux support is not officially endorsed, so use at your own risk!
 ## Highlights
 
 - **One console, no scrolling.** The main window is the control panel: visitors on the left, home on the right, with down & distance, miscellaneous clocks, timeouts, possession, the timeout clock, and custom stats all on the same page. Every value in Miscellaneous — game clock, play clock, shot clock and timeout clock — can be typed over, not just nudged with buttons.
