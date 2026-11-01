@@ -775,13 +775,12 @@ The console and studio reflow onto portrait monitors and high-DPI scaling. The s
 
 ScorePlus is an evolving production tool, not yet a full broadcast package. Still ahead:
 
-- Sponsor and commercial reporting
-- Network and hardware control
-- Broadcast transparency handling
+- Network and hardware control (not for a bit)
+- Multi-game communcation
 - A transition maker — build your own layout hand-overs instead of picking from the seven that ship
 - An animation maker — keyframe an element's motion rather than choosing one of the presets
-- Code signing (the setup exe is currently unsigned, so SmartScreen may warn)
-- Broader reliability testing across capture hardware
+- Full remote control support
+- Professional/commercial use
 
 Also worth knowing: video sound plays through the audience output window while the preview and studio stay muted, so you never hear a cue twice — and a video element with its own audio output is only routed when it is on an audience screen, so several preview windows never open the same speaker more than once.
 
