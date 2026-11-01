@@ -14,32 +14,32 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 
 ## Contents
 
-- [What ScorePlus is](#what-scoreplus-is)
-- [Install and run](#install-and-run)
-- [Your first game — a seven-step tutorial](#your-first-game--a-seven-step-tutorial)
-- [Tutorial: design a scorebug](#tutorial-design-a-scorebug)
-- [Tutorial: two screens with displays and layouts](#tutorial-two-screens-with-displays-and-layouts)
-- [Tutorial: video, camera and replay](#tutorial-video-camera-and-replay)
-- [Tutorial: rosters and player stats](#tutorial-rosters-and-player-stats)
-- [Tutorial: team identity and colours](#tutorial-team-identity-and-colours)
-- [Tutorial: keybinds](#tutorial-keybinds)
-- [Tutorial: the phone remote](#tutorial-the-phone-remote)
-- [Tutorial: sport profiles](#tutorial-sport-profiles)
-- [Reference: the control panel](#reference-the-control-panel)
-- [Reference: the scorebug studio](#reference-the-scorebug-studio)
-- [Reference: data tokens](#reference-data-tokens)
-- [Reference: preferences](#reference-preferences)
-- [Reference: file types](#reference-file-types)
-- [Where files live](#where-files-live)
-- [Building and releasing](#building-and-releasing)
+- [What ScorePlus Is](#what-scoreplus-is)
+- [Install and Run](#install-and-run)
+- [Your First Game — A Seven-Step Tutorial](#your-first-game--a-seven-step-tutorial)
+- [Tutorial: Design a Scorebug](#tutorial-design-a-scorebug)
+- [Tutorial: Two Screens with Displays and Layouts](#tutorial-two-screens-with-displays-and-layouts)
+- [Tutorial: Video, Camera and Replay](#tutorial-video-camera-and-replay)
+- [Tutorial: Rosters and Player Stats](#tutorial-rosters-and-player-stats)
+- [Tutorial: Team Identity and Colours](#tutorial-team-identity-and-colours)
+- [Tutorial: Keybinds](#tutorial-keybinds)
+- [Tutorial: The Phone Remote](#tutorial-the-phone-remote)
+- [Tutorial: Sport Profiles](#tutorial-sport-profiles)
+- [Reference: The Control Panel](#reference-the-control-panel)
+- [Reference: The Scorebug Studio](#reference-the-scorebug-studio)
+- [Reference: Data Tokens](#reference-data-tokens)
+- [Reference: Preferences](#reference-preferences)
+- [Reference: File Types](#reference-file-types)
+- [Where Files Live](#where-files-live)
+- [Building and Releasing](#building-and-releasing)
 - [Updates](#updates)
-- [Project layout and tests](#project-layout-and-tests)
+- [Project Layout and Tests](#project-layout-and-tests)
 - [Troubleshooting](#troubleshooting)
-- [What's next](#whats-next)
+- [What's Next](#whats-next)
 
 ---
 
-## What ScorePlus is
+## What ScorePlus Is
 
 ScorePlus is two programs in one window: an **operator console** that a scorekeeper drives during a game, and an **audience output** that a projector, capture card or streaming encoder sees. They talk to each other instantly, so pressing `+1` on a score changes the on-air graphic before your finger leaves the button.
 
@@ -53,7 +53,7 @@ It was built around four ideas:
 
 **4. It scales up without getting more complicated.** Start with one scorebug on one screen. When the show grows, add a lower thirds display, link displays to each other, put the console on a phone, and hand parts of one layout to another so you are not maintaining five near-identical scorebugs.
 
-### At a glance
+### At a Glance
 
 | | |
 | --- | --- |
@@ -66,11 +66,11 @@ It was built around four ideas:
 
 ---
 
-## Install and run
+## Install and Run
 
 There are two ways to get ScorePlus running, and they behave differently on purpose.
 
-### The installer (recommended)
+### The Installer (Recommended)
 
 Download **`ScorePlusSetup.exe`** from the releases page and run it. You do not need administrator rights: it installs for the current user into
 
@@ -84,13 +84,13 @@ An installed copy is the only kind that **checks for updates** and can replace i
 
 The setup also accepts `/SILENT`, `/DIR=<path>`, `/NOICONS` and `/NOREG` for scripted or unattended installs.
 
-### The portable build
+### The Portable Build
 
 Download **`ScorePlusPortable.exe`** and run it from anywhere — a USB stick, a desktop folder, a network share. It needs nothing else: one file, no loose DLLs, no runtime install.
 
 A portable copy never checks for updates and never touches the registry, so it is the safe choice for testing a new alpha beside the version that runs your show.
 
-### First launch
+### First Launch
 
 Two windows open together: the compact **launch box** with the ScorePlus mark and version, and the **main window** behind it, dimmed and locked. The console is visible so you know where the game will land, but nothing on it can be changed until you create or open a game.
 
@@ -105,7 +105,7 @@ The launch box offers:
 
 ---
 
-## Your first game — a seven-step tutorial
+## Your First Game — A Seven-Step Tutorial
 
 This walkthrough takes you from a cold launch to a scorebug on a second screen. Budget five minutes.
 
@@ -127,18 +127,18 @@ That's a working show. Everything from here is refinement.
 
 ---
 
-## Tutorial: design a scorebug
+## Tutorial: Design a Scorebug
 
 Open **Scorebug Studio** from the second row of the console. The studio opens maximized and fills the desktop: toolbar on top, layers on the left, property panel on the right, and the scorebug canvas in the middle framed with a border marking exactly where the artwork ends.
 
-### Add your first three elements
+### Add Your First Three Elements
 
 1. Press **TEXT +** in the toolbar. A text element appears on the canvas with placeholder content.
 2. In the property panel, set **NAME** to something you'll recognise later (`Home score`), then set **TEXT** to `{{HOME_SCORE}}`. The canvas immediately prints the current value — the token is bound to the game, not to a typed number.
 3. Press **SHAPE +**, then set **Shape type** to *Rectangle*, drag it behind the text, and give it a background colour. The layer list on the left controls the stacking order — the top row is the front of the picture.
 4. Press **LOGO +** and choose which team it shows. Logos themselves are configured in the console's **…** team box, not here, so one imported logo serves every layout.
 
-### Positioning, resizing and the modifier keys
+### Positioning, Resizing and the Modifier Keys
 
 Drag an element to move it, or type exact **X**, **Y**, **Width** and **Height** values in the property panel and press **Enter**. The canvas is scaled by the panel, so all four edges stay reachable no matter how big the window is.
 
@@ -150,7 +150,7 @@ Hold a modifier while resizing for precise control:
 | `Shift` | Aspect ratio is locked — drag one edge and the other follows proportionally |
 | `Ctrl` + `Shift` | Both at once |
 
-### Selecting, layering and deleting
+### Selecting, Layering and Deleting
 
 | Action | How |
 | --- | --- |
@@ -175,7 +175,7 @@ Options available on almost everything:
 - **Opacity** — per element, so a stat box can sit at 60% over live video.
 - **Colour sources** — anywhere a colour is offered, choose *Custom* for a hex/alpha picker, or **Home Primary**, **Home Secondary**, **Away Primary**, **Away Secondary** so the graphic recolours itself when you change a team's identity.
 
-### Type and motion
+### Type and Motion
 
 Every text element picks its own font from 25+ installed families, or imports a `.ttf`/`.otf`/`.ttc` of its own (kept in the app's `Fonts` folder so the layout travels with it). Each one can be **bold**, *italic*, <u>underlined</u> or ~~struck through~~, rotated to any angle, and animated.
 
@@ -188,7 +188,7 @@ Two separate animation systems, easy to confuse:
 
 There is also a show-wide **value switch delay** in Preferences (0 by default): how long a graphic deliberately holds the old value before printing the new one. Use it when a fast-changing score needs a beat to be readable — say, 0.3 seconds.
 
-### Live artwork instead of numbers
+### Live Artwork Instead of Numbers
 
 Three elements can draw artwork from game state instead of (or alongside) typed text, chosen from the **ICON** section:
 
@@ -200,13 +200,13 @@ Three elements can draw artwork from game state instead of (or alongside) typed 
 
 They update themselves with no studio edit, and a base lighting up plays the element's own value transition — so a runner arriving fades and pops the base in, in time with the rest of the graphic. The possession dot and the text are exclusive: turning on the dot removes the text rather than sitting under it. Small icons keep their size when you resize the box, unless you hold `Ctrl`, exactly like text.
 
-### Canvas size and background
+### Canvas Size and Background
 
 Beyond the canvas's own bar you choose the size: **HD (1280×720)**, **Full HD (1920×1080)**, **QHD (2560×1440)**, **4K UHD (3840×2160)**, **Vertical (1080×1920)** or **Square (1080×1080)**. Changing it scales the layout and is remembered with it.
 
 **Canvas background** belongs to the layout — green screen, navy, black, any colour, or a typed hex — and the studio, the program preview and the audience all paint the same thing. The **Reset** button puts it back to the ScorePlus navy; it sits beside the green-screen button so a chroma key and a clean backdrop are one click apart.
 
-### Multi-select, duplicate, and the finer points
+### Multi-Select, Duplicate, and the Finer Points
 
 - Layers list runs **front of the picture at the top**.
 - Every element flies forward/back with the layer buttons, or you can drag rows.
@@ -215,11 +215,11 @@ Beyond the canvas's own bar you choose the size: **HD (1280×720)**, **Full HD (
 
 ---
 
-## Tutorial: two screens with displays and layouts
+## Tutorial: Two Screens with Displays and Layouts
 
 A **display** is one audience screen. A **layout** is one design that a display can show. A display can hold many layouts; a layout belongs to exactly one display.
 
-### Add a lower thirds screen
+### Add a Lower Thirds Screen
 
 1. In the console, use the display dropdown directly above the program preview. Choose **+ New display** (or open the studio, where the **DISPLAY** bar has the same controls).
 2. The new display starts blank — one empty layout, nothing on air — because it is meant for something other than the scorebug.
@@ -228,15 +228,15 @@ A **display** is one audience screen. A **layout** is one design that a display 
 
 To change the display inside the studio, use the **DISPLAY** bar at the top. It sits above the **LAYOUT** strip on purpose: pick the screen first, then pick what it shows.
 
-### Layouts as pictures, not a dropdown
+### Layouts as Pictures, Not a Dropdown
 
 Every layout on the chosen display appears as a strip of **thumbnails with the layout's name underneath**. Click one to edit it. In the console, the program preview has **◀ / ▶** arrows beside it that step through the displays' layouts; step to the one you want and press **Update Output** to send it. It's a slideshow of scorebugs — every layout still reads the same live game data, so nothing needs re-entering.
 
-### Switching transitions
+### Switching Transitions
 
 When a display switches layouts, the hand-over belongs to the layout **arriving**. Each layout carries its own **TRANSITION IN** — `Cut`, `Fade`, `Slide Left`, `Slide Right`, `Slide Up`, `Slide Down` or `Zoom` — over anything from **0 to 5 seconds**. Set it on the layout bar. One scorebug can snap on while the next dissolves in slowly, and the choice saves in the game, the `.spl` file and the `.spd` file.
 
-### Per-window layout choice
+### Per-Window Layout Choice
 
 The staged layout and display are chosen **per window**. Open a second console with **New Panel** (the ⧉ icon) and it can be lining up a lower third on display 2 while the first window works the scorebug on display 1. Nothing you stage moves until **Update Output**.
 
@@ -244,36 +244,36 @@ Below the staged preview sits a second, smaller thumbnail: the **audience view**
 
 Under the preview is a **sound level meter** with the peak level the machine is putting out, next to the on-air display and layout, so you can see at a glance what is live and whether audio is actually flowing.
 
-### Linking displays together
+### Linking Displays Together
 
 A layout can be **linked** to a layout on another display. Choose it under **LINK THIS LAYOUT TO**, and tick **both ways** if the link should work in reverse too — then choosing layout A on display 1 also stages layout F on display 2, and choosing F on display 2 stages A on display 1. One **Update Output** publishes both.
 
 A link that points at another display can't survive a single-display export (there's no second display in the file), so it is cleared on import. That's deliberate: a file never silently rewires your show.
 
-### Copying and moving layouts
+### Copying and Moving Layouts
 
 - **Copy to…** clones a layout — plus its artwork — onto another display as an independent copy. Editing one does not touch the other.
 - **Move to…** hands the layout over entirely, artwork and identity included, and follows it to the target display so you stay where you were working.
 
 A display never gives away its last layout; there is always something on that screen.
 
-### Sharing parts between layouts
+### Sharing Parts Between Layouts
 
 If two layouts need the same score bar, don't build it twice. In the studio press **PARTS +** and pick elements from another layout on any display in the game. The copies land nudged clear of the original and stay **linked**: move one, resize one, restyle one, and every copy follows on every layout. That's how you avoid a dozen nearly identical scorebugs.
 
 When one copy should stop following, open its properties and press **Break link** — that copy becomes independent while the others stay together.
 
-### Adding embedded HTML
+### Adding Embedded HTML
 
 **HTML +** drops a live HTML/CSS widget on the graphic. It is drawn by a real browser engine, so the studio, both previews and the audience output show the same picture, and it can carry a full CSS layout — a sponsor ticker, a cleaned-up lower third, a countdown strip. Anything inside it can still read live data through `data-token` attributes and the small `window.ScorePlus.set(token, value)` helper, so the HTML element animates and updates like any other.
 
 ---
 
-## Tutorial: video, camera and replay
+## Tutorial: Video, Camera and Replay
 
 Everything audiovisual lives in the **MEDIA** tab. It is a full-size pane, not a dock: buttons are the same size as the console's, and it stays usable in a **New Panel** window parked on the media machine.
 
-### Import clips and organise them
+### Import Clips and Organise Them
 
 1. Switch to **MEDIA** and press **Import**. Pick audio or video files. Each becomes a thumbnail tile in the browser.
 2. Press **+ Folder** to make a folder, then drag a clip onto the folder card to file it. **Double-click** any folder card to open it, and folders can sit inside folders. **← Back** and the path bar walk you out again.
@@ -281,7 +281,7 @@ Everything audiovisual lives in the **MEDIA** tab. It is a full-size pane, not a
 4. The **search box** looks through every clip, folder and playlist, and deliberately ignores which folder you're standing in. A clip never disappears just because somebody filed it away.
 5. **Export folder…** writes a whole folder — everything nested inside it and its media — as one **ScorePlus Media Folder (`.spf`)**; **Import folder…** brings it back whole on another machine.
 
-### Tags are what connect media to the graphic
+### Tags Are What Connect Media to the Graphic
 
 A tag is a folder that the scorebug can watch. If a clip is tagged **Ads**, it plays inside a video element watching **Ads**, and a video element watching **Highlights** shows nothing while that ad runs. Tags keep two video boxes independent without any routing step.
 
@@ -289,7 +289,7 @@ There is one special tag: **ANY**. A video element tagged ANY plays whatever cli
 
 To tag a clip: select it, pick the tag from the dropdown, press **Set tag**. Suggested tags include General, Ads, Highlights, Music, Anthem, Sponsors, Camera and Microphone, and you can type your own.
 
-### Volume, speaker, loop
+### Volume, Speaker, Loop
 
 - The scrub bar seeks anywhere in a clip; you don't have to sit through it.
 - **Play/▶**, **Stop/■** and the transport bar drive the selected clip. Stop clears the last frame from the preview and takes the overlay down.
@@ -298,7 +298,7 @@ To tag a clip: select it, pick the tag from the dropdown, press **Set tag**. Sug
 - **Loop this clip** repeats one video indefinitely — the stadium-screen behaviour.
 - **Loop playlist** repeats the whole ordered run. Without it, a playlist plays its clips one after another until it ends or you press **Stop**.
 
-### Live cameras
+### Live Cameras
 
 **Add camera** puts a capture device (webcam, HDMI capture, SDI card) into the library as a live item. It routes by tag like anything else.
 
@@ -306,7 +306,7 @@ To tag a clip: select it, pick the tag from the dropdown, press **Set tag**. Sug
 - **Switching the device while it is live changes the shot immediately.**
 - **Add microphone** adds an audio capture device the same way, for a commentary or ambient feed.
 
-### Replay, end to end
+### Replay, End to End
 
 The camera keeps rolling a two-minute buffer while it is live. Replay is staged, not fired blindly.
 
@@ -325,18 +325,18 @@ If you never press **Start replay**, nothing on air changes. The audience screen
 
 ---
 
-## Tutorial: rosters and player stats
+## Tutorial: Rosters and Player Stats
 
 The **ROSTERS** tab is a player desk, not another console.
 
-### Build a roster
+### Build a Roster
 
 1. Switch to **ROSTERS**. Use the visitors/home switch at the top to pick the side you're editing.
 2. Pick or create a roster for that side. A roster is a team's list of players and the stat columns it tracks.
 3. Add a player and fill in number, name, position and any stat values. Each sport ships with **20+ stat columns** already present (27 for American football; 22 for basketball, baseball, soccer and the rest), so you never have to name a stat before typing a value. Columns are the roster's, not the player's — every player in the roster gets the same ones.
 4. **Select player** makes someone the *selected player* for that side. **No player** takes them off the graphic entirely, leaving player elements blank until somebody is selected again. That choice survives a roster edit and a save.
 
-### Put a player on the graphic
+### Put a Player on the Graphic
 
 In the studio, add a text element and press **PLAYER DATA +** (or use the PLAYER DATA section in the property panel). Pick the team and the value — `Name`, `Number`, `Position`, `Yards`, whatever the roster tracks — and the element binds to
 
@@ -350,7 +350,7 @@ One element now shows **whoever is selected** for that side. Switch players in t
 
 If you'd rather an element keep printing one specific player — a "player of the game" strip, say — open its properties and **pin** that player from the roster list. It stops following the selection and holds that player while somebody else is on the graphic.
 
-### Import and export
+### Import and Export
 
 **Import…** and **Export…** in the ROSTERS header exchange:
 
@@ -363,7 +363,7 @@ Rosters live with the app and survive a new game. Which roster each side uses, w
 
 ---
 
-## Tutorial: team identity and colours
+## Tutorial: Team Identity and Colours
 
 Team identity lives in the console, not the studio.
 
@@ -382,7 +382,7 @@ The abbreviation is what fits where a full name won't, and it also feeds tokens 
 
 ---
 
-## Tutorial: keybinds
+## Tutorial: Keybinds
 
 Nothing is bound by default — every key is yours to assign.
 
@@ -395,7 +395,7 @@ Keybinds are global to the app while a game is open, so a second control panel d
 
 ---
 
-## Tutorial: the phone remote
+## Tutorial: The Phone Remote
 
 Preferences can serve the whole control panel to a phone or tablet on the same Wi-Fi.
 
@@ -412,7 +412,7 @@ It is off until you enable it, requires the password for everything (hashed, con
 
 ---
 
-## Tutorial: sport profiles
+## Tutorial: Sport Profiles
 
 **Sport Profiles** edits how a sport behaves — not how it looks.
 
@@ -448,11 +448,11 @@ Flags print their words on the graphic — `PP`, `BOTTOM`, `BONUS`, `TOP` — in
 
 ---
 
-## Reference: the control panel
+## Reference: The Control Panel
 
 The main window is one page, top to bottom.
 
-### Top row
+### Top Row
 
 | Control | What it does |
 | --- | --- |
@@ -467,7 +467,7 @@ The main window is one page, top to bottom.
 | **Sport Profiles** | Edit how the sport behaves |
 | **New Game** | Start a blank slate |
 
-### The console body
+### The Console Body
 
 - **Visitors** on the left, **Home** on the right, each with a **…** team box (name, abbreviation, logo, primary/secondary colours), a score stepper, and timeouts.
 - **Game clock** — typed as `MM:SS` or a plain number of seconds, with ±1s and ±1m buttons and Start/Stop.
@@ -489,7 +489,7 @@ Every notice and confirmation in ScorePlus is the app's own themed window — cl
 
 ---
 
-## Reference: the scorebug studio
+## Reference: The Scorebug Studio
 
 Layout: toolbar across the top, layers down the left, canvas in the middle, properties on the right, and the display/layout bars above the canvas.
 
@@ -497,7 +497,7 @@ Layout: toolbar across the top, layers down the left, canvas in the middle, prop
 
 Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **SHAPE +**, **SPORT DATA +**, **PLAYER DATA +**, **VIDEO +**, **HTML +**, **PARTS +**.
 
-### Element types
+### Element Types
 
 | Type | What it draws | Notable properties |
 | --- | --- | --- |
@@ -507,7 +507,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **SHAPE
 | **Video** | Live clip from one tag | Media tag (or **ANY**), preserve aspect ratio, audio output, border, radius |
 | **HTML** | A live web widget | Free HTML/CSS/JS, `data-token` bindings |
 
-### Properties worth knowing
+### Properties Worth Knowing
 
 - **Quarter style** is per element (`Quarter 1`, `Q1` or `1`), so two graphics can print the period differently in the same game.
 - **Preserve video aspect ratio** locks the box to the clip's shape — nothing is stretched or cropped. Turn it off and the box can be any shape, with the picture filling it.
@@ -517,7 +517,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **SHAPE
 - **Rotation** is in degrees; negative angles are fine.
 - **Transition** and its **duration** (0–5s) live with the element, next to the font controls.
 
-### Keyboard and mouse
+### Keyboard and Mouse
 
 | Input | Result |
 | --- | --- |
@@ -533,7 +533,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **SHAPE
 | `Ctrl` + `Shift` + resize | Both |
 | `Enter` in a value field | Commit and leave the field |
 
-### Display and layout bars
+### Display and Layout Bars
 
 - **DISPLAY** — which screen you're editing; also where displays are added, renamed and removed.
 - **TRANSITION IN** — the arriving layout's hand-over and its duration.
@@ -542,17 +542,17 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **SHAPE
 - **CANVAS BACKGROUND** — green screen, navy reset, black, custom colour.
 - **Size presets** — HD, Full HD, QHD, 4K UHD, vertical, square.
 
-### Safety in the studio
+### Safety in the Studio
 
 The studio is a real editor: a maximized window that never sizes past the working area, a canvas that scales with the panel and keeps all four edges reachable, and layer ordering that reads front-to-back. Multi-select plus one property change applies to the whole selection, so a row of stat boxes is never edited six times.
 
 ---
 
-## Reference: data tokens
+## Reference: Data Tokens
 
 Bind live data by typing a token into a text element's content, or by using the toolbar buttons which insert them for you.
 
-### Game and clock
+### Game and Clock
 
 | Token | Prints |
 | --- | --- |
@@ -572,7 +572,7 @@ Bind live data by typing a token into a text element's content, or by using the 
 | `{{BALL_SIDE_SPOT}}` | Both together (`HOME 37`) |
 | `{{SPORT}}` | The sport id, upper case |
 
-### Sport values
+### Sport Values
 
 | Token | Prints |
 | --- | --- |
@@ -586,7 +586,7 @@ Bind live data by typing a token into a text element's content, or by using the 
 | `{{POWERPLAY}}` | `PP` or blank |
 | `{{SHOTS}}`, `{{CORNERS}}`, `{{CARDS}}` | Shared sport figures |
 
-### Player, stats and time
+### Player, Stats and Time
 
 | Token | Prints |
 | --- | --- |
@@ -600,7 +600,7 @@ Tokens are resolved at draw time, so an element holding `{{HOME_SCORE}}` always 
 
 ---
 
-## Reference: preferences
+## Reference: Preferences
 
 | Setting | Default | Notes |
 | --- | --- | --- |
@@ -618,7 +618,7 @@ Both accents accept a typed hex value or a picker, and **Reset** brings back the
 
 ---
 
-## Reference: file types
+## Reference: File Types
 
 | Extension | Name | Holds |
 | --- | --- | --- |
@@ -636,7 +636,7 @@ The game report is a complete record: every value the game holds, the sport's ow
 
 ---
 
-## Where files live
+## Where Files Live
 
 | What | Location |
 | --- | --- |
@@ -658,7 +658,7 @@ If you had an older installation, the files in `%LOCALAPPDATA%\Scoreboard` are c
 
 ---
 
-## Building and releasing
+## Building and Releasing
 
 Building needs the **.NET 10 SDK** with the Windows desktop targeting pack.
 
@@ -709,7 +709,7 @@ Things worth knowing:
 
 ---
 
-## Project layout and tests
+## Project Layout and Tests
 
 ```
 src/Scoreboard.Core       Game state, engine, sport catalog, scorebug model, tokens, files, reports
@@ -768,7 +768,7 @@ The console and studio reflow onto portrait monitors and high-DPI scaling. The s
 
 ---
 
-## What's next
+## What's Next
 
 ScorePlus is an evolving production tool, not yet a full broadcast package. Still ahead:
 
