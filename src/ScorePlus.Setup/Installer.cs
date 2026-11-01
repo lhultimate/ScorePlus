@@ -22,6 +22,13 @@ public static class Installer
         ? $"{version.Major}.{Math.Max(0, version.Minor)}.{Math.Max(0, version.Build)}"
         : "1.0.0";
 
+    /// <summary>
+    /// The version as the operator knows it — Alpha 1.2.0. Display only: the registry, the install
+    /// marker and the updater keep comparing the numeric <see cref="Version"/>, so a label can
+    /// never make a build look older or newer than it is.
+    /// </summary>
+    public static string DisplayVersion => $"Alpha {Version}";
+
     static readonly string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ScorePlus";
     static readonly string AppKey = @"Software\ScorePlus";
 

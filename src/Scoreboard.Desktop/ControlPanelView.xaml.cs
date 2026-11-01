@@ -451,8 +451,9 @@ public partial class ControlPanelView : UserControl
             if (e.Key == Key.Enter)
             {
                 CommitSportValue(control);
-                // Stay in the box: Enter only settles the value, it never leaves the console.
-                value.SelectAll();
+                // Enter settles the value and hands the box back, so the next keypress is a shortcut
+                // instead of another digit in a field nobody meant to keep typing in.
+                Keyboard.ClearFocus();
                 e.Handled = true;
             }
             else if (e.Key == Key.Escape)
@@ -854,7 +855,7 @@ public partial class ControlPanelView : UserControl
 
     public void ShowKeybindsDialog()
     {
-        var dialog = new KeybindsWindow(_keybinds) { Owner = Window.GetWindow(this) };
+        var dialog = new KeybindsWindow(_keybinds, _engine.State.SportId, _engine.Sport.Name) { Owner = Window.GetWindow(this) };
         ThemeManager.Apply(dialog, PreferencesStore.Load().Theme);
         if (dialog.ShowDialog() == true)
         {

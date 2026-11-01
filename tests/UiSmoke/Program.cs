@@ -213,6 +213,38 @@ internal static class Program
             keybinds.Close();
             Console.WriteLine("PASS: keybinds window loads");
 
+            // The keybind list is the current sport's: no downs on a baseball console, no power play
+            // on a football one, and the shared score/clock/output buttons everywhere.
+            var baseballActions = ControlActions.ForSport("baseball").Select(a => a.Id).ToArray();
+            if (baseballActions.Contains("football.down.next") || baseballActions.Contains("soccer.red.home"))
+                throw new Exception("FAIL: baseball keybinds still offer another sport's buttons");
+            if (!baseballActions.Contains("baseball.ball") || !baseballActions.Contains("home.score.plus1")
+                || !baseballActions.Contains("output.publish"))
+                throw new Exception("FAIL: baseball keybinds are missing its own or the shared buttons");
+            if (!ControlActions.ForSport("football").Any(a => a.Id == "football.playclock.toggle"))
+                throw new Exception("FAIL: football keybinds lost the play clock");
+            var baseballBinds = new KeybindsWindow(new KeybindSettings(), "baseball", "Baseball");
+            baseballBinds.Show();
+            baseballBinds.UpdateLayout();
+            var listedActions = FindAll<ListBox>(baseballBinds).First().Items.Cast<object>().Select(item => item.ToString() ?? "").ToArray();
+            if (listedActions.Any(text => text.Contains("Power play", StringComparison.Ordinal) || text.Contains("Next down", StringComparison.Ordinal)))
+                throw new Exception("FAIL: a baseball keybind list shows another sport's buttons");
+            baseballBinds.Close();
+            // The media browser's up-one-level control is named for what it does.
+            if (!FindAll<Button>(dock).Any(b => (b.Content as string) == "← Back"))
+                throw new Exception("FAIL: the media browser has no Back button");
+            // A new game asks which sport it is played in, offering every profile.
+            var newGameSportPicker = new SportPickerWindow(new SportCatalog(), "hockey", "Dark");
+            newGameSportPicker.Show();
+            newGameSportPicker.UpdateLayout();
+            var sportChoices = FindAll<ListBox>(newGameSportPicker).First();
+            if (sportChoices.Items.Count < 10)
+                throw new Exception($"FAIL: the new-game sport chooser lists {sportChoices.Items.Count} sports");
+            if (sportChoices.SelectedItem is null)
+                throw new Exception("FAIL: the new-game sport chooser opens with no sport selected");
+            newGameSportPicker.Close();
+            Console.WriteLine("PASS: keybinds list only the current sport, media goes Back, and a new game asks for its sport");
+
             var settings = new KeybindSettings();
             settings.Bindings["home.score.plus2"] = KeybindStore.ToText(Key.D2, ModifierKeys.Control);
             var matched = KeybindStore.Match(settings, Key.D2, ModifierKeys.Control);
@@ -819,6 +851,43 @@ internal static class Program
             iconStudio.Close();
             Console.WriteLine("PASS: icon elements draw on the scorebug canvas and edit from the studio");
 
+            // The possession dot is the whole icon — no value printed beside it — and its mark keeps
+            // its size when the box is resized, growing only with the element's own type size.
+            {
+                var markItem = new ScorebugElement { Name = "Possession", Content = "{{POSSESSION}}", Kind = ScorebugElementKind.Text, Icon = ScorebugIcon.PossessionDot, Width = 200, Height = 60, FontSize = 24 };
+                var markView = new ScorebugIconView(markItem, () => iconEngine.State);
+                if (FindAll<TextBlock>(markView).Any())
+                    throw new Exception("FAIL: the possession dot still prints a value beside the mark");
+                var mark = FindAll<System.Windows.Shapes.Ellipse>(markView).Single();
+                var markSize = mark.Width;
+                markItem.Width = 500; markItem.Height = 200; markView.Update();
+                if (Math.Abs(mark.Width - markSize) > 0.01)
+                    throw new Exception("FAIL: the possession dot grew just because its box did");
+                markItem.FontSize = 48; markView.Update();
+                if (mark.Width <= markSize + 1)
+                    throw new Exception("FAIL: the possession dot did not follow the element's type size");
+                Console.WriteLine("PASS: the possession dot draws without text and keeps its size until the type size changes");
+            }
+
+            // The backdrop can be reset to ScorePlus navy, and the layout no longer exports as a page.
+            {
+                var navyCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"navy-{Guid.NewGuid():N}.json"));
+                navyCatalog.Update(layout => layout.Background = "#FF00B140");
+                var navyStudio = new ScorebugEditorWindow(navyCatalog, iconEngine, null, "Dark");
+                navyStudio.Show();
+                navyStudio.UpdateLayout();
+                FindAll<Button>(navyStudio).First(b => (b.Content as string) == "Navy")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (!string.Equals(navyCatalog.Layout.Background, "#FF091018", StringComparison.OrdinalIgnoreCase))
+                    throw new Exception($"FAIL: the navy reset set {navyCatalog.Layout.Background}");
+                if (FindAll<Button>(navyStudio).Any(b => (b.Content as string) == "Green screen"))
+                    throw new Exception("FAIL: the old green screen button is still offered");
+                if (FindAll<Button>(navyStudio).Any(b => (b.Content as string) == "HTML page…"))
+                    throw new Exception("FAIL: the studio still offers an HTML page export");
+                navyStudio.Close();
+                Console.WriteLine("PASS: the backdrop resets to navy and the layout has no HTML export");
+            }
+
             if (KeybindStore.Defaults().Bindings.Count != 0)
                 throw new Exception("FAIL: keybinds are still assigned out of the box");
             Console.WriteLine("PASS: no shortcut is assigned until the operator picks one");
@@ -854,6 +923,20 @@ internal static class Program
             if (detailHint.Visibility != Visibility.Visible) throw new Exception("FAIL: heading tips stayed hidden while enabled");
             hintWindow.Close();
             Console.WriteLine("PASS: heading tips follow the preference");
+
+            // The studio's explanatory lines follow the same switch; tips are off by default.
+            {
+                var tipCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"tips-{Guid.NewGuid():N}.json"));
+                var tipStudio = new ScorebugEditorWindow(tipCatalog, engine, null, "Dark");
+                tipStudio.Show();
+                tipStudio.UpdateLayout();
+                var headerHint = (TextBlock)tipStudio.FindName("HeaderHint")!;
+                var transitionHint = (TextBlock)tipStudio.FindName("TransitionCaption")!;
+                if (headerHint.Visibility != Visibility.Collapsed || transitionHint.Visibility != Visibility.Collapsed)
+                    throw new Exception("FAIL: the studio showed its tips while heading tips are off");
+                tipStudio.Close();
+                Console.WriteLine("PASS: the studio's tips follow the heading-tips preference");
+            }
 
             // Live score & clocks can be toggled from a keybind.
             var liveState = true;
@@ -946,6 +1029,30 @@ internal static class Program
                     throw new Exception("FAIL: a live camera did not route into an ANY video box");
                 playback.Start(ad);
                 Console.WriteLine("PASS: ANY plays whatever is cued, and a live camera routes like a clip");
+
+                // A microphone is a live source like a camera: its own library item, audio only.
+                var micPath = MediaLibrary.MicrophonePath(1);
+                var micItem = new MediaEntry(micPath, "Microphone");
+                if (!micItem.IsMicrophone || micItem.IsVideo || micItem.IsCamera || micItem.KindLabel != "MIC")
+                    throw new Exception($"FAIL: a microphone item is not audio-only ({micItem.IsVideo}/{micItem.KindLabel})");
+                if (MediaLibrary.MicrophoneIndex(micPath) != 1 || MediaLibrary.CameraIndex(micPath) is not null)
+                    throw new Exception("FAIL: a microphone path does not round-trip");
+                var micSession = new MediaSession(new UserPreferences());
+                try
+                {
+                    var addedMic = micSession.AddMicrophone(0, "Commentary");
+                    if (!addedMic.IsMicrophone || !micSession.Library.Contains(addedMic) || addedMic.Tag != "Commentary")
+                        throw new Exception("FAIL: Add microphone did not file the item in the library");
+                    var again = micSession.AddMicrophone(0);
+                    if (!ReferenceEquals(again, addedMic))
+                        throw new Exception("FAIL: adding the same microphone twice made a second item");
+                }
+                finally { micSession.Stop(); micSession.Dispose(); }
+                // The playlist view's way back is a labelled button, not a lone clipped arrow.
+                var playlistBack = (Button)dock.FindName("BackToLibraryButton")!;
+                if ((playlistBack.Content as string) != "← Back")
+                    throw new Exception($"FAIL: the playlist back button reads '{playlistBack.Content}'");
+                Console.WriteLine("PASS: a microphone is a live audio item, and the playlist Back button is labelled");
 
                 // Replay opens in the preview only: the audience keeps the live camera until Start replay.
                 var staging = new MediaPlayback();
@@ -2902,6 +3009,26 @@ internal static class Program
                 if (!Uri.TryCreate(UpdateFeed.BuiltIn, UriKind.Absolute, out var builtIn) || builtIn.Host != "api.github.com")
                     throw new Exception("FAIL: the built-in update feed is not a GitHub API address");
                 Console.WriteLine("PASS: interface accents are stored and validated, updates read prereleases from the built-in feed with the asset's own checksum, and only a genuinely newer version is offered");
+
+                // ---------- the installer wears the app's own chrome and reads its Alpha label ----------
+                {
+                    var setupWindow = new SetupWindow(false) { ShowInTaskbar = false };
+                    setupWindow.Show();
+                    setupWindow.UpdateLayout();
+                    if (!FindAll<TextBlock>(setupWindow).Any(t => t.Text.Contains("Alpha ", StringComparison.Ordinal)))
+                        throw new Exception("FAIL: the installer does not show its Alpha version");
+                    if (setupWindow.Background is not SolidColorBrush setupFace || setupFace.Color.R > 0x20 || setupFace.Color.B > 0x20)
+                        throw new Exception($"FAIL: the installer still paints a coloured (navy) panel ({setupWindow.Background})");
+                    foreach (var setupButton in FindAll<Button>(setupWindow))
+                    {
+                        if (setupButton.Foreground is not SolidColorBrush setupInk || setupInk.Color.R < 230)
+                            throw new Exception($"FAIL: an installer button has unreadable text on its box ({setupButton.Foreground})");
+                        if (setupButton.Background is not SolidColorBrush setupFill || setupFill.Color.R > 0x80)
+                            throw new Exception($"FAIL: an installer button is still a pale system box ({setupButton.Background})");
+                    }
+                    setupWindow.Close();
+                    Console.WriteLine("PASS: the installer uses the app's dark chrome, readable buttons and its Alpha version label");
+                }
 
                 // ---------- the installer keeps to folders and files that are its own ----------
                 {

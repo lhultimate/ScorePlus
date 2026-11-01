@@ -226,15 +226,21 @@ public sealed class VideoSurface : Grid
             _live.Visibility = Visibility.Collapsed;
             if (_loadedPath is not null)
             {
-                try { _element.Stop(); _element.Source = null; } catch { }
+                // Stop, Close and then clear the source. A MediaElement that is only stopped can
+                // keep painting its last frame — which is exactly what stayed on the program
+                // preview after Stop — so it is also taken out of the picture entirely.
+                try { _element.Stop(); _element.Close(); _element.Source = null; } catch { }
                 _loadedPath = null;
                 _opened = false;
             }
             _playing = false;
+            // Nothing is cued, so the box shows the artwork behind it, not the last video frame.
+            _element.Visibility = Visibility.Collapsed;
             if (_placeholder is not null) _placeholder.Visibility = Visibility.Visible;
             return;
         }
 
+        _element.Visibility = Visibility.Visible;
         if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
 
         // Each clip carries its own level, and a clip routed to a chosen speaker (on the clip or on
@@ -410,7 +416,8 @@ public sealed class VideoSurface : Grid
         _playing = false;
         _opened = false;
         _loadedPath = null;
-        try { _element.Stop(); _element.Source = null; } catch { }
+        try { _element.Stop(); _element.Close(); _element.Source = null; } catch { }
+        _element.Visibility = Visibility.Collapsed;
         _live.Visibility = Visibility.Collapsed;
         if (_placeholder is not null) _placeholder.Visibility = Visibility.Visible;
     }

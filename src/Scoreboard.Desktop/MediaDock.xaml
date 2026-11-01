@@ -260,6 +260,14 @@
           <Button x:Name="LiveButton" Content="Live" Style="{StaticResource DockAction}" Click="Live_Click"
                   ToolTip="Jump back to the live camera"/>
         </WrapPanel>
+        <!-- Microphones: live commentary, captured from a device and monitored on its own output. -->
+        <WrapPanel Margin="0,3,0,0">
+          <TextBlock Text="MICROPHONE" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+          <Button Content="Add microphone" Style="{StaticResource DockAction}" Click="Microphone_Click"
+                  ToolTip="Add a capture device to the library. Cue it and its sound goes live on the output set below"/>
+          <TextBlock x:Name="MicrophoneStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
+                     VerticalAlignment="Center" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
+        </WrapPanel>
         <!-- Which camera item is live: pick another and it takes over on air. -->
         <DockPanel Margin="0,3,0,0">
           <TextBlock Text="LIVE" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
@@ -304,8 +312,8 @@
            and this bar is where you go back out, make a folder, or move a folder in and out. -->
       <StackPanel x:Name="BrowserBar" Grid.Row="2" Margin="0,0,0,5">
         <DockPanel Margin="0,0,0,4">
-          <Button x:Name="UpButton" DockPanel.Dock="Right" Style="{StaticResource DockAction}" Content="↑ Up"
-                  Click="Up_Click" ToolTip="Go up one folder"/>
+          <Button x:Name="UpButton" DockPanel.Dock="Right" Style="{StaticResource DockAction}" Content="← Back"
+                  Click="Up_Click" ToolTip="Back to the folder you came from"/>
           <TextBlock Text="PATH" Style="{StaticResource DockLabel}"/>
           <TextBlock x:Name="BreadcrumbText" Text="LIBRARY" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"
                      TextTrimming="CharacterEllipsis" ToolTip="Where you are in the media library"/>
@@ -328,7 +336,7 @@
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="BackToLibraryButton" Style="{StaticResource DockAction}" Content="←" Width="32" Padding="0" Margin="0,0,8,0"
+        <Button x:Name="BackToLibraryButton" Style="{StaticResource DockAction}" Content="← Back" Margin="0,0,8,0"
                 Visibility="Collapsed" Click="BackToLibrary_Click" ToolTip="Back to the media library"/>
         <DockPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,5,0">
           <TextBlock x:Name="ViewTitle" DockPanel.Dock="Left" Text="LIBRARY" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>

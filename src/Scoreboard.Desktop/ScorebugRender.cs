@@ -507,7 +507,6 @@ public sealed class ScorebugIconView : Grid
 {
     readonly ScorebugElement _item;
     readonly Func<GameState>? _state;
-    readonly ScorebugTextBlock? _text;
     readonly Ellipse? _dot;
     readonly StackPanel? _bars;
     readonly Canvas? _bases;
@@ -552,12 +551,8 @@ public sealed class ScorebugIconView : Grid
         }
         else
         {
-            // The dot sits beside whatever the element says (usually {{POSSESSION}}).
-            if (!string.IsNullOrWhiteSpace(item.Content))
-            {
-                _text = ScorebugRender.MakeText(item, text ?? item.Content);
-                Children.Add(_text);
-            }
+            // The dot is the whole icon: it marks the side with the ball, on the side that has it.
+            // Printing the value beside it read as a second, stale possession next to the mark.
             _dot = new Ellipse { Fill = ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item, state?.Invoke())), VerticalAlignment = VerticalAlignment.Center };
             Children.Add(_dot);
         }
@@ -568,7 +563,6 @@ public sealed class ScorebugIconView : Grid
     public void Update(string? text = null)
     {
         var state = _state?.Invoke();
-        _text?.ApplyStyle(_item, state);
         var foreground = ScorebugRender.ResolveForeground(_item, state);
         if (_bases is not null)
         {
@@ -672,7 +666,10 @@ public sealed class ScorebugIconView : Grid
         }
         if (_dot is not null)
         {
-            var size = Math.Max(8, Math.Min(_item.Width, _item.Height) * 0.3);
+            // The mark keeps its size when the box is resized, so a wider plate does not inflate the
+            // dot. Ctrl-resizing in the studio scales the element's type size, and the dot follows,
+            // so the mark can still be made bigger on purpose.
+            var size = Math.Clamp(_item.FontSize * 1.15, 6, 240);
             _dot.Width = size;
             _dot.Height = size;
             _dot.Margin = new Thickness(size * 0.35, 0, size * 0.35, 0);
@@ -681,11 +678,6 @@ public sealed class ScorebugIconView : Grid
             var home = state?.HomePossession ?? true;
             var right = _item.IconFlipped ? !home : home;
             _dot.HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-        }
-        if (_text is not null)
-        {
-            var value = text ?? (state is null ? _item.Content : ScoreboardTemplates.Bind(_item.Content, state, _item.PeriodFormat));
-            _text.UpdateText(value, _item.Transition, _item.TransitionSeconds);
         }
     }
 

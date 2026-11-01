@@ -32,6 +32,8 @@ public sealed class MediaSession
     // MediaElement (which can only ever use the Windows default output).
     readonly AudioRouter _audio = new();
     CameraFeed? _camera;
+    // The live microphone, if one is cued. Like the camera it owns a capture device while on air.
+    MicrophoneFeed? _microphone;
     // The recorded clips a replay is travelling through, newest last, and the point inside them.
     readonly List<CameraSegment> _replayBuffer = [];
     int _replayIndex = -1;
@@ -115,6 +117,9 @@ public sealed class MediaSession
     /// <summary>The camera entry behind the live feed, so Replay can go back to it.</summary>
     public MediaEntry? CameraEntry { get; private set; }
 
+    /// <summary>The microphone item currently cued, if any.</summary>
+    public MediaEntry? MicrophoneEntry { get; private set; }
+
     /// <summary>True while an instant replay of a camera clip is open.</summary>
     public bool IsReplaying { get; private set; }
 
@@ -124,8 +129,11 @@ public sealed class MediaSession
     /// <summary>True while a live camera is cued.</summary>
     public bool IsCameraLive => Current?.IsCamera == true && _camera is not null;
 
+    /// <summary>True while a live microphone is cued and being monitored.</summary>
+    public bool IsMicrophoneLive => Current?.IsMicrophone == true && _microphone?.IsRunning == true;
+
     /// <summary>The capture device's last error, for the dock's status line.</summary>
-    public string? Error => _camera?.Error;
+    public string? Error => Current?.IsMicrophone == true ? _microphone?.Error : _camera?.Error;
 
     /// <summary>How far behind live the replay playhead is, in seconds. 0 is the live edge.</summary>
     public double ReplayBack { get; private set; }
@@ -412,16 +420,17 @@ public sealed class MediaSession
                 {
                     var clip = new MediaFolderClip
                     {
-                        Path = entry.IsCamera ? entry.Path : "",
+                        Path = entry.IsCamera || entry.IsMicrophone ? entry.Path : "",
                         Tag = entry.Tag,
                         Folder = MediaLibrary.NormalizeFolder(entry.Folder),
                         Loop = entry.Loop,
                         Volume = entry.Volume,
                         AudioDevice = entry.AudioDevice,
                         Name = entry.Name,
-                        CameraDevice = entry.CameraDevice
+                        CameraDevice = entry.CameraDevice,
+                        MicrophoneDevice = entry.MicrophoneDevice
                     };
-                    if (!entry.IsCamera && File.Exists(entry.Path))
+                    if (!entry.IsCamera && !entry.IsMicrophone && File.Exists(entry.Path))
                     {
                         clip.File = $"files/{index:000}-{Path.GetFileName(entry.Path)}";
                         var item = archive.CreateEntry(clip.File, CompressionLevel.Optimal);
@@ -485,11 +494,11 @@ public sealed class MediaSession
                 var folder = MediaLibrary.NormalizeFolder(clip.Folder);
                 if (folder.Length > 0 && !_folders.Contains(folder, StringComparer.OrdinalIgnoreCase)) _folders.Add(folder);
 
-                if (MediaLibrary.CameraIndex(clip.Path) is not null)
+                if (MediaLibrary.CameraIndex(clip.Path) is not null || MediaLibrary.MicrophoneIndex(clip.Path) is not null)
                 {
                     if (Library.Any(entry => string.Equals(entry.Path, clip.Path, StringComparison.OrdinalIgnoreCase))) continue;
                     Library.Add(new MediaEntry(clip.Path, MediaLibrary.NormalizeTag(clip.Tag), folder, clip.Loop,
-                        Math.Clamp(clip.Volume, 0, 1), clip.AudioDevice, clip.Name, clip.CameraDevice));
+                        Math.Clamp(clip.Volume, 0, 1), clip.AudioDevice, clip.Name, clip.CameraDevice, clip.MicrophoneDevice));
                     added++;
                     continue;
                 }
@@ -572,6 +581,8 @@ public sealed class MediaSession
         Save();
         if (SameClip(Current, updated))
         {
+            // A live microphone is monitored by its feed, so its own level is set there.
+            if (updated.IsMicrophone) _microphone?.SetVolume(updated.Volume);
             _player.Volume = updated.IsVideo && string.IsNullOrWhiteSpace(updated.AudioDevice) ? 0 : (float)updated.Volume;
             if (updated.IsVideo && !string.IsNullOrWhiteSpace(updated.AudioDevice)) _audio.SetVolume(updated.Volume);
         }
@@ -590,6 +601,13 @@ public sealed class MediaSession
         if (SameClip(Selected, updated)) Selected = updated;
         Playback.UpdateEntry(updated);
         Save();
+        if (SameClip(Current, updated) && updated.IsMicrophone)
+        {
+            // Moving a live mic to another output re-opens its monitor; the capture stays live.
+            _microphone?.SetOutput(updated.AudioDevice);
+            Status?.Invoke($"OUTPUT · {updated.Label} → {updated.AudioLabel}");
+            return;
+        }
         if (SameClip(Current, updated) && updated.IsVideo)
         {
             _audio.Stop();
@@ -629,6 +647,33 @@ public sealed class MediaSession
         Status?.Invoke($"CAMERA ADDED · {entry.Label} · tag {entry.Tag}");
         return entry;
     }
+
+    /// <summary>
+    /// Adds a microphone to the library. It behaves like a camera item — one entry, cued from the
+    /// dock, with its own level and output — but it carries sound only, so no video box ever fills.
+    /// </summary>
+    public MediaEntry AddMicrophone(int index, string? tag = null)
+    {
+        var path = MediaLibrary.MicrophonePath(index);
+        var existing = Library.FirstOrDefault(e => string.Equals(e.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            Selected = existing;
+            StateChanged?.Invoke();
+            Status?.Invoke($"{existing.Label} is already in the library");
+            return existing;
+        }
+        Library.Add(new MediaEntry(path, MediaLibrary.NormalizeTag(string.IsNullOrWhiteSpace(tag) ? "Microphone" : tag)));
+        var entry = Library[^1];
+        Selected = entry;
+        Save();
+        StateChanged?.Invoke();
+        Status?.Invoke($"MICROPHONE ADDED · {entry.Label}");
+        return entry;
+    }
+
+    /// <summary>Every capture device the operator can add as a microphone, by Windows' name.</summary>
+    public IReadOnlyList<MicrophoneDevice> MicrophoneDevices() => MicrophoneFeed.NamedDevices();
 
     /// <summary>The capture devices a camera item can be routed to, with the names Windows gives
     /// them, for the routing menu.</summary>
@@ -688,6 +733,8 @@ public sealed class MediaSession
     /// </summary>
     void PlayCamera(MediaEntry entry, MediaPlaylist? playlist, int index)
     {
+        // A camera and a microphone are two live sources; only one can be on air at a time.
+        StopMicrophone();
         try { _player.Stop(); _player.Close(); } catch { }
         _seekApply.Stop();
         _seekTarget = 0;
@@ -894,6 +941,53 @@ public sealed class MediaSession
         _camera = null;
     }
 
+    /// <summary>
+    /// Cues a live microphone: the device is opened and its sound is monitored on the item's own
+    /// output. There is no file, no picture and no timeline — the mic simply goes live until the
+    /// operator stops it or cues something else, and the transport player is closed so a previous
+    /// clip cannot keep playing underneath it.
+    /// </summary>
+    void PlayMicrophone(MediaEntry entry)
+    {
+        try { _player.Stop(); _player.Close(); } catch { }
+        _seekApply.Stop();
+        _seekTarget = 0;
+        _playlist = null;
+        _playlistIndex = -1;
+        StopCamera();
+        CameraEntry = null;
+        IsReplaying = false;
+        _replayOnAir = false;
+        _replayBuffer.Clear();
+        _replayIndex = -1;
+        ReplayBack = 0;
+        ReplayDepth = 0;
+        _duration = 0;
+        _pendingSeek = null;
+        _audio.Stop();
+        if (_microphone is not null && _microphone.Index != entry.MicrophoneIndex) StopMicrophone();
+        Current = entry;
+        MicrophoneEntry = entry;
+        _microphone = MicrophoneFeed.Get(entry.MicrophoneIndex);
+        _microphone.SetVolume(entry.Volume);
+        _microphone.Start(entry.AudioDevice);
+        // A microphone sends no picture, so every scorebug video box is told to clear instead of
+        // leaving the last clip's frame up while the mic is live.
+        Playback.Stop();
+        SetTransportPlaying(true);
+        StateChanged?.Invoke();
+        Status?.Invoke(_microphone.Error is { } failure
+            ? $"MICROPHONE ERROR · {failure}"
+            : $"LIVE · {entry.Label} → {entry.AudioLabel}");
+    }
+
+    void StopMicrophone()
+    {
+        if (_microphone is not null) _microphone.Stop();
+        _microphone = null;
+        MicrophoneEntry = null;
+    }
+
     /// <summary>Keeps the cued clip pointing at the updated record after a tag/folder/loop edit.</summary>
     void ReplaceCurrent(MediaEntry before, MediaEntry after)
     {
@@ -921,6 +1015,7 @@ public sealed class MediaSession
     void PlayClip(MediaEntry entry, MediaPlaylist? playlist, int index)
     {
         if (entry.IsCamera) { PlayCamera(entry, playlist, index); return; }
+        if (entry.IsMicrophone) { PlayMicrophone(entry); return; }
         entry = Resolve(entry);
         IsReplaying = false;
         _replayBuffer.Clear();
@@ -933,6 +1028,7 @@ public sealed class MediaSession
             return;
         }
         StopCamera();
+        StopMicrophone();
         IsReplaying = false;
         _replayOnAir = false;
         // A clip sent to a speaker must not keep playing after the next clip is cued.
@@ -969,6 +1065,25 @@ public sealed class MediaSession
 
     public void TogglePlayPause()
     {
+        // A live microphone has no playhead: pause stops listening, play opens the device again.
+        if (Current?.IsMicrophone == true)
+        {
+            if (_playing)
+            {
+                _microphone?.Stop();
+                SetTransportPlaying(false);
+                Status?.Invoke($"MICROPHONE PAUSED · {Current.Label}");
+            }
+            else
+            {
+                _microphone ??= MicrophoneFeed.Get(Current.MicrophoneIndex);
+                _microphone.SetVolume(Current.Volume);
+                _microphone.Start(Current.AudioDevice);
+                SetTransportPlaying(true);
+                Status?.Invoke($"LIVE · {Current.Label} → {Current.AudioLabel}");
+            }
+            return;
+        }
         // A replay is paused and resumed like any clip, but never cued again from the top.
         if (IsReplaying)
         {
@@ -1184,6 +1299,7 @@ public sealed class MediaSession
     {
         try { _player.Stop(); _player.Close(); } catch { }
         StopCamera();
+        StopMicrophone();
         _audio.Stop();
         IsReplaying = false;
         _replayOnAir = false;
@@ -1319,6 +1435,7 @@ public sealed class MediaSession
         _transport.Stop();
         _seekApply.Stop();
         StopCamera();
+        StopMicrophone();
         _audio.Dispose();
         try { _player.Close(); } catch { }
     }

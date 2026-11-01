@@ -241,7 +241,11 @@ public partial class MediaDock : UserControl
             ReplayButton.IsEnabled = _session.IsCameraLive || _session.IsReplaying;
             LiveButton.IsEnabled = _session.IsReplaying;
             StartReplayButton.IsEnabled = _session.IsReplaying;
-            SaveReplayButton.IsEnabled = _session.IsReplaying;
+            SaveReplayButton.IsEnabled = _session.IsReplaying;            MicrophoneStatus.Text = _session.Current?.IsMicrophone == true
+                ? $"LIVE · {_session.Current.Label}"
+                : _session.Library.Any(entry => entry.IsMicrophone)
+                    ? $"{_session.Library.Count(entry => entry.IsMicrophone)} in the library"
+                    : "none added yet";
             var cameraItem = _session.Current?.IsCamera == true ? _session.Current
                 : _session.Selected?.IsCamera == true ? _session.Selected : null;
             RouteButton.IsEnabled = cameraItem is not null;
@@ -811,7 +815,7 @@ public partial class MediaDock : UserControl
         {
             thumb.Children.Add(new TextBlock
             {
-                Text = entry.IsCamera ? "●" : entry.IsVideo ? "▶" : "♪",
+                Text = entry.IsCamera ? "●" : entry.IsMicrophone ? "◎" : entry.IsVideo ? "▶" : "♪",
                 Style = (Style)Resources["TileGlyph"],
                 FontSize = 22
             });
@@ -925,6 +929,20 @@ public partial class MediaDock : UserControl
             return;
         }
         ReplayHint.Text = "  scrub back, then save from there to now";
+        if (_session.Current?.IsMicrophone == true)
+        {
+            // A microphone has no timeline and no picture: the bar is a status light.
+            ElapsedText.Text = "LIVE";
+            DurationText.Text = _session.Error ?? "MIC";
+            ScrubBar.IsEnabled = false;
+            if (!_syncingBar)
+            {
+                _syncingBar = true;
+                try { ScrubBar.Maximum = 1; ScrubBar.Value = 0; }
+                finally { _syncingBar = false; }
+            }
+            return;
+        }
         if (_session.Current?.IsCamera == true)
         {
             // A live feed has no timeline to scrub: the bar is a status light instead.
@@ -1211,6 +1229,31 @@ public partial class MediaDock : UserControl
         window.Content = root;
         ThemeManager.Apply(window, _theme);
         return window.ShowDialog() == true;
+    }
+
+    /// <summary>
+    /// Adds a microphone to the library. With one device there is nothing to choose; with several
+    /// the operator picks the one Windows names, and the item is cued from the library like a camera.
+    /// </summary>
+    void Microphone_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        var devices = _session.MicrophoneDevices();
+        if (devices.Count == 0)
+        {
+            _session.Report("NO MICROPHONES FOUND · plug one in, then add it again");
+            return;
+        }
+        var device = devices[0];
+        if (devices.Count > 1)
+        {
+            if (Window.GetWindow(this) is not { } owner) return;
+            var picked = MicrophonePickerWindow.Ask(owner, devices, _theme);
+            if (picked is null) return;
+            device = devices.FirstOrDefault(candidate => candidate.Index == picked.Value) ?? device;
+        }
+        _session.AddMicrophone(device.Index, MediaLibrary.NormalizeTag(TagBox.Text));
+        Refresh();
     }
 
     void Camera_Click(object sender, RoutedEventArgs e)

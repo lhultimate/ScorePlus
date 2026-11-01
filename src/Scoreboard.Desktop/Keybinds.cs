@@ -122,6 +122,33 @@ public static class ControlActions
         new("global.undo","General","Undo last action")
     ];
 
+    /// <summary>
+    /// The actions worth showing for one sport: the console's shared buttons, the clocks and the
+    /// output, plus that sport's own data. A baseball console never offers "Power play on / off",
+    /// and a hockey one never offers downs, so the keybind list stays about the game in front of you.
+    /// </summary>
+    public static IReadOnlyList<ControlActionDefinition> ForSport(string? sportId)
+    {
+        if (string.IsNullOrWhiteSpace(sportId)) return All;
+        return All.Where(action => SportOf(action.Id) is not { } sport
+            || string.Equals(sport, sportId, StringComparison.OrdinalIgnoreCase)).ToArray();
+    }
+
+    /// <summary>
+    /// The sport an action belongs to, or null for the shared console. Two shapes exist: the fixed
+    /// core actions start with the sport — "baseball.ball", "football.down.next" — and the sport
+    /// data buttons are named "sport.hockey.powerplay.toggle", with the profile id in the middle.
+    /// </summary>
+    static string? SportOf(string id)
+    {
+        var parts = id.Split('.');
+        if (parts.Length < 2) return null;
+        if (string.Equals(parts[0], "sport", StringComparison.OrdinalIgnoreCase)) return parts[1];
+        return SportDefinition.BuiltIns.Any(sport => string.Equals(sport.Id, parts[0], StringComparison.OrdinalIgnoreCase))
+            ? parts[0]
+            : null;
+    }
+
     public static string LabelFor(string id) => All.FirstOrDefault(a => a.Id == id)?.Label ?? ScoreLabel(id) ?? id;
 
     /// <summary>Score buttons are built from a sport's scoring options, so names like +7 exist without an entry above.</summary>

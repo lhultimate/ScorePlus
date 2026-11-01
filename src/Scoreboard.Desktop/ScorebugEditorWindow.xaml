@@ -68,7 +68,7 @@
         </StackPanel>
         <StackPanel Orientation="Horizontal">
           <TextBlock Text="SCOREPLUS · SCOREBUG STUDIO" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
-          <TextBlock Text="   Arrange audience graphics · edits save automatically" Foreground="#93A0B2" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HeaderHint" Text="   Arrange audience graphics · edits save automatically" Foreground="#93A0B2" VerticalAlignment="Center"/>
         </StackPanel>
       </DockPanel>
 
@@ -87,7 +87,7 @@
               <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,7,0"/>
               <TextBlock Text="DISPLAY" FontSize="11" FontWeight="Bold" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,8,0"/>
               <ComboBox x:Name="DisplayBox" Width="220" SelectionChanged="DisplayBox_Changed" ToolTip="Which screen these layouts belong to"/>
-              <TextBlock Text="  Each display gets its own audience window." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+              <TextBlock x:Name="DisplayHintText" Text="  Each display gets its own audience window." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
           <!-- How this layout lands on air: dissolve, slide or swing, over 0–5 seconds. -->
@@ -112,7 +112,7 @@
               <CheckBox x:Name="LinkBothWaysInput" Content="Both ways" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"
                         Checked="LinkBothWays_Changed" Unchecked="LinkBothWays_Changed"
                         ToolTip="Also switch this layout whenever the other one changes"/>
-              <TextBlock Text="  One Update Output can change both screens." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+              <TextBlock x:Name="LinkTipText" Text="  One Update Output can change both screens." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
             </StackPanel>
           </DockPanel>
         </StackPanel>
@@ -144,7 +144,6 @@
                     ToolTip="Copy this layout onto another display, leaving this one untouched"/>
             <Button Content="Import .spl…" Style="{StaticResource LayoutButton}" Click="LayoutImport_Click" ToolTip="Add a ScorePlus Layout file to this display"/>
             <Button Content="Export .spl…" Style="{StaticResource LayoutButton}" Click="LayoutExport_Click" ToolTip="Write this layout to a ScorePlus Layout file"/>
-            <Button Content="HTML page…" Style="{StaticResource LayoutButton}" Click="LayoutHtml_Click" ToolTip="Export this layout as a web page you can embed on a website"/>
             <Button Content="Rename…" Style="{StaticResource LayoutButton}" Click="LayoutRename_Click"/>
             <Button Content="Delete" Style="{StaticResource LayoutButton}" Click="LayoutDelete_Click" ToolTip="Remove this layout (the last one cannot be deleted)"/>
           </StackPanel>
@@ -169,7 +168,7 @@
               <TextBlock Text="LAYERS" FontSize="11" FontWeight="Bold" Foreground="#93A0B2" VerticalAlignment="Center"/>
             </StackPanel>
           </DockPanel>
-          <TextBlock Text="Front of the picture at the top. Ctrl-click to add rows, Shift-click for a range, Delete to remove them."
+          <TextBlock x:Name="LayersHintText" Text="Front of the picture at the top. Ctrl-click to add rows, Shift-click for a range, Delete to remove them."
                      FontSize="10" Foreground="#5C6B7E" TextWrapping="Wrap" Margin="2,0,2,6"/>
           <UniformGrid Columns="2" Margin="0,0,0,6">
             <Button x:Name="LayerFrontButton" Content="▲ Bring forward" FontSize="11" Padding="6,7" Margin="0,0,3,0"
@@ -223,8 +222,8 @@
           <!-- The artwork backdrop: it shows in the studio, the previews and the audience output. -->
           <DockPanel Margin="0,8,0,0">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-              <Button Content="Green screen" FontSize="11" Padding="8,4" Click="CanvasBackgroundGreen_Click"
-                      ToolTip="Set the artwork backdrop to broadcast green"/>
+              <Button Content="Navy" FontSize="11" Padding="8,4" Click="CanvasBackgroundNavy_Click"
+                      ToolTip="Reset the artwork backdrop to ScorePlus navy"/>
               <Button Content="Black" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasBackgroundBlack_Click"/>
               <Button Content="Choose…" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasBackground_Click"
                       ToolTip="Pick any colour for the artwork backdrop"/>
@@ -236,7 +235,7 @@
                        VerticalAlignment="Center" Margin="0,0,8,0"/>
             <TextBox x:Name="CanvasBackgroundInput" Width="110" FontSize="11" ToolTip="#AARRGGBB or #RRGGBB"
                      TextChanged="CanvasBackgroundInput_Changed"/>
-            <TextBlock Text="Applies to this layout on every screen." FontSize="10" Foreground="#5C6B7E"
+            <TextBlock x:Name="CanvasBackgroundHintText" Text="Applies to this layout on every screen." FontSize="10" Foreground="#5C6B7E"
                        VerticalAlignment="Center" Margin="10,0,0,0"/>
           </DockPanel>
         </StackPanel>
@@ -308,7 +307,7 @@
           <!-- Which player and stat this element prints, whatever is selected on the desk. -->
           <StackPanel x:Name="PlayerDataSection">
             <TextBlock Text="PLAYER DATA" Style="{StaticResource SectionTitle}"/>
-            <TextBlock Text="This element can follow the selected player, or pin one player from a roster so it never changes when somebody else goes on the graphic."
+            <TextBlock x:Name="PlayerDataHintText" Text="This element can follow the selected player, or pin one player from a roster so it never changes when somebody else goes on the graphic."
                        Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,4"/>
             <TextBlock Text="Team" Style="{StaticResource FieldLabel}"/>
             <ComboBox x:Name="PlayerSideInput" Margin="10,0,10,3" SelectionChanged="PlayerBinding_Changed"/>
@@ -368,7 +367,7 @@
           <TextBlock Text="TEAM LOGO" Style="{StaticResource SectionTitle}"/>
           <ComboBox x:Name="LogoInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
                     ToolTip="Team logos are imported in the control panel, beside the team name"/>
-          <TextBlock Text="Logos are configured in the control panel: the … button beside each team name. This element just chooses which team it shows."
+          <TextBlock x:Name="LogoHintText" Text="Logos are configured in the control panel: the … button beside each team name. This element just chooses which team it shows."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
         </StackPanel>
 
@@ -394,7 +393,7 @@
           <TextBlock Text="Media tag" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="MediaTagInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="Leave empty to show any playing clip, or name a tag so only that tag's clips appear"/>
-          <TextBlock Text="Only media with this tag plays inside this element. The tag label is drawn in the studio only; the audience screen stays blank until a clip is cued."
+          <TextBlock x:Name="VideoTagHintText" Text="Only media with this tag plays inside this element. The tag label is drawn in the studio only; the audience screen stays blank until a clip is cued."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
           <CheckBox x:Name="PreserveAspectInput" Content="Preserve the video's aspect ratio" Margin="10,2,10,2"
                     Checked="Property_Changed" Unchecked="Property_Changed"
@@ -405,7 +404,7 @@
           <TextBlock Text="Audio output for this element" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="AudioDeviceInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
                     ToolTip="Each video element can play through its own speaker, so two clips never share one output"/>
-          <TextBlock Text="This element's own clip plays its sound on this output. Default uses the Windows output."
+          <TextBlock x:Name="AudioHintText" Text="This element's own clip plays its sound on this output. Default uses the Windows output."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
         </StackPanel>
 
@@ -476,16 +475,16 @@
                  ToolTip="1 is solid, 0.5 half see-through, 0 invisible"/>
         <CheckBox x:Name="VisibleInput" Content="Visible on output" Margin="10,4,10,8" Checked="Property_Changed" Unchecked="Property_Changed"/>
 
-        <TextBlock Text="The artwork always fits this panel; the framed edge is the canvas, so every side is reachable."
+        <TextBlock x:Name="CanvasFitTipText" Text="The artwork always fits this panel; the framed edge is the canvas, so every side is reachable."
                    Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,10,10,2"/>
-        <TextBlock Text="Resize: select an element, then drag the blue corner handle on the canvas."
+        <TextBlock x:Name="ResizeTipText" Text="Resize: select an element, then drag the blue corner handle on the canvas. Hold Ctrl to scale the text with the box, Shift to keep its shape."
                    Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,4,10,12"/>
       </StackPanel>
     </ScrollViewer>
 
     <DockPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,12,0,0">
       <Button DockPanel.Dock="Right" Content="Done" Padding="16,8" Click="Done_Click" ToolTip="Close the studio (Enter only commits the value you are editing)"/>
-      <TextBlock Text="Every value can go on the graphic: team names and abbreviations, scores, period, game clock, play clock, timeout clock, timeouts left, possession, down, to go, down &amp; distance, ball on, sport, yards, turnovers, fouls, shot clock, baseball count and outs, hits, cards, shots, corners, date, time, and custom stats such as {{STAT:Turnovers}}. Use Add sport data for the full list. Player values such as {{PLAYER:HOME:Yards}} come from whoever is on the graphic — switch the selected player in the Rosters tab and every one of them follows."
+      <TextBlock x:Name="AllValuesHintText" Text="Every value can go on the graphic: team names and abbreviations, scores, period, game clock, play clock, timeout clock, timeouts left, possession, down, to go, down &amp; distance, ball on, sport, yards, turnovers, fouls, shot clock, baseball count and outs, hits, cards, shots, corners, date, time, and custom stats such as {{STAT:Turnovers}}. Use Add sport data for the full list. Player values such as {{PLAYER:HOME:Yards}} come from whoever is on the graphic — switch the selected player in the Rosters tab and every one of them follows."
                  Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
     </DockPanel>
   </Grid>

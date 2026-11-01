@@ -40,7 +40,7 @@ public partial class App : Application
 
         var launcher = new LauncherWindow { Owner = window };
         if (launcher.ShowDialog() != true) { window.Close(); return; }
-        window.StartFromLauncher(launcher.Mode, launcher.GamePath);
+        window.StartFromLauncher(launcher.Mode, launcher.GamePath, launcher.SportId);
     }
 
     /// <summary>Appends a timestamped error to <c>%LOCALAPPDATA%\ScorePlus\logs\errors.log</c>.</summary>

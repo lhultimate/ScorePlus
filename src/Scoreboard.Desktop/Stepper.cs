@@ -142,8 +142,10 @@ public sealed class Stepper : Grid
     {
         if (e.Key == Key.Enter)
         {
+            // Enter takes the value and leaves the box, so a typed score does not keep swallowing
+            // every keypress afterwards.
             CommitTyped();
-            _value.SelectAll();
+            Keyboard.ClearFocus();
             e.Handled = true;
         }
         else if (e.Key == Key.Escape)

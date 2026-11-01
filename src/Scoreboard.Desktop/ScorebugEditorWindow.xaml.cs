@@ -59,7 +59,7 @@ public partial class ScorebugEditorWindow : Window
     readonly Dictionary<string,(double X, double Y)> _dragOrigins = [];
     Point _dragStartPoint;
     bool _resizing;
-    double _resizeStartX, _resizeStartY, _resizeStartWidth, _resizeStartHeight;
+    double _resizeStartX, _resizeStartY, _resizeStartWidth, _resizeStartHeight, _resizeStartFontSize;
     Point _listStart;
 
     sealed record PeriodOption(string? Key, string Label)
@@ -144,6 +144,7 @@ public partial class ScorebugEditorWindow : Window
     {
         InitializeComponent(); _catalog=catalog; _engine=engine; _playback=playback; _theme=theme;
         ThemeManager.Apply(this,theme);
+        ApplyTipVisibility(PreferencesStore.Load().ShowHeadingHints);
         // The studio opens filling the desktop (windowed, so the title bar and taskbar stay), and it
         // can never be sized past the working area: a window that runs off the bottom of the screen
         // hides the lower edge of the artwork, which read as a canvas you could not drag into.
@@ -1312,26 +1313,6 @@ public partial class ScorebugEditorWindow : Window
         NoticeWindow.Tell(this,"DISPLAY IMPORTED",$"\u201c{_catalog.Displays[index].Name}\u201d now has {_catalog.Displays[index].Layouts.Count} layout{(_catalog.Displays[index].Layouts.Count==1?"":"s")}.");
     }
 
-    /// <summary>The layout as a self-contained web page, for a website or a browser source.</summary>
-    void LayoutHtml_Click(object sender,RoutedEventArgs e)
-    {
-        var layout=_catalog.Layout;
-        var dialog=new SaveFileDialog
-        {
-            Title="Export layout as a web page",
-            Filter="HTML page (*.html)|*.html|All files (*.*)|*.*",
-            DefaultExt="html",
-            FileName=SafeFileName(layout.Name)
-        };
-        if(dialog.ShowDialog(this)!=true)return;
-        try
-        {
-            File.WriteAllText(dialog.FileName,ScorebugHtml.Build(layout,_engine.State,layout.Name));
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dialog.FileName){UseShellExecute=true});
-        }
-        catch(Exception ex) { NoticeWindow.Tell(this,"EXPORT FAILED",ex.Message,warning:true); }
-    }
-
     void AddText_Click(object sender,RoutedEventArgs e)=>Add(new ScorebugElement{Name="New text",Content="EDIT TEXT",X=480,Y=470,TransparentBackground=true});
 
     /// <summary>The baseball diamond as one element: three bases that light up with a runner on.</summary>
@@ -1789,6 +1770,7 @@ public partial class ScorebugEditorWindow : Window
         var origin=e.GetPosition(DesignCanvas);
         _resizeStartX=origin.X; _resizeStartY=origin.Y;
         _resizeStartWidth=item.Width; _resizeStartHeight=item.Height;
+        _resizeStartFontSize=item.FontSize;
         handle.CaptureMouse();
         e.Handled=true;
     }
@@ -1797,21 +1779,43 @@ public partial class ScorebugEditorWindow : Window
     {
         if(_dragElement is null||!_resizing||e.LeftButton!=MouseButtonState.Pressed)return;
         var p=e.GetPosition(DesignCanvas);
-        var width=Math.Clamp(_resizeStartWidth+(p.X-_resizeStartX),24,Math.Max(24,_catalog.Layout.Width-_dragElement.X));
-        var height=Math.Clamp(_resizeStartHeight+(p.Y-_resizeStartY),24,Math.Max(24,_catalog.Layout.Height-_dragElement.Y));
-        // A video box that preserves its aspect ratio can only be resized along one diagonal.
-        if(_dragElement.PreserveVideoAspect&&_dragElement.VideoAspect>0.05)
+        var maxWidth=Math.Max(24,_catalog.Layout.Width-_dragElement.X);
+        var maxHeight=Math.Max(24,_catalog.Layout.Height-_dragElement.Y);
+        var width=Math.Clamp(_resizeStartWidth+(p.X-_resizeStartX),24,maxWidth);
+        var height=Math.Clamp(_resizeStartHeight+(p.Y-_resizeStartY),24,maxHeight);
+        var ctrl=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
+        var shift=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
+        // A video box that preserves its aspect ratio can only be resized along one diagonal;
+        // Shift asks for the same thing on any other element.
+        var lockedAspect=_dragElement.PreserveVideoAspect&&_dragElement.VideoAspect>0.05
+            ? _dragElement.VideoAspect
+            : shift ? _resizeStartWidth/Math.Max(1,_resizeStartHeight) : 0;
+        if(lockedAspect>0)
         {
-            height=Math.Clamp(width/_dragElement.VideoAspect,24,Math.Max(24,_catalog.Layout.Height-_dragElement.Y));
-            width=height*_dragElement.VideoAspect;
+            height=Math.Clamp(width/lockedAspect,24,maxHeight);
+            width=Math.Clamp(height*lockedAspect,24,maxWidth);
+            height=width/lockedAspect;
         }
         _dragElement.Width=width; _dragElement.Height=height;
+        // Text and the possession dot keep their size as the box grows, so a value never jumps a
+        // few points because its plate was nudged. Ctrl makes the type follow the box instead.
+        if(ctrl&&_resizeStartHeight>0.5)
+            _dragElement.FontSize=Math.Clamp(_resizeStartFontSize*(height/_resizeStartHeight),8,480);
         if(_visuals.TryGetValue(_dragElement.Id,out var visual))
         {
             visual.Host.Width=width; visual.Host.Height=height;
             visual.Content.Width=double.NaN; visual.Content.Height=double.NaN;
         }
-        if(!_loading){_loading=true;WidthInput.Text=width.ToString("0");HeightInput.Text=height.ToString("0");_loading=false;}
+        if(ctrl)RefreshAllVisuals();
+        else if(_visuals.TryGetValue(_dragElement.Id,out var resized))
+            ScorebugRender.ApplyToContent(resized.Content,_dragElement,_engine.State);
+        if(!_loading)
+        {
+            _loading=true;
+            WidthInput.Text=width.ToString("0"); HeightInput.Text=height.ToString("0");
+            if(FindName("FontSizeInput") is TextBox fontSizeBox)fontSizeBox.Text=_dragElement.FontSize.ToString("0.#");
+            _loading=false;
+        }
         e.Handled=true;
     }
 
@@ -1856,9 +1860,26 @@ public partial class ScorebugEditorWindow : Window
         if(picked is not null){target.Text=picked;SaveProperties();RefreshAllVisuals();}
     }
 
+    /// <summary>
+    /// Shows or hides the explanatory lines in the studio. Preferences turns them off by default,
+    /// because a broadcast operator who knows the room does not need a paragraph beside every panel.
+    /// </summary>
+    void ApplyTipVisibility(bool show)
+    {
+        var visibility=show?Visibility.Visible:Visibility.Collapsed;
+        FrameworkElement[] tips=
+        [
+            HeaderHint,DisplayHintText,TransitionCaption,LinkTipText,LayersHintText,
+            CanvasBackgroundHintText,PlayerDataHintText,LogoHintText,VideoTagHintText,AudioHintText,
+            CanvasFitTipText,ResizeTipText,AllValuesHintText
+        ];
+        foreach(var tip in tips)if(tip is not null)tip.Visibility=visibility;
+    }
+
     // ---------- the artwork backdrop ----------
 
-    void CanvasBackgroundGreen_Click(object sender,RoutedEventArgs e)=>SetCanvasBackground("#FF00B140");
+    /// <summary>Puts the backdrop back to the ScorePlus navy a layout starts with.</summary>
+    void CanvasBackgroundNavy_Click(object sender,RoutedEventArgs e)=>SetCanvasBackground("#FF091018");
     void CanvasBackgroundBlack_Click(object sender,RoutedEventArgs e)=>SetCanvasBackground("#FF000000");
     void CanvasBackground_Click(object sender,RoutedEventArgs e)
     {
