@@ -2,7 +2,7 @@
 
 **A native Windows scoreboard and broadcast graphics system for live production — one operator console, unlimited displays, and a scorebug you design yourself.**
 
-> **Alpha software.** ScorePlus is under active development and the alpha builds are updated often. Expect rough edges; don't run it as the only copy of a show you care about. Release labels read like `a1.2`, `a1.3`, `a1.4`.
+> **Alpha software.** ScorePlus is under active development and the alpha builds are updated often. Expect rough edges; don't run it as the only copy of a show you care about. Release labels read like `a1.4`, `a1.41`, `a1.5`.
 
 Everything runs locally on one Windows PC. No browser, no server, no internet connection, and no separately installed .NET runtime. The clock, the score and the graphics are all in one program, and the audience output updates the moment a value changes — there is never a "refresh" step mid-game.
 
@@ -173,7 +173,7 @@ Options available on almost everything:
 - **Border** — thickness and color, fixed or from a team palette slot. Zero thickness hides it entirely, and a shape with a transparent background becomes a clean outline.
 - **Gradient background** — a second color and a direction in degrees, and both colors can be team slots.
 - **Opacity** — per element, so a stat box can sit at 60% over live video.
-- **Color sources** — anywhere a color is offered, choose *Custom* for a hex/alpha picker, or **Home Primary**, **Home Secondary**, **Away Primary**, **Away Secondary** so the graphic recolors itself when you change a team's identity.
+- **Color sources** — anywhere a color is offered, choose *Custom* for a hex/alpha picker, or **Home Primary**, **Home Secondary**, **Away Primary**, **Away Secondary** so the graphic recolors itself when you change a team's identity. The picker's **Pick from screen…** button hides the dialog and samples any pixel on any monitor, so a sponsor's exact color is one click away.
 
 ### Type and Motion
 
@@ -194,7 +194,7 @@ Three elements can draw artwork from game state instead of (or alongside) typed 
 
 | Icon | What it draws | Follows |
 | --- | --- | --- |
-| **Timeout bars** | A row of short horizontal lines, one per timeout the team has left | Home or visitors timeouts |
+| **Timeout bars** | A row of short horizontal lines, one per timeout the team has left; **Timeout bar size** scales the bars from 0.25× to 3× | Home or visitors timeouts |
 | **Possession dot** | A dot on the left edge for the visitors, on the right for home (mirrorable) | Possession |
 | **Bases** | Three diamond bases, filled when a runner is on, faint outline when empty | The runner on each base |
 
@@ -262,7 +262,9 @@ Below the staged preview sits a second, smaller thumbnail: the **audience view**
 
 Under the preview is a **sound level meter** with the peak level the machine is putting out, next to the on-air display and layout, so you can see at a glance what is live and whether audio is actually flowing.
 
-Above the meter sit **eight quick-layout buttons**, navy in every theme. Each one can point at any layout on **any display** — a scorebug, a lower third, a sponsor board — and every detached panel carries the same eight. Right-click a button to reassign it, or to **clear** it so the button does nothing until it is assigned again. By default a press only **stages** the layout, so Update Output still sends it; **Preferences → Quick layout buttons also update output** makes the same press go straight to air. The assignment and that switch are stored in preferences, so they follow the operator, not the game.
+Above the meter sit **twelve quick-layout buttons**, navy in every theme, in three rows of four. Each one can point at any layout on **any display** — a scorebug, a lower third, a sponsor board — and every detached panel carries the same twelve. Right-click a button to reassign it, or to **clear** it so the button does nothing until it is assigned again. By default a press only **stages** the layout, so Update Output still sends it; **Preferences → Quick layout buttons also update output** makes the same press go straight to air. The assignment and that switch are stored in preferences, so they follow the operator, not the game.
+
+Above the layouts, **QUICK MEDIA** carries another twelve assignable buttons. Left-click an assigned button to cue that clip, camera or microphone immediately; right-click to choose a different library item or clear the slot. Empty slots open the picker when clicked, and the same assignments appear on the main rail and every detached panel.
 
 ### Linking Displays Together
 
@@ -324,7 +326,8 @@ To tag a clip: select it, pick the tag from the dropdown, press **Set tag**. Sug
 
 - **Route…** points a camera item at a different device, and can rename it — the item keeps whatever name you gave it, with the device name shown beside it, so "ICS Spring Camera" is identifiable in a list of three.
 - **Switching the device while it is live changes the shot immediately.**
-- **Add microphone** adds an audio capture device the same way, for a commentary or ambient feed.
+- **Add microphone** adds an audio capture device the same way, for a commentary or ambient feed. Cameras themselves carry no audio; only a microphone item that you explicitly cue is heard.
+- **Add speaker** adds an output bus. **Route…** names it and chooses its Windows device; select the bus and use the bottom **VOLUME** slider to set that speaker's house level.
 
 ### Replay, End to End
 
@@ -388,7 +391,7 @@ Rosters live with the app and survive a new game. Which roster each side uses, w
 Team identity lives in the console, not the studio.
 
 1. Click the **…** beside **Visitors** (or **Home**). The team box opens.
-2. Set the **name**, the **abbreviation** and the **logo**. The logo is imported once here and is then available to logo elements on every layout, every display.
+2. Set the **name**, the **abbreviation**, the **mascot name** and the **logo**. The logo is imported once here and is then available to logo elements on every layout, every display; the mascot prints through `{{HOME_MASCOT}}` / `{{AWAY_MASCOT}}`.
 3. Pick the **primary** and **secondary** colors. A live swatch in the three-dot menu shows the current pair whenever you're not editing them, so you can read a team's palette at a glance.
 4. Change any of it and the graphic follows: team names are live, and every element pointed at a team color slot recolors itself.
 
@@ -398,7 +401,7 @@ That last part is the real trick. In the studio, an element's color can be *Cust
 
 Point the scorebox at `Home Primary` and the graphic will be correct for whoever is home tonight, without opening the studio. It works for foreground, background, the gradient's second color and borders.
 
-The abbreviation is what fits where a full name won't, and it also feeds tokens like `{{HOME_ABBR}}`, `{{BALL_SIDE}}` and `{{POSSESSION}}`.
+The abbreviation is what fits where a full name won't, and it also feeds tokens like `{{HOME_ABBR}}`, `{{BALL_SIDE}}` and `{{POSSESSION}}`. The mascot is a separate team property, so a graphic can print the nickname without changing the team name.
 
 ---
 
@@ -489,7 +492,7 @@ The main window is one page, top to bottom.
 
 ### The Console Body
 
-- **Visitors** on the left, **Home** on the right, each with a **…** team box (name, abbreviation, logo, primary/secondary colors), a score stepper, and timeouts.
+- **Visitors** on the left, **Home** on the right, each with a **…** team box (name, abbreviation, mascot name, logo, primary/secondary colors), a score stepper, and timeouts.
 - **Game clock** — typed as `MM:SS` or a plain number of seconds, with ±1s and ±1m buttons and Start/Stop.
 - **Play clock** and **shot clock** — presets (40/25, 24/14), ±1, start/stop. Clocks count the whole way down and show `0` rather than stopping a second early.
 - **Down & distance**, the **ball spot** with its own side (`Home 37`, `Visitors 25` — independent of possession, capped at 50) and possession (`HOME ▶` / `◀ AWAY`).
@@ -530,14 +533,14 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 
 ### Properties Worth Knowing
 
-- **Quarter style** is per element (`Quarter 1`, `Q1` or `1`), so two graphics can print the period differently in the same game.
+- **Quarter style** is per element (`Quarter 1`, `Q1`, `1` or `1st`), so two graphics can print the period differently in the same game.
 - **Preserve video aspect ratio** locks the box to the clip's shape — nothing is stretched or cropped. Turn it off and the box can be any shape, with the picture filling it.
 - **Media tag** decides which clips can appear. **ANY** accepts every clip.
 - **Audio output** is per video element, independent of the clip's own speaker, so two overlays can feed two destinations.
 - **Border** and **gradient** each take a fixed color or a team palette slot.
 - **Paint & texture** opens the finish editor: a gradient on the text itself as well as the plate, with any number of stops, either linear at an angle or radial out from a centre. The same editor lays a material over the paint — `Matte`, `Metal`, `Chrome`, `Glass`, `Frost`, `Fabric`, `Velvet`, `Stone`, `Concrete`, `Paper` or `Hologram` — with fourteen knobs of its own: roughness, glossiness, ambience, shine, metallic, grain, emboss, bevel, satin, iridescence, opacity, scale, contrast and light angle, plus a tint.
 - **Opacity** is four sliders, not one: the whole element, the printed value, the background plate and the outline each fade on their own. A score can dissolve away while its plate stays solid, or a border can fade without touching the text.
-- **Motion** has two routes: the built-in `None / Pulse / Drift` presets, or a clip from the animation maker that replaces them.
+- **Motion** has three routes: the built-in `None / Pulse / Drift` presets, a ready-made preset from the animation maker's list, or a saved clip that replaces them.
 - **Rotation** is in degrees; negative angles are fine.
 - **Transition** and its **duration** (0–5s) live with the element, next to the font controls.
 
@@ -555,6 +558,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 | `Ctrl` + resize | Scale the box and its text together |
 | `Shift` + resize | Lock the box's aspect ratio |
 | `Ctrl` + `Shift` + resize | Both |
+| `F11` in any window | Toggle full screen |
 | `Enter` in a value field | Commit and leave the field |
 
 ### Display and Layout Bars
@@ -582,6 +586,7 @@ Bind live data by typing a token into a text element's content, or by using the 
 | --- | --- |
 | `{{HOME_TEAM}}` / `{{AWAY_TEAM}}` | The team's full name, exactly as typed |
 | `{{HOME_ABBR}}` / `{{AWAY_ABBR}}` | The abbreviation |
+| `{{HOME_MASCOT}}` / `{{AWAY_MASCOT}}` | The team mascot name |
 | `{{HOME_SCORE}}` / `{{AWAY_SCORE}}` | The score |
 | `{{PERIOD}}` | The period, in the element's chosen style |
 | `{{GAME_CLOCK}}` | Game clock as `MM:SS` |
@@ -689,13 +694,13 @@ If you had an older installation, the files in `%LOCALAPPDATA%\Scoreboard` are c
 Building needs the **.NET 10 SDK** with the Windows desktop targeting pack.
 
 ```sh
-./scripts/build-release.sh a1.4
+./scripts/build-release.sh a1.41
 ```
 
 This publishes a self-contained single-file build into its own folder:
 
 ```
-dist/ScorePlus-win-x64-a1.4/
+dist/ScorePlus-win-x64-a1.41/
 ├── ScorePlusPortable.exe   run it straight from the folder
 ├── ScorePlusSetup.exe      install it
 ├── README.md               this document, copied in for reference

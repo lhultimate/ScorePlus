@@ -15,6 +15,9 @@ public sealed class ProgramSelection
     readonly Dictionary<string, string> _staged = new(StringComparer.OrdinalIgnoreCase);
     readonly ScorebugCatalog _catalog;
     string _displayId;
+    // The catalog's active layout as this window last saw it. Quick-layout activation changes it;
+    // ordinary studio edits raise Changed too, but must not rewrite another panel's staged choice.
+    (string DisplayId, int Index)? _seenActive;
 
     public ProgramSelection(ScorebugCatalog catalog, string? displayId = null)
     {
@@ -130,6 +133,16 @@ public sealed class ProgramSelection
     {
         foreach (var stale in _staged.Keys.Where(id => _catalog.FindDisplay(id) is null).ToArray()) _staged.Remove(stale);
         if (_catalog.FindDisplay(_displayId) is null) _displayId = _catalog.Displays[0].Id;
+        // A quick-layout press changes the catalog's active layout without going through this
+        // window's SelectLayout, so follow that one event. Ordinary studio edits also raise
+        // Changed, and must not overwrite a panel that deliberately staged a different layout.
+        var active = _catalog.ActiveDisplay;
+        var activeIndex = Math.Clamp(active.ActiveIndex, 0, Math.Max(0, active.Layouts.Count - 1));
+        var activeChanged = _seenActive is { } seen
+            && (!string.Equals(seen.DisplayId, active.Id, StringComparison.OrdinalIgnoreCase) || seen.Index != activeIndex);
+        if (activeChanged && active.Layouts.Count > 0)
+            _staged[active.Id] = active.Layouts[activeIndex].Id;
+        _seenActive = (active.Id, activeIndex);
         // A layout deleted in the studio must not leave this window pointing at nothing.
         foreach (var display in _catalog.Displays)
             if (_staged.TryGetValue(display.Id, out var layoutId) &&

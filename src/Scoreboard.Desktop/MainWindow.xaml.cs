@@ -37,7 +37,8 @@ public partial class MainWindow : Window, IControlPanelHost
     RemoteControlServer? _remote;
     ScorebugCanvasView? _preview;
     AudiencePreview? _audience;
-    // The four assignable quick-layout buttons above the rail's meter.
+    // The assignable quick media and quick layout buttons above the rail's meter.
+    QuickMediaBar? _quickMedia;
     QuickLayoutBar? _quickLayouts;
     int _eventCount = -1;
     readonly UserPreferences _preferences = PreferencesStore.Load();
@@ -87,6 +88,9 @@ public partial class MainWindow : Window, IControlPanelHost
         _meterTimer.Tick += (_, _) => UpdateSoundMeter();
         _meterTimer.Start();
         DisplayTiming.Apply(_preferences);
+        _quickMedia = new QuickMediaBar(_session, _preferences.Theme);
+        _quickMedia.Status += message => StatusText.Text = message;
+        QuickMediaHost.Content = _quickMedia;
         _quickLayouts = new QuickLayoutBar(_scorebug, _engine, _preferences.Theme);
         _quickLayouts.Status += message => StatusText.Text = message;
         QuickLayoutsHost.Content = _quickLayouts;

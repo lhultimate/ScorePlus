@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 using System.IO;
 using Scoreboard.Core;
 
@@ -10,6 +11,9 @@ public partial class App : Application
     {
         // Media decoders and other native components can fail on threads the dispatcher never
         // sees. Log those too, so a window that closes on its own leaves a trace to diagnose.
+        // F11 belongs to the application, not to one window: the studio, output, media panel and
+        // dialogs all get the same maximize/restore behaviour.
+        EventManager.RegisterClassHandler(typeof(Window), Keyboard.PreviewKeyDownEvent, new KeyEventHandler(HandleWindowKey));
         AppDomain.CurrentDomain.UnhandledException += (_, args) => LogCrash(args.ExceptionObject as Exception);
         DispatcherUnhandledException += (_, args) =>
         {
@@ -41,6 +45,17 @@ public partial class App : Application
         var launcher = new LauncherWindow { Owner = window };
         if (launcher.ShowDialog() != true) { window.Close(); return; }
         window.StartFromLauncher(launcher.Mode, launcher.GamePath, launcher.SportId);
+    }
+
+    static void HandleWindowKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.F11 || sender is not Window window || e.Handled) return;
+        // The audience window has a real fullscreen path (no title bar, no taskbar). The class
+        // handler runs before the window's own key handler, so it must delegate instead of
+        // treating F11 as "maximize" for every window.
+        if (window is OutputWindow output) output.ToggleFullscreen();
+        else window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        e.Handled = true;
     }
 
     /// <summary>Appends a timestamped error to <c>%LOCALAPPDATA%\ScorePlus\logs\errors.log</c>.</summary>

@@ -270,6 +270,17 @@
           <TextBlock x:Name="MicrophoneStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
                      VerticalAlignment="Center" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
         </WrapPanel>
+        <!-- Speaker buses: add one, name it and point it at an output device. Selecting it at the
+             bottom of the dock makes the volume slider its house level. -->
+        <WrapPanel Margin="0,3,0,0">
+          <TextBlock Text="SPEAKER" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+          <Button Content="Add speaker" Style="{StaticResource DockAction}" Click="Speaker_Click"
+                  ToolTip="Add an output device as a speaker bus, then use the SPEAKER dropdown and VOLUME slider to control it"/>
+          <Button x:Name="SpeakerRouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="SpeakerRoute_Click"
+                  ToolTip="Rename the selected speaker bus and choose which output device it uses"/>
+          <TextBlock x:Name="SpeakerStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
+                     VerticalAlignment="Center" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
+        </WrapPanel>
         <!-- Which camera item is live: pick another and it takes over on air. -->
         <DockPanel Margin="0,3,0,0">
           <TextBlock Text="LIVE" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
@@ -434,7 +445,7 @@
         </Grid.ColumnDefinitions>
         <TextBlock Text="SPEAKER" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
         <ComboBox x:Name="AudioDeviceBox" Grid.Column="1" Style="{StaticResource DockCombo}" SelectionChanged="AudioDevice_Changed"
-                  ToolTip="Play this clip's sound on a specific speaker; Default uses the Windows output"/>
+                  ToolTip="Play the selected clip on this speaker — or, with a speaker bus selected, choose that bus's output"/>
       </Grid>
     </Grid>
   </Border>

@@ -111,7 +111,15 @@ internal sealed class DisplayPickerWindow : Window
         public DisplayChoice(ScorebugDisplay display)
         {
             Display = display;
-            var live = display.Layouts.Count == 0 ? "no layouts" : display.Layouts[Math.Clamp(display.PublishedIndex, 0, display.Layouts.Count - 1)].Name;
+            var liveNames = new List<string>();
+            if (display.Layouts.Count > 0)
+                liveNames.Add(display.Layouts[Math.Clamp(display.PublishedIndex, 0, display.Layouts.Count - 1)].Name);
+            foreach (var id in display.PinnedLayoutIds ?? [])
+            {
+                var pinned = display.Layouts.FirstOrDefault(layout => string.Equals(layout.Id, id, StringComparison.OrdinalIgnoreCase));
+                if (pinned is not null && !liveNames.Contains(pinned.Name)) liveNames.Add(pinned.Name);
+            }
+            var live = liveNames.Count == 0 ? "no layouts" : string.Join(" + ", liveNames);
             Label = $"{display.Name}   ·   on air: {live}   ·   {display.Layouts.Count} layout{(display.Layouts.Count == 1 ? "" : "s")}";
         }
 

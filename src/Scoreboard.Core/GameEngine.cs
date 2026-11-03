@@ -61,6 +61,9 @@ public sealed class GameState
     public string AwayTeam { get; set; } = "VISITORS";
     public string HomeAbbreviation { get; set; } = "HOME";
     public string AwayAbbreviation { get; set; } = "AWAY";
+    /// <summary>The team's mascot, printed through the {{HOME_MASCOT}} / {{AWAY_MASCOT}} bindings.</summary>
+    public string HomeMascot { get; set; } = "";
+    public string AwayMascot { get; set; } = "";
     /// <summary>Team logo imported from the control panel. Graphics draw it, the studio never edits it.</summary>
     public string? HomeLogoPath { get; set; }
     public string? AwayLogoPath { get; set; }
@@ -223,28 +226,31 @@ public sealed class GameEngine
     /// Saves everything the control panel's team pop-up edits: name, abbreviation, logo and both
     /// palette colours. Team identity publishes live like the score, so the graphic never waits.
     /// </summary>
-    public void SetTeamIdentity(bool home, string name, string abbreviation, string? logoPath, string primary, string secondary)
+    public void SetTeamIdentity(bool home, string name, string abbreviation, string? logoPath, string primary, string secondary, string? mascot = null)
     {
         name = name.Trim();
         if (name.Length == 0) name = home ? State.HomeTeam : State.AwayTeam;
         abbreviation = abbreviation.Trim().ToUpperInvariant();
         if (abbreviation.Length == 0) abbreviation = Abbreviate(name);
+        mascot = (mascot ?? "").Trim();
         primary = NormalizeColor(primary, home ? "#FF38D7A3" : "#FF4EA8FF");
         secondary = NormalizeColor(secondary, "#FF101820");
         if (home)
         {
             if (State.HomeTeam == name && State.HomeAbbreviation == abbreviation && State.HomeLogoPath == logoPath
-                && State.HomePrimaryColor == primary && State.HomeSecondaryColor == secondary) return;
+                && State.HomeMascot == mascot && State.HomePrimaryColor == primary && State.HomeSecondaryColor == secondary) return;
             SaveUndo("Home team details");
             State.HomeTeam = name; State.HomeAbbreviation = abbreviation; State.HomeLogoPath = logoPath;
+            State.HomeMascot = mascot;
             State.HomePrimaryColor = primary; State.HomeSecondaryColor = secondary;
         }
         else
         {
             if (State.AwayTeam == name && State.AwayAbbreviation == abbreviation && State.AwayLogoPath == logoPath
-                && State.AwayPrimaryColor == primary && State.AwaySecondaryColor == secondary) return;
+                && State.AwayMascot == mascot && State.AwayPrimaryColor == primary && State.AwaySecondaryColor == secondary) return;
             SaveUndo("Visitors team details");
             State.AwayTeam = name; State.AwayAbbreviation = abbreviation; State.AwayLogoPath = logoPath;
+            State.AwayMascot = mascot;
             State.AwayPrimaryColor = primary; State.AwaySecondaryColor = secondary;
         }
         Log("Teams", $"{State.HomeTeam} ({State.HomeAbbreviation}) vs {State.AwayTeam} ({State.AwayAbbreviation})");
@@ -402,7 +408,7 @@ public sealed class GameEngine
     public void AdvanceDown() { if (State.SportId != "football") return; SaveUndo("Down"); if (State.Down >= 4) { State.Down=1; State.YardsToGo=10; State.YardsToGoal=Math.Clamp(State.YardsToGoal-State.YardsToGo,0,50); } else State.Down++; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
     public void PreviousDown() { if (State.SportId != "football") return; SaveUndo("Previous down"); if (State.Down > 1) State.Down--; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
     public void NewSeries() { if (State.SportId != "football") return; SaveUndo("New series"); State.Down = 1; State.YardsToGo = 10; Log("Series", "New series · 1st & 10"); Changed?.Invoke(); }
-    public void SetPeriodFormat(string format) { if(format is not ("Full" or "Short" or "Number"))return; if(State.QuarterDisplayFormat==format)return; SaveUndo("Period format"); State.QuarterDisplayFormat=format; Log("Period", $"Period display: {PeriodDisplay.Format(State)}"); Changed?.Invoke(); }
+    public void SetPeriodFormat(string format) { if(format is not ("Full" or "Short" or "Number" or "Ordinal"))return; if(State.QuarterDisplayFormat==format)return; SaveUndo("Period format"); State.QuarterDisplayFormat=format; Log("Period", $"Period display: {PeriodDisplay.Format(State)}"); Changed?.Invoke(); }
     /// <summary>Yard line is 0–50: a ball spot never goes past midfield, whichever team has it.</summary>
     public void SetFootballDistance(int yardsToGo,int? yardsToGoal=null) { if (State.SportId != "football") return; SaveUndo("Football distance"); State.YardsToGo=Math.Clamp(yardsToGo,1,99); if(yardsToGoal is not null)State.YardsToGoal=Math.Clamp(yardsToGoal.Value,0,50); Log("Yards", $"{State.YardsToGo} to go, ball at {State.YardsToGoal}"); Changed?.Invoke(); }
 
@@ -653,6 +659,7 @@ public sealed class GameEngine
     public static string StagedSignature(GameState s) => string.Join('|',
         s.SportId,
         s.Period, s.TotalPeriods, s.PeriodLabel, s.QuarterDisplayFormat,
+        s.HomeMascot, s.AwayMascot,
         s.HomeTimeouts, s.AwayTimeouts, s.HomeFouls, s.AwayFouls, s.HomePossession,
         s.Down, s.YardsToGo, s.YardsToGoal, s.BallOnHomeSide,
         s.HomeYellowCards, s.AwayYellowCards, s.HomeRedCards, s.AwayRedCards,
@@ -677,6 +684,7 @@ public sealed class GameEngine
             State.HomeTeam == source.HomeTeam && State.AwayTeam == source.AwayTeam &&
             State.HomeAbbreviation == source.HomeAbbreviation && State.AwayAbbreviation == source.AwayAbbreviation &&
             State.HomeLogoPath == source.HomeLogoPath && State.AwayLogoPath == source.AwayLogoPath &&
+            State.HomeMascot == source.HomeMascot && State.AwayMascot == source.AwayMascot &&
             State.HomePrimaryColor == source.HomePrimaryColor && State.HomeSecondaryColor == source.HomeSecondaryColor &&
             State.AwayPrimaryColor == source.AwayPrimaryColor && State.AwaySecondaryColor == source.AwaySecondaryColor &&
             State.ClockSeconds == source.ClockSeconds && State.ClockRunning == source.ClockRunning &&
@@ -692,6 +700,7 @@ public sealed class GameEngine
         State.HomeTeam=source.HomeTeam;State.AwayTeam=source.AwayTeam;
         State.HomeAbbreviation=source.HomeAbbreviation;State.AwayAbbreviation=source.AwayAbbreviation;
         State.HomeLogoPath=source.HomeLogoPath;State.AwayLogoPath=source.AwayLogoPath;
+        State.HomeMascot=source.HomeMascot;State.AwayMascot=source.AwayMascot;
         State.HomePrimaryColor=source.HomePrimaryColor;State.HomeSecondaryColor=source.HomeSecondaryColor;
         State.AwayPrimaryColor=source.AwayPrimaryColor;State.AwaySecondaryColor=source.AwaySecondaryColor;
         State.ClockSeconds=source.ClockSeconds;State.ClockRunning=source.ClockRunning;State.ClockCountsUp=source.ClockCountsUp;

@@ -142,9 +142,12 @@
 
           <ContentControl x:Name="PreviewHost" Grid.Row="3" VerticalAlignment="Top"/>
 
-          <!-- Four assignable quick-layout buttons, directly above the meter. A press stages a
-               layout on any display; Preferences can also make it update output. -->
-          <ContentControl x:Name="QuickLayoutsHost" Grid.Row="4" Margin="0,8,0,0"/>
+          <!-- Assignable quick media above assignable quick layouts, directly above the meter. A
+               quick-media press cues at once; a quick-layout press stages on any display. -->
+          <StackPanel Grid.Row="4" Margin="0,8,0,0">
+            <ContentControl x:Name="QuickMediaHost"/>
+            <ContentControl x:Name="QuickLayoutsHost"/>
+          </StackPanel>
 
           <!-- What the machine is putting out, and where the show stands: the peak level the room
                hears, with the on-air display and layout beside it. -->

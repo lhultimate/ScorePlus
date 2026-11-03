@@ -277,8 +277,9 @@ public sealed class ScorebugTextBlock : TextBlock
         if (item.Underline) decorations.Add(System.Windows.TextDecorations.Underline[0]);
         if (item.StrikeThrough) decorations.Add(System.Windows.TextDecorations.Strikethrough[0]);
         TextDecorations = decorations.Count == 0 ? null : decorations;
-        // Slanted text: rotation is part of the element's design, not part of the animation.
-        _rotate.Angle = item.Rotation;
+        // The element's host carries its design rotation now, so the text itself stays upright
+        // inside a rotated plate or logo. Keeping it here would rotate text twice.
+        _rotate.Angle = 0;
         _style = item;
     }
 
@@ -694,13 +695,14 @@ public sealed class ScorebugIconView : Grid
         {
             var count = 0;
             if (state is not null) count = Math.Clamp(_item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 10);
+            var scale = Math.Clamp(_item.IconScale, 0.25, 3);
+            var slot = _item.Width / Math.Max(1, count);
+            var width = Math.Max(3, Math.Min(_item.Width * 0.22, slot * 0.62) * scale);
+            var thickness = Math.Clamp(_item.Height / 8 * scale, 1.5, 18);
+            var gap = Math.Max(1, width * 0.22);
             if (_bars.Children.Count != count)
             {
                 _bars.Children.Clear();
-                var slot = _item.Width / Math.Max(1, count);
-                var width = Math.Max(6, Math.Min(_item.Width * 0.22, slot * 0.62));
-                var thickness = Math.Clamp(_item.Height / 8, 2, 6);
-                var gap = Math.Max(2, width * 0.22);
                 var animate = Animates;
                 for (var i = 0; i < count; i++)
                 {
@@ -720,11 +722,20 @@ public sealed class ScorebugIconView : Grid
                 }
                 _appliedForeground = foreground;
             }
-            else if (foreground != _appliedForeground)
+            else
             {
-                // A team colour change repaints the existing bars instead of redrawing them.
+                // A size or team-colour change updates the existing bars in place instead of
+                // rebuilding them, so the row never flickers while the slider moves.
                 var brush = ScorebugRender.ParseBrush(foreground);
-                foreach (var child in _bars.Children.OfType<Rectangle>()) child.Fill = brush;
+                foreach (var child in _bars.Children.OfType<Rectangle>())
+                {
+                    child.Width = width;
+                    child.Height = thickness;
+                    child.RadiusX = thickness / 2;
+                    child.RadiusY = thickness / 2;
+                    child.Margin = new Thickness(gap / 2, 0, gap / 2, 0);
+                    child.Fill = brush;
+                }
                 _appliedForeground = foreground;
             }
             return;

@@ -17,6 +17,24 @@ namespace Scoreboard.Desktop;
 /// </summary>
 internal static class MotionPlayback
 {
+    /// <summary>The element's design rotation, composed with every clip played on its host.</summary>
+    public static readonly DependencyProperty BaseRotationProperty = DependencyProperty.RegisterAttached(
+        "BaseRotation", typeof(double), typeof(MotionPlayback), new PropertyMetadata(0.0));
+
+    public static void SetBaseRotation(FrameworkElement host, double angle) =>
+        host.SetValue(BaseRotationProperty, double.IsFinite(angle) ? angle : 0);
+
+    public static double GetBaseRotation(FrameworkElement host) =>
+        host.GetValue(BaseRotationProperty) is double angle && double.IsFinite(angle) ? angle : 0;
+
+    /// <summary>Puts a host at its design angle when no motion is running.</summary>
+    public static void SetDesignRotation(FrameworkElement host, double angle)
+    {
+        SetBaseRotation(host, angle);
+        host.RenderTransformOrigin = new Point(0.5, 0.5);
+        host.RenderTransform = Math.Abs(angle) > 0.001 ? new RotateTransform(angle) : Transform.Identity;
+    }
+
     /// <summary>
     /// Runs one phase from its first keyframe to its last. The host's own opacity is treated as a
     /// ceiling, so a clip that fades to 0 hides a half-transparent element rather than brightening it.
@@ -47,6 +65,9 @@ internal static class MotionPlayback
         group.Children.Add(rotate);
         group.Children.Add(skew);
         group.Children.Add(translate);
+        // The design angle is part of the element, not part of the clip: keep it under every
+        // transform the clip animates.
+        group.Children.Add(new RotateTransform(GetBaseRotation(host)));
         host.RenderTransformOrigin = new Point(0.5, 0.5);
         host.RenderTransform = group;
 
@@ -142,6 +163,7 @@ internal static class MotionPlayback
         group.Children.Add(rotate);
         group.Children.Add(skew);
         group.Children.Add(translate);
+        group.Children.Add(new RotateTransform(GetBaseRotation(host)));
         host.RenderTransformOrigin = new Point(0.5, 0.5);
         host.RenderTransform = group;
         foreach (var track in tracks)
@@ -233,7 +255,8 @@ internal static class MotionPlayback
     {
         Stop(host);
         host.Opacity = Math.Clamp(baseOpacity, 0, 1);
-        host.RenderTransform = Transform.Identity;
+        var angle = GetBaseRotation(host);
+        host.RenderTransform = Math.Abs(angle) > 0.001 ? new RotateTransform(angle) : Transform.Identity;
         host.Effect = null;
     }
 

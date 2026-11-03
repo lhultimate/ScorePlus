@@ -114,7 +114,7 @@ public sealed class AudiencePreview : Grid
         // Muted so it never doubles the clip's sound, but marked as on-air so a replay that is only
         // staged in the preview stays invisible here until Start replay puts it on air.
         _view = new ScorebugCanvasView(_catalog, _publishedEngine, playback: _playback, muteVideo: true,
-            layoutProvider: () => _catalog.PublishedLayoutOf(_displayId), onAirVideo: true, displayId: _displayId);
+            layoutProvider: () => _catalog.PublishedCompositeOf(_displayId), onAirVideo: true, displayId: _displayId);
         _host.Content = _view;
     }
 

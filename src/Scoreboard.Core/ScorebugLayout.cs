@@ -111,7 +111,7 @@ public sealed class ScorebugElement
     public string Foreground { get; set; } = "#FFFFFFFF";
     public string Background { get; set; } = "#CC141D28";
 
-    /// <summary>Clockwise rotation of the element's content, in degrees. Mainly for slanted text.</summary>
+    /// <summary>Clockwise rotation of the whole element, in degrees: plate, artwork and text.</summary>
     public double Rotation { get; set; }
 
     /// <summary>Outline drawn around the element. Zero hides the border entirely.</summary>
@@ -155,7 +155,7 @@ public sealed class ScorebugElement
     /// <summary>Which team logo a logo element draws. Configured in the control panel.</summary>
     public ScorebugLogoSide LogoSide { get; set; } = ScorebugLogoSide.None;
 
-    /// <summary>How this element prints a quarter: "Full", "Short", "Number", or null for the game default.</summary>
+    /// <summary>How this element prints a quarter: "Full", "Short", "Number", "Ordinal", or null for the game default.</summary>
     public string? PeriodFormat { get; set; }
 
     /// <summary>Optional artwork from live data: timeout bars or a possession dot.</summary>
@@ -175,6 +175,9 @@ public sealed class ScorebugElement
 
     /// <summary>For the possession dot: mirror it, putting the home side on the left.</summary>
     public bool IconFlipped { get; set; }
+
+    /// <summary>For timeout bars: scale the bars and their gaps. 1 is the box's natural size.</summary>
+    public double IconScale { get; set; } = 1;
 
     /// <summary>
     /// A gradient painted through the text itself, with any number of stops. Off leaves the text in
@@ -332,6 +335,12 @@ public sealed class ScorebugDisplay
 
     /// <summary>The layout this display is currently sending to its audience output.</summary>
     public int PublishedIndex { get; set; }
+
+    /// <summary>
+    /// Extra layouts layered on the same on-air feed. The published layout is always included; these
+    /// ids keep lower thirds, bugs and other items on screen alongside it instead of replacing it.
+    /// </summary>
+    public List<string> PinnedLayoutIds { get; set; } = [];
 }
 
 /// <summary>What is written to scorebug.json: every display, with its layouts and what is on air.</summary>
@@ -439,10 +448,75 @@ public sealed class ScorebugCatalog
         return display.Layouts[Math.Clamp(display.PublishedIndex, 0, display.Layouts.Count - 1)];
     }
 
+    /// <summary>Every layout currently on air for a display: the published one plus any pinned layers.</summary>
+    public IReadOnlyList<ScorebugLayout> PublishedLayoutsOf(string? displayId)
+    {
+        var display = FindDisplay(displayId) ?? ActiveDisplay;
+        if (display.Layouts.Count == 0) return [];
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { display.Layouts[Math.Clamp(display.PublishedIndex, 0, display.Layouts.Count - 1)].Id };
+        foreach (var id in display.PinnedLayoutIds ?? []) ids.Add(id);
+        return display.Layouts.Where(layout => ids.Contains(layout.Id)).ToArray();
+    }
+
+    /// <summary>
+    /// A single view of everything on air. With one layout it is that exact layout (so existing
+    /// transitions and previews are untouched); with pinned layers it is a stable composite whose
+    /// elements are drawn together, in display order.
+    /// </summary>
+    public ScorebugLayout PublishedCompositeOf(string? displayId)
+    {
+        var layouts = PublishedLayoutsOf(displayId);
+        if (layouts.Count == 0) return PublishedLayoutOf(displayId);
+        if (layouts.Count == 1) return layouts[0];
+        var first = layouts[0];
+        return new ScorebugLayout
+        {
+            Id = string.Join("+", layouts.Select(layout => layout.Id)),
+            Name = string.Join(" + ", layouts.Select(layout => layout.Name)),
+            Width = first.Width,
+            Height = first.Height,
+            Background = first.Background,
+            Transition = first.Transition,
+            TransitionSeconds = first.TransitionSeconds,
+            TransitionClip = first.TransitionClip,
+            Handover = first.Handover,
+            Elements = layouts.SelectMany(layout => layout.Elements).ToList()
+        };
+    }
+
     public bool IsPublished(string? displayId, int layoutIndex)
     {
         var display = FindDisplay(displayId);
-        return display is not null && display.PublishedIndex == Math.Clamp(layoutIndex, 0, display.Layouts.Count - 1);
+        if (display is null) return false;
+        var index = Math.Clamp(layoutIndex, 0, display.Layouts.Count - 1);
+        return display.PublishedIndex == index || display.PinnedLayoutIds?.Contains(display.Layouts[index].Id, StringComparer.OrdinalIgnoreCase) == true;
+    }
+
+    public bool IsLayoutPinned(string? displayId, string layoutId)
+    {
+        var display = FindDisplay(displayId);
+        return display is not null && display.PinnedLayoutIds?.Contains(layoutId, StringComparer.OrdinalIgnoreCase) == true;
+    }
+
+    /// <summary>Adds or removes a layout from the layered on-air feed.</summary>
+    public void SetLayoutPinned(string? displayId, string layoutId, bool pinned)
+    {
+        var display = FindDisplay(displayId);
+        if (display is null || display.Layouts.All(layout => !string.Equals(layout.Id, layoutId, StringComparison.OrdinalIgnoreCase))) return;
+        display.PinnedLayoutIds ??= [];
+        var changed = false;
+        if (pinned)
+        {
+            if (!display.PinnedLayoutIds.Contains(layoutId, StringComparer.OrdinalIgnoreCase))
+            {
+                display.PinnedLayoutIds.Add(layoutId);
+                changed = true;
+            }
+        }
+        else changed = display.PinnedLayoutIds.RemoveAll(id => string.Equals(id, layoutId, StringComparison.OrdinalIgnoreCase)) > 0;
+        if (!changed) return;
+        Save();
+        Changed?.Invoke();
     }
 
     /// <summary>
@@ -650,6 +724,11 @@ public sealed class ScorebugCatalog
             seenDisplays.Add(display.Id);
             display.ActiveIndex = Math.Clamp(display.ActiveIndex, 0, display.Layouts.Count - 1);
             display.PublishedIndex = Math.Clamp(display.PublishedIndex, 0, display.Layouts.Count - 1);
+            // Pinned layers survive an edit only while their layout still exists.
+            display.PinnedLayoutIds ??= [];
+            display.PinnedLayoutIds = display.PinnedLayoutIds
+                .Where(id => display.Layouts.Any(layout => string.Equals(layout.Id, id, StringComparison.OrdinalIgnoreCase)))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             foreach (var layout in display.Layouts)
             {
                 if (string.IsNullOrWhiteSpace(layout.Id) || !seenLayouts.Add(layout.Id))
@@ -802,6 +881,8 @@ public sealed class ScorebugCatalog
         if (display.Layouts.Count <= 1 || index < 0 || index >= display.Layouts.Count) return false;
         var removed = display.Layouts[index];
         display.Layouts.RemoveAt(index);
+        display.PinnedLayoutIds ??= [];
+        display.PinnedLayoutIds.RemoveAll(id => string.Equals(id, removed.Id, StringComparison.OrdinalIgnoreCase));
         if (display.ActiveIndex >= display.Layouts.Count) display.ActiveIndex = display.Layouts.Count - 1;
         if (display.PublishedIndex >= display.Layouts.Count) display.PublishedIndex = display.Layouts.Count - 1;
         if (display.ActiveIndex > index) display.ActiveIndex--;

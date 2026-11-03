@@ -151,7 +151,7 @@
           </StackPanel>
           <!-- Every layout on this display as a picture with its name underneath, so switching
                layouts is a click on the one you can see instead of a name in a list. -->
-          <ScrollViewer Grid.Row="1" Grid.ColumnSpan="2" Margin="0,7,0,0" MaxHeight="136"
+          <ScrollViewer Grid.Row="1" Grid.ColumnSpan="2" Margin="0,7,0,0" MaxHeight="170"
                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
             <StackPanel x:Name="LayoutStrip" Orientation="Horizontal"/>
           </ScrollViewer>
@@ -173,10 +173,10 @@
           <TextBlock x:Name="LayersHintText" Text="Front of the picture at the top. Ctrl-click to add rows, Shift-click for a range, Delete to remove them."
                      FontSize="10" Foreground="#5C6B7E" TextWrapping="Wrap" Margin="2,0,2,6"/>
           <UniformGrid Columns="2" Margin="0,0,0,6">
-            <Button x:Name="LayerFrontButton" Content="▲ Bring forward" FontSize="11" Padding="6,7" Margin="0,0,3,0"
-                    Click="LayerFront_Click" ToolTip="Move the selected element in front of the one above it"/>
-            <Button x:Name="LayerBackButton" Content="▼ Send back" FontSize="11" Padding="6,7" Margin="3,0,0,0"
-                    Click="LayerBack_Click" ToolTip="Move the selected element behind the one below it"/>
+            <Button x:Name="LayerFrontButton" Content="▲ To front" FontSize="11" Padding="6,7" Margin="0,0,3,0"
+                    Click="LayerFront_Click" ToolTip="Move the selected element in front of every other element"/>
+            <Button x:Name="LayerBackButton" Content="▼ To back" FontSize="11" Padding="6,7" Margin="3,0,0,0"
+                    Click="LayerBack_Click" ToolTip="Move the selected element behind every other element"/>
           </UniformGrid>
         </StackPanel>
         <ListBox x:Name="Layers" Background="#10151D" Foreground="White" BorderBrush="#364151"
@@ -213,13 +213,19 @@
         </Grid.RowDefinitions>
         <StackPanel Margin="4,0,0,10">
           <DockPanel>
+            <CheckBox x:Name="CanvasGridInput" Content="Show grid + snap" FontSize="11" FontWeight="SemiBold"
+                      Foreground="#38D7A3" VerticalAlignment="Center" Margin="0,0,14,0"
+                      DockPanel.Dock="Left" Checked="CanvasGrid_Changed" Unchecked="CanvasGrid_Changed"
+                      ToolTip="Show 20 px guides and snap moved or resized items to them"/>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+              <TextBlock x:Name="CanvasZoomText" Text="100%" FontSize="10" Foreground="#5C6B7E"
+                         VerticalAlignment="Center" Margin="0,0,10,0" ToolTip="Scroll over the canvas to zoom"/>
               <ComboBox x:Name="CanvasPreset" Width="170" FontSize="11" SelectedIndex="0" ToolTip="Canvas size presets" SelectionChanged="CanvasPreset_Changed"/>
               <TextBox x:Name="CanvasWidthInput" Width="58" FontSize="11" Margin="4,0,0,0" ToolTip="Canvas width in pixels"/>
               <TextBox x:Name="CanvasHeightInput" Width="58" FontSize="11" Margin="4,0,0,0" ToolTip="Canvas height in pixels"/>
               <Button Content="Resize" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasResize_Click" ToolTip="Scale the whole layout into this canvas size"/>
             </StackPanel>
-            <TextBlock x:Name="CanvasInfo" Text="drag elements to reposition · bindings update live" Foreground="#93A0B2" VerticalAlignment="Center"/>
+            <TextBlock x:Name="CanvasInfo" Text="wheel zooms · arrow keys nudge · Shift+arrow moves 10 px" Foreground="#93A0B2" VerticalAlignment="Center" ToolTip="Select an item, then use the arrow keys to nudge it. Hold Shift for bigger steps."/>
           </DockPanel>
           <!-- The artwork backdrop: it shows in the studio, the previews and the audience output. -->
           <DockPanel Margin="0,8,0,0">
@@ -243,17 +249,25 @@
                        VerticalAlignment="Center" Margin="10,0,0,0"/>
           </DockPanel>
         </StackPanel>
-        <Border Grid.Row="1" x:Name="CanvasFrame" Background="#171C25" ClipToBounds="True" MouseMove="Canvas_MouseMove" MouseLeftButtonUp="Canvas_MouseUp">
-          <!-- The artwork keeps its real pixel size and the Viewbox scales it to the panel. A
-               layout transform used to fight the frame, so the canvas grew on the first drag. The
-               edge border shows exactly where the artwork ends, so the letterbox never reads as
-               more canvas that refuses to accept a drag. -->
-          <Viewbox Stretch="Uniform" StretchDirection="Both" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Border Grid.Row="1" x:Name="CanvasFrame" Background="#171C25" ClipToBounds="True"
+                MouseMove="Canvas_MouseMove" MouseLeftButtonUp="Canvas_MouseUp"
+                SizeChanged="CanvasFrame_SizeChanged" PreviewMouseWheel="CanvasFrame_MouseWheel">
+          <!-- The artwork keeps its real pixel size. A layout transform fits it to the panel and
+               the scroll wheel changes that zoom; the ScrollViewer gives the enlarged artwork
+               somewhere to pan. The edge border shows exactly where the artwork ends. -->
+          <ScrollViewer x:Name="CanvasScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="Transparent">
             <Border x:Name="ArtworkEdge" BorderBrush="#4A586A" BorderThickness="1" ClipToBounds="True"
                     SnapsToDevicePixels="True">
-              <Canvas x:Name="DesignCanvas" Width="1280" Height="720" Background="#091018" RenderTransformOrigin="0,0"/>
+              <Grid>
+                <Canvas x:Name="DesignCanvas" Width="1280" Height="720" Background="#091018" RenderTransformOrigin="0,0"/>
+                <!-- Guides sit above the artwork so an opaque backdrop cannot hide them, but they
+                     never hit-test or become part of the exported layout. -->
+                <Canvas x:Name="GridCanvas" Width="1280" Height="720" IsHitTestVisible="False"
+                        Visibility="Collapsed"/>
+              </Grid>
             </Border>
-          </Viewbox>
+          </ScrollViewer>
         </Border>
       </Grid>
     </Border>
@@ -324,12 +338,11 @@
           <StackPanel x:Name="PeriodSection">
             <TextBlock Text="Quarter style for this element" Style="{StaticResource FieldLabel}"/>
             <ComboBox x:Name="PeriodFormatInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                      ToolTip="How {{PERIOD}} prints on this element — Quarter 1, Q1 or 1"/>
+                      ToolTip="How {{PERIOD}} prints on this element — Quarter 1, Q1, 1 or 1st"/>
           </StackPanel>
         </StackPanel>
 
-        <!-- Rotation is drawn by the text element itself, so it is offered only where it prints.
-             It used to sit inside TYPE, where a logo or a shape could set a value that did nothing. -->
+        <!-- The host box carries the angle, so rotation turns the whole item: plate, artwork and text. -->
         <StackPanel x:Name="TransformSection">
           <TextBlock Text="TRANSFORM" Style="{StaticResource SectionTitle}"/>
           <TextBlock Text="Rotation (degrees)" Style="{StaticResource FieldLabel}"/>
@@ -390,6 +403,12 @@
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
           <CheckBox x:Name="IconFlipInput" Content="Put the home side on the left" Margin="10,2,10,8"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
+          <!-- Timeout bars have their own size, independent of the plate. -->
+          <StackPanel x:Name="IconScalePanel">
+            <TextBlock Text="Timeout bar size (0.25–3)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="IconScaleInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="Make the timeout bars smaller or larger; 1 is the natural size"/>
+          </StackPanel>
           <!-- Baseball's bases: the inside can be its own color, separate from the outline. -->
           <StackPanel x:Name="BaseFillPanel">
             <TextBlock Text="Base fill" Style="{StaticResource FieldLabel}"/>
@@ -455,8 +474,11 @@
           <TextBlock Text="Gradient angle (degrees)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="GradientAngleInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="0 runs left to right, 90 top to bottom"/>
-          <CheckBox x:Name="TransparentBackgroundInput" Content="No background box (transparent)" Margin="10,4,10,6"
+          <CheckBox x:Name="TransparentBackgroundInput" Content="No background box (transparent)" Margin="10,4,10,2"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
+          <Button Content="Make opaque full-canvas backdrop" Margin="10,2,10,8" Padding="10,5" FontSize="11"
+                  Click="OpaqueBackdrop_Click"
+                  ToolTip="Fill the whole canvas, remove transparency, and send this element behind every other item"/>
         </StackPanel>
 
         <!-- An outline is drawn by the element's host, so it works on text, logos, shapes and video. -->
@@ -528,7 +550,7 @@
                 ToolTip="Key motion this element follows while it is up, or when its value changes"/>
         <CheckBox x:Name="VisibleInput" Content="Visible on output" Margin="10,4,10,8" Checked="Property_Changed" Unchecked="Property_Changed"/>
 
-        <TextBlock x:Name="CanvasFitTipText" Text="The artwork always fits this panel; the framed edge is the canvas, so every side is reachable."
+        <TextBlock x:Name="CanvasFitTipText" Text="Scroll over the canvas to zoom in and out; the framed edge is the artwork. The optional grid snaps moved and resized items to 20 px."
                    Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,10,10,2"/>
         <TextBlock x:Name="ResizeTipText" Text="Resize: select an element, then drag the blue corner handle on the canvas. Hold Ctrl to scale the text with the box, Shift to keep its shape."
                    Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,4,10,12"/>

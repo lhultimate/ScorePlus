@@ -19,6 +19,7 @@ public sealed class TeamIdentityWindow : Window
     readonly bool _home;
     readonly TextBox _name = new();
     readonly TextBox _abbreviation = new();
+    readonly TextBox _mascot = new();
     readonly TextBox _primaryHex = new();
     readonly TextBox _secondaryHex = new();
     readonly Border _primarySwatch = new() { Width = 46, Height = 30, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), BorderBrush = Brushes.Gray };
@@ -42,6 +43,7 @@ public sealed class TeamIdentityWindow : Window
 
         _name.Text = home ? state.HomeTeam : state.AwayTeam;
         _abbreviation.Text = home ? state.HomeAbbreviation : state.AwayAbbreviation;
+        _mascot.Text = home ? state.HomeMascot : state.AwayMascot;
         _primaryHex.Text = home ? state.HomePrimaryColor : state.AwayPrimaryColor;
         _secondaryHex.Text = home ? state.HomeSecondaryColor : state.AwaySecondaryColor;
         _logoPath = home ? state.HomeLogoPath : state.AwayLogoPath;
@@ -106,6 +108,9 @@ public sealed class TeamIdentityWindow : Window
         _abbreviation.CharacterCasing = CharacterCasing.Upper;
         _abbreviation.MaxLength = 8;
         fields.Children.Add(_abbreviation);
+        fields.Children.Add(Label("Mascot name"));
+        _mascot.MaxLength = 80;
+        fields.Children.Add(_mascot);
         fields.Children.Add(Label("Primary color"));
         fields.Children.Add(ColorRow(_primarySwatch, _primaryHex, () => PickColor(_primaryHex, _primarySwatch)));
         fields.Children.Add(Label("Secondary color"));
@@ -236,7 +241,7 @@ public sealed class TeamIdentityWindow : Window
                 return false;
             }
         }
-        _engine.SetTeamIdentity(_home, _name.Text, _abbreviation.Text, logo, _primaryHex.Text, _secondaryHex.Text);
+        _engine.SetTeamIdentity(_home, _name.Text, _abbreviation.Text, logo, _primaryHex.Text, _secondaryHex.Text, _mascot.Text);
         return true;
     }
 

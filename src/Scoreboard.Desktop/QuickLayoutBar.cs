@@ -8,14 +8,14 @@ using Scoreboard.Core;
 namespace Scoreboard.Desktop;
 
 /// <summary>
-/// Eight buttons that put a chosen layout on any display in one press. The assignment lives in
-/// preferences, so each window — the main rail and every detached panel — offers the same eight.
+/// Twelve buttons that put a chosen layout on any display in one press. The assignment lives in
+/// preferences, so each window — the main rail and every detached panel — offers the same twelve.
 /// By default a press only stages the layout; Preferences can make the same press update output.
 /// Right-click a button for a menu that reassigns it or clears it.
 /// </summary>
 public sealed class QuickLayoutBar : Border
 {
-    const int Slots = 8;
+    const int Slots = 12;
 
     readonly ScorebugCatalog _catalog;
     readonly GameEngine _engine;
@@ -71,8 +71,8 @@ public sealed class QuickLayoutBar : Border
             };
             panel.Children.Add(_caption);
         }
-        // Two rows of four: eight buttons stay readable in the rail and in a detached panel.
-        var row = new UniformGrid { Rows = 2, Columns = 4 };
+        // Three rows of four: twelve buttons stay readable in the rail and in a detached panel.
+        var row = new UniformGrid { Rows = 3, Columns = 4 };
         for (var index = 0; index < _buttons.Length; index++)
         {
             var slot = index;
@@ -249,7 +249,7 @@ internal sealed class QuickLayoutPickerWindow : Window
         root.Children.Add(new TextBlock { Text = "Assign a quick layout", FontSize = 17, FontWeight = FontWeights.Bold });
         root.Children.Add(new TextBlock
         {
-            Text = "Pick any display and any layout on it. The eight buttons above the sound meter — and in every detached panel — will use this.",
+            Text = "Pick any display and any layout on it. The twelve buttons above the sound meter — and in every detached panel — will use this.",
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.72,

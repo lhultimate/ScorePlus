@@ -210,8 +210,14 @@ public sealed class VideoSurface : Grid
         // operator cuts to an instant replay or another clip.
         if (entry is { IsCamera: true })
         {
-            // A live feed has no file for the router to open.
+            // A live feed has no file for the router to open. Stop the MediaElement even when the
+            // same camera index is already selected: a surface that previously held a file must
+            // never keep its soundtrack playing underneath the camera.
             StopRouting();
+            try { _element.Stop(); _element.Source = null; } catch { }
+            _loadedPath = null;
+            _opened = false;
+            _playing = false;
             ShowLiveCamera(entry.CameraIndex);
             if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
             return;

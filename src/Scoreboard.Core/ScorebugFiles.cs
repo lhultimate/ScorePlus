@@ -59,6 +59,7 @@ public static class ScorebugFiles
         public string Name { get; set; } = "Display";
         public int ActiveIndex { get; set; }
         public int PublishedIndex { get; set; }
+        public List<string> PinnedLayoutIds { get; set; } = [];
         public List<ScorebugLayout> Layouts { get; set; } = [];
     }
 
@@ -117,6 +118,7 @@ public static class ScorebugFiles
         Name = display.Name,
         ActiveIndex = display.ActiveIndex,
         PublishedIndex = display.PublishedIndex,
+        PinnedLayoutIds = display.PinnedLayoutIds,
         Layouts = display.Layouts
     }, Write);
 
@@ -134,7 +136,10 @@ public static class ScorebugFiles
                 Name = string.IsNullOrWhiteSpace(file.Name) ? "Imported display" : file.Name.Trim(),
                 Layouts = layouts,
                 ActiveIndex = Math.Clamp(file.ActiveIndex, 0, layouts.Count - 1),
-                PublishedIndex = Math.Clamp(file.PublishedIndex, 0, layouts.Count - 1)
+                PublishedIndex = Math.Clamp(file.PublishedIndex, 0, layouts.Count - 1),
+                PinnedLayoutIds = (file.PinnedLayoutIds ?? [])
+                    .Where(id => layouts.Any(layout => string.Equals(layout.Id, id, StringComparison.OrdinalIgnoreCase)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
             };
         }
         catch { return null; }
