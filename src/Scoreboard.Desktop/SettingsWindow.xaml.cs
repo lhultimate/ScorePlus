@@ -24,6 +24,7 @@ public partial class SettingsWindow : Window
         ThemeSelector.ItemsSource = new[] { "System", "Dark", "Light" };
         ThemeSelector.SelectedItem = ThemeSelector.Items.Contains(_draft.Theme) ? _draft.Theme : "System";
         ShowHints.IsChecked = _draft.ShowHeadingHints;
+        QuickPublishInput.IsChecked = _draft.QuickLayoutsPublish;
         DelayInput.Text = _draft.ValueSwitchDelay.ToString("0.##", CultureInfo.CurrentCulture);
         AccentInput.Text = _draft.AccentColor;
         Accent2Input.Text = _draft.AccentColor2;
@@ -83,7 +84,7 @@ public partial class SettingsWindow : Window
         ThemeManager.Apply(this, _draft.Theme);
     }
 
-    void ResetColours_Click(object sender, RoutedEventArgs e)
+    void ResetColors_Click(object sender, RoutedEventArgs e)
     {
         _draft.AccentColor = "#FF38D7A3";
         _draft.AccentColor2 = "#FF0B6B50";
@@ -173,6 +174,13 @@ public partial class SettingsWindow : Window
         _draft.ShowHeadingHints = ShowHints.IsChecked == true;
     }
 
+    /// <summary>A quick button either stages or publishes; the choice is saved with everything else.</summary>
+    void QuickLayout_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || QuickPublishInput is null) return;
+        _draft.QuickLayoutsPublish = QuickPublishInput.IsChecked == true;
+    }
+
     /// <summary>
     /// Any value the operator types is used as-is inside 0–5, so 0.35 s is a real answer rather
     /// than the nearest item in a fixed list. Half-typed text ("", "0.") leaves the draft alone.
@@ -233,6 +241,7 @@ public partial class SettingsWindow : Window
     {
         _original.Theme = _draft.Theme;
         _original.ShowHeadingHints = _draft.ShowHeadingHints;
+        _original.QuickLayoutsPublish = _draft.QuickLayoutsPublish;
         _original.ValueSwitchDelay = Math.Clamp(_draft.ValueSwitchDelay, 0, MaxDelay);
         _original.AccentColor = _draft.AccentColor;
         _original.AccentColor2 = _draft.AccentColor2;

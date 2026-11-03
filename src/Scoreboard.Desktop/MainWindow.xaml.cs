@@ -37,6 +37,8 @@ public partial class MainWindow : Window, IControlPanelHost
     RemoteControlServer? _remote;
     ScorebugCanvasView? _preview;
     AudiencePreview? _audience;
+    // The four assignable quick-layout buttons above the rail's meter.
+    QuickLayoutBar? _quickLayouts;
     int _eventCount = -1;
     readonly UserPreferences _preferences = PreferencesStore.Load();
     string? _projectPath;
@@ -85,6 +87,9 @@ public partial class MainWindow : Window, IControlPanelHost
         _meterTimer.Tick += (_, _) => UpdateSoundMeter();
         _meterTimer.Start();
         DisplayTiming.Apply(_preferences);
+        _quickLayouts = new QuickLayoutBar(_scorebug, _engine, _preferences.Theme);
+        _quickLayouts.Status += message => StatusText.Text = message;
+        QuickLayoutsHost.Content = _quickLayouts;
         SportSelector.SelectedValuePath = "Id";
         RefreshSports();
         SportSelector.SelectedValue = _engine.State.SportId;
@@ -453,7 +458,31 @@ public partial class MainWindow : Window, IControlPanelHost
         RefreshLayoutIndicators();
         _panel.Refresh();
         foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.Panel.Refresh();
+        // A quick button may point at the layout that was just renamed or removed.
+        _quickLayouts?.Refresh();
     }
+
+    /// <summary>
+    /// Opens one of the two motion makers on the display and layout this window is previewing, so
+    /// what the operator builds applies to the graphic they are looking at.
+    /// </summary>
+    void OpenMotionMaker(MotionKind kind)
+    {
+        var displayIndex = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
+        if (displayIndex >= 0) _scorebug.SelectDisplay(displayIndex);
+        _scorebug.SelectLayout(_program.LayoutIndex);
+        var maker = new MotionMakerWindow(kind, _scorebug, _engine, _preferences.Theme) { Owner = this };
+        maker.ShowDialog();
+        _preview?.Rebuild();
+        RefreshLayoutIndicators();
+        _panel.Refresh();
+        foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.Panel.Refresh();
+        _quickLayouts?.Refresh();
+    }
+
+    void TransitionMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Transition);
+
+    void AnimationMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Animation);
 
     void Preferences_Click(object sender, RoutedEventArgs e)
     {
@@ -471,6 +500,8 @@ public partial class MainWindow : Window, IControlPanelHost
         _panel.SetHintVisibility(_preferences.ShowHeadingHints);
         // A changed value delay reaches every graphic already on screen, in this window and out.
         DisplayTiming.Apply(_preferences);
+        // The quick buttons may have been switched between staging and publishing.
+        _quickLayouts?.Refresh();
         _preview?.ApplyNow();
         foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.RefreshPreview();
         foreach (var output in _outputs) output.RefreshGraphic();

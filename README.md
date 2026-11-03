@@ -21,7 +21,7 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 - [Tutorial: Two Screens with Displays and Layouts](#tutorial-two-screens-with-displays-and-layouts)
 - [Tutorial: Video, Camera and Replay](#tutorial-video-camera-and-replay)
 - [Tutorial: Rosters and Player Stats](#tutorial-rosters-and-player-stats)
-- [Tutorial: Team Identity and Colours](#tutorial-team-identity-and-colours)
+- [Tutorial: Team Identity and Colors](#tutorial-team-identity-and-colors)
 - [Tutorial: Keybinds](#tutorial-keybinds)
 - [Tutorial: The Phone Remote](#tutorial-the-phone-remote)
 - [Tutorial: Sport Profiles](#tutorial-sport-profiles)
@@ -49,7 +49,7 @@ It was built around four ideas:
 
 **2. Live data, staged data.** Scores, clocks, team names and the selected player's data are *live* — they hit the audience the instant they change. Everything else is *staged*: down and distance, possession, timeouts, custom stats and the chosen layout only go on air when you press **Update Output**. That gives you a rehearsal layer between your fingers and the broadcast.
 
-**3. The graphic is yours.** A built-in studio lets you design the scorebug from scratch with text, logos, shapes, video boxes and live HTML — on a canvas that can be HD, Full HD, QHD, 4K or vertical. Every element is typed, coloured, bordered, rotated and animated independently, and any element can read any value the game holds.
+**3. The graphic is yours.** A built-in studio lets you design the scorebug from scratch with text, logos, shapes, video boxes and live HTML — on a canvas that can be HD, Full HD, QHD, 4K or vertical. Every element is typed, colored, bordered, rotated and animated independently, and any element can read any value the game holds.
 
 **4. It scales up without getting more complicated.** Start with one scorebug on one screen. When the show grows, add a lower thirds display, link displays to each other, put the console on a phone, and hand parts of one layout to another so you are not maintaining five near-identical scorebugs.
 
@@ -101,7 +101,7 @@ The launch box offers:
 - **Autosaves** — the recovery points listed down the side, each labelled with its time. Click one to load it.
 - **Delete all** — clears every autosave. It arms for a few seconds and needs a second click, so a stray click can never throw away a season. Saved `.spg` files are never touched.
 
-> **What a new game keeps and what it clears.** A new game resets the teams, logo, score, clocks, sport values, custom stats, rosters-in-play, media folders and playlists, and any extra layouts or displays — it goes back to one scorebug. It keeps the things that describe *you*, not the game: imported media files, sport profiles, rosters and their stat columns, keybinds, fonts, preferences and your accent colours.
+> **What a new game keeps and what it clears.** A new game resets the teams, logo, score, clocks, sport values, custom stats, rosters-in-play, media folders and playlists, and any extra layouts or displays — it goes back to one scorebug. It keeps the things that describe *you*, not the game: imported media files, sport profiles, rosters and their stat columns, keybinds, fonts, preferences and your accent colors.
 
 ---
 
@@ -111,7 +111,7 @@ This walkthrough takes you from a cold launch to a scorebug on a second screen. 
 
 **Step 1 — Start a new game.** Launch ScorePlus and click **New Game**. Pick the sport from the list. The launch box dismisses and the console unlocks.
 
-**Step 2 — Name the teams.** Click the **…** button beside **Visitors** and beside **Home**. The team box that pops up holds the name, the abbreviation (used in tight spots on the graphic), the logo, and the team's primary and secondary colours. Type the real names, pick their colours, and close it. The graphic already shows the changes — team names are live.
+**Step 2 — Name the teams.** Click the **…** button beside **Visitors** and beside **Home**. The team box that pops up holds the name, the abbreviation (used in tight spots on the graphic), the logo, and the team's primary and secondary colors. Type the real names, pick their colors, and close it. The graphic already shows the changes — team names are live.
 
 **Step 3 — Set the clocks.** In the **GAME CLOCK** card, click the value itself and type `12:00`, then press **Enter**. Typing always sets an exact value; the `−1:00`, `−0:01`, `+0:01` and `+1:00` buttons nudge it. **Start** runs the clock and turns into **Stop**; the play clock and shot clock work the same way.
 
@@ -135,7 +135,7 @@ Open **Scorebug Studio** from the second row of the console. The studio opens ma
 
 1. Press **TEXT +** in the toolbar. A text element appears on the canvas with placeholder content.
 2. In the property panel, set **NAME** to something you'll recognise later (`Home score`), then set **TEXT** to `{{HOME_SCORE}}`. The canvas immediately prints the current value — the token is bound to the game, not to a typed number.
-3. Press **SHAPE +**, then set **Shape type** to *Rectangle*, drag it behind the text, and give it a background colour. The layer list on the left controls the stacking order — the top row is the front of the picture.
+3. Press **SHAPE +**, then set **Shape type** to *Rectangle*, drag it behind the text, and give it a background color. The layer list on the left controls the stacking order — the top row is the front of the picture.
 4. Press **LOGO +** and choose which team it shows. Logos themselves are configured in the console's **…** team box, not here, so one imported logo serves every layout.
 
 ### Positioning, Resizing and the Modifier Keys
@@ -160,9 +160,9 @@ Hold a modifier while resizing for precise control:
 | Deselect everything | `Escape` (or click empty canvas) |
 | Select layers | `Ctrl` + click rows in the layer list, `Shift` + click for a contiguous range |
 | Delete the selection | `Delete` |
-| Change many at once | Change any property — box, border, colour, gradient, opacity, size — with several selected |
+| Change many at once | Change any property — box, border, color, gradient, opacity, size — with several selected |
 
-Every property change with a multi-selection lands on all of them, so restyling a row of stat boxes is one colour pick rather than six.
+Every property change with a multi-selection lands on all of them, so restyling a row of stat boxes is one color pick rather than six.
 
 ### Styling
 
@@ -170,10 +170,10 @@ The property panel only shows sections the selected element can actually use: te
 
 Options available on almost everything:
 
-- **Border** — thickness and colour, fixed or from a team palette slot. Zero thickness hides it entirely, and a shape with a transparent background becomes a clean outline.
-- **Gradient background** — a second colour and a direction in degrees, and both colours can be team slots.
+- **Border** — thickness and color, fixed or from a team palette slot. Zero thickness hides it entirely, and a shape with a transparent background becomes a clean outline.
+- **Gradient background** — a second color and a direction in degrees, and both colors can be team slots.
 - **Opacity** — per element, so a stat box can sit at 60% over live video.
-- **Colour sources** — anywhere a colour is offered, choose *Custom* for a hex/alpha picker, or **Home Primary**, **Home Secondary**, **Away Primary**, **Away Secondary** so the graphic recolours itself when you change a team's identity.
+- **Color sources** — anywhere a color is offered, choose *Custom* for a hex/alpha picker, or **Home Primary**, **Home Secondary**, **Away Primary**, **Away Secondary** so the graphic recolors itself when you change a team's identity.
 
 ### Type and Motion
 
@@ -200,20 +200,20 @@ Three elements can draw artwork from game state instead of (or alongside) typed 
 
 They update themselves with no studio edit, and **every icon animates** with the element's own value transition: a base fades and pops in as a runner arrives and shrinks away when they leave, new timeout bars slide or dissolve into the row, and the possession dot slides across the plate when the ball changes hands. The possession dot and the text are exclusive: turning on the dot removes the text rather than sitting under it. Small icons keep their size when you resize the box, unless you hold `Ctrl`, exactly like text.
 
-A baseball base has two colours of its own: the **outline** follows the element's text colour, while **Base fill** sets the inside independently — a fixed colour, or one of the team palette slots, so a lit base can wear the scoring team's colour.
+A baseball base has two colors of its own: the **outline** follows the element's text color, while **Base fill** sets the inside independently — a fixed color, or one of the team palette slots, so a lit base can wear the scoring team's color.
 
 ### Canvas Size and Background
 
 Beyond the canvas's own bar you choose the size: **HD (1280×720)**, **Full HD (1920×1080)**, **QHD (2560×1440)**, **4K UHD (3840×2160)**, **Vertical (1080×1920)** or **Square (1080×1080)**. Changing it scales the layout and is remembered with it.
 
-**Canvas background** belongs to the layout — green screen, navy, black, any colour, or a typed hex — and the studio, the program preview and the audience all paint the same thing. The **Reset** button puts it back to the ScorePlus navy; it sits beside the green-screen button so a chroma key and a clean backdrop are one click apart.
+**Canvas background** belongs to the layout — green screen, navy, black, any color, or a typed hex — and the studio, the program preview and the audience all paint the same thing. The **Reset** button puts it back to the ScorePlus navy; it sits beside the green-screen button so a chroma key and a clean backdrop are one click apart.
 
 ### Multi-Select, Duplicate, and the Finer Points
 
 - Layers list runs **front of the picture at the top**.
 - Every element flies forward/back with the layer buttons, or you can drag rows.
 - The canvas is a real drag surface: no element can be pushed outside it, and an element can sit flush with any edge.
-- The studio itself follows the app's theme, so a light theme gives you a light studio — but the artwork never changes colour because of a theme. The graphic keeps the colours you designed.
+- The studio itself follows the app's theme, so a light theme gives you a light studio — but the artwork never changes color because of a theme. The graphic keeps the colors you designed.
 
 ---
 
@@ -238,6 +238,22 @@ Every layout on the chosen display appears as a strip of **thumbnails with the l
 
 When a display switches layouts, the hand-over belongs to the layout **arriving**. Each layout carries its own **TRANSITION IN** — `Cut`, `Fade`, `Slide Left`, `Slide Right`, `Slide Up`, `Slide Down` or `Zoom` — over anything from **0 to 5 seconds**. Set it on the layout bar. One scorebug can snap on while the next dissolves in slowly, and the choice saves in the game, the `.spl` file and the `.spd` file.
 
+### Building the Hand-Over (Transition Maker)
+
+**Transition Maker** sits beside the studio in the header. A clip has two legs — **Exit** and **Enter** — and each leg is keyed on its own ruler. The **PIECES** list is the heart of it: choose **Whole graphic**, one of the layout's real items, or a **temporary piece** you create here. Tracks and keys are scoped to the selected piece, so a score can swing out while its plate stays put, and several items can move on their own timings inside the same leg. The preview plays the real layout, with temporary pieces in place, through the exit and the arrival, and the timeline always shows the selected piece's keys.
+
+**Add temporary piece** creates artwork that is saved inside the clip and drawn only while the transition runs — a flash card, a strap, a wipe bar. It has its own name, text, size, position, plate and text color, and it is keyed exactly like a real item. **Remove piece** deletes it again; layout items are edited in the studio. Add a track for any of ten properties: move X, move Y, uniform scale, scale X, scale Y, rotate, opacity, blur, skew X and skew Y. Each key takes a time in seconds, a value and a curve (`Linear`, `In`, `Out`, `InOut`, `Back`, `Bounce`, `Elastic`), so a score can swing out on a back curve and settle in on a bounce. Click the ruler to place the playhead, double-click to add a key there, and drag a key dot to retime it.
+
+**Color keys** are the second half. For the text, the plate or the outline, add color keys at points through either leg: the graphic can wash to the team color as it leaves and back to white as it arrives. Color keys are scoped to the selected piece too. **Save clip** puts the named clip in the show's library and in the studio's transition dropdowns; nothing is applied from this window. On air, a per-piece exit crops each item out of the outgoing frame and moves it on its own, while a per-piece arrival runs on each item's own box.
+
+Clips live in the show's library and are written on their own as **`.spt`** files. Because the clip is copied onto the layout or element that uses it, an exported `.spl`, `.spd` or saved game always carries its motion with it — nothing points at a library entry that might move.
+
+### Motion a Value Follows (Animation Maker)
+
+**Animation Maker** keys motion rather than a hand-over. A loop runs from its first key to its last for as long as the graphic is up — a bob, a sway, a breathe, a spin, a color cycle — and **ping-pong** runs it back the other way instead of snapping to the start. Tick **Play when the value changes** and the same clip becomes the flourish a new number plays: a pop, a ticker roll, a slide-in.
+
+Apply it to an element and it replaces the two motion presets for that element; the value-change form runs after the new value lands. Animations are written as **`.spa`** files and, like transitions, are copied onto the element that uses them so they save with the layout, the display and the game.
+
 ### Per-Window Layout Choice
 
 The staged layout and display are chosen **per window**. Open a second console with **New Panel** (the ⧉ icon) and it can be lining up a lower third on display 2 while the first window works the scorebug on display 1. Nothing you stage moves until **Update Output**. A detached panel carries its own **sound level meter** and show line under the preview, so the operator at that screen sees the output level and what is on air without turning back to the main window.
@@ -245,6 +261,8 @@ The staged layout and display are chosen **per window**. Open a second console w
 Below the staged preview sits a second, smaller thumbnail: the **audience view**. It mirrors exactly what the chosen display is really showing on air, and it follows Update Output, not your staging. It's a monitor, not another preview — you can point it at any display to check what that screen looks like.
 
 Under the preview is a **sound level meter** with the peak level the machine is putting out, next to the on-air display and layout, so you can see at a glance what is live and whether audio is actually flowing.
+
+Above the meter sit **eight quick-layout buttons**, navy in every theme. Each one can point at any layout on **any display** — a scorebug, a lower third, a sponsor board — and every detached panel carries the same eight. Right-click a button to reassign it, or to **clear** it so the button does nothing until it is assigned again. By default a press only **stages** the layout, so Update Output still sends it; **Preferences → Quick layout buttons also update output** makes the same press go straight to air. The assignment and that switch are stored in preferences, so they follow the operator, not the game.
 
 ### Linking Displays Together
 
@@ -281,7 +299,7 @@ Everything audiovisual lives in the **MEDIA** tab. It is a full-size pane, not a
 2. Press **+ Folder** to make a folder, then drag a clip onto the folder card to file it. **Double-click** any folder card to open it, and folders can sit inside folders. **← Back** and the path bar walk you out again.
 3. Press **+ Playlist** and drag clips onto it — or open the playlist and use **Add clip**. A playlist opens into a full ordered list rather than hiding behind a dropdown.
 4. The **search box** looks through every clip, folder and playlist, and deliberately ignores which folder you're standing in. A clip never disappears just because somebody filed it away.
-5. **Export folder…** writes a whole folder — everything nested inside it and its media — as one **ScorePlus Media Folder (`.spf`)**; **Import folder…** brings it back whole on another machine.
+5. **Export folder…** writes a whole folder — everything nested inside it and its media — as one **ScorePlus Folder (`.spf`)**; **Import folder…** brings it back whole on another machine.
 
 ### Tags Are What Connect Media to the Graphic
 
@@ -365,20 +383,20 @@ Rosters live with the app and survive a new game. Which roster each side uses, w
 
 ---
 
-## Tutorial: Team Identity and Colours
+## Tutorial: Team Identity and Colors
 
 Team identity lives in the console, not the studio.
 
 1. Click the **…** beside **Visitors** (or **Home**). The team box opens.
 2. Set the **name**, the **abbreviation** and the **logo**. The logo is imported once here and is then available to logo elements on every layout, every display.
-3. Pick the **primary** and **secondary** colours. A live swatch in the three-dot menu shows the current pair whenever you're not editing them, so you can read a team's palette at a glance.
-4. Change any of it and the graphic follows: team names are live, and every element pointed at a team colour slot recolours itself.
+3. Pick the **primary** and **secondary** colors. A live swatch in the three-dot menu shows the current pair whenever you're not editing them, so you can read a team's palette at a glance.
+4. Change any of it and the graphic follows: team names are live, and every element pointed at a team color slot recolors itself.
 
-That last part is the real trick. In the studio, an element's colour can be *Custom* — a fixed hex — or one of four **palette slots**:
+That last part is the real trick. In the studio, an element's color can be *Custom* — a fixed hex — or one of four **palette slots**:
 
 `Home Primary` · `Home Secondary` · `Away Primary` · `Away Secondary`
 
-Point the scorebox at `Home Primary` and the graphic will be correct for whoever is home tonight, without opening the studio. It works for foreground, background, the gradient's second colour and borders.
+Point the scorebox at `Home Primary` and the graphic will be correct for whoever is home tonight, without opening the studio. It works for foreground, background, the gradient's second color and borders.
 
 The abbreviation is what fits where a full name won't, and it also feeds tokens like `{{HOME_ABBR}}`, `{{BALL_SIDE}}` and `{{POSSESSION}}`.
 
@@ -406,7 +424,7 @@ Preferences can serve the whole control panel to a phone or tablet on the same W
 3. On the phone, open that address, sign in with the password, and the console appears in a thumb-sized layout: both teams above and below the clock, so nothing clips on a narrow screen.
 4. Type into any value and press **Enter**. Every action runs exactly the same code as the on-screen button.
 
-The remote carries the full panel: both teams (name, abbreviation, score, colour, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance, the ball spot and its side, possession, the sport's own values, custom stats, layout switching, **Update Output**, **Live**, **Undo** and **New panel**.
+The remote carries the full panel: both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance, the ball spot and its side, possession, the sport's own values, custom stats, layout switching, **Update Output**, **Live**, **Undo** and **New panel**.
 
 It is off until you enable it, requires the password for everything (hashed, constant-time compared, login throttled), and serves nothing without a signed-in session. Windows may ask once whether ScorePlus can accept connections — allow it on **private** networks and leave it blocked on public ones.
 
@@ -471,7 +489,7 @@ The main window is one page, top to bottom.
 
 ### The Console Body
 
-- **Visitors** on the left, **Home** on the right, each with a **…** team box (name, abbreviation, logo, primary/secondary colours), a score stepper, and timeouts.
+- **Visitors** on the left, **Home** on the right, each with a **…** team box (name, abbreviation, logo, primary/secondary colors), a score stepper, and timeouts.
 - **Game clock** — typed as `MM:SS` or a plain number of seconds, with ±1s and ±1m buttons and Start/Stop.
 - **Play clock** and **shot clock** — presets (40/25, 24/14), ±1, start/stop. Clocks count the whole way down and show `0` rather than stopping a second early.
 - **Down & distance**, the **ball spot** with its own side (`Home 37`, `Visitors 25` — independent of possession, capped at 50) and possession (`HOME ▶` / `◀ AWAY`).
@@ -485,7 +503,7 @@ Every value reads the same way: add buttons above, subtract below, and click the
 
 ### Tabs
 
-**CONTROL PANEL**, **MEDIA** and **ROSTERS**, each filling the pane at console-sized buttons. The active tab carries the accent-coloured outline (also on first launch, before you've clicked anything).
+**CONTROL PANEL**, **MEDIA** and **ROSTERS**, each filling the pane at console-sized buttons. The active tab carries the accent-colored outline (also on first launch, before you've clicked anything).
 
 Every notice and confirmation in ScorePlus is the app's own themed window — closing a game with unsaved changes brings up **Keep editing / Exit without saving / Save & exit**, and deleting a roster or clearing autosaves asks in the same style. There are no Windows message boxes anywhere in the app.
 
@@ -503,7 +521,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 
 | Type | What it draws | Notable properties |
 | --- | --- | --- |
-| **Text** | Any bound or typed string | Font, size, bold/italic/underline/strike, rotation, colour, value transition, icon, quarter style |
+| **Text** | Any bound or typed string | Font, size, bold/italic/underline/strike, rotation, color or text gradient, texture, value transition, icon, quarter style |
 | **Logo** | One team's logo | Which side (Home/Away); the artwork itself comes from the console |
 | **Image** | A still picture imported with **IMAGE +** | The file is copied into the app, so the design survives the original being moved |
 | **Shape** | Rectangle, circle or triangle | Shape type, fill or gradient, border, opacity |
@@ -516,7 +534,10 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 - **Preserve video aspect ratio** locks the box to the clip's shape — nothing is stretched or cropped. Turn it off and the box can be any shape, with the picture filling it.
 - **Media tag** decides which clips can appear. **ANY** accepts every clip.
 - **Audio output** is per video element, independent of the clip's own speaker, so two overlays can feed two destinations.
-- **Border** and **gradient** each take a fixed colour or a team palette slot.
+- **Border** and **gradient** each take a fixed color or a team palette slot.
+- **Paint & texture** opens the finish editor: a gradient on the text itself as well as the plate, with any number of stops, either linear at an angle or radial out from a centre. The same editor lays a material over the paint — `Matte`, `Metal`, `Chrome`, `Glass`, `Frost`, `Fabric`, `Velvet`, `Stone`, `Concrete`, `Paper` or `Hologram` — with fourteen knobs of its own: roughness, glossiness, ambience, shine, metallic, grain, emboss, bevel, satin, iridescence, opacity, scale, contrast and light angle, plus a tint.
+- **Opacity** is four sliders, not one: the whole element, the printed value, the background plate and the outline each fade on their own. A score can dissolve away while its plate stays solid, or a border can fade without touching the text.
+- **Motion** has two routes: the built-in `None / Pulse / Drift` presets, or a clip from the animation maker that replaces them.
 - **Rotation** is in degrees; negative angles are fine.
 - **Transition** and its **duration** (0–5s) live with the element, next to the font controls.
 
@@ -542,7 +563,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 - **TRANSITION IN** — the arriving layout's hand-over and its duration.
 - **LINK THIS LAYOUT TO** — the layout on another display that moves with this one, with a both-ways checkbox.
 - **LAYOUT** — the display's layouts as thumbnails with their names underneath, plus **Import .spl… / Export .spl…** and **Import .spd… / Export .spd…**, **Copy to… / Move to…** and **PARTS +**.
-- **CANVAS BACKGROUND** — green screen, navy reset, black, custom colour.
+- **CANVAS BACKGROUND** — green screen, navy reset, black, custom color.
 - **Size presets** — HD, Full HD, QHD, 4K UHD, vertical, square.
 
 ### Safety in the Studio
@@ -609,7 +630,7 @@ Tokens are resolved at draw time, so an element holding `{{HOME_SCORE}}` always 
 | --- | --- | --- |
 | **Theme** | **System** | Follows Windows' light/dark. Pin **Dark** or **Light** to override. Applies to the operator windows only, never to the artwork. |
 | **Heading hints** | **Off** | The little explanatory lines next to headings ("scoring, timing, actions"). Turning them on shows them everywhere, including the studio tips. |
-| **Accent colour** | ScorePlus green | Tab outlines, selected rows, live badges |
+| **Accent color** | ScorePlus green | Tab outlines, selected rows, live badges |
 | **Secondary accent** | Dark green | Filled actions — Update Output, confirms, on toggles |
 | **Value switch delay** | **0 s** | How long a graphic holds an old value before printing the new one. Type any number up to 5 seconds. |
 | **Remote** | **Off** | Server, port (8080) and password for the phone control panel |
@@ -625,15 +646,17 @@ Both accents accept a typed hex value or a picker, and **Reset** brings back the
 
 | Extension | Name | Holds |
 | --- | --- | --- |
-| `.spg` | **ScorePlus Game** | The whole game: teams, score, clocks, sport values, custom stats, every display and layout, what is on air, rosters in use, selected players and their stats |
+| `.spg` | **ScorePlus Game** | Everything: teams, score, clocks, sport values, custom stats, every display and layout with its transitions and animations, the motion library, what is on air, rosters in use, selected players and their stats |
 | `.spl` | **ScorePlus Layout** | One layout, with all of its elements, artwork and transition |
-| `.spd` | **ScorePlus Display** | One display and every layout on it, their order, and what is on air |
+| `.spd` | **ScorePlus Display** | One display and every layout on it, their order, and what is on air — with each layout's transition clip |
+| `.spt` | **ScorePlus Transition** | One keyframed hand-over: its exit and enter legs, every property key and every color key |
+| `.spa` | **ScorePlus Animation** | One keyframed animation: loop or value-change motion, with its own color keys |
 | `.spr` | **ScorePlus Roster** | A team roster: numbers, names, positions and its stat columns — **no stat values** |
 | `.spp` | **ScorePlus Player** | One player, same rules — no stat values |
-| `.spf` | **ScorePlus Media Folder** | A folder, everything nested inside it, and its media |
+| `.spf` | **ScorePlus Folder** | A folder, everything nested inside it, and its media |
 | `.html` | Game report | A printable, self-contained summary of the finished game |
 
-Exporting a layout or display keeps the artwork and settings, including the team palette slots (they re-read the game's colours, so the graphic still matches whoever is playing). A cross-display link is cleared on import, because a single file cannot contain the display it pointed at.
+Exporting a layout or display keeps the artwork and settings, including the team palette slots (they re-read the game's colors, so the graphic still matches whoever is playing). A cross-display link is cleared on import, because a single file cannot contain the display it pointed at.
 
 The game report is a complete record: every value the game holds, the sport's own figures, the event timeline, all custom stats, and a table for **every roster with every player and every stat column — zeros included**, so a report never hides the players who didn't touch the ball.
 
@@ -666,13 +689,13 @@ If you had an older installation, the files in `%LOCALAPPDATA%\Scoreboard` are c
 Building needs the **.NET 10 SDK** with the Windows desktop targeting pack.
 
 ```sh
-./scripts/build-release.sh a1.3
+./scripts/build-release.sh a1.4
 ```
 
 This publishes a self-contained single-file build into its own folder:
 
 ```
-dist/ScorePlus-win-x64-a1.3/
+dist/ScorePlus-win-x64-a1.4/
 ├── ScorePlusPortable.exe   run it straight from the folder
 ├── ScorePlusSetup.exe      install it
 ├── README.md               this document, copied in for reference
@@ -684,7 +707,7 @@ Exactly two **executables** ship — there is no bare `ScorePlus.exe` left in th
 To ship an update, use the publish script. It builds, hashes the setup exe, writes the update manifest beside it, and — with `--release` — creates the GitHub release with both assets through the GitHub CLI:
 
 ```sh
-./scripts/publish-release.sh a1.3 --release --notes "Adds X, fixes Y"
+./scripts/publish-release.sh a1.4 --release --notes "Adds X, fixes Y"
 ```
 
 Asset names matter: the release must carry **`ScorePlusSetup.exe`** and **`ScorePlusPortable.exe`**. Only `ScorePlusSetup` is used for updating; the portable exe is never self-replacing.
@@ -776,13 +799,13 @@ The console and studio reflow onto portrait monitors and high-DPI scaling. The s
 ScorePlus is an evolving production tool, not yet a full broadcast package. Still ahead:
 
 - Network and hardware control (not for a bit)
-- Multi-game communcation
-- A transition maker — build your own layout hand-overs instead of picking from the seven that ship
-- An animation maker — keyframe an element's motion rather than choosing one of the presets
+- Multi-game communication
 - Full remote control support
 - Professional/commercial use
 
 Also worth knowing: video sound plays through the audience output window while the preview and studio stay muted, so you never hear a cue twice — and a video element with its own audio output is only routed when it is on an audience screen, so several preview windows never open the same speaker more than once.
+
+Several live sources can be on air together: each camera and each microphone keeps its own capture, its own level and its own output, so a wide shot, a tight shot and two commentary mics can run at once, each on its own scorebug element (by tag) or its own speaker. Cueing a live item adds it; it does not take another feed down. **Add microphone** creates a mic slot without asking which device — the **Route** button on that item chooses it — so setting up a four-mic desk is four clicks.
 
 ---
 

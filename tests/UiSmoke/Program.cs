@@ -56,6 +56,35 @@ internal static class Program
             engine.NewGame("football");
             var catalog = new ScorebugCatalog(layoutPath);
 
+            // Paint & texture used to rebuild both columns while their shared preview and stop
+            // lists were still parented, so ticking a material threw a logical-child exception.
+            {
+                var paintCatalog = new ScorebugCatalog(layoutPath);
+                var paintElement = paintCatalog.Layout.Elements.First(element => element.Kind == ScorebugElementKind.Text);
+                var paintCtor = typeof(PaintTextureWindow).GetConstructor(
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                    null,
+                    [typeof(ScorebugCatalog), typeof(GameEngine), typeof(ScorebugElement), typeof(string)],
+                    null) ?? throw new Exception("FAIL: paint window has no editable constructor");
+                var paintWindow = (Window)paintCtor.Invoke([paintCatalog, new GameEngine(), paintElement, "Dark"]);
+                paintWindow.Show();
+                paintWindow.UpdateLayout();
+                CheckBox Material() => FindAll<CheckBox>(paintWindow)
+                    .First(box => (box.Content as string)?.StartsWith("Lay a material", StringComparison.Ordinal) == true && box.IsChecked != true);
+                if (FindAll<CheckBox>(paintWindow).Count(box => (box.Content as string)?.StartsWith("Lay a material", StringComparison.Ordinal) == true) != 2)
+                    throw new Exception("FAIL: paint window does not offer a material for both text and plate");
+                Material().IsChecked = true;
+                paintWindow.UpdateLayout();
+                Material().IsChecked = true;
+                paintWindow.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(300));
+                var painted = paintCatalog.Layout.Elements.First(element => element.Id == paintElement.Id);
+                if (painted.TextTexture is not { Enabled: true } || painted.BackgroundTexture is not { Enabled: true })
+                    throw new Exception("FAIL: laying a material did not reach the text and the plate");
+                paintWindow.Close();
+                Console.WriteLine("PASS: paint & texture lays a material on the text and the plate without a parent conflict");
+            }
+
             var main = new MainWindow();
             main.Show();
             main.UpdateLayout();
@@ -699,7 +728,7 @@ internal static class Program
                 throw new Exception("FAIL: the removed Home/Away turnover buttons are still on the console");
             if (((FrameworkElement)view.FindName("PlayClockRow")!).Visibility != Visibility.Visible)
                 throw new Exception("FAIL: play clock is hidden for football");
-            // Everything in Miscellaneous is typed over, not just nudged with buttons.
+            // Everything in Timing is typed over, not just nudged with buttons.
             var timeoutClockBox = view.FindName("TimeoutClockValue") as TextBox
                 ?? throw new Exception("FAIL: the timeout clock is not an editable text box");
             if (timeoutClockBox.Text.Length == 0)
@@ -1049,8 +1078,19 @@ internal static class Program
                     var again = micSession.AddMicrophone(0);
                     if (!ReferenceEquals(again, addedMic))
                         throw new Exception("FAIL: adding the same microphone twice made a second item");
+                    // Routing a microphone overrides its device without changing its library slot.
+                    micSession.RouteMicrophone(addedMic, 1);
+                    if (micSession.Selected?.MicrophoneIndex != 1
+                        || MediaLibrary.MicrophoneIndex(micSession.Selected?.Path ?? "") != 0)
+                        throw new Exception("FAIL: routing a microphone did not keep its slot and change its device");
+                    micSession.RenameMicrophone(addedMic, "Desk mic");
+                    if (micSession.Selected?.Label != "Desk mic")
+                        throw new Exception("FAIL: renaming a microphone did not update the item");
                 }
                 finally { micSession.Stop(); micSession.Dispose(); }
+                var micRouteButton = (Button)dock.FindName("MicrophoneRouteButton")!;
+                if ((micRouteButton.Content as string) != "Route…")
+                    throw new Exception($"FAIL: the microphone route button reads '{micRouteButton.Content}'");
                 // The playlist view's way back is a labelled button, not a lone clipped arrow.
                 var playlistBack = (Button)dock.FindName("BackToLibraryButton")!;
                 if ((playlistBack.Content as string) != "← Back")

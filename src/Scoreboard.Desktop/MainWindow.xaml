@@ -76,6 +76,8 @@
     <Border DockPanel.Dock="Top" Background="#12171F" Padding="14,6">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button Style="{StaticResource HeaderButton}" Content="Transition Maker" Click="TransitionMaker_Click" ToolTip="Build a keyframed hand-over: how a graphic leaves, how it arrives, and its colors on the way"/>
+          <Button Style="{StaticResource HeaderButton}" Content="Animation Maker" Click="AnimationMaker_Click" ToolTip="Key motion a value follows — a loop while it is up, or a flourish when it changes"/>
           <Button Style="{StaticResource HeaderButton}" Content="Scorebug Studio" Click="ScorebugStudio_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Sport Profiles" Click="SportProfiles_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="New Game" Click="NewGame_Click"/>
@@ -109,6 +111,7 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
 
           <DockPanel Margin="0,0,0,6">
@@ -139,9 +142,13 @@
 
           <ContentControl x:Name="PreviewHost" Grid.Row="3" VerticalAlignment="Top"/>
 
+          <!-- Four assignable quick-layout buttons, directly above the meter. A press stages a
+               layout on any display; Preferences can also make it update output. -->
+          <ContentControl x:Name="QuickLayoutsHost" Grid.Row="4" Margin="0,8,0,0"/>
+
           <!-- What the machine is putting out, and where the show stands: the peak level the room
                hears, with the on-air display and layout beside it. -->
-          <Border Grid.Row="4" Background="#171C25" CornerRadius="9" Padding="10,8" Margin="0,8,0,0">
+          <Border Grid.Row="5" Background="#171C25" CornerRadius="9" Padding="10,8" Margin="0,8,0,0">
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -166,7 +173,7 @@
 
           <!-- What the audience is actually watching: the published layout, on a display of
                its own choice, smaller than the staged preview above it. -->
-          <Border Grid.Row="5" Background="#171C25" CornerRadius="9" Padding="10,8" Margin="0,8,0,0" Height="190">
+          <Border Grid.Row="6" Background="#171C25" CornerRadius="9" Padding="10,8" Margin="0,8,0,0" Height="190">
             <ContentControl x:Name="AudienceHost"/>
           </Border>
         </Grid>

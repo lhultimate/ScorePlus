@@ -224,14 +224,16 @@
           <!-- The artwork backdrop: it shows in the studio, the previews and the audience output. -->
           <DockPanel Margin="0,8,0,0">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-              <Button Content="Navy" FontSize="11" Padding="8,4" Click="CanvasBackgroundNavy_Click"
+              <!-- The two named colors share one width: "Navy" is a shorter word, and letting the
+                   text size the button made it read as a smaller control than "Black". -->
+              <Button Content="Navy" FontSize="11" Padding="8,4" MinWidth="66" Click="CanvasBackgroundNavy_Click"
                       ToolTip="Reset the artwork backdrop to ScorePlus navy"/>
-              <Button Content="Black" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasBackgroundBlack_Click"/>
+              <Button Content="Black" FontSize="11" Padding="8,4" MinWidth="66" Margin="4,0,0,0" Click="CanvasBackgroundBlack_Click"/>
               <Button Content="Choose…" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasBackground_Click"
-                      ToolTip="Pick any colour for the artwork backdrop"/>
+                      ToolTip="Pick any color for the artwork backdrop"/>
               <Border x:Name="CanvasBackgroundSwatch" Width="26" Height="26" CornerRadius="4" Margin="6,0,0,0"
                       BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                      local:ThemeManager.SkipTheme="True" ToolTip="The colour behind this layout's artwork"/>
+                      local:ThemeManager.SkipTheme="True" ToolTip="The color behind this layout's artwork"/>
             </StackPanel>
             <TextBlock Text="CANVAS BACKGROUND" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E"
                        VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -355,12 +357,12 @@
           </WrapPanel>
           <TextBlock Text="Text color" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="ForegroundSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                    ToolTip="Use a fixed colour or one of the team palette colours"/>
+                    ToolTip="Use a fixed color or one of the team palette colors"/>
           <DockPanel Margin="0,0,10,4">
             <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="TextColor_Click" ToolTip="Open the color palette"/>
             <Border x:Name="TextColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                     BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                    local:ThemeManager.SkipTheme="True" ToolTip="The colour this element actually draws"/>
+                    local:ThemeManager.SkipTheme="True" ToolTip="The color this element actually draws"/>
             <TextBox x:Name="ColorInput" Margin="0" TextChanged="Property_Changed"/>
           </DockPanel>
         </StackPanel>
@@ -388,19 +390,19 @@
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
           <CheckBox x:Name="IconFlipInput" Content="Put the home side on the left" Margin="10,2,10,8"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
-          <!-- Baseball's bases: the inside can be its own colour, separate from the outline. -->
+          <!-- Baseball's bases: the inside can be its own color, separate from the outline. -->
           <StackPanel x:Name="BaseFillPanel">
             <TextBlock Text="Base fill" Style="{StaticResource FieldLabel}"/>
             <ComboBox x:Name="IconFillSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                      ToolTip="Fill a base with a fixed colour or one of the team palette colours"/>
+                      ToolTip="Fill a base with a fixed color or one of the team palette colors"/>
             <DockPanel Margin="0,0,10,8">
               <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconFillColor_Click"
-                      ToolTip="Open the colour palette for the base fill"/>
+                      ToolTip="Open the color palette for the base fill"/>
               <Border x:Name="IconFillSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                       BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
                       local:ThemeManager.SkipTheme="True" ToolTip="What a lit base is filled with"/>
               <TextBox x:Name="IconFillInput" Margin="0" TextChanged="Property_Changed"
-                       ToolTip="Leave empty to use the element's text colour"/>
+                       ToolTip="Leave empty to use the element's text color"/>
             </DockPanel>
           </StackPanel>
         </StackPanel>
@@ -428,26 +430,26 @@
         <StackPanel x:Name="BackgroundSection">
           <TextBlock Text="BACKGROUND" Style="{StaticResource SectionTitle}"/>
           <ComboBox x:Name="BackgroundSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                    ToolTip="Use a fixed colour or one of the team palette colours"/>
+                    ToolTip="Use a fixed color or one of the team palette colors"/>
           <TextBlock Text="Background color" Style="{StaticResource FieldLabel}"/>
           <DockPanel Margin="0,0,10,4">
             <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="BackgroundColor_Click" ToolTip="Open the color palette"/>
             <Border x:Name="BackgroundColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                     BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                    local:ThemeManager.SkipTheme="True" ToolTip="The colour painted behind this element"/>
+                    local:ThemeManager.SkipTheme="True" ToolTip="The color painted behind this element"/>
             <TextBox x:Name="BackgroundInput" Margin="0" TextChanged="Property_Changed"/>
           </DockPanel>
           <CheckBox x:Name="GradientInput" Content="Gradient background" Margin="10,2,10,2"
                     Checked="Property_Changed" Unchecked="Property_Changed"
-                    ToolTip="Blend the background from the colour above into a second colour"/>
-          <TextBlock Text="Second colour" Style="{StaticResource FieldLabel}"/>
+                    ToolTip="Blend the background from the color above into a second color"/>
+          <TextBlock Text="Second color" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="GradientSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                    ToolTip="Use a fixed colour or one of the team palette colours"/>
+                    ToolTip="Use a fixed color or one of the team palette colors"/>
           <DockPanel Margin="0,0,10,4">
             <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="GradientColor2_Click" ToolTip="Open the color palette"/>
             <Border x:Name="GradientColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                     BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                    local:ThemeManager.SkipTheme="True" ToolTip="The second colour this element's gradient ends on"/>
+                    local:ThemeManager.SkipTheme="True" ToolTip="The second color this element's gradient ends on"/>
             <TextBox x:Name="GradientColorInput" Margin="0" TextChanged="Property_Changed"/>
           </DockPanel>
           <TextBlock Text="Gradient angle (degrees)" Style="{StaticResource FieldLabel}"/>
@@ -465,12 +467,12 @@
                    ToolTip="Outline thickness in design pixels"/>
           <TextBlock Text="Border color" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="BorderSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                    ToolTip="Use a fixed colour or one of the team palette colours"/>
+                    ToolTip="Use a fixed color or one of the team palette colors"/>
           <DockPanel Margin="0,0,10,4">
             <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="BorderColor_Click" ToolTip="Open the color palette"/>
             <Border x:Name="BorderColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                     BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                    local:ThemeManager.SkipTheme="True" ToolTip="The colour this element's outline draws"/>
+                    local:ThemeManager.SkipTheme="True" ToolTip="The color this element's outline draws"/>
             <TextBox x:Name="BorderColorInput" Margin="0" TextChanged="Property_Changed"/>
           </DockPanel>
         </StackPanel>
@@ -485,11 +487,45 @@
           <TextBox x:Name="TransitionSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="0 is an instant swap, 5 a very slow dissolve. The value leaves slightly faster than it arrives."/>
         </StackPanel>
-        <TextBlock Text="Motion" Style="{StaticResource FieldLabel}"/>
+        <TextBlock Text="Motion preset" Style="{StaticResource FieldLabel}"/>
         <ComboBox x:Name="AnimationInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"/>
-        <TextBlock Text="Opacity (0–1)" Style="{StaticResource FieldLabel}"/>
-        <TextBox x:Name="OpacityInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
-                 ToolTip="1 is solid, 0.5 half see-through, 0 invisible"/>
+        <!-- The value keeps the hidden box the property writer already understands; the slider is
+             what the operator actually sees, and each layer has its own. -->
+        <TextBox x:Name="OpacityInput" Visibility="Collapsed" Text="1"/>
+        <TextBlock Text="Element opacity" Style="{StaticResource FieldLabel}"/>
+        <DockPanel Margin="10,0,10,2">
+          <TextBlock x:Name="OpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
+                     VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
+          <Slider x:Name="OpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
+                  ValueChanged="Opacity_Changed" ToolTip="How solid the whole element is — plate, outline and text together"/>
+        </DockPanel>
+        <TextBlock Text="Text opacity" Style="{StaticResource FieldLabel}"/>
+        <DockPanel Margin="10,0,10,2">
+          <TextBlock x:Name="TextOpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
+                     VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
+          <Slider x:Name="TextOpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
+                  ValueChanged="Opacity_Changed" ToolTip="Fade just the printed value, leaving the plate and outline solid"/>
+        </DockPanel>
+        <TextBlock Text="Background opacity" Style="{StaticResource FieldLabel}"/>
+        <DockPanel Margin="10,0,10,2">
+          <TextBlock x:Name="BackgroundOpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
+                     VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
+          <Slider x:Name="BackgroundOpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
+                  ValueChanged="Opacity_Changed" ToolTip="Fade just the background plate"/>
+        </DockPanel>
+        <TextBlock Text="Border opacity" Style="{StaticResource FieldLabel}"/>
+        <DockPanel Margin="10,0,10,4">
+          <TextBlock x:Name="BorderOpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
+                     VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
+          <Slider x:Name="BorderOpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
+                  ValueChanged="Opacity_Changed" ToolTip="Fade just the outline"/>
+        </DockPanel>
+        <Button Content="Paint &amp; texture…" Margin="10,0,10,4" Padding="10,5" FontSize="11" Click="PaintTexture_Click"
+                ToolTip="Gradients with any number of stops on the text and plate, plus metal, glass, grain and the other finishes"/>
+        <Button Content="Transition maker…" Margin="10,0,10,3" Padding="10,5" FontSize="11" Click="MotionMakerTransition_Click"
+                ToolTip="Key how this element's value leaves and arrives"/>
+        <Button Content="Animation maker…" Margin="10,0,10,8" Padding="10,5" FontSize="11" Click="MotionMakerAnimation_Click"
+                ToolTip="Key motion this element follows while it is up, or when its value changes"/>
         <CheckBox x:Name="VisibleInput" Content="Visible on output" Margin="10,4,10,8" Checked="Property_Changed" Unchecked="Property_Changed"/>
 
         <TextBlock x:Name="CanvasFitTipText" Text="The artwork always fits this panel; the framed edge is the canvas, so every side is reachable."

@@ -265,6 +265,8 @@
           <TextBlock Text="MICROPHONE" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
           <Button Content="Add microphone" Style="{StaticResource DockAction}" Click="Microphone_Click"
                   ToolTip="Add a capture device to the library. Cue it and its sound goes live on the output set below"/>
+          <Button x:Name="MicrophoneRouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="MicrophoneRoute_Click"
+                  ToolTip="Rename the selected microphone item and choose which microphone it listens to"/>
           <TextBlock x:Name="MicrophoneStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
                      VerticalAlignment="Center" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
         </WrapPanel>
@@ -324,9 +326,9 @@
           <Button Content="+ Playlist" Style="{StaticResource DockAction}" Click="NewPlaylist_Click"
                   ToolTip="Make a playlist of clips that run one after another"/>
           <Button Content="Import folder…" Style="{StaticResource DockAction}" Click="ImportFolder_Click"
-                  ToolTip="Bring in a ScorePlus Media Folder (.spf) — clips, nested folders, tags and all"/>
+                  ToolTip="Bring in a ScorePlus Folder (.spf) — clips, nested folders, tags and all"/>
           <Button x:Name="ExportFolderButton" Content="Export folder…" Style="{StaticResource DockAction}" Click="ExportFolder_Click"
-                  ToolTip="Save the selected folder and everything inside it as a ScorePlus Media Folder (.spf)"/>
+                  ToolTip="Save the selected folder and everything inside it as a ScorePlus Folder (.spf)"/>
         </WrapPanel>
       </StackPanel>
 

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -23,7 +24,12 @@ public sealed class ScorebugCanvasView : Grid
     // Which display this view is a feed of; null means the display being edited.
     readonly string? _displayId;
     string? _drawnLayoutId;
+    ScorebugLayout? _drawnLayout;
     FrameworkElement? _swapOverlay;
+    // Pieces that exist only while a hand-over runs, and the timer that ends an exit or a scoped
+    // arrival. Both belong to the swap, not to the layout, so FinishSwap takes them down together.
+    Canvas? _swapPieces;
+    DispatcherTimer? _swapTimer;
     readonly MediaPlayback? _playback;
     readonly bool _muteVideo;
     // A silent monitor of the audience picture (not a preview), so it follows the on-air cue.
@@ -32,7 +38,7 @@ public sealed class ScorebugCanvasView : Grid
     // Keyed by element id so a rebuild can keep the surface (and the running picture) alive.
     readonly Dictionary<string, VideoSurface> _videoSurfaces = [];
     readonly Dictionary<string, HtmlSurface> _htmlSurfaces = [];
-    readonly Dictionary<string, (ScorebugAnimation Animation, double Opacity)> _animations = [];
+    readonly Dictionary<string, (ScorebugAnimation Animation, double Opacity, string Motion)> _animations = [];
     readonly Dictionary<string,string> _backgrounds = [];
     readonly Dictionary<string,bool> _transparentStates = [];
     readonly Dictionary<string,string> _borders = [];
@@ -81,6 +87,8 @@ public sealed class ScorebugCanvasView : Grid
         var incoming = Layout;
         var swapping = _drawnLayoutId is not null && !string.Equals(_drawnLayoutId, incoming.Id, StringComparison.OrdinalIgnoreCase);
         var outgoing = swapping ? CaptureCanvas() : null;
+        // The layout the still was taken from, so a per-piece exit can be cropped out of it.
+        var outgoingLayout = swapping ? _drawnLayout : null;
         var previousVideos=new Dictionary<string,VideoSurface>(_videoSurfaces);
         var previousHtml=new Dictionary<string,HtmlSurface>(_htmlSurfaces);
         var previousVisuals=new Dictionary<string,(FrameworkElement Host, FrameworkElement Content)>(_visuals);
@@ -107,6 +115,8 @@ public sealed class ScorebugCanvasView : Grid
             // An HTML element keeps its browser and its last frame across a rebuild, so editing the
             // graphic never blanks or restarts it.
             if(content is HtmlSurface htmlPage) _htmlSurfaces[item.Id]=htmlPage;
+            // The printed value fades on its own; text sets this on itself, other artwork follows here.
+            if(content is not ScorebugTextBlock) content.Opacity=Math.Clamp(item.TextOpacity,0,1);
             // The host border is reused as well. Moving a MediaElement to a new parent takes it out
             // of the visual tree, which stops the decoder and restarts the picture from frame one:
             // that is what made a video jump back to the start on every studio edit.
@@ -131,7 +141,8 @@ public sealed class ScorebugCanvasView : Grid
             if(!_htmlSurfaces.ContainsKey(id))orphan.Dispose();
         UpdateValues();
         _drawnLayoutId=layout.Id;
-        if(outgoing is not null) PlaySwap(outgoing,incoming);
+        _drawnLayout=layout;
+        if(outgoing is not null) PlaySwap(outgoing,outgoingLayout,incoming);
     }
 
     /// <summary>A still of exactly what this feed is showing right now, used as the outgoing frame.</summary>
@@ -155,8 +166,15 @@ public sealed class ScorebugCanvasView : Grid
     /// Runs the incoming layout's own hand-over: the outgoing still dissolves, slides or swings away
     /// while the new artwork comes in from the other side. Duration 0 or Cut lands instantly.
     /// </summary>
-    void PlaySwap(RenderTargetBitmap outgoing,ScorebugLayout incoming)
+    void PlaySwap(RenderTargetBitmap outgoing,ScorebugLayout? outgoingLayout,ScorebugLayout incoming)
     {
+        // A hand-over built in the transition maker replaces the seven presets for this layout:
+        // its exit keys run on the outgoing still and its enter keys (and colour keys) on the new one.
+        if(incoming.TransitionClip is { Kind:MotionKind.Transition } clip && !clip.IsEmpty)
+        {
+            PlayClipSwap(outgoing,outgoingLayout,incoming,clip);
+            return;
+        }
         var transition=incoming.Transition;
         var seconds=Math.Clamp(incoming.TransitionSeconds,0,5);
         FinishSwap();
@@ -217,14 +235,178 @@ public sealed class ScorebugCanvasView : Grid
         overlay.BeginAnimation(UIElement.OpacityProperty,fade);
     }
 
+    /// <summary>
+    /// Runs a keyframed hand-over: the outgoing frame follows the clip's exit leg and the incoming
+    /// artwork follows its enter leg, with the clip's colour keys repainting the new graphic as it
+    /// arrives. The outgoing frame is a still, so only its movement and opacity are animated.
+    /// </summary>
+    void PlayClipSwap(RenderTargetBitmap outgoing, ScorebugLayout? outgoingLayout, ScorebugLayout incoming, MotionClip clip)
+    {
+        FinishSwap();
+        var width=Math.Max(1,_canvas.Width);
+        var height=Math.Max(1,_canvas.Height);
+        var exit=clip.ExitPhase;
+        var enter=clip.EnterPhase;
+        // Items the operator unchecked in the transition maker stay put, and any key scoped to a
+        // piece means the arrival runs on each item's own box rather than on the whole canvas.
+        var stationary=incoming.Handover?.Where(entry=>!entry.Arrives).Select(entry=>entry.ElementId).ToHashSet(StringComparer.OrdinalIgnoreCase)??[];
+        var pieceKeys=clip.Phases.Any(phase=>phase.Tracks.Any(track=>!string.IsNullOrWhiteSpace(track.PieceId))
+            ||phase.Colors.Any(track=>!string.IsNullOrWhiteSpace(track.PieceId)));
+        var exitScoped=outgoingLayout is not null&&exit is not null
+            &&(exit.Tracks.Any(track=>!string.IsNullOrWhiteSpace(track.PieceId))
+               ||exit.Colors.Any(track=>!string.IsNullOrWhiteSpace(track.PieceId)));
+
+        // The outgoing frame: the whole still, or one cropped still per item when the exit itself is
+        // keyed piece by piece. The crops are exactly what was on screen, so a piece moves on its own.
+        FrameworkElement outgoingHost;
+        if(exitScoped)
+        {
+            var crops=new Canvas{Width=width,Height=height,IsHitTestVisible=false};
+            // Crop against the outgoing still's own pixels: the two layouts may be different sizes.
+            var pixelWidth=Math.Max(1,outgoing.PixelWidth);
+            var pixelHeight=Math.Max(1,outgoing.PixelHeight);
+            // Pieces are authored on the arriving layout. When the layout that is leaving has the
+            // same named item, its exit keys belong to that item too, so match by name as a fallback.
+            string PieceIdFor(ScorebugElement leaving)
+            {
+                if(clip.Phases.Any(phase=>phase.Tracks.Any(track=>string.Equals(track.PieceId,leaving.Id,StringComparison.OrdinalIgnoreCase))
+                    ||phase.Colors.Any(track=>string.Equals(track.PieceId,leaving.Id,StringComparison.OrdinalIgnoreCase))))
+                    return leaving.Id;
+                var match=incoming.Elements.FirstOrDefault(candidate=>!string.IsNullOrWhiteSpace(candidate.Name)
+                    &&string.Equals(candidate.Name,leaving.Name,StringComparison.OrdinalIgnoreCase));
+                return match?.Id??leaving.Id;
+            }
+            foreach(var item in outgoingLayout!.Elements.Where(element=>element.Visible))
+            {
+                var x=(int)Math.Clamp(item.X,0,Math.Max(0,pixelWidth-1));
+                var y=(int)Math.Clamp(item.Y,0,Math.Max(0,pixelHeight-1));
+                var w=(int)Math.Clamp(item.Width,1,pixelWidth-x);
+                var h=(int)Math.Clamp(item.Height,1,pixelHeight-y);
+                if(w<1||h<1)continue;
+                var crop=new CroppedBitmap(outgoing,new Int32Rect(x,y,w,h));
+                crop.Freeze();
+                var image=new Image{Source=crop,Width=w,Height=h,Stretch=Stretch.Fill,IsHitTestVisible=false};
+                Canvas.SetLeft(image,item.X);Canvas.SetTop(image,item.Y);
+                crops.Children.Add(image);
+                MotionPlayback.PlayPhase(image,exit,Math.Clamp(item.Opacity,0,1),pieceId:PieceIdFor(item));
+            }
+            outgoingHost=crops;
+        }
+        else
+        {
+            outgoingHost=new Image{Source=outgoing,Width=width,Height=height,Stretch=Stretch.Fill,IsHitTestVisible=false};
+            if(exit is not null&&!exit.IsEmpty) MotionPlayback.PlayPhase(outgoingHost,exit,1);
+        }
+        _stage.Children.Add(outgoingHost);
+        _swapOverlay=outgoingHost;
+
+        // Temporary pieces live for the hand-over only; they are drawn above both layouts.
+        var temporary=new List<(FrameworkElement Host, MotionPiece Piece)>();
+        Canvas? pieces=null;
+        if(clip.Pieces.Count>0)
+        {
+            pieces=new Canvas{Width=width,Height=height,IsHitTestVisible=false};
+            foreach(var piece in clip.Pieces)
+            {
+                var host=BuildTemporaryPiece(piece);
+                pieces.Children.Add(host);
+                temporary.Add((host,piece));
+                if(exit is {Enabled:true,IsEmpty:false}) MotionPlayback.PlayPhase(host,exit,Math.Clamp(piece.Opacity,0,1),pieceId:piece.Id);
+            }
+            _stage.Children.Add(pieces);
+            _swapPieces=pieces;
+        }
+
+        bool Active()=>ReferenceEquals(_swapOverlay,outgoingHost)||(pieces is not null&&ReferenceEquals(_swapPieces,pieces));
+        void ClearOutgoing()
+        {
+            if(!ReferenceEquals(_swapOverlay,outgoingHost))return;
+            _stage.Children.Remove(outgoingHost);
+            _swapOverlay=null;
+            if(outgoingHost is Panel panel)
+                foreach(var child in panel.Children.OfType<FrameworkElement>()) MotionPlayback.Stop(child);
+            else MotionPlayback.Stop(outgoingHost);
+        }
+        void Arrive()
+        {
+            if(!Active())return;
+            ClearOutgoing();
+            if(enter is null||enter.IsEmpty){FinishSwap();return;}
+            var perItem=pieceKeys||stationary.Count>0||clip.Pieces.Count>0;
+            if(!perItem)
+            {
+                MotionPlayback.PlayPhase(_canvas,enter,1,FinishSwap);
+                return;
+            }
+            foreach(var item in incoming.Elements)
+            {
+                if(stationary.Contains(item.Id))continue;
+                if(!_visuals.TryGetValue(item.Id,out var visual))continue;
+                MotionPlayback.PlayPhase(visual.Host,enter,Math.Clamp(item.Opacity,0,1),pieceId:item.Id);
+            }
+            foreach(var (host,piece) in temporary)
+                MotionPlayback.PlayPhase(host,enter,Math.Clamp(piece.Opacity,0,1),pieceId:piece.Id);
+            // Scoped pieces finish individually; one timer ends the hand-over once the leg is over.
+            StartSwapTimer(enter.Seconds,FinishSwap);
+        }
+        if(exit is {Enabled:true,IsEmpty:false}&&exit.Seconds>0.001) StartSwapTimer(exit.Seconds,Arrive);
+        else Arrive();
+    }
+
+    FrameworkElement BuildTemporaryPiece(MotionPiece piece)
+    {
+        var text=new TextBlock
+        {
+            Text=piece.Text,
+            FontSize=piece.FontSize,
+            Foreground=new SolidColorBrush(Paint.ColorOf(piece.TextColor,Colors.White)),
+            HorizontalAlignment=HorizontalAlignment.Center,
+            VerticalAlignment=VerticalAlignment.Center,
+            TextAlignment=TextAlignment.Center,
+            TextWrapping=TextWrapping.Wrap
+        };
+        var host=new Border
+        {
+            Width=piece.Width,
+            Height=piece.Height,
+            Background=new SolidColorBrush(Paint.ColorOf(piece.Fill,Color.FromRgb(0x0B,0x6B,0x50))),
+            BorderBrush=new SolidColorBrush(Paint.ColorOf(piece.Border,Color.FromRgb(0x38,0xD7,0xA3))),
+            BorderThickness=new Thickness(piece.BorderThickness),
+            Opacity=Math.Clamp(piece.Opacity,0,1),
+            ClipToBounds=true,
+            Child=text
+        };
+        host.RenderTransformOrigin=new Point(0.5,0.5);
+        Canvas.SetLeft(host,piece.X);Canvas.SetTop(host,piece.Y);
+        return host;
+    }
+
+    void StartSwapTimer(double seconds,Action done)
+    {
+        _swapTimer?.Stop();
+        var timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(Math.Max(0.05,seconds))};
+        _swapTimer=timer;
+        timer.Tick+=(_,_)=>{timer.Stop();if(ReferenceEquals(_swapTimer,timer))_swapTimer=null;done();};
+        timer.Start();
+    }
+
     /// <summary>Stops a hand-over in progress and leaves the new layout alone on the stage.</summary>
     void FinishSwap()
     {
+        _swapTimer?.Stop();
+        _swapTimer=null;
         if(_swapOverlay is not null)
         {
             _stage.Children.Remove(_swapOverlay);
             _swapOverlay=null;
         }
+        if(_swapPieces is not null)
+        {
+            foreach(var host in _swapPieces.Children.OfType<FrameworkElement>()) MotionPlayback.Stop(host);
+            _stage.Children.Remove(_swapPieces);
+            _swapPieces=null;
+        }
+        MotionPlayback.Stop(_canvas);
         _canvas.BeginAnimation(UIElement.OpacityProperty,null);
         _canvas.RenderTransform=Transform.Identity;
         _canvas.RenderTransformOrigin=new Point(0.5,0.5);
@@ -232,8 +414,20 @@ public sealed class ScorebugCanvasView : Grid
 
     void ApplyAnimation(ScorebugElement item,FrameworkElement host)
     {
-        if(_animations.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001)return;
+        var motion=item.MotionAnimation is { UseOnValueChange:false, IsEmpty:false } clip?clip.Summary:"";
+        if(_animations.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001&&applied.Motion==motion)return;
+        // A clip from the animation maker owns the element's motion instead of the two presets.
+        if(item.MotionAnimation is { UseOnValueChange:false, IsEmpty:false } loop)
+        {
+            MotionPlayback.Stop(host);
+            host.Opacity=Math.Clamp(item.Opacity,0,1);
+            MotionPlayback.PlayClip(host,loop,item.Opacity,ambient:true);
+            _animations[item.Id]=(item.Animation,item.Opacity,motion);
+            return;
+        }
+        MotionPlayback.Stop(host);
         host.BeginAnimation(UIElement.OpacityProperty,null);
+        host.Opacity=Math.Clamp(item.Opacity,0,1);
         if(host.RenderTransform is TranslateTransform previous)
         {
             previous.BeginAnimation(TranslateTransform.XProperty,null);
@@ -254,7 +448,7 @@ public sealed class ScorebugCanvasView : Grid
                 drift.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,7,TimeSpan.FromSeconds(2.1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 break;
         }
-        _animations[item.Id]=(item.Animation,item.Opacity);
+        _animations[item.Id]=(item.Animation,item.Opacity,motion);
     }
 
     /// <summary>True when any element prints the date or the time of day.</summary>
@@ -303,7 +497,7 @@ public sealed class ScorebugCanvasView : Grid
             if(!_visuals.TryGetValue(item.Id,out var visual))continue;
             var visibility=item.Visible?Visibility.Visible:Visibility.Collapsed;
             if(visual.Host.Visibility!=visibility)visual.Host.Visibility=visibility;
-            if(item.Animation!=ScorebugAnimation.Pulse&&Math.Abs(visual.Host.Opacity-item.Opacity)>0.0001)visual.Host.Opacity=item.Opacity;
+            if(item.Animation!=ScorebugAnimation.Pulse&&item.MotionAnimation is not { UseOnValueChange:false }&&Math.Abs(visual.Host.Opacity-item.Opacity)>0.0001)visual.Host.Opacity=item.Opacity;
             if(visual.Host is Border hostBorder)
             {
                 // Only touch the brush when the design or the palette changed; rebuilding brushes
@@ -320,10 +514,12 @@ public sealed class ScorebugCanvasView : Grid
                 if(item.Kind!=ScorebugElementKind.Shape)
                 {
                     var thickness=Math.Max(0,item.BorderThickness);
-                    var resolvedBorder=ScorebugRender.ResolveBorder(item,state);
+                    // The outline has its own opacity, so its signature includes it and the brush is
+                    // built through the same paint path as everything else.
+                    var resolvedBorder=$"{ScorebugRender.ResolveBorder(item,state)}|{item.BorderOpacity:0.###}";
                     if(!_borders.TryGetValue(item.Id,out var appliedBorder)||appliedBorder!=resolvedBorder)
                     {
-                        hostBorder.BorderBrush=ScorebugRender.ParseBrush(resolvedBorder);
+                        hostBorder.BorderBrush=ScorebugRender.HostBorder(item,state);
                         _borders[item.Id]=resolvedBorder;
                     }
                     if(Math.Abs(hostBorder.BorderThickness.Left-thickness)>0.01)hostBorder.BorderThickness=new Thickness(thickness);

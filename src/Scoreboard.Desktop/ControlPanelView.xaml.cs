@@ -322,7 +322,7 @@ public partial class ControlPanelView : UserControl
 
     void ShotClock14_Click(object sender, RoutedEventArgs e) => _engine.SetShotClock(14);
 
-    // Shot clock and timeout clock are typed over exactly like the game clock: the misc section
+    // Shot clock and timeout clock are typed over exactly like the game clock: the timing section
     // should not have second-class values that can only be nudged with buttons.
     void ShotClock_KeyDown(object sender, KeyEventArgs e)
     {

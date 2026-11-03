@@ -241,11 +241,18 @@ public partial class MediaDock : UserControl
             ReplayButton.IsEnabled = _session.IsCameraLive || _session.IsReplaying;
             LiveButton.IsEnabled = _session.IsReplaying;
             StartReplayButton.IsEnabled = _session.IsReplaying;
-            SaveReplayButton.IsEnabled = _session.IsReplaying;            MicrophoneStatus.Text = _session.Current?.IsMicrophone == true
+            SaveReplayButton.IsEnabled = _session.IsReplaying;
+            MicrophoneStatus.Text = _session.Current?.IsMicrophone == true
                 ? $"LIVE · {_session.Current.Label}"
                 : _session.Library.Any(entry => entry.IsMicrophone)
                     ? $"{_session.Library.Count(entry => entry.IsMicrophone)} in the library"
                     : "none added yet";
+            var microphoneItem = _session.Current?.IsMicrophone == true ? _session.Current
+                : _session.Selected?.IsMicrophone == true ? _session.Selected : null;
+            MicrophoneRouteButton.IsEnabled = microphoneItem is not null;
+            MicrophoneRouteButton.ToolTip = microphoneItem is null
+                ? "Select a microphone item in the library to rename it or point it at another microphone"
+                : $"Rename {microphoneItem.Label} and choose which microphone it listens to";
             var cameraItem = _session.Current?.IsCamera == true ? _session.Current
                 : _session.Selected?.IsCamera == true ? _session.Selected : null;
             RouteButton.IsEnabled = cameraItem is not null;
@@ -1053,14 +1060,14 @@ public partial class MediaDock : UserControl
         _session.Import(dialog.FileNames, MediaLibrary.NormalizeTag(TagBox.Text), _session.FolderFilter ?? "");
     }
 
-    /// <summary>Brings a whole folder back in from a ScorePlus Media Folder (.spf).</summary>
+    /// <summary>Brings a whole folder back in from a ScorePlus Folder (.spf).</summary>
     void ImportFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         var dialog = new OpenFileDialog
         {
             Title = "Import folder",
-            Filter = "ScorePlus Media Folder (*.spf)|*.spf|All files (*.*)|*.*",
+            Filter = "ScorePlus Folder (*.spf)|*.spf|All files (*.*)|*.*",
             DefaultExt = "spf"
         };
         if (dialog.ShowDialog() != true) return;
@@ -1081,7 +1088,7 @@ public partial class MediaDock : UserControl
         var dialog = new SaveFileDialog
         {
             Title = "Export folder",
-            Filter = "ScorePlus Media Folder (*.spf)|*.spf",
+            Filter = "ScorePlus Folder (*.spf)|*.spf",
             DefaultExt = "spf",
             FileName = folder.Length == 0 ? "unfiled" : folder.Replace('/', '-')
         };
@@ -1232,27 +1239,16 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>
-    /// Adds a microphone to the library. With one device there is nothing to choose; with several
-    /// the operator picks the one Windows names, and the item is cued from the library like a camera.
+    /// Adds a microphone item to the library straight away. The device is not chosen here: a mic
+    /// item is a slot, and the Route button on the item picks which Windows device it listens to.
+    /// That keeps adding several microphones quick — each one starts on the next free device number.
     /// </summary>
     void Microphone_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        var devices = _session.MicrophoneDevices();
-        if (devices.Count == 0)
-        {
-            _session.Report("NO MICROPHONES FOUND · plug one in, then add it again");
-            return;
-        }
-        var device = devices[0];
-        if (devices.Count > 1)
-        {
-            if (Window.GetWindow(this) is not { } owner) return;
-            var picked = MicrophonePickerWindow.Ask(owner, devices, _theme);
-            if (picked is null) return;
-            device = devices.FirstOrDefault(candidate => candidate.Index == picked.Value) ?? device;
-        }
-        _session.AddMicrophone(device.Index, MediaLibrary.NormalizeTag(TagBox.Text));
+        var index = 0;
+        while (_session.Library.Any(m => m.IsMicrophone && m.MicrophoneIndex == index)) index++;
+        _session.AddMicrophone(index, MediaLibrary.NormalizeTag(TagBox.Text));
         Refresh();
     }
 
@@ -1316,6 +1312,21 @@ public partial class MediaDock : UserControl
             return;
         }
         if (Window.GetWindow(this) is { } owner) CameraRoutingWindow.Ask(owner, _session, entry, _theme);
+        Refresh();
+    }
+
+    /// <summary>Renames the selected microphone item and points it at another microphone.</summary>
+    void MicrophoneRoute_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        var entry = _session.Current?.IsMicrophone == true ? _session.Current
+            : _session.Selected?.IsMicrophone == true ? _session.Selected : null;
+        if (entry is null)
+        {
+            _session.Report("SELECT A MICROPHONE ITEM FIRST");
+            return;
+        }
+        if (Window.GetWindow(this) is { } owner) MicrophoneRoutingWindow.Ask(owner, _session, entry, _theme);
         Refresh();
     }
 

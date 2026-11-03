@@ -249,7 +249,7 @@
             </DockPanel>
             <TextBlock x:Name="HintText" FontSize="10" TextWrapping="Wrap" Margin="0,8,0,0"
                        Foreground="{DynamicResource RosterMutedBrush}"
-                       Text="The boxes under STATS hold this player's values. Picking a name here (or typing a new one) adds that column to every player on the roster, so nobody has to name stats before entering them. A stat can use team colours, font, transitions and animations on the graphic."/>
+                       Text="The boxes under STATS hold this player's values. Picking a name here (or typing a new one) adds that column to every player on the roster, so nobody has to name stats before entering them. A stat can use team colors, font, transitions and animations on the graphic."/>
           </StackPanel>
         </ScrollViewer>
       </DockPanel>

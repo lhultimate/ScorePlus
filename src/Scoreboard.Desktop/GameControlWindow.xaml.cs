@@ -27,6 +27,8 @@ public partial class GameControlWindow : Window
     public ControlPanelView Panel { get; }
 
     /// <summary>This window's display and staged layouts. Null only in the minimal test host.</summary>
+    QuickLayoutBar? _quickLayouts;
+
     public ProgramSelection? Program { get; private set; }
 
     /// <summary>The media dock in this window; every panel shares one session but keeps its own view.</summary>
@@ -55,6 +57,8 @@ public partial class GameControlWindow : Window
         ProgramStrip.Visibility = Visibility.Collapsed;
         // Without a display there is nothing for a show line to describe, so the meter stays hidden.
         Meter.Visibility = Visibility.Collapsed;
+        // A panel with no catalog has no layouts to reach, so the quick buttons stay off too.
+        QuickLayoutsHost.Visibility = Visibility.Collapsed;
         AttachMedia(media);
         ApplyTheme(PreferencesStore.Load().Theme);
     }
@@ -83,6 +87,10 @@ public partial class GameControlWindow : Window
         Program.Changed += ProgramChanged;
         catalog.Changed += CatalogChanged;
         _engine.Changed += MeterChanged;
+        // The same four quick buttons as the main rail, on the same preferences.
+        _quickLayouts = new QuickLayoutBar(catalog, engine, theme);
+        _quickLayouts.Status += message => MediaStatus.Text = message;
+        QuickLayoutsHost.Content = _quickLayouts;
         RosterControl.Attach(engine);
         AttachMedia(media);
         ApplyTheme(theme);
@@ -114,6 +122,7 @@ public partial class GameControlWindow : Window
         }
         MediaControl.ApplyTheme(theme);
         RosterControl.ApplyTheme(theme);
+        _quickLayouts?.Refresh();
         // In a tab the dock has the full panel width, so its buttons are the size of the console's.
         MediaControl.SetLargeMode(true);
     }

@@ -522,6 +522,21 @@ try
     var bench=reportRoster.AddPlayer();bench.Name="Bench";bench.SetStat("Yards",0);
     var fullReport=GameReport.Build(webGame.State,[reportRoster]);
     Check(fullReport.Contains("Home Roster")&&fullReport.Contains("Bench"),"the game report lists every player, including a zero stat line");
+
+    // ---------- per-piece hand-over keys and temporary pieces ----------
+    var pieceClip=new MotionClip{Name="Piece test",Kind=MotionKind.Transition};
+    var pieceEnter=new MotionPhase("Enter",0.5);
+    pieceEnter.Tracks.Add(new MotionTrack(MotionTarget.X,(0,0),(0.5,120)){PieceId="element-a"});
+    pieceEnter.Tracks.Add(new MotionTrack(MotionTarget.Opacity,(0,0),(0.5,1)));
+    pieceClip.Phases.Add(pieceEnter);
+    pieceClip.Pieces.Add(new MotionPiece{Name="Flash",Text="GO",Width=320,Height=120});
+    pieceClip.Normalize();
+    Check(pieceClip.Phase("Enter")!.Tracks.Count==2
+        &&pieceClip.Phase("Enter")!.Tracks.Any(track=>track.PieceId=="element-a")
+        &&pieceClip.Phase("Enter")!.Tracks.Any(track=>track.PieceId==""),"a transition keeps whole-graphic and per-piece tracks side by side");
+    var pieceCopy=pieceClip.Snapshot();
+    Check(pieceCopy.Pieces.Count==1&&pieceCopy.Pieces[0].Name=="Flash"
+        &&pieceCopy.Phase("Enter")!.Tracks.Any(track=>track.PieceId=="element-a"),"a saved clip carries its temporary pieces and piece-scoped keys");
 }
 finally
 {

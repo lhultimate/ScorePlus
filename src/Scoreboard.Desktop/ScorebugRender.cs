@@ -31,40 +31,23 @@ internal static class ScorebugRender
         state?.ColorFor(item.BackgroundSource2) ?? item.BackgroundColor2;
 
     /// <summary>
-    /// What the background actually paints, as a comparable string: a colour, or both stops and the
-    /// angle when the element is a gradient. Views cache on this so a brush is only rebuilt on change.
+    /// What the background actually paints, as a comparable string: a colour, a gradient, or a
+    /// gradient carrying a material finish. Views cache on this so a brush is only rebuilt on change.
     /// </summary>
-    public static string BackgroundSignature(ScorebugElement item, GameState? state) =>
-        item.BackgroundGradient
-            ? $"g|{ResolveBackground(item, state)}|{ResolveBackground2(item, state)}|{item.GradientAngle:0.###}"
-            : ResolveBackground(item, state);
+    public static string BackgroundSignature(ScorebugElement item, GameState? state) => Paint.Signature(item, state);
 
     /// <summary>
-    /// The brush an element's box is painted with: a flat colour, or a two-stop gradient running in
-    /// <see cref="ScorebugElement.GradientAngle"/> degrees (0 left→right, 90 top→bottom).
+    /// The brush an element's box is painted with: a flat colour, a multi-stop or radial gradient,
+    /// or the same paint under a texture, faded by the plate's own opacity.
     /// </summary>
-    public static Brush BackgroundBrush(ScorebugElement item, GameState? state = null)
-    {
-        if (!item.BackgroundGradient) return ParseBrush(ResolveBackground(item, state));
-        var start = ParseBrush(ResolveBackground(item, state));
-        var end = ParseBrush(ResolveBackground2(item, state));
-        var angle = ((item.GradientAngle % 360) + 360) % 360 * Math.PI / 180.0;
-        var dx = Math.Cos(angle) / 2;
-        var dy = Math.Sin(angle) / 2;
-        var brush = new LinearGradientBrush(ColorOf(start), ColorOf(end), new Point(0.5 - dx, 0.5 - dy), new Point(0.5 + dx, 0.5 + dy));
-        brush.Freeze();
-        return brush;
-    }
-
-    static Color ColorOf(Brush brush) => brush is SolidColorBrush solid ? solid.Color : Colors.Transparent;
+    public static Brush BackgroundBrush(ScorebugElement item, GameState? state = null) => Paint.Background(item, state);
 
     /// <summary>The colour of the element's outline, after its team-palette slot is resolved.</summary>
     public static string ResolveBorder(ScorebugElement item, GameState? state) =>
         state?.ColorFor(item.BorderSource) ?? item.BorderColor;
 
     /// <summary>The outline an element draws around its own box, or nothing when it is switched off.</summary>
-    public static Brush HostBorder(ScorebugElement item, GameState? state = null) =>
-        item.BorderThickness <= 0 ? Brushes.Transparent : ParseBrush(ResolveBorder(item, state));
+    public static Brush HostBorder(ScorebugElement item, GameState? state = null) => Paint.Border(item, state);
 
     /// <summary>Background painted behind an element. Shapes/logo draw themselves, so their host stays clear.</summary>
     public static Brush HostBackground(ScorebugElement item, GameState? state = null) =>
@@ -139,7 +122,7 @@ internal static class ScorebugRender
         shape.Stretch = Stretch.Fill;
         // A transparent shape has no fill, only its outline — the old code always painted the
         // background, which is why a hollow shape could never be made.
-        shape.Fill = item.TransparentBackground ? Brushes.Transparent : BackgroundBrush(item, state);
+        shape.Fill = item.TransparentBackground ? Brushes.Transparent : Paint.Background(item, state);
         shape.Stroke = HostBorder(item, state);
         shape.StrokeThickness = Math.Max(0, item.BorderThickness);
         shape.StrokeStartLineCap = PenLineCap.Round;
@@ -163,7 +146,7 @@ internal static class ScorebugRender
                 plain.Text = text ?? item.Content;
                 break;
             case Shape shape:
-                shape.Fill = item.TransparentBackground ? Brushes.Transparent : BackgroundBrush(item, state);
+                shape.Fill = item.TransparentBackground ? Brushes.Transparent : Paint.Background(item, state);
                 shape.Stroke = HostBorder(item, state);
                 shape.StrokeThickness = Math.Max(0, item.BorderThickness);
                 break;
@@ -242,7 +225,8 @@ public sealed class ScorebugLogoView : Grid
         _placeholder.FontSize = item.FontSize;
         _placeholder.FontWeight = item.Bold ? FontWeights.Bold : FontWeights.Normal;
         _placeholder.FontStyle = item.Italic ? FontStyles.Italic : FontStyles.Normal;
-        _placeholder.Foreground = ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item, state));
+        _placeholder.Foreground = Paint.Text(item, state);
+        _placeholder.Opacity = Math.Clamp(item.TextOpacity, 0, 1);
         _placeholder.Visibility = found ? Visibility.Collapsed : Visibility.Visible;
     }
 }
@@ -257,6 +241,7 @@ public sealed class ScorebugTextBlock : TextBlock
     readonly TranslateTransform _translate = new();
     readonly ScaleTransform _scale = new(1, 1);
     readonly RotateTransform _rotate = new();
+    readonly TransformGroup _rest = new();
     string _shown = "";
     bool _animating;
     // A transition is two phases with callbacks; a newer value (or a snap) bumps the generation,
@@ -272,11 +257,10 @@ public sealed class ScorebugTextBlock : TextBlock
         HorizontalAlignment = HorizontalAlignment.Center;
         TextWrapping = TextWrapping.Wrap;
         RenderTransformOrigin = new Point(0.5, 0.5);
-        var group = new TransformGroup();
-        group.Children.Add(_scale);
-        group.Children.Add(_rotate);
-        group.Children.Add(_translate);
-        RenderTransform = group;
+        _rest.Children.Add(_scale);
+        _rest.Children.Add(_rotate);
+        _rest.Children.Add(_translate);
+        RenderTransform = _rest;
         ApplyStyle(item, null);
     }
 
@@ -286,7 +270,9 @@ public sealed class ScorebugTextBlock : TextBlock
         FontSize = item.FontSize;
         FontWeight = item.Bold ? FontWeights.Bold : FontWeights.Normal;
         FontStyle = item.Italic ? FontStyles.Italic : FontStyles.Normal;
-        Foreground = ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item, state));
+        // A gradient or a textured paint fills the letters themselves.
+        Foreground = Paint.Text(item, state);
+        Opacity = Math.Clamp(item.TextOpacity, 0, 1);
         var decorations = new TextDecorationCollection();
         if (item.Underline) decorations.Add(System.Windows.TextDecorations.Underline[0]);
         if (item.StrikeThrough) decorations.Add(System.Windows.TextDecorations.Strikethrough[0]);
@@ -303,9 +289,18 @@ public sealed class ScorebugTextBlock : TextBlock
         text ??= "";
         var total = Math.Clamp(double.IsFinite(seconds) ? seconds : 0.2, 0, 5);
         if (_shown == text && !_animating) return;
+        // A hand-over built in the transition maker wins over the preset: the old value leaves on
+        // the clip's exit keys and the new one arrives on its enter keys, colour keys and all.
+        if (_style?.MotionTransition is { } clip && IsLoaded && clip.Phases.Any(phase => phase.Enabled && !phase.IsEmpty))
+        {
+            PlayMotionTransition(text, clip);
+            return;
+        }
+        var valueMotion = _style?.MotionAnimation is { UseOnValueChange: true, IsEmpty: false } motion ? motion : null;
         if (transition == ScorebugTransition.Cut || total < 0.02 || !IsLoaded || _animating)
         {
             Snap(text);
+            if (valueMotion is not null) MotionPlayback.PlayClip(this, valueMotion, Opacity, ambient: false);
             return;
         }
         _animating = true;
@@ -321,7 +316,9 @@ public sealed class ScorebugTextBlock : TextBlock
             Text = text;
             PlayIn(transition, inDuration, () =>
             {
-                if (generation == _generation) _animating = false;
+                if (generation != _generation) return;
+                _animating = false;
+                if (valueMotion is not null) MotionPlayback.PlayClip(this, valueMotion, Opacity, ambient: false);
             });
         });
     }
@@ -336,18 +333,57 @@ public sealed class ScorebugTextBlock : TextBlock
     }
 
     /// <summary>
+    /// The value leaves on the clip's exit leg and arrives on its enter leg. The generation guard
+    /// means a value that changes again mid-flight wins, and a stale leg never restores old text.
+    /// </summary>
+    void PlayMotionTransition(string text, MotionClip clip)
+    {
+        _generation++;
+        var generation = _generation;
+        ClearPhase();
+        _animating = true;
+        _shown = text;
+        var level = Math.Clamp(Opacity, 0, 1);
+        var exit = clip.ExitPhase;
+        var enter = clip.EnterPhase;
+        void Arrive()
+        {
+            if (generation != _generation) return;
+            Text = text;
+            if (enter is null || enter.IsEmpty)
+            {
+                ClearPhase();
+                _animating = false;
+                return;
+            }
+            MotionPlayback.PlayPhase(this, enter, level, () =>
+            {
+                if (generation != _generation) return;
+                ClearPhase();
+                _animating = false;
+            });
+        }
+        if (exit is not null && !exit.IsEmpty) MotionPlayback.PlayPhase(this, exit, level, Arrive);
+        else Arrive();
+    }
+
+    /// <summary>
     /// Ends a phase with the block at rest. Every animation holds its final value, then this clears
     /// it and resets the transforms, so a wheel or a zoom can never leave the new value offset or
     /// shrunken after the animation has finished.
     /// </summary>
     void ClearPhase()
     {
+        MotionPlayback.Stop(this);
         BeginAnimation(OpacityProperty, null);
         _scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         _scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         _translate.BeginAnimation(TranslateTransform.XProperty, null);
         _translate.BeginAnimation(TranslateTransform.YProperty, null);
-        Opacity = 1;
+        // The motion player replaces the render transform while it runs; the design group goes back
+        // afterwards, so rotation and the value-change offsets keep working.
+        RenderTransform = _rest;
+        Opacity = Math.Clamp(_style?.TextOpacity ?? 1, 0, 1);
         _scale.ScaleX = _scale.ScaleY = 1;
         _translate.X = _translate.Y = 0;
     }

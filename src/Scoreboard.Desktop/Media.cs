@@ -208,6 +208,20 @@ public sealed class MediaPlayback
 {
     public MediaEntry? NowPlaying { get; private set; }
 
+    // A show can carry several live cameras at once — wide, tight, bench — and each scorebug video
+    // element picks the one whose tag it watches. Files still travel through NowPlaying.
+    readonly List<MediaEntry> _liveCameras = [];
+
+    public IReadOnlyList<MediaEntry> LiveCameras => _liveCameras;
+
+    /// <summary>The live cameras on air, so a video element tagged for one still finds it.</summary>
+    public void SetLiveCameras(IEnumerable<MediaEntry> cameras)
+    {
+        _liveCameras.Clear();
+        _liveCameras.AddRange(cameras.Where(camera => camera.IsCamera));
+        Changed?.Invoke();
+    }
+
     // A replay the operator has opened but not started. Only previews see it; the audience keeps
     // the live cue until Start replay promotes it.
     MediaEntry? _staged;
@@ -331,13 +345,19 @@ public sealed class MediaPlayback
     public bool Matches(MediaEntry entry, string? elementTag) => MediaLibrary.TagMatches(elementTag, entry.Tag);
 
     /// <summary>The video this element should be showing right now, or null. Audio cues never fill a video box.</summary>
-    public MediaEntry? ActiveFor(string? elementTag) => Resolve(NowPlaying, elementTag);
+    /// <remarks>
+    /// A live camera on air wins over the transport clip, so two video elements watching two tags can
+    /// show two cameras at the same time. With no camera for this tag, the cued file is used.
+    /// </remarks>
+    public MediaEntry? ActiveFor(string? elementTag) =>
+        Resolve(_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) ?? NowPlaying, elementTag);
 
     /// <summary>
     /// What a preview should show: a replay waiting to go on air takes precedence, so the operator
     /// can scrub it while the audience keeps watching the live camera.
     /// </summary>
-    public MediaEntry? PreviewFor(string? elementTag) => Resolve(_staged ?? NowPlaying, elementTag);
+    public MediaEntry? PreviewFor(string? elementTag) =>
+        Resolve(_staged ?? _liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) ?? NowPlaying, elementTag);
 
     MediaEntry? Resolve(MediaEntry? entry, string? elementTag)
     {
@@ -347,7 +367,7 @@ public sealed class MediaPlayback
 }
 
 /// <summary>
-/// The manifest inside a ScorePlus Media Folder (.spf). A folder and everything under it leaves the
+/// The manifest inside a ScorePlus Folder (.spf). A folder and everything under it leaves the
 /// library as one zip: this manifest plus the clips themselves, so the folder can be handed to
 /// another machine and come back exactly as it was — nested folders, tags, loops, levels, speakers
 /// and camera items included.

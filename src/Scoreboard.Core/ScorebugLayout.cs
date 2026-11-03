@@ -175,6 +175,54 @@ public sealed class ScorebugElement
 
     /// <summary>For the possession dot: mirror it, putting the home side on the left.</summary>
     public bool IconFlipped { get; set; }
+
+    /// <summary>
+    /// A gradient painted through the text itself, with any number of stops. Off leaves the text in
+    /// its flat colour; a radial gradient glows out from a centre instead of running in a line.
+    /// </summary>
+    public ScorebugGradient? TextGradientPaint { get; set; }
+
+    /// <summary>A multi-stop (and optionally radial) gradient for the background plate.</summary>
+    public ScorebugGradient? BackgroundGradientPaint { get; set; }
+
+    /// <summary>A surface finish over the background: metal, glass, fabric, grain and so on.</summary>
+    public ScorebugTexture? BackgroundTexture { get; set; }
+
+    /// <summary>A surface finish on the text fill itself.</summary>
+    public ScorebugTexture? TextTexture { get; set; }
+
+    /// <summary>
+    /// How solid the printed value is, separate from the element as a whole and from its plate and
+    /// outline. 1 is solid, 0 disappears.
+    /// </summary>
+    public double TextOpacity { get; set; } = 1;
+
+    /// <summary>How solid the background plate is, on its own.</summary>
+    public double BackgroundOpacity { get; set; } = 1;
+
+    /// <summary>How solid the outline is, on its own.</summary>
+    public double BorderOpacity { get; set; } = 1;
+
+    /// <summary>
+    /// The hand-over a value plays when it changes: how the old value leaves and the new one
+    /// arrives, with its own colour keys. Null follows <see cref="Transition"/> instead.
+    /// </summary>
+    public MotionClip? MotionTransition { get; set; }
+
+    /// <summary>
+    /// Motion this element follows: a loop that runs while it is up, or (when the clip is marked
+    /// for value changes) the flourish a new value plays.
+    /// </summary>
+    public MotionClip? MotionAnimation { get; set; }
+}
+
+/// <summary>What one item does as its layout comes on air.</summary>
+public sealed class LayoutHandover
+{
+    public string ElementId { get; set; } = "";
+
+    /// <summary>False keeps the item exactly where it is instead of animating it in.</summary>
+    public bool Arrives { get; set; } = true;
 }
 
 public sealed class ScorebugLayout
@@ -216,6 +264,20 @@ public sealed class ScorebugLayout
 
     /// <summary>How long this layout's hand-over takes, in seconds: 0 cuts, 5 is a slow dissolve.</summary>
     public double TransitionSeconds { get; set; } = 0.5;
+
+    /// <summary>
+    /// A hand-over built in the transition maker. When it is set it replaces the preset
+    /// <see cref="Transition"/> for this layout, keyframe for keyframe, and travels with the layout
+    /// in an .spl or .spd file and in a saved game.
+    /// </summary>
+    public MotionClip? TransitionClip { get; set; }
+
+    /// <summary>
+    /// Items that opt out of the arrival motion for this layout. Empty means the whole graphic
+    /// animates together; any entry lets the operator choose, item by item, what happens as this
+    /// layout comes on air. Saved with the layout, the display and the game.
+    /// </summary>
+    public List<LayoutHandover> Handover { get; set; } = [];
 
     public static readonly (string Name, int Width, int Height)[] SizePresets =
     [
@@ -275,9 +337,18 @@ public sealed class ScorebugDisplay
 /// <summary>What is written to scorebug.json: every display, with its layouts and what is on air.</summary>
 public sealed class ScorebugDocument
 {
-    public int Version { get; set; } = 5;
+    public int Version { get; set; } = 6;
     public List<ScorebugDisplay> Displays { get; set; } = [];
     public int ActiveDisplayIndex { get; set; }
+
+    /// <summary>
+    /// The show's saved transitions. Every layout and element also carries its own copy, so nothing
+    /// depends on the library; this is the list the makers offer for reuse.
+    /// </summary>
+    public List<MotionClip> Transitions { get; set; } = [];
+
+    /// <summary>The show's saved animations, for reuse across elements and layouts.</summary>
+    public List<MotionClip> Animations { get; set; } = [];
 
     /// <summary>A v3 file held one flat list of layouts for one screen; read so it still opens.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
@@ -298,6 +369,12 @@ public sealed class ScorebugCatalog
 
     public string? Warning { get; private set; }
     public event Action? Changed;
+
+    /// <summary>Saved transitions the makers can apply again.</summary>
+    public List<MotionClip> Transitions { get; private set; } = [];
+
+    /// <summary>Saved animations the makers can apply again.</summary>
+    public List<MotionClip> Animations { get; private set; } = [];
 
     public ScorebugCatalog(string? path = null)
     {
@@ -449,6 +526,8 @@ public sealed class ScorebugCatalog
             var document = root.Deserialize<ScorebugDocument>() ?? new ScorebugDocument();
             Displays = document.Displays ?? [];
             ActiveDisplayIndex = document.ActiveDisplayIndex;
+            Transitions = document.Transitions ?? [];
+            Animations = document.Animations ?? [];
             // A v4 file kept one hand-over per display; every layout now carries its own. Each layout
             // inherits the display transition it was last saved with, so an existing game still
             // switches the way the operator set it up.
@@ -508,7 +587,9 @@ public sealed class ScorebugCatalog
         var document = new ScorebugDocument
         {
             Displays = Displays,
-            ActiveDisplayIndex = ActiveDisplayIndex
+            ActiveDisplayIndex = ActiveDisplayIndex,
+            Transitions = Transitions,
+            Animations = Animations
         };
         var temp = _path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true }));
@@ -584,6 +665,10 @@ public sealed class ScorebugCatalog
                 if (!IsColor(layout.Background)) layout.Background = "#FF091018";
                 layout.TransitionSeconds = Math.Clamp(double.IsFinite(layout.TransitionSeconds) ? layout.TransitionSeconds : 0.5, 0, 5);
                 if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Fade;
+                layout.TransitionClip?.Normalize();
+                layout.Handover ??= [];
+                layout.Handover = layout.Handover.Where(entry => entry is not null).Take(200).ToList();
+                foreach (var entry in layout.Handover) entry.ElementId = (entry.ElementId ?? "").Trim();
                 foreach (var item in layout.Elements)
                 {
                     item.X = Math.Clamp(double.IsFinite(item.X) ? item.X : 0, 0, layout.Width);
@@ -597,6 +682,15 @@ public sealed class ScorebugCatalog
                     item.TransitionSeconds = Math.Clamp(double.IsFinite(item.TransitionSeconds) ? item.TransitionSeconds : 0.2, 0, 5);
                     item.VideoAspect = Math.Clamp(double.IsFinite(item.VideoAspect) && item.VideoAspect > 0.05 ? item.VideoAspect : 16.0 / 9.0, 0.1, 10);
                     item.GradientAngle = Math.Clamp(double.IsFinite(item.GradientAngle) ? item.GradientAngle : 0, -360, 360);
+                    item.TextOpacity = Math.Clamp(double.IsFinite(item.TextOpacity) ? item.TextOpacity : 1, 0, 1);
+                    item.BackgroundOpacity = Math.Clamp(double.IsFinite(item.BackgroundOpacity) ? item.BackgroundOpacity : 1, 0, 1);
+                    item.BorderOpacity = Math.Clamp(double.IsFinite(item.BorderOpacity) ? item.BorderOpacity : 1, 0, 1);
+                    item.TextGradientPaint?.Normalize();
+                    item.BackgroundGradientPaint?.Normalize();
+                    item.BackgroundTexture?.Normalize();
+                    item.TextTexture?.Normalize();
+                    item.MotionTransition?.Normalize();
+                    item.MotionAnimation?.Normalize();
                     if (string.IsNullOrWhiteSpace(item.BorderColor)) item.BorderColor = "#FFFFFFFF";
                     if (string.IsNullOrWhiteSpace(item.BackgroundColor2)) item.BackgroundColor2 = "#CC101820";
                     if (item.PeriodFormat is not ("Full" or "Short" or "Number")) item.PeriodFormat = null;
@@ -804,6 +898,19 @@ public sealed class ScorebugCatalog
     }
 
     /// <summary>Sets the hand-over of the layout being designed.</summary>
+    /// <summary>
+    /// Chooses one of the built-in hand-overs, replacing any clip the transition maker put on this
+    /// layout — the two are alternative answers to the same question, so picking one clears the other.
+    /// </summary>
+    public void SetTransitionPreset(LayoutTransition transition, double seconds) =>
+        Update(layout =>
+        {
+            layout.Transition = transition;
+            layout.TransitionSeconds = Math.Clamp(seconds, 0, 5);
+            layout.TransitionClip = null;
+            layout.Elements ??= [];
+        });
+
     public void SetTransition(LayoutTransition transition, double seconds) =>
         SetLayoutTransition(ActiveDisplayIndex, ActiveDisplay.ActiveIndex, transition, seconds);
 
@@ -882,7 +989,13 @@ public sealed class ScorebugCatalog
     /// </summary>
     public ScorebugDocument ExportDocument()
     {
-        var json = JsonSerializer.Serialize(new ScorebugDocument { Displays = Displays, ActiveDisplayIndex = ActiveDisplayIndex });
+        var json = JsonSerializer.Serialize(new ScorebugDocument
+        {
+            Displays = Displays,
+            ActiveDisplayIndex = ActiveDisplayIndex,
+            Transitions = Transitions,
+            Animations = Animations
+        });
         return JsonSerializer.Deserialize<ScorebugDocument>(json) ?? new ScorebugDocument();
     }
 
@@ -898,8 +1011,103 @@ public sealed class ScorebugCatalog
         if (copy?.Displays is not { Count: > 0 }) return;
         Displays = copy.Displays;
         ActiveDisplayIndex = copy.ActiveDisplayIndex;
+        Transitions = copy.Transitions ?? [];
+        Animations = copy.Animations ?? [];
         Validate();
         Save();
         Changed?.Invoke();
+    }
+
+    // ---------- transitions and animations ----------
+
+    /// <summary>Adds a transition to the show's library, or replaces the stored one with the same id.</summary>
+    public MotionClip SaveTransition(MotionClip clip)
+    {
+        clip.Normalize();
+        var stored = clip.Snapshot();
+        var index = Transitions.FindIndex(candidate => string.Equals(candidate.Id, clip.Id, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0) Transitions[index] = stored; else Transitions.Add(stored);
+        Save(); Changed?.Invoke();
+        return stored;
+    }
+
+    public void RemoveTransition(string id)
+    {
+        if (Transitions.RemoveAll(clip => string.Equals(clip.Id, id, StringComparison.OrdinalIgnoreCase)) == 0) return;
+        Save(); Changed?.Invoke();
+    }
+
+    /// <summary>Adds an animation to the show's library, or replaces the stored one with the same id.</summary>
+    public MotionClip SaveAnimation(MotionClip clip)
+    {
+        clip.Normalize();
+        var stored = clip.Snapshot();
+        var index = Animations.FindIndex(candidate => string.Equals(candidate.Id, clip.Id, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0) Animations[index] = stored; else Animations.Add(stored);
+        Save(); Changed?.Invoke();
+        return stored;
+    }
+
+    public void RemoveAnimation(string id)
+    {
+        if (Animations.RemoveAll(clip => string.Equals(clip.Id, id, StringComparison.OrdinalIgnoreCase)) == 0) return;
+        Save(); Changed?.Invoke();
+    }
+
+    /// <summary>Puts a transition on the layout being designed. An empty clip clears the override.</summary>
+    public void ApplyTransitionToLayout(MotionClip? clip)
+    {
+        Update(layout => layout.TransitionClip = clip is null || clip.IsEmpty ? null : clip.Snapshot());
+    }
+
+    /// <summary>Puts a hand-over on one element, played as its value changes.</summary>
+    public void ApplyTransitionToElement(string elementId, MotionClip? clip)
+    {
+        Update(layout =>
+        {
+            var item = layout.Elements.FirstOrDefault(element => string.Equals(element.Id, elementId, StringComparison.OrdinalIgnoreCase));
+            if (item is null) return;
+            item.MotionTransition = clip is null || clip.IsEmpty ? null : clip.Snapshot();
+        });
+    }
+
+    /// <summary>Puts motion on one element: an ambient loop, or a value-change flourish.</summary>
+    public void ApplyAnimationToElement(string elementId, MotionClip? clip)
+    {
+        Update(layout =>
+        {
+            var item = layout.Elements.FirstOrDefault(element => string.Equals(element.Id, elementId, StringComparison.OrdinalIgnoreCase));
+            if (item is null) return;
+            item.MotionAnimation = clip is null || clip.IsEmpty ? null : clip.Snapshot();
+        });
+    }
+
+    /// <summary>The layout on a display with this id, or null when the display or layout is gone.</summary>
+    public ScorebugLayout? FindLayout(string? displayId, string? layoutId)
+    {
+        var display = FindDisplay(displayId);
+        if (display is null || string.IsNullOrWhiteSpace(layoutId)) return null;
+        return display.Layouts.FirstOrDefault(layout => string.Equals(layout.Id, layoutId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Makes one display use a layout, from a quick button. It edits that display's choice and, when
+    /// asked, puts the layout on air in the same save — so one press is one change, not two.
+    /// </summary>
+    public bool ActivateLayout(string? displayId, string? layoutId, bool publish)
+    {
+        var displayIndex = Displays.FindIndex(display => string.Equals(display.Id, displayId, StringComparison.OrdinalIgnoreCase));
+        if (displayIndex < 0) return false;
+        var display = Displays[displayIndex];
+        var layoutIndex = display.Layouts.FindIndex(layout => string.Equals(layout.Id, layoutId, StringComparison.OrdinalIgnoreCase));
+        if (layoutIndex < 0) return false;
+        var changed = ActiveDisplayIndex != displayIndex || display.ActiveIndex != layoutIndex || (publish && display.PublishedIndex != layoutIndex);
+        ActiveDisplayIndex = displayIndex;
+        display.ActiveIndex = layoutIndex;
+        if (publish) display.PublishedIndex = layoutIndex;
+        if (!changed) return true;
+        Save();
+        Changed?.Invoke();
+        return true;
     }
 }

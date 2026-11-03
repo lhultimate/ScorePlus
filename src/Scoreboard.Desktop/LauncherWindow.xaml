@@ -109,7 +109,7 @@
     </DockPanel>
 
     <Border Grid.Column="1" Background="#0A0D11" BorderBrush="#151B23" BorderThickness="1,0,0,0">
-      <TextBlock x:Name="VersionText" Text="a1.3" Foreground="#5C6B7E" FontSize="12" FontWeight="Bold"
+      <TextBlock x:Name="VersionText" Text="a1.4" Foreground="#5C6B7E" FontSize="12" FontWeight="Bold"
                  HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,22"
                  RenderTransformOrigin="0.5,0.5">
         <TextBlock.RenderTransform>

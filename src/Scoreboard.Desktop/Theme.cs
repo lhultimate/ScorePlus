@@ -44,6 +44,18 @@ public sealed class UserPreferences
     /// <summary>The sport the operator last ran, so a launcher "New Game" opens the game they expect.</summary>
     public string LastSport { get; set; } = "football";
 
+    /// <summary>
+    /// The four quick-layout buttons above the sound meter. Each one points at a layout on any
+    /// display, so the operator can reach a scorebug, a lower third or a sponsor board in one press.
+    /// </summary>
+    public List<QuickLayoutBinding> QuickLayouts { get; set; } = [];
+
+    /// <summary>
+    /// Off by default: a quick button only stages its layout. When this is on, the same press also
+    /// sends it to air, which is faster but updates output without a second confirmation.
+    /// </summary>
+    public bool QuickLayoutsPublish { get; set; }
+
     public List<MediaEntry> Media { get; set; } = [];
 
     /// <summary>Saved media playlists: an ordered run of clips that can repeat.</summary>
@@ -69,11 +81,23 @@ public sealed class UserPreferences
         CheckForUpdates = CheckForUpdates,
         ValueSwitchDelay = ValueSwitchDelay,
         LastSport = LastSport,
+        QuickLayouts = QuickLayouts.Select(binding => new QuickLayoutBinding { Label = binding.Label, DisplayId = binding.DisplayId, LayoutId = binding.LayoutId }).ToList(),
+        QuickLayoutsPublish = QuickLayoutsPublish,
         Media = [.. Media],
         Playlists = Playlists.Select(p => new MediaPlaylist { Name = p.Name, Loop = p.Loop, Paths = p.Paths.ToList() }).ToList(),
         MediaFolders = [.. MediaFolders],
         MediaFiles = [.. MediaFiles]
     };
+}
+
+/// <summary>One of the four quick-layout buttons: a name the operator sees, and where it points.</summary>
+public sealed class QuickLayoutBinding
+{
+    public string Label { get; set; } = "";
+    public string DisplayId { get; set; } = "";
+    public string LayoutId { get; set; } = "";
+
+    public bool IsSet => !string.IsNullOrWhiteSpace(DisplayId) && !string.IsNullOrWhiteSpace(LayoutId);
 }
 
 public static class PreferencesStore
@@ -103,6 +127,7 @@ public static class PreferencesStore
         preferences.Playlists ??= [];
         preferences.MediaFolders ??= [];
         preferences.MediaFiles ??= [];
+        preferences.QuickLayouts ??= [];
         if (preferences.Media.Count == 0 && preferences.MediaFiles.Count > 0)
             preferences.Media = preferences.MediaFiles.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => new MediaEntry(p)).ToList();
         preferences.MediaFiles.Clear();

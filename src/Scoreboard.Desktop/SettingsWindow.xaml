@@ -12,7 +12,7 @@
         <TextBlock Text="PREFERENCES" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
         <TextBlock Text="APPEARANCE" Foreground="#93A0B2" FontSize="11" Margin="4,0,0,2"/>
         <ComboBox x:Name="ThemeSelector" SelectionChanged="Theme_Changed"/>
-        <TextBlock Text="System follows the Windows app theme (Settings → Personalisation → Colours), so the panels match your desktop. Dark and Light pin one. Applies to operator windows only: scorebug and audience graphics keep their designed colors." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,14"/>
+        <TextBlock Text="System follows the Windows app theme (Settings → Personalisation → Colors), so the panels match your desktop. Dark and Light pin one. Applies to operator windows only: scorebug and audience graphics keep their designed colors." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,14"/>
         <Separator/>
         <TextBlock Text="OPERATOR WORKFLOW" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="ShowHints" Content="Show tips next to headings (for example 'scoring, timing, actions')" Checked="Controls_Changed" Unchecked="Controls_Changed"/>
@@ -25,6 +25,8 @@
                    ToolTip="Any value from 0 to 5, for example 0.35"/>
         </DockPanel>
         <TextBlock Text="How long every graphic holds an old value before it switches to the new one. Type any value from 0 to 5; 0 prints instantly and is the default." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
+        <CheckBox x:Name="QuickPublishInput" Content="Quick layout buttons also update output" Checked="QuickLayout_Changed" Unchecked="QuickLayout_Changed"/>
+        <TextBlock Text="Off by default: the four buttons above the sound meter only stage a layout, and Update Output sends it as usual. On, the same press puts the layout on air — faster, but it changes the audience picture without a second confirmation." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <Separator/>
         <TextBlock Text="INTERFACE COLOURS" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <TextBlock Text="The accent draws selected tabs, live badges and outlines; the secondary fills the main actions such as Update Output. Type a hex value or pick one."
@@ -38,7 +40,7 @@
           <Border x:Name="AccentSwatch" Width="38" Height="32" CornerRadius="6" BorderThickness="1" BorderBrush="#3A4552"
                   VerticalAlignment="Center" local:ThemeManager.SkipTheme="True"/>
           <TextBox x:Name="AccentInput" Grid.Column="1" MinHeight="32" Padding="8,4" FontFamily="Consolas"
-                   TextChanged="Accent_Changed" ToolTip="Accent colour, for example #38D7A3"/>
+                   TextChanged="Accent_Changed" ToolTip="Accent color, for example #38D7A3"/>
           <Button Grid.Column="2" Content="Choose…" MinHeight="32" Padding="10,4" Margin="6,0,0,0" Click="AccentPick_Click"/>
         </Grid>
         <Grid Margin="4,4,4,8">
@@ -50,11 +52,11 @@
           <Border x:Name="Accent2Swatch" Width="38" Height="32" CornerRadius="6" BorderThickness="1" BorderBrush="#3A4552"
                   VerticalAlignment="Center" local:ThemeManager.SkipTheme="True"/>
           <TextBox x:Name="Accent2Input" Grid.Column="1" MinHeight="32" Padding="8,4" FontFamily="Consolas"
-                   TextChanged="Accent_Changed" ToolTip="Secondary colour for filled actions, for example #0B6B50"/>
+                   TextChanged="Accent_Changed" ToolTip="Secondary color for filled actions, for example #0B6B50"/>
           <Button Grid.Column="2" Content="Choose…" MinHeight="32" Padding="10,4" Margin="6,0,0,0" Click="Accent2Pick_Click"/>
         </Grid>
-        <Button x:Name="ResetColoursButton" Content="Reset to the ScorePlus colours" HorizontalAlignment="Left"
-                MinHeight="30" Padding="12,4" Margin="4,2,4,2" Click="ResetColours_Click"/>
+        <Button x:Name="ResetColorsButton" Content="Reset to the ScorePlus colors" HorizontalAlignment="Left"
+                MinHeight="30" Padding="12,4" Margin="4,2,4,2" Click="ResetColors_Click"/>
         <Separator/>
         <TextBlock Text="REMOTE CONTROL" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="RemoteEnabledInput" Content="Allow the phone remote on this network" Checked="Remote_Changed" Unchecked="Remote_Changed"/>

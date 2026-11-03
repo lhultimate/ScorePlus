@@ -48,6 +48,7 @@ public partial class ScorebugEditorWindow : Window
     readonly System.Windows.Threading.DispatcherTimer _propertySave = new() { Interval=TimeSpan.FromMilliseconds(350) };
     readonly Dictionary<string,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind)> _visuals = [];
     readonly Dictionary<string,(ScorebugElementKind Kind, ScorebugShape Shape, string? Image, ScorebugAnimation Animation, double Opacity)> _applied = [];
+    string _motionSignature = "";
     bool _loading;
     bool _syncingLayers;
     // Everything selected, in the order it was picked; the primary is the one the property panel
@@ -104,6 +105,13 @@ public partial class ScorebugEditorWindow : Window
         public override string ToString() => Label;
     }
 
+    /// <summary>A saved transition or animation, offered by name beside the built-in presets.</summary>
+    sealed class MotionClipChoice(MotionClip clip, string label)
+    {
+        public MotionClip Clip => clip;
+        public override string ToString() => label;
+    }
+
     static readonly LayoutTransitionOption[] LayoutTransitions =
     [
         new(LayoutTransition.Cut, "Cut — instant"),
@@ -156,9 +164,9 @@ public partial class ScorebugEditorWindow : Window
         WindowState=WindowState.Maximized;
         // Follow it onto a portrait or higher-DPI monitor without running off the screen.
         ScreenFit.Track(this);
-        AnimationInput.ItemsSource=Enum.GetValues<ScorebugAnimation>();
-        TransitionInput.ItemsSource=Enum.GetValues<ScorebugTransition>();
-        TransitionBox.ItemsSource=LayoutTransitions;
+        RefreshMotionLists();
+        // Saved clips are offered beside the presets by RefreshMotionLists.
+        // Built-in arrivals plus the show's named transitions, by RefreshLayoutTransitionChoices.
         ShapeInput.ItemsSource=Enum.GetValues<ScorebugShape>();
         IconInput.ItemsSource=Enum.GetValues<ScorebugIcon>();
         PeriodFormatInput.ItemsSource=PeriodOptions;
@@ -192,10 +200,12 @@ public partial class ScorebugEditorWindow : Window
         foreach(var box in Descendants<TextBox>(PropertyPanel))
             box.KeyDown+=(_,e)=>
             {
-                if(e.Key!=Key.Enter)return;
+                // A multi-line box (the content field) keeps Enter: it inserts a line instead of
+                // leaving the value the operator is writing.
+                if(e.Key!=Key.Enter||box.AcceptsReturn)return;
                 _propertySave.Stop(); SaveProperties(); RefreshAllVisuals();
-                box.SelectAll();
                 e.Handled=true;
+                ReleaseFocus();
             };
         Render();
     }
@@ -268,6 +278,7 @@ public partial class ScorebugEditorWindow : Window
         foreach(var item in ordered.Where(x=>_selectedIds.Contains(x.Element.Id)))Layers.SelectedItems.Add(item);
         LayerCount.Text=ordered.Length==0?"no elements":$"{ordered.Length} element{(ordered.Length==1?"":"s")}";
         _syncingLayers=false;
+        RefreshMotionLists();
         SyncLayoutPicker();
         SyncDisplayPicker();
         SyncLinkPicker();
@@ -442,9 +453,13 @@ public partial class ScorebugEditorWindow : Window
             // The hand-over belongs to the layout being designed, so every layout can arrive
             // differently; the pickers follow both the display and the layout selection.
             var layout=_catalog.Layout;
-            TransitionBox.SelectedItem=LayoutTransitions.FirstOrDefault(option=>option.Transition==layout.Transition)??LayoutTransitions[1];
+            TransitionBox.SelectedItem=layout.TransitionClip is { } handover
+                ? (object)MotionChoice(TransitionBox,handover)
+                : LayoutTransitions.FirstOrDefault(option=>option.Transition==layout.Transition)??LayoutTransitions[1];
             TransitionSecondsInput.Text=layout.TransitionSeconds.ToString("0.##");
-            TransitionCaption.Text=$"  Saved with {layout.Name} — every layout can arrive differently.";
+            TransitionCaption.Text=layout.TransitionClip is { } custom
+                ? $"  Custom “{custom.Name}” — the transition maker's hand-over, saved with {layout.Name}."
+                : $"  Saved with {layout.Name} — every layout can arrive differently.";
         }
         finally { _displayLoading=false; }
     }
@@ -452,8 +467,9 @@ public partial class ScorebugEditorWindow : Window
     void Transition_Changed(object sender,SelectionChangedEventArgs e)
     {
         if(_displayLoading)return;
+        if(TransitionBox.SelectedItem is MotionClipChoice clip){ _catalog.ApplyTransitionToLayout(clip.Clip); return; }
         if(TransitionBox.SelectedItem is not LayoutTransitionOption option)return;
-        _catalog.SetTransition(option.Transition,_catalog.Layout.TransitionSeconds);
+        _catalog.SetTransitionPreset(option.Transition,_catalog.Layout.TransitionSeconds);
     }
 
     void TransitionSeconds_Changed(object sender,TextChangedEventArgs e)
@@ -780,7 +796,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconVisitorsInput,IconFlipInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacityInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconVisitorsInput,IconFlipInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider})
             control.IsEnabled=has;
         if(has)
         {
@@ -799,12 +815,26 @@ public partial class ScorebugEditorWindow : Window
             GradientColorInput.Text=e.BackgroundColor2;
             GradientAngleInput.Text=e.GradientAngle.ToString("0");
             OpacityInput.Text=e.Opacity.ToString("0.00");
+            OpacitySlider.Value=Math.Clamp(e.Opacity,0,1)*100;
+            TextOpacitySlider.Value=Math.Clamp(e.TextOpacity,0,1)*100;
+            BackgroundOpacitySlider.Value=Math.Clamp(e.BackgroundOpacity,0,1)*100;
+            BorderOpacitySlider.Value=Math.Clamp(e.BorderOpacity,0,1)*100;
+            OpacityReadout.Text=$"{OpacitySlider.Value:0}%";
+            TextOpacityReadout.Text=$"{TextOpacitySlider.Value:0}%";
+            BackgroundOpacityReadout.Text=$"{BackgroundOpacitySlider.Value:0}%";
+            BorderOpacityReadout.Text=$"{BorderOpacitySlider.Value:0}%";
             ForegroundSourceInput.SelectedItem=ColorSources.FirstOrDefault(c=>c.Source==e.ForegroundSource)??ColorSources[0];
             BackgroundSourceInput.SelectedItem=ColorSources.FirstOrDefault(c=>c.Source==e.BackgroundSource)??ColorSources[0];
             GradientSourceInput.SelectedItem=ColorSources.FirstOrDefault(c=>c.Source==e.BackgroundSource2)??ColorSources[0];
             BorderSourceInput.SelectedItem=ColorSources.FirstOrDefault(c=>c.Source==e.BorderSource)??ColorSources[0];
             UpdateColorAvailability();
-            AnimationInput.SelectedItem=e.Animation; TransitionInput.SelectedItem=e.Transition; ShapeInput.SelectedItem=e.Shape;
+            AnimationInput.SelectedItem=e.MotionAnimation is { } motion
+                ? MotionChoice(AnimationInput,motion)
+                : (object)e.Animation;
+            TransitionInput.SelectedItem=e.MotionTransition is { } handover
+                ? MotionChoice(TransitionInput,handover)
+                : (object)e.Transition;
+            ShapeInput.SelectedItem=e.Shape;
             VisibleInput.IsChecked=e.Visible; TransparentBackgroundInput.IsChecked=e.TransparentBackground;
             MediaTagInput.Text=e.MediaTag;
             PreserveAspectInput.IsChecked=e.PreserveVideoAspect;
@@ -898,6 +928,109 @@ public partial class ScorebugEditorWindow : Window
         IconFlipInput.Visibility=icon==ScorebugIcon.PossessionDot?Visibility.Visible:Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// The four opacity sliders. The element value is written through the hidden box the property
+    /// writer already reads, so one save covers all four and a group edit stays a group edit.
+    /// </summary>
+    void Opacity_Changed(object sender,RoutedPropertyChangedEventArgs<double> e)
+    {
+        // During XAML load the slider's value is set before the readouts exist; saving then would
+        // also fire the property writer with half a panel. Wait until the whole row is built.
+        if(_loading||OpacitySlider is null||OpacityReadout is null||TextOpacityReadout is null
+            ||BackgroundOpacityReadout is null||BorderOpacityReadout is null) return;
+        OpacityReadout.Text=$"{OpacitySlider.Value:0}%";
+        TextOpacityReadout.Text=$"{TextOpacitySlider.Value:0}%";
+        BackgroundOpacityReadout.Text=$"{BackgroundOpacitySlider.Value:0}%";
+        BorderOpacityReadout.Text=$"{BorderOpacitySlider.Value:0}%";
+        var was=_loading; _loading=true;
+        try { OpacityInput.Text=(OpacitySlider.Value/100).ToString("0.00"); } finally { _loading=was; }
+        if(Selected is null) return;
+        _propertySave.Stop();
+        SaveProperties();
+        RefreshAllVisuals();
+    }
+
+    void PaintTexture_Click(object sender,RoutedEventArgs e)
+    {
+        if(Selected is not { } item) return;
+        PaintTextureWindow.Edit(this,_catalog,_engine,item,PreferencesStore.Load().Theme);
+        Render(); LoadProperties();
+    }
+
+    void MotionMakerTransition_Click(object sender,RoutedEventArgs e)=>OpenMotionMaker(MotionKind.Transition);
+
+    void MotionMakerAnimation_Click(object sender,RoutedEventArgs e)=>OpenMotionMaker(MotionKind.Animation);
+
+    /// <summary>
+    /// The value-change and motion pickers offer the built-in presets and every clip in the show's
+    /// library, so a transition or animation named and applied in a maker can be chosen here by
+    /// name. The list is only rebuilt when the library changes, so a rebuild never disturbs the
+    /// selection while the operator is editing.
+    /// </summary>
+    void RefreshMotionLists()
+    {
+        var signature=string.Join("|",_catalog.Transitions.Select(clip=>clip.Id+":"+clip.Name))
+            +"//"+string.Join("|",_catalog.Animations.Select(clip=>clip.Id+":"+clip.Name));
+        if(signature==_motionSignature&&AnimationInput.Items.Count>0)return;
+        _motionSignature=signature;
+        var animation=AnimationInput.SelectedItem;
+        var transition=TransitionInput.SelectedItem;
+        AnimationInput.ItemsSource=Enum.GetValues<ScorebugAnimation>().Cast<object>()
+            .Concat(_catalog.Animations.Select(clip=>new MotionClipChoice(clip,"Saved · "+clip.Name))).ToArray();
+        TransitionInput.ItemsSource=Enum.GetValues<ScorebugTransition>().Cast<object>()
+            .Concat(_catalog.Transitions.Select(clip=>new MotionClipChoice(clip,"Saved · "+clip.Name))).ToArray();
+        AnimationInput.SelectedItem=KeepMotionChoice(AnimationInput,animation);
+        TransitionInput.SelectedItem=KeepMotionChoice(TransitionInput,transition);
+        RefreshLayoutTransitionChoices();
+    }
+
+    static object? KeepMotionChoice(ComboBox box,object? previous)
+    {
+        if(previous is not MotionClipChoice choice)return previous;
+        return box.Items.OfType<MotionClipChoice>()
+            .FirstOrDefault(candidate=>string.Equals(candidate.Clip.Id,choice.Clip.Id,StringComparison.OrdinalIgnoreCase))??previous;
+    }
+
+    /// <summary>The combo item for a clip on the element; a clip no longer in the library still shows by name.</summary>
+    static MotionClipChoice MotionChoice(ComboBox box,MotionClip clip)
+    {
+        foreach(var item in box.Items)
+            if(item is MotionClipChoice choice&&string.Equals(choice.Clip.Id,clip.Id,StringComparison.OrdinalIgnoreCase))return choice;
+        var orphan=new MotionClipChoice(clip,(string.IsNullOrWhiteSpace(clip.Name)?"Untitled":clip.Name)+" · on this element");
+        box.ItemsSource=box.Items.Cast<object>().Append(orphan).ToArray();
+        return orphan;
+    }
+
+    /// <summary>The layout hand-over picker: the built-in arrivals, then the show's named transitions.</summary>
+    void RefreshLayoutTransitionChoices()
+    {
+        var previous=TransitionBox.SelectedItem;
+        TransitionBox.ItemsSource=LayoutTransitions.Cast<object>()
+            .Concat(_catalog.Transitions.Select(clip=>new MotionClipChoice(clip,"Saved · "+clip.Name))).ToArray();
+        if(previous is MotionClipChoice choice)
+            TransitionBox.SelectedItem=TransitionBox.Items.OfType<MotionClipChoice>()
+                .FirstOrDefault(candidate=>string.Equals(candidate.Clip.Id,choice.Clip.Id,StringComparison.OrdinalIgnoreCase));
+        else if(previous is not null)TransitionBox.SelectedItem=previous;
+    }
+
+    /// <summary>Opens the maker on the element that is selected here, so its motion applies to it.</summary>
+    void OpenMotionMaker(MotionKind kind)
+    {
+        _propertySave.Stop(); SaveProperties();
+        var current=kind==MotionKind.Transition?Selected?.MotionTransition:Selected?.MotionAnimation;
+        var maker=new MotionMakerWindow(kind,_catalog,_engine,PreferencesStore.Load().Theme,current){Owner=this};
+        maker.ShowDialog();
+        // A clip saved in the maker has just joined the library; the pickers must offer it now.
+        Render(); RefreshMotionLists(); LoadProperties();
+    }
+
+    /// <summary>
+    /// Enter commits the value and lets go of the field. Keeping the caret was the old behaviour,
+    /// but it left the box live, so the next keystroke silently edited the value that had just
+    /// landed instead of reaching the shortcut it was meant for.
+    /// </summary>
+    static void ReleaseFocus() => Keyboard.ClearFocus();
+
     void Property_Changed(object sender,RoutedEventArgs e)=>ApplyProperties(sender);
     void Property_Changed(object sender,TextChangedEventArgs e)=>ApplyProperties(sender);
     void Property_Changed(object sender,SelectionChangedEventArgs e)=>ApplyProperties(sender);
@@ -945,10 +1078,16 @@ public partial class ScorebugEditorWindow : Window
         var gradientColorOk=TryColor(GradientColorInput.Text,out _);
         var gradientAngleOk=double.TryParse(GradientAngleInput.Text,out var gradientAngle);
         var opacityOk=double.TryParse(OpacityInput.Text,out var opacity);
+        // Each layer fades on its own; the sliders are the authority for these four values.
+        var textOpacity=Math.Clamp(TextOpacitySlider.Value/100,0,1);
+        var backgroundOpacity=Math.Clamp(BackgroundOpacitySlider.Value/100,0,1);
+        var borderOpacity=Math.Clamp(BorderOpacitySlider.Value/100,0,1);
         var gradientSource=(GradientSourceInput.SelectedItem as ColorSourceOption)?.Source;
         var borderSource=(BorderSourceInput.SelectedItem as ColorSourceOption)?.Source;
         var animation=AnimationInput.SelectedItem is ScorebugAnimation a?(ScorebugAnimation?)a:null;
+        var animationClip=AnimationInput.SelectedItem as MotionClipChoice;
         var transition=TransitionInput.SelectedItem is ScorebugTransition t?(ScorebugTransition?)t:null;
+        var transitionClip=TransitionInput.SelectedItem as MotionClipChoice;
         var shape=ShapeInput.SelectedItem is ScorebugShape s?(ScorebugShape?)s:null;
         var visible=VisibleInput.IsChecked==true; var transparent=TransparentBackgroundInput.IsChecked==true;
         var mediaTag=MediaTagInput.Text.Trim();
@@ -974,6 +1113,12 @@ public partial class ScorebugEditorWindow : Window
             &&string.Equals(item.AudioDevice,audioDevice,StringComparison.Ordinal)
             &&(!fOk||item.FontSize==f)&&(!foregroundOk||item.Foreground==ColorInput.Text)&&(!backgroundOk||item.Background==BackgroundInput.Text)
             &&(animation is null||item.Animation==animation)&&(transition is null||item.Transition==transition)
+            &&(animationClip is not null
+                ? string.Equals(item.MotionAnimation?.Id,animationClip.Clip.Id,StringComparison.OrdinalIgnoreCase)
+                : (animation is null||item.MotionAnimation is null))
+            &&(transitionClip is not null
+                ? string.Equals(item.MotionTransition?.Id,transitionClip.Clip.Id,StringComparison.OrdinalIgnoreCase)
+                : (transition is null||item.MotionTransition is null))
             &&(shape is null||item.Shape==shape)&&item.Visible==visible&&item.TransparentBackground==transparent
             &&item.MediaTag==mediaTag&&(periodFormat is null||item.PeriodFormat==periodFormat)
             &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped
@@ -1016,8 +1161,10 @@ public partial class ScorebugEditorWindow : Window
                 if(fOk)target.FontSize=f;
                 if(foregroundOk)target.Foreground=ColorInput.Text;
                 if(backgroundOk)target.Background=BackgroundInput.Text;
-                if(animation is not null)target.Animation=animation.Value;
-                if(transition is not null)target.Transition=transition.Value;
+                if(animationClip is not null)target.MotionAnimation=animationClip.Clip.Snapshot();
+                else if(animation is not null){target.Animation=animation.Value;target.MotionAnimation=null;}
+                if(transitionClip is not null)target.MotionTransition=transitionClip.Clip.Snapshot();
+                else if(transition is not null){target.Transition=transition.Value;target.MotionTransition=null;}
                 if(shape is not null)target.Shape=shape.Value;
                 target.Visible=visible; target.TransparentBackground=transparent;
                 if(target.Kind==ScorebugElementKind.Video)target.MediaTag=mediaTag;
@@ -1039,6 +1186,9 @@ public partial class ScorebugEditorWindow : Window
                 if(gradientColorOk)target.BackgroundColor2=GradientColorInput.Text;
                 if(gradientAngleOk)target.GradientAngle=Math.Clamp(gradientAngle,-360,360);
                 if(opacityOk)target.Opacity=Math.Clamp(opacity,0,1);
+                target.TextOpacity=textOpacity;
+                target.BackgroundOpacity=backgroundOpacity;
+                target.BorderOpacity=borderOpacity;
                 if(logoSide is not null)target.LogoSide=logoSide.Value;
                 if(rotationOk)target.Rotation=Math.Clamp(rotation,-360,360);
                 if(borderWidthOk)target.BorderThickness=Math.Clamp(borderWidth,0,40);
@@ -1988,10 +2138,14 @@ public partial class ScorebugEditorWindow : Window
     // Enter inside a property field commits that value. It must never close the studio.
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if(e.Key==Key.Enter&&(Keyboard.FocusedElement is TextBox||e.OriginalSource is TextBox))
+        var field=Keyboard.FocusedElement as TextBox??e.OriginalSource as TextBox;
+        if(e.Key==Key.Enter&&field is not null)
         {
+            // The content field is multi-line: Enter is a new line there, not a commit-and-leave.
+            if(field.AcceptsReturn) return;
             _propertySave.Stop(); SaveProperties(); RefreshAllVisuals();
             e.Handled=true;
+            ReleaseFocus();
             return;
         }
         // Escape drops the selection, so the operator never has to click empty canvas to get out.
