@@ -97,8 +97,10 @@ public sealed class SoundMeterView : Border
             for (var index = 0; index < _bars.Length; index++)
                 _bars[index].Background = index < lit ? new SolidColorBrush((Color)_bars[index].Tag) : unlit;
         }
-        _level.Text = level <= 0
-            ? (SoundLevelMeter.Available ? "−∞ dB" : "no output")
-            : $"{SoundLevelMeter.Decibels(level):0} dB";
+        _level.Text = SoundLevelMeter.Suppressed
+            ? "speakers off"
+            : level <= 0
+                ? (SoundLevelMeter.Available ? "−∞ dB" : "no output")
+                : $"{SoundLevelMeter.Decibels(level):0} dB";
     }
 }

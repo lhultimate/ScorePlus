@@ -895,8 +895,10 @@ public partial class MediaDock : UserControl
             if (e.ClickCount == 2)
             {
                 // The tile is the on/off switch: a second double-click on something already on
-                // air takes it off air, so an operator never has to reach for the transport.
-                if (session.IsOnAir(entry)) session.ToggleOnAir(entry);
+                // air takes it off air, so an operator never has to reach for the transport. A
+                // speaker bus is always toggled, because "off air" for a bus means muted and
+                // playing it again would leave it just as muted.
+                if (entry.IsSpeaker || session.IsOnAir(entry)) session.ToggleOnAir(entry);
                 else if (playlist is not null) session.PlayPlaylistFrom(playlist, index);
                 else session.Play(entry);
             }

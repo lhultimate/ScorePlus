@@ -436,9 +436,11 @@ public partial class MainWindow : Window, IControlPanelHost
             for (var index = 0; index < _meterBars.Length; index++)
                 _meterBars[index].Background = index < lit ? new SolidColorBrush((Color)_meterBars[index].Tag) : unlit;
         }
-        SoundLevelText.Text = level <= 0
-            ? (SoundLevelMeter.Available ? "−∞ dB" : "no output")
-            : $"{SoundLevelMeter.Decibels(level):0} dB";
+        SoundLevelText.Text = SoundLevelMeter.Suppressed
+            ? "speakers off"
+            : level <= 0
+                ? (SoundLevelMeter.Available ? "−∞ dB" : "no output")
+                : $"{SoundLevelMeter.Decibels(level):0} dB";
         if (_preview is null) { OnAirInfo.Text = "STANDBY"; ShowInfo.Text = "Start a game to go live"; return; }
         OnAirInfo.Text = _program.HasStagedChanges ? "STAGED · UPDATE TO AIR" : $"ON AIR · {_program.Display.Name.ToUpperInvariant()}";
         var s = _publishedEngine.State;
@@ -843,6 +845,21 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void PublishLiveValues()
     {
+        // A connected console owns down and distance as well as the score and clocks, so an
+        // operator's recall of the console's last down has to ride the same live path as the
+        // console's own frames. Without this the audience kept the wrong down.
+        if (_engine.HardwareControlled)
+        {
+            _publishedEngine.UpdateLiveController(_engine.State);
+            _publishedEngine.UpdateLiveScoreClock(_engine.State);
+            _preview?.Refresh();
+            foreach (var output in _outputs.Where(o => o.IsVisible))
+            {
+                output.UpdateLiveController(_engine.State);
+                output.UpdateLiveScoreClock(_engine.State);
+            }
+            return;
+        }
         if (!_publishedEngine.UpdateLiveScoreClock(_engine.State)) return;
         _preview?.Refresh();
         foreach (var output in _outputs.Where(o => o.IsVisible)) output.UpdateLiveScoreClock(_engine.State);

@@ -358,7 +358,7 @@ public sealed class GameEngine
 
     public void SetPossession(bool home) { if (State.HomePossession == home) return; SaveUndo("Possession"); State.HomePossession = home; Log("Possession", $"{(home ? State.HomeTeam : State.AwayTeam)} possession"); Changed?.Invoke(); }
 
-    public void SetDown(int down) { if (State.SportId != "football") return; var value = Math.Clamp(down, 1, 4); if (State.Down == value) return; SaveUndo("Down"); State.Down = value; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
+    public void SetDown(int down) { if (State.SportId != "football") return; var value = Math.Clamp(down, 1, 4); if (State.Down == value) return; RememberDown(); SaveUndo("Down"); State.Down = value; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
 
     public void SetTimeoutCount(bool home, int value)
     {
@@ -411,12 +411,31 @@ public sealed class GameEngine
         Tick(); SaveUndo("Timeout clock reset"); State.TimeoutClockSeconds = Math.Clamp(seconds, 1, 599); State.TimeoutClockRunning = false; _lastTick = _watch.ElapsedTicks;
         Log("Timeout clock", $"Timeout clock reset to {FormatClock(State.TimeoutClockSeconds)}"); Changed?.Invoke();
     }
-    public void AdvanceDown() { if (State.SportId != "football") return; SaveUndo("Down"); if (State.Down >= 4) { State.Down=1; State.YardsToGo=10; State.YardsToGoal=Math.Clamp(State.YardsToGoal-State.YardsToGo,0,50); } else State.Down++; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
-    public void PreviousDown() { if (State.SportId != "football") return; SaveUndo("Previous down"); if (State.Down > 1) State.Down--; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
-    public void NewSeries() { if (State.SportId != "football") return; SaveUndo("New series"); State.Down = 1; State.YardsToGo = 10; Log("Series", "New series · 1st & 10"); Changed?.Invoke(); }
+    // The down, distance and spot as they stood before the last change, so a mis-tap can be put back
+    // with one button instead of four edits or a global undo.
+    (int Down, int YardsToGo, int YardsToGoal)? _lastDown;
+
+    void RememberDown() => _lastDown = (State.Down, State.YardsToGo, State.YardsToGoal);
+
+    /// <summary>Puts the down, distance and ball spot back to where they were before the last change.</summary>
+    public void RecallLastDown()
+    {
+        if (State.SportId != "football" || _lastDown is not { } last) return;
+        SaveUndo("Recall last down");
+        State.Down = last.Down;
+        State.YardsToGo = last.YardsToGo;
+        State.YardsToGoal = last.YardsToGoal;
+        _lastDown = null;
+        Log("Down", $"Recalled {State.Down} & {State.YardsToGo}");
+        Changed?.Invoke();
+    }
+
+    public void AdvanceDown() { if (State.SportId != "football") return; RememberDown(); SaveUndo("Down"); if (State.Down >= 4) { State.Down=1; State.YardsToGo=10; State.YardsToGoal=Math.Clamp(State.YardsToGoal-State.YardsToGo,0,50); } else State.Down++; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
+    public void PreviousDown() { if (State.SportId != "football") return; RememberDown(); SaveUndo("Previous down"); if (State.Down > 1) State.Down--; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
+    public void NewSeries() { if (State.SportId != "football") return; RememberDown(); SaveUndo("New series"); State.Down = 1; State.YardsToGo = 10; Log("Series", "New series · 1st & 10"); Changed?.Invoke(); }
     public void SetPeriodFormat(string format) { if(format is not ("Full" or "Short" or "Number" or "Ordinal"))return; if(State.QuarterDisplayFormat==format)return; SaveUndo("Period format"); State.QuarterDisplayFormat=format; Log("Period", $"Period display: {PeriodDisplay.Format(State)}"); Changed?.Invoke(); }
     /// <summary>Yard line is 0–50: a ball spot never goes past midfield, whichever team has it.</summary>
-    public void SetFootballDistance(int yardsToGo,int? yardsToGoal=null) { if (State.SportId != "football") return; SaveUndo("Football distance"); State.YardsToGo=Math.Clamp(yardsToGo,1,99); if(yardsToGoal is not null)State.YardsToGoal=Math.Clamp(yardsToGoal.Value,0,50); Log("Yards", $"{State.YardsToGo} to go, ball at {State.YardsToGoal}"); Changed?.Invoke(); }
+    public void SetFootballDistance(int yardsToGo,int? yardsToGoal=null) { if (State.SportId != "football") return; RememberDown(); SaveUndo("Football distance"); State.YardsToGo=Math.Clamp(yardsToGo,1,99); if(yardsToGoal is not null)State.YardsToGoal=Math.Clamp(yardsToGoal.Value,0,50); Log("Yards", $"{State.YardsToGo} to go, ball at {State.YardsToGoal}"); Changed?.Invoke(); }
 
     /// <summary>Which team's half the ball spot is on. Deliberately independent of possession.</summary>
     public void SetBallSide(bool home)
@@ -733,6 +752,14 @@ public sealed class GameEngine
             State.HomePossession = possession;
             changed = notable = true;
         }
+        // A console drives down, distance and spot straight onto the game, so remember them before
+        // the frame lands: the recall button then puts back the console's previous down, not just
+        // a down someone typed into the panel. Repeated identical frames do not overwrite it.
+        if (State.SportId == "football"
+            && ((snapshot.Down is int nextDown && Math.Clamp(nextDown, 1, 4) != State.Down)
+                || (snapshot.YardsToGo is int nextToGo && Math.Clamp(nextToGo, 1, 99) != State.YardsToGo)
+                || (snapshot.BallOn is int nextSpot && Math.Clamp(nextSpot, 0, 50) != State.YardsToGoal)))
+            RememberDown();
         if (snapshot.Down is int down)
         {
             down = Math.Clamp(down, 1, 4);

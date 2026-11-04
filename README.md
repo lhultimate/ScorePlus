@@ -141,6 +141,10 @@ Open **Scorebug Studio** from the second row of the console. The studio opens ma
 
 Drag an element to move it, or type exact **X**, **Y**, **Width** and **Height** values in the property panel and press **Enter**. The canvas is scaled by the panel, so all four edges stay reachable no matter how big the window is.
 
+Matching plates never have to be measured by eye: **Copy size** remembers one item's width and height and **Paste size** gives them to everything selected (`Ctrl+Shift+C` / `Ctrl+Shift+V`). **Copy X Y rot** and **Paste X Y rot** do the same for position and rotation (`Ctrl+Alt+C` / `Ctrl+Alt+V`), so a second logo can land exactly on the first one's spot and angle.
+
+With several items selected, a group edit only follows the field you actually changed. Setting a colour, a border or a shadow never moves the group, and typing a new **X** moves all of them together.
+
 Hold a modifier while resizing for precise control:
 
 | Hold | While resizing |
@@ -196,6 +200,8 @@ Three elements can draw artwork from game state instead of (or alongside) typed 
 | **Timeout bars** | A row of short horizontal lines, one per timeout the team has left; **Timeout bar size** scales the bars from 0.25× to 3× | Home or visitors timeouts |
 | **Possession dot** | A dot on the left edge for the visitors, on the right for home (mirrorable) | Possession |
 | **Bases** | Three diamond bases, filled when a runner is on, faint outline when empty | The runner on each base |
+| **Possession arrow** | A solid arrow pointing into the plate of the team with the ball, and nothing at all on the other team | The team with the ball; **Visitors** picks the away plate and **Flip** turns the arrow around |
+| **Timeout dots** | Round pips instead of bars, one per timeout left | Home or visitors timeouts |
 
 They update themselves with no studio edit, and **every icon animates** with the element's own value transition: a base fades and pops in as a runner arrives and shrinks away when they leave, new timeout bars slide or dissolve into the row, and the possession dot slides across the plate when the ball changes hands. The possession dot and the text are exclusive: turning on the dot removes the text rather than sitting under it. Small icons keep their size when you resize the box, unless you hold `Ctrl`, exactly like text.
 
@@ -575,6 +581,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 - **Opacity** is four sliders, not one: the whole element, the printed value, the background plate and the outline each fade on their own. A score can dissolve away while its plate stays solid, or a border can fade without touching the text.
 - **Motion** has three routes: the built-in `None / Pulse / Drift` presets, a ready-made preset from the animation maker's list, or a saved clip that replaces them.
 - **Rotation** is in degrees; negative angles are fine.
+- **Text shadow** puts a shadow behind the letters, with its own colour, offset and softness. It is what keeps white names and scores readable over a photograph of a crowd, and a hard black shadow at 3–5 px is the classic broadcast look.
 - **Transition** and its **duration** (0–5s) live with the element, next to the font controls.
 
 ### Keyboard and Mouse

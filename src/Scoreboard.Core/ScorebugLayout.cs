@@ -59,7 +59,15 @@ public enum ScorebugIcon
     /// <summary>A dot on the left or right edge, on the side of the team with the ball.</summary>
     PossessionDot,
     /// <summary>The three baseball bases: filled when a runner is on, a faint outline when empty.</summary>
-    Bases
+    Bases,
+    /// <summary>
+    /// A solid arrow pointing into the plate of the team with the ball, the classic possession mark
+    /// beside a name or score. It shows only while that team has possession; Visitors picks the away
+    /// plate and Flipped turns the arrow around.
+    /// </summary>
+    PossessionArrow,
+    /// <summary>One round pip per timeout left, for a plate that reads softer than timeout bars.</summary>
+    TimeoutDots
 }
 
 public sealed class ScorebugElement
@@ -205,6 +213,18 @@ public sealed class ScorebugElement
 
     /// <summary>How solid the outline is, on its own.</summary>
     public double BorderOpacity { get; set; } = 1;
+
+    /// <summary>A shadow behind the printed value, so lettering stays readable over a busy photo.</summary>
+    public bool TextShadow { get; set; }
+
+    /// <summary>The shadow's colour, alpha included. A hard black is the broadcast default.</summary>
+    public string TextShadowColor { get; set; } = "#CC000000";
+
+    /// <summary>How far the shadow sits down and to the right of the letters, in design pixels.</summary>
+    public double TextShadowOffset { get; set; } = 4;
+
+    /// <summary>How soft the shadow's edge is: 0 is a hard drop, 30 a soft glow.</summary>
+    public double TextShadowSoftness { get; set; }
 
     /// <summary>
     /// The hand-over a value plays when it changes: how the old value leaves and the new one
@@ -770,9 +790,12 @@ public sealed class ScorebugCatalog
                     item.TextTexture?.Normalize();
                     item.MotionTransition?.Normalize();
                     item.MotionAnimation?.Normalize();
+                    item.TextShadowOffset = Math.Clamp(double.IsFinite(item.TextShadowOffset) ? item.TextShadowOffset : 4, 0, 40);
+                    item.TextShadowSoftness = Math.Clamp(double.IsFinite(item.TextShadowSoftness) ? item.TextShadowSoftness : 0, 0, 60);
+                    if (string.IsNullOrWhiteSpace(item.TextShadowColor)) item.TextShadowColor = "#CC000000";
                     if (string.IsNullOrWhiteSpace(item.BorderColor)) item.BorderColor = "#FFFFFFFF";
                     if (string.IsNullOrWhiteSpace(item.BackgroundColor2)) item.BackgroundColor2 = "#CC101820";
-                    if (item.PeriodFormat is not ("Full" or "Short" or "Number")) item.PeriodFormat = null;
+                    if (item.PeriodFormat is not ("Full" or "Short" or "Number" or "Ordinal")) item.PeriodFormat = null;
                     if (string.IsNullOrWhiteSpace(item.FontFamily)) item.FontFamily = "Segoe UI";
                 }
             }

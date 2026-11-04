@@ -818,6 +818,7 @@ public partial class ControlPanelView : UserControl
             case "timeoutclock.set": SetTimeoutClockDialog(); break;
             case "football.down.next": NextDown(); break;
             case "football.down.previous": _engine.PreviousDown(); break;
+            case "football.down.recall": _engine.RecallLastDown(); break;
             case "football.distance.minus": _engine.SetFootballDistance(_engine.State.YardsToGo - 1); break;
             case "football.distance.plus": _engine.SetFootballDistance(_engine.State.YardsToGo + 1); break;
             case "football.ball.minus": _engine.SetFootballDistance(_engine.State.YardsToGo, Math.Max(0, _engine.State.YardsToGoal - 1)); break;

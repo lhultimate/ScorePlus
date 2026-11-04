@@ -199,7 +199,11 @@
               <ColumnDefinition Width="Auto"/>
               <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Button x:Name="NewSeriesButton" Style="{StaticResource Tiny}" Content="New series" Tag="football.series.new" Click="Action_Click"/>
+            <StackPanel Orientation="Horizontal">
+              <Button x:Name="NewSeriesButton" Style="{StaticResource Tiny}" Content="New series" Tag="football.series.new" Click="Action_Click"/>
+              <Button x:Name="RecallDownButton" Style="{StaticResource Tiny}" Content="↺ Last down" Tag="football.down.recall" Click="Action_Click"
+                      ToolTip="Put the down, distance and ball spot back where they were before the last change"/>
+            </StackPanel>
             <StackPanel Grid.Column="1" />
           </Grid>
         </Grid>

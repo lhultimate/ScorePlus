@@ -76,6 +76,10 @@ public sealed class MediaSession
         }
 
 
+        // The meter asks this on every read, so a speaker switched off silences it at once even when
+        // the rest of the machine is playing something else.
+        SoundLevelMeter.AudibleGate = () => !HasSpeakerBuses || Library.Any(entry => entry.IsSpeaker && !entry.SpeakerMuted);
+
         _player.MediaOpened += (_, _) =>
         {
             _duration = _player.NaturalDuration.HasTimeSpan ? Math.Max(0, _player.NaturalDuration.TimeSpan.TotalSeconds) : 0;

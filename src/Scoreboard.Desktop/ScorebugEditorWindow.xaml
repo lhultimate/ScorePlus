@@ -316,6 +316,27 @@
             <TextBox x:Name="HeightInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"/>
           </StackPanel>
         </Grid>
+        <!-- Copy and paste of size and placement, so matching plates never have to be measured. -->
+        <Grid Margin="0,3,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Button x:Name="CopySizeButton" Content="Copy size" Padding="6,3" FontSize="10" Margin="10,0,3,0"
+                  Click="CopySize_Click" ToolTip="Remember this item's width and height (Ctrl+Shift+C)"/>
+          <Button x:Name="PasteSizeButton" Grid.Column="1" Content="Paste size" Padding="6,3" FontSize="10" Margin="3,0,10,0"
+                  Click="PasteSize_Click" ToolTip="Give every selected item the copied size (Ctrl+Shift+V)"/>
+        </Grid>
+        <Grid Margin="0,3,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Button x:Name="CopyPlacementButton" Content="Copy X Y rot" Padding="6,3" FontSize="10" Margin="10,0,3,0"
+                  Click="CopyPlacement_Click" ToolTip="Remember this item's X, Y and rotation (Ctrl+Alt+C)"/>
+          <Button x:Name="PastePlacementButton" Grid.Column="1" Content="Paste X Y rot" Padding="6,3" FontSize="10" Margin="3,0,10,0"
+                  Click="PastePlacement_Click" ToolTip="Move every selected item to the copied X, Y and rotation (Ctrl+Alt+V)"/>
+        </Grid>
 
         <StackPanel x:Name="TextSection">
           <TextBlock Text="TEXT" Style="{StaticResource SectionTitle}"/>
@@ -348,6 +369,35 @@
           <TextBlock Text="Rotation (degrees)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="RotationInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="Rotate this element clockwise, for example −8 for rising text"/>
+        </StackPanel>
+
+        <!-- A drop shadow is what keeps lettering readable over a photograph of a crowd. -->
+        <StackPanel x:Name="ShadowSection">
+          <TextBlock Text="TEXT SHADOW" Style="{StaticResource SectionTitle}"/>
+          <CheckBox x:Name="TextShadowInput" Content="Shadow behind the letters" FontSize="11" Margin="10,0,10,4"
+                    Click="Property_Changed" ToolTip="Lifts white lettering off a busy plate or a photo"/>
+          <TextBlock Text="Shadow color" Style="{StaticResource FieldLabel}"/>
+          <DockPanel Margin="0,0,10,2">
+            <Button DockPanel.Dock="Right" Content="Pick" Padding="8,3" FontSize="10" Margin="4,0,0,0"
+                    Click="TextShadowColor_Click" ToolTip="Choose a shadow colour"/>
+            <TextBox x:Name="TextShadowColorInput" Style="{StaticResource FieldBox}" Margin="10,0,0,0" TextChanged="Property_Changed"/>
+          </DockPanel>
+          <Grid Margin="0,3,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+              <TextBlock Text="Offset (px)" Style="{StaticResource FieldLabel}"/>
+              <TextBox x:Name="TextShadowOffsetInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                       ToolTip="How far the shadow sits down and to the right"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="Softness" Style="{StaticResource FieldLabel}"/>
+              <TextBox x:Name="TextShadowSoftnessInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                       ToolTip="0 is a hard drop, 30 a soft glow"/>
+            </StackPanel>
+          </Grid>
         </StackPanel>
 
         <StackPanel x:Name="FontSection">
