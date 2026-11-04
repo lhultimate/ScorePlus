@@ -6,8 +6,6 @@
 
 Everything runs locally on one Windows PC. No browser, no server, no internet connection, and no separately installed .NET runtime. The clock, the score and the graphics are all in one program, and the audience output updates the moment a value changes — there is never a "refresh" step mid-game.
 
-The app carries its own **SP+** mark: the transparent one sits in the title bar and the launch box, the taskbar, Start Menu and shortcuts carry it, and the phone remote serves and shows it too.
-
 Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https://github.com/MysteriousJose/ScorePlus-Linux) and are not officially supported.
 
 ---
