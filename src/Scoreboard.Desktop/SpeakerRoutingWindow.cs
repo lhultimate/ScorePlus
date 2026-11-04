@@ -34,7 +34,7 @@ internal sealed class SpeakerRoutingWindow : Window
         });
         root.Children.Add(new TextBlock
         {
-            Text = "Give this output a name the crew recognises, then choose the Windows device it controls. Everything routed to that device is scaled by this bus's volume slider.",
+            Text = "Give this output a name the crew recognises, then choose the Windows device it controls. Clips and microphones carry this bus's tag play through it at its slider level, and fall silent while the bus is switched off.",
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.75,

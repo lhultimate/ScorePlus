@@ -1,0 +1,156 @@
+<Window x:Class="Scoreboard.Desktop.HardwareWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="app.ico" Title="ScorePlus — Hardware"
+        Width="740" Height="840" MinWidth="640" MinHeight="600"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        Background="#171C25" Foreground="#F4F7FB" FontFamily="Segoe UI">
+  <Window.Resources>
+    <Style x:Key="Section" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#93A0B2"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="Margin" Value="4,16,0,2"/>
+    </Style>
+    <Style x:Key="Caption" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#93A0B2"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="Margin" Value="6,2,6,4"/>
+    </Style>
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#93A0B2"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Margin" Value="4,6,0,2"/>
+    </Style>
+    <Style x:Key="Field" TargetType="Control">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="Margin" Value="4,0,4,0"/>
+    </Style>
+  </Window.Resources>
+  <DockPanel Margin="22">
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+      <TextBlock Text="Hardware input is read-only: ScorePlus follows the controller while it is connected."
+                 Foreground="#93A0B2" FontSize="11" VerticalAlignment="Center"/>
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button Content="Disconnect" MinHeight="32" Padding="12,4" Margin="4,0" Click="Disconnect_Click"/>
+        <Button Content="Save" MinHeight="32" Padding="16,4" Margin="4,0" Click="Save_Click"/>
+        <Button Content="Close" MinHeight="32" Padding="16,4" Margin="4,0" Click="Close_Click"/>
+      </StackPanel>
+    </DockPanel>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+      <StackPanel>
+        <TextBlock Text="HARDWARE" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
+        <TextBlock Text="Read live score, clock, period, timeouts and sport data from a scoreboard controller. Daktronics All Sport 5000 is decoded natively; the other consoles use a Sportzcast or Scorebird bridge when their native format is not public."
+                   Foreground="#93A0B2" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+        <TextBlock Text="CONTROLLER" Style="{StaticResource Section}"/>
+        <ComboBox x:Name="DeviceSelector" MinHeight="34" Margin="4,0,4,0"
+                  SelectionChanged="Device_Changed" ToolTip="Choose the scoreboard controller">
+          <ComboBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Name}"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBlock x:Name="NotesText" Style="{StaticResource Caption}" Margin="6,8,6,2"/>
+
+        <TextBlock Text="DATA SOURCE" Style="{StaticResource Section}"/>
+        <ComboBox x:Name="TransportSelector" MinHeight="34" Margin="4,0,4,0"
+                  SelectionChanged="Transport_Changed" ToolTip="How ScorePlus receives the controller data">
+          <ComboBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Name}"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <CheckBox x:Name="AutoConnectInput" Content="Connect automatically when ScorePlus starts" Margin="4,10,4,4"/>
+        <TextBlock Text="Raw capture is a diagnostic mode. It logs bytes for reverse engineering and never changes the game; use a Sportzcast bridge for live data from controllers whose native format is not published."
+                   Style="{StaticResource Caption}" Margin="6,2,6,6"/>
+
+        <!-- Direct serial: Daktronics RTD and raw capture. -->
+        <Border x:Name="SerialPanel" Background="#111721" CornerRadius="8" Padding="8" Margin="0,6,0,0">
+          <StackPanel>
+            <TextBlock Text="SERIAL PORT" Style="{StaticResource Section}" Margin="4,0,0,2"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <ComboBox x:Name="SerialPortSelector" IsEditable="True" MinHeight="32" Margin="4,0,4,0"
+                        ToolTip="COM port connected to the controller"/>
+              <Button Grid.Column="1" Content="Refresh" MinHeight="32" Padding="10,4" Margin="4,0,4,0"
+                      Click="RefreshPorts_Click" ToolTip="Look for serial ports again"/>
+            </Grid>
+            <TextBlock Text="Baud rate" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="BaudInput" MinHeight="32" Padding="8,4" Margin="4,0,4,0" Width="130"
+                     HorizontalAlignment="Left" ToolTip="Daktronics All Sport 5000 uses 19200"/>
+            <TextBlock Text="8 data bits, no parity, 1 stop bit, no flow control. Daktronics uses 19200; OES ISC 9000 uses 115200."
+                       Style="{StaticResource Caption}"/>
+          </StackPanel>
+        </Border>
+
+        <!-- Sportzcast and other MQTT bridges. -->
+        <Border x:Name="MqttPanel" Background="#111721" CornerRadius="8" Padding="8" Margin="0,6,0,0">
+          <StackPanel>
+            <TextBlock Text="SPORTZCAST MQTT" Style="{StaticResource Section}" Margin="4,0,0,2"/>
+            <TextBlock Text="Cloud broker" Style="{StaticResource FieldLabel}"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBox x:Name="MqttHostInput" MinHeight="32" Padding="8,4" Margin="4,0,4,0"
+                       ToolTip="score.sportzcast.net for cloud, or the local ScoreConnect address"/>
+              <TextBox x:Name="MqttPortInput" Grid.Column="1" Width="88" MinHeight="32" Padding="8,4" Margin="4,0,4,0"
+                       ToolTip="8883 for cloud TLS, 1883 for a local broker"/>
+            </Grid>
+            <CheckBox x:Name="MqttTlsInput" Content="Use TLS (cloud brokers)" Margin="4,8,4,2"/>
+            <TextBlock Text="Topic" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="MqttTopicInput" MinHeight="32" Padding="8,4" Margin="4,0,4,0"
+                     ToolTip="Example: bot/50/json"/>
+            <TextBlock Text="Username (your Sportzcast email)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="MqttUserInput" MinHeight="32" Padding="8,4" Margin="4,0,4,0"/>
+            <TextBlock Text="Access token / password" Style="{StaticResource FieldLabel}"/>
+            <PasswordBox x:Name="MqttPasswordInput" MinHeight="32" Padding="8,4" Margin="4,0,4,0"/>
+            <TextBlock Text="Sportzcast clients subscribe only and QoS is 0, so occasional messages may be lost. For a local ScoreLink+ or ScoreConnect III broker use port 1883 and leave TLS off."
+                       Style="{StaticResource Caption}"/>
+          </StackPanel>
+        </Border>
+
+        <!-- Scorebird's API is credential-gated; the URL and optional token are configurable. -->
+        <Border x:Name="WebSocketPanel" Background="#111721" CornerRadius="8" Padding="8" Margin="0,6,0,0">
+          <StackPanel>
+            <TextBlock Text="SCOREBIRD NEST WEBSOCKET" Style="{StaticResource Section}" Margin="4,0,0,2"/>
+            <TextBlock Text="WebSocket URL" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="WebSocketUrlInput" MinHeight="32" Padding="8,4" Margin="4,0,4,0"
+                     ToolTip="Paste the URL supplied with your Scorebird API/overlay access"/>
+            <TextBlock Text="API token (optional)" Style="{StaticResource FieldLabel}"/>
+            <PasswordBox x:Name="WebSocketTokenInput" MinHeight="32" Padding="8,4" Margin="4,0,4,0"/>
+            <TextBlock Text="Scorebird publishes its API/overlay schema only to authorised customers. The URL can contain the token as a query parameter; otherwise it is sent as a Bearer token. ScorePlus reads common JSON aliases for score, clock and period."
+                       Style="{StaticResource Caption}"/>
+          </StackPanel>
+        </Border>
+
+        <TextBlock Text="CONNECTION" Style="{StaticResource Section}"/>
+        <Border Background="#111721" CornerRadius="8" Padding="10" Margin="0,2,0,0">
+          <StackPanel>
+            <TextBlock x:Name="StatusText" Text="Not connected." Foreground="#38D7A3" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+              <Button Content="Connect" MinHeight="34" Padding="18,5" Margin="0,0,6,0" Click="Connect_Click"/>
+              <Button Content="Disconnect" MinHeight="34" Padding="14,5" Click="Disconnect_Click"/>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <TextBlock Text="RAW LOG" Style="{StaticResource Section}"/>
+        <TextBox x:Name="LogText" Height="120" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                 FontFamily="Consolas" FontSize="10" Background="#050505" Foreground="#B7F5E0"
+                 BorderBrush="#383838" Padding="6" Margin="4,0,4,5"/>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

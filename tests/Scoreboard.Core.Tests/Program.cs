@@ -537,6 +537,77 @@ try
     var pieceCopy=pieceClip.Snapshot();
     Check(pieceCopy.Pieces.Count==1&&pieceCopy.Pieces[0].Name=="Flash"
         &&pieceCopy.Phase("Enter")!.Tracks.Any(track=>track.PieceId=="element-a"),"a saved clip carries its temporary pieces and piece-scoped keys");
+
+    // ---------- Daktronics All Sport 5000 RTD decoding ----------
+    // Build one RTD packet exactly as the console does: SYN SOH header STX text EOT checksum ETX.
+    static byte[] DaktronicsFrame(int offset,string text)
+    {
+        var body=new List<byte>{0x01};
+        body.AddRange(System.Text.Encoding.ASCII.GetBytes("004210"+offset.ToString("D4")));
+        body.Add(0x02);
+        body.AddRange(System.Text.Encoding.ASCII.GetBytes(text));
+        body.Add(0x04);
+        var checksum=body.Aggregate(0,static (sum,value)=>(sum+value)&0xFF);
+        var frame=new List<byte>{0x16};
+        frame.AddRange(body);
+        frame.AddRange(System.Text.Encoding.ASCII.GetBytes(checksum.ToString("X2")));
+        frame.Add(0x17);
+        return frame.ToArray();
+    }
+
+    var rtd=new DaktronicsRtdDecoder("football");
+    DeviceSnapshot? rtdState=null;
+    foreach(var (offset,text) in new[]{
+        (1,"16:09"),(108,"  12"),(112,"   7"),(142," 2"),(122," 3"),(130," 1"),
+        (201," 0:25.0z"),(220,"35"),(222,"1ST"),(225,"10")})
+        rtdState=rtd.Feed(DaktronicsFrame(offset,text)) ?? rtdState;
+    Check(rtdState?.ClockSeconds==969&&rtdState.HomeScore==12&&rtdState.AwayScore==7&&rtdState.Period==2,
+        "Daktronics RTD packets splice clock, score and period fields into the persistent buffer");
+    Check(rtdState.HomeTimeouts==3&&rtdState.AwayTimeouts==1&&rtdState.PlayClockSeconds==25,
+        "Daktronics RTD decodes timeouts and the football play clock");
+    Check(rtdState.Down==1&&rtdState.YardsToGo==10&&rtdState.BallOn==35,
+        "Daktronics RTD decodes down, distance and ball spot");
+    var hardwareGame=new GameEngine();hardwareGame.NewGame("football");hardwareGame.HardwareControlled=true;
+    Check(hardwareGame.ApplyHardwareSnapshot(rtdState!),
+        "a device snapshot changes the live game");
+    Check(hardwareGame.State.HomeScore==12&&hardwareGame.State.AwayScore==7&&hardwareGame.State.ClockSeconds==969
+        &&hardwareGame.State.Period==2&&hardwareGame.State.Down==1&&hardwareGame.State.YardsToGo==10,
+        "hardware values reach the console without an operator undo point");
+    var hardwareOutput=new GameEngine();hardwareOutput.LoadFromState(hardwareGame.CloneState());
+    Check(hardwareOutput.UpdateLiveController(hardwareGame.State)==false,
+        "a controller update is idempotent for the published copy");
+    hardwareGame.SetFootballDistance(3,42);hardwareGame.SetPeriod(3);
+    Check(hardwareOutput.UpdateLiveController(hardwareGame.State)
+        &&hardwareOutput.State.YardsToGo==3&&hardwareOutput.State.YardsToGoal==42&&hardwareOutput.State.Period==3,
+        "controller updates carry down, distance and period to the audience copy");
+    hardwareGame.HardwareControlled=false;
+
+    var basketballRtd=new DaktronicsRtdDecoder("basketball");
+    DeviceSnapshot? basketballState=null;
+    foreach(var (offset,text) in new[]{
+        (1," 0:44"),(108,"  21"),(112,"  19"),(201," 0:18.4z"),(236," 4"),(238," 2")})
+        basketballState=basketballRtd.Feed(DaktronicsFrame(offset,text)) ?? basketballState;
+    Check(basketballState?.ShotClockSeconds==18&&basketballState.HomeFouls==4&&basketballState.AwayFouls==2,
+        "Daktronics RTD uses the basketball shot-clock and foul fields");
+
+    // ---------- every clock button reaches the software ----------
+    // RTD sends clock values but no running flag, so each clock is judged from its own readings:
+    // a value that decreases is running, one that holds still was stopped.
+    var runTrack=new ClockRunTracker(1000);
+    Check(runTrack.Track(600,0)==null,"one clock reading does not guess whether the clock runs");
+    Check(runTrack.Track(599,500)==true&&runTrack.Track(598,1000)==true,"a decreasing clock is running");
+    Check(runTrack.Track(598,2600)==false,"a clock that holds still is stopped");
+    Check(runTrack.Track(540,2700)==true&&runTrack.Track(540,3800)==false,
+        "a clock set back reads as running until it holds still again");
+    runTrack.Reset();
+    Check(runTrack.Track(24,4000)==null,"a tracker that was reset forgets the previous game");
+    var shotTrack=new ClockRunTracker(1000);
+    // The shot and play clocks move independently of the game clock.
+    shotTrack.Track(24,0);shotTrack.Track(23,500);
+    var playTrack=new ClockRunTracker(1000);
+    playTrack.Track(25,0);playTrack.Track(25,3000);
+    Check(shotTrack.Track(22,1000)==true&&playTrack.Track(25,3500)==false,
+        "the shot clock and the play clock are tracked separately");
 }
 finally
 {

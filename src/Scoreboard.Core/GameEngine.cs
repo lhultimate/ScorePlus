@@ -171,6 +171,11 @@ public sealed class GameEngine
     public SportCatalog Sports { get; }
     public GameState State { get; private set; } = new();
     public event Action? Changed;
+    /// <summary>
+    /// True while a hardware controller is feeding the clock. The device is authoritative then,
+    /// so the local timer must not also tick the same clock down between snapshots.
+    /// </summary>
+    public bool HardwareControlled { get; set; }
     public SportDefinition Sport => Sports.Find(State.SportId) ?? SportDefinition.BuiltIns[^1];
 
     public GameEngine(SportCatalog? sports = null) => Sports = sports ?? new SportCatalog();
@@ -296,6 +301,7 @@ public sealed class GameEngine
 
     public void Tick()
     {
+        if (HardwareControlled) { _lastTick = _watch.ElapsedTicks; return; }
         var now = _watch.ElapsedTicks;
         var elapsed = (int)((now - _lastTick) / Stopwatch.Frequency);
         if (elapsed <= 0) return;
@@ -674,6 +680,160 @@ public sealed class GameEngine
         ? "-"
         : $"{player.PlayerId}:{player.Number}:{player.Name}:{player.Position}:" +
           string.Join(",", player.Stats.Select(x => $"{x.Name}={x.Display}"));
+
+    /// <summary>
+    /// Applies a partial reading from a scoreboard controller. Hardware input is live, so it does
+    /// not create undo points, and clock-only frames do not flood the event log. Score, period and
+    /// possession changes are logged once each.
+    /// </summary>
+    public bool ApplyHardwareSnapshot(DeviceSnapshot snapshot)
+    {
+        var changed = false;
+        var notable = false;
+
+        void SetScore(bool home, int? value)
+        {
+            if (value is not int next) return;
+            next = Math.Max(0, next);
+            if (home ? State.HomeScore == next : State.AwayScore == next) return;
+            if (home) State.HomeScore = next; else State.AwayScore = next;
+            changed = notable = true;
+        }
+
+        SetScore(true, snapshot.HomeScore);
+        SetScore(false, snapshot.AwayScore);
+
+        if (snapshot.ClockSeconds is int clock && clock >= 0 && State.ClockSeconds != clock)
+        {
+            State.ClockSeconds = clock;
+            changed = true;
+        }
+        if (snapshot.ClockRunning is bool running && State.ClockRunning != running)
+        {
+            State.ClockRunning = running;
+            changed = true;
+        }
+        if (snapshot.Period is int period)
+        {
+            period = Math.Clamp(period, 1, 99);
+            if (State.Period != period) { State.Period = period; changed = notable = true; }
+        }
+        if (snapshot.HomeTimeouts is int homeTimeouts)
+        {
+            homeTimeouts = Math.Clamp(homeTimeouts, 0, 99);
+            if (State.HomeTimeouts != homeTimeouts) { State.HomeTimeouts = homeTimeouts; changed = notable = true; }
+        }
+        if (snapshot.AwayTimeouts is int awayTimeouts)
+        {
+            awayTimeouts = Math.Clamp(awayTimeouts, 0, 99);
+            if (State.AwayTimeouts != awayTimeouts) { State.AwayTimeouts = awayTimeouts; changed = notable = true; }
+        }
+        if (snapshot.HomePossession is bool possession && State.HomePossession != possession)
+        {
+            State.HomePossession = possession;
+            changed = notable = true;
+        }
+        if (snapshot.Down is int down)
+        {
+            down = Math.Clamp(down, 1, 4);
+            if (State.Down != down) { State.Down = down; changed = true; }
+        }
+        if (snapshot.YardsToGo is int yardsToGo)
+        {
+            yardsToGo = Math.Clamp(yardsToGo, 1, 99);
+            if (State.YardsToGo != yardsToGo) { State.YardsToGo = yardsToGo; changed = true; }
+        }
+        if (snapshot.BallOn is int ballOn)
+        {
+            ballOn = Math.Clamp(ballOn, 0, 50);
+            if (State.YardsToGoal != ballOn) { State.YardsToGoal = ballOn; changed = true; }
+        }
+        if (snapshot.ShotClockSeconds is int shotClock)
+        {
+            shotClock = Math.Clamp(shotClock, 0, 99);
+            if (State.ShotClockSeconds != shotClock) { State.ShotClockSeconds = shotClock; changed = true; }
+        }
+        if (snapshot.ShotClockRunning is bool shotRunning && State.ShotClockRunning != shotRunning)
+        {
+            State.ShotClockRunning = shotRunning;
+            changed = true;
+        }
+        if (snapshot.PlayClockSeconds is int playClock)
+        {
+            playClock = Math.Clamp(playClock, 0, 99);
+            if (State.PlayClockSeconds != playClock) { State.PlayClockSeconds = playClock; changed = true; }
+        }
+        if (snapshot.PlayClockRunning is bool playRunning && State.PlayClockRunning != playRunning)
+        {
+            State.PlayClockRunning = playRunning;
+            changed = true;
+        }
+        if (snapshot.HomeFouls is int homeFouls)
+        {
+            homeFouls = Math.Max(0, homeFouls);
+            if (State.HomeFouls != homeFouls) { State.HomeFouls = homeFouls; changed = true; }
+        }
+        if (snapshot.AwayFouls is int awayFouls)
+        {
+            awayFouls = Math.Max(0, awayFouls);
+            if (State.AwayFouls != awayFouls) { State.AwayFouls = awayFouls; changed = true; }
+        }
+        if (snapshot.Balls is int balls)
+        {
+            balls = Math.Clamp(balls, 0, 3);
+            if (State.Balls != balls) { State.Balls = balls; changed = true; }
+        }
+        if (snapshot.Strikes is int strikes)
+        {
+            strikes = Math.Clamp(strikes, 0, 2);
+            if (State.Strikes != strikes) { State.Strikes = strikes; changed = true; }
+        }
+        if (snapshot.Outs is int outs)
+        {
+            outs = Math.Clamp(outs, 0, 2);
+            if (State.Outs != outs) { State.Outs = outs; changed = true; }
+        }
+
+        if (!changed) return false;
+        if (notable)
+            Log("Hardware", $"{snapshot.Source ?? "Controller"}: {State.AwayAbbreviation} {State.AwayScore} · {State.HomeAbbreviation} {State.HomeScore} · {FormatClock(State.ClockSeconds)} · {PeriodDisplay.Format(State)}");
+        Changed?.Invoke();
+        return true;
+    }
+
+    /// <summary>
+    /// Copies the fields a hardware controller owns onto the published copy. Unlike
+    /// <see cref="UpdateLiveScoreClock"/>, this carries sport-specific values such as down and
+    /// distance, so a controller's data reaches the audience without an Update Output press.
+    /// </summary>
+    public bool UpdateLiveController(GameState source)
+    {
+        if (State.HomeScore == source.HomeScore && State.AwayScore == source.AwayScore
+            && State.ClockSeconds == source.ClockSeconds && State.ClockRunning == source.ClockRunning
+            && State.Period == source.Period && State.HomeTimeouts == source.HomeTimeouts
+            && State.AwayTimeouts == source.AwayTimeouts && State.HomePossession == source.HomePossession
+            && State.Down == source.Down && State.YardsToGo == source.YardsToGo
+            && State.YardsToGoal == source.YardsToGoal && State.BallOnHomeSide == source.BallOnHomeSide
+            && State.ShotClockSeconds == source.ShotClockSeconds && State.ShotClockRunning == source.ShotClockRunning
+            && State.PlayClockSeconds == source.PlayClockSeconds && State.PlayClockRunning == source.PlayClockRunning
+            && State.TimeoutClockSeconds == source.TimeoutClockSeconds
+            && State.TimeoutClockRunning == source.TimeoutClockRunning
+            && State.HomeFouls == source.HomeFouls && State.AwayFouls == source.AwayFouls
+            && State.Balls == source.Balls && State.Strikes == source.Strikes && State.Outs == source.Outs) return false;
+        State.HomeScore = source.HomeScore; State.AwayScore = source.AwayScore;
+        State.ClockSeconds = source.ClockSeconds; State.ClockRunning = source.ClockRunning;
+        State.Period = source.Period; State.HomeTimeouts = source.HomeTimeouts;
+        State.AwayTimeouts = source.AwayTimeouts; State.HomePossession = source.HomePossession;
+        State.Down = source.Down; State.YardsToGo = source.YardsToGo;
+        State.YardsToGoal = source.YardsToGoal; State.BallOnHomeSide = source.BallOnHomeSide;
+        State.ShotClockSeconds = source.ShotClockSeconds; State.ShotClockRunning = source.ShotClockRunning;
+        State.PlayClockSeconds = source.PlayClockSeconds; State.PlayClockRunning = source.PlayClockRunning;
+        State.TimeoutClockSeconds = source.TimeoutClockSeconds; State.TimeoutClockRunning = source.TimeoutClockRunning;
+        State.HomeFouls = source.HomeFouls; State.AwayFouls = source.AwayFouls;
+        State.Balls = source.Balls; State.Strikes = source.Strikes; State.Outs = source.Outs;
+        Changed?.Invoke();
+        return true;
+    }
 
     public string ExportJson() => JsonSerializer.Serialize(State, JsonOptions);
     public GameState CloneState() => JsonSerializer.Deserialize<GameState>(JsonSerializer.Serialize(State, JsonOptions), JsonOptions)!;

@@ -12,7 +12,7 @@ public partial class App : Application
         // Media decoders and other native components can fail on threads the dispatcher never
         // sees. Log those too, so a window that closes on its own leaves a trace to diagnose.
         // F11 belongs to the application, not to one window: the studio, output, media panel and
-        // dialogs all get the same maximize/restore behaviour.
+        // dialogs all get the same true fullscreen behavior.
         EventManager.RegisterClassHandler(typeof(Window), Keyboard.PreviewKeyDownEvent, new KeyEventHandler(HandleWindowKey));
         AppDomain.CurrentDomain.UnhandledException += (_, args) => LogCrash(args.ExceptionObject as Exception);
         DispatcherUnhandledException += (_, args) =>
@@ -49,12 +49,18 @@ public partial class App : Application
 
     static void HandleWindowKey(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.F11 || sender is not Window window || e.Handled) return;
-        // The audience window has a real fullscreen path (no title bar, no taskbar). The class
-        // handler runs before the window's own key handler, so it must delegate instead of
-        // treating F11 as "maximize" for every window.
-        if (window is OutputWindow output) output.ToggleFullscreen();
-        else window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        if (sender is not Window window || e.Handled) return;
+        if (e.Key == Key.Escape && WindowFullscreen.IsFullscreen(window))
+        {
+            WindowFullscreen.Exit(window);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key != Key.F11) return;
+        // F11 on the console, a detached panel or the audience output all mean real fullscreen:
+        // no title bar, no frame and no taskbar. The old maximize toggle made a maximized console
+        // look like it had been returned to a window at the side of the screen.
+        WindowFullscreen.Toggle(window);
         e.Handled = true;
     }
 

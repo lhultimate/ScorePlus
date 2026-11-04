@@ -59,6 +59,21 @@ public sealed class UserPreferences
     /// </summary>
     public bool QuickLayoutsPublish { get; set; }
 
+    /// <summary>Controller input and its connection details.</summary>
+    public HardwareSettings Hardware { get; set; } = new();
+
+    /// <summary>The built-in horn selected on the console, or Custom.</summary>
+    public string HornSound { get; set; } = nameof(Desktop.HornSound.AirHorn);
+
+    /// <summary>Audio file used when <see cref="HornSound"/> is Custom.</summary>
+    public string HornCustomPath { get; set; } = "";
+
+    /// <summary>Off by default: sound the selected horn when the game clock expires.</summary>
+    public bool HornOnGameClockZero { get; set; }
+
+    /// <summary>Off by default: sound the selected horn when the play clock expires.</summary>
+    public bool HornOnPlayClockZero { get; set; }
+
     public List<MediaEntry> Media { get; set; } = [];
 
     /// <summary>Saved media playlists: an ordered run of clips that can repeat.</summary>
@@ -87,6 +102,11 @@ public sealed class UserPreferences
         QuickLayouts = QuickLayouts.Select(binding => new QuickLayoutBinding { Label = binding.Label, DisplayId = binding.DisplayId, LayoutId = binding.LayoutId }).ToList(),
         QuickMedia = QuickMedia.Select(binding => new QuickMediaBinding { Label = binding.Label, Path = binding.Path }).ToList(),
         QuickLayoutsPublish = QuickLayoutsPublish,
+        Hardware = Hardware.Clone(),
+        HornSound = HornSound,
+        HornCustomPath = HornCustomPath,
+        HornOnGameClockZero = HornOnGameClockZero,
+        HornOnPlayClockZero = HornOnPlayClockZero,
         Media = [.. Media],
         Playlists = Playlists.Select(p => new MediaPlaylist { Name = p.Name, Loop = p.Loop, Paths = p.Paths.ToList() }).ToList(),
         MediaFolders = [.. MediaFolders],
@@ -142,6 +162,8 @@ public static class PreferencesStore
         preferences.MediaFiles ??= [];
         preferences.QuickLayouts ??= [];
         preferences.QuickMedia ??= [];
+        preferences.Hardware ??= new HardwareSettings();
+        if (string.IsNullOrWhiteSpace(preferences.HornSound)) preferences.HornSound = nameof(Desktop.HornSound.AirHorn);
         if (preferences.Media.Count == 0 && preferences.MediaFiles.Count > 0)
             preferences.Media = preferences.MediaFiles.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => new MediaEntry(p)).ToList();
         preferences.MediaFiles.Clear();

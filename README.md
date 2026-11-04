@@ -24,6 +24,7 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 - [Tutorial: Team Identity and Colors](#tutorial-team-identity-and-colors)
 - [Tutorial: Keybinds](#tutorial-keybinds)
 - [Tutorial: The Phone Remote](#tutorial-the-phone-remote)
+- [Tutorial: Scoreboard Controllers and the Horn](#tutorial-scoreboard-controllers-and-the-horn)
 - [Tutorial: Sport Profiles](#tutorial-sport-profiles)
 - [Reference: The Control Panel](#reference-the-control-panel)
 - [Reference: The Scorebug Studio](#reference-the-scorebug-studio)
@@ -115,7 +116,7 @@ This walkthrough takes you from a cold launch to a scorebug on a second screen. 
 
 **Step 3 — Set the clocks.** In the **GAME CLOCK** card, click the value itself and type `12:00`, then press **Enter**. Typing always sets an exact value; the `−1:00`, `−0:01`, `+0:01` and `+1:00` buttons nudge it. **Start** runs the clock and turns into **Stop**; the play clock and shot clock work the same way.
 
-**Step 4 — Put a picture on screen.** In the top-row icon bar, press **▶** (Audience Output). If the game has one display, the window opens immediately; when there are several, you are asked which display it is for. Press **F11** to fill the screen — exactly like the old *Broadcast Fullscreen* button, now on the window itself.
+**Step 4 — Put a picture on screen.** In the top-row icon bar, press **▶** (Audience Output). If the game has one display, the window opens immediately; when there are several, you are asked which display it is for. Press **F11** to fill the screen — exactly like the old *Broadcast Fullscreen* button, now on the window itself. True fullscreen hides the title bar and Windows taskbar; press **Escape** to restore the window.
 
 **Step 5 — Score something.** Click `+6` on the home side. The scoreboard on the audience screen reads 6 before the button finishes clicking. `−` buttons step back down, and **Undo** takes back the last 100 changes.
 
@@ -298,7 +299,7 @@ Everything audiovisual lives in the **MEDIA** tab. It is a full-size pane, not a
 ### Import Clips and Organise Them
 
 1. Switch to **MEDIA** and press **Import**. Pick audio or video files. Each becomes a thumbnail tile in the browser.
-2. Press **+ Folder** to make a folder, then drag a clip onto the folder card to file it. **Double-click** any folder card to open it, and folders can sit inside folders. **← Back** and the path bar walk you out again.
+2. Press **+ Folder** to make a folder, then drag a clip onto the folder card to file it. **Double-click** any folder card to open it, and folders can sit inside folders. **← Back** and the path bar walk you out again. **Double-click a clip** to put it on air; double-click the same tile again to take it off air.
 3. Press **+ Playlist** and drag clips onto it — or open the playlist and use **Add clip**. A playlist opens into a full ordered list rather than hiding behind a dropdown.
 4. The **search box** looks through every clip, folder and playlist, and deliberately ignores which folder you're standing in. A clip never disappears just because somebody filed it away.
 5. **Export folder…** writes a whole folder — everything nested inside it and its media — as one **ScorePlus Folder (`.spf`)**; **Import folder…** brings it back whole on another machine.
@@ -316,7 +317,7 @@ To tag a clip: select it, pick the tag from the dropdown, press **Set tag**. Sug
 - The scrub bar seeks anywhere in a clip; you don't have to sit through it.
 - **Play/▶**, **Stop/■** and the transport bar drive the selected clip. Stop clears the last frame from the preview and takes the overlay down.
 - **Volume** is per clip, so an ad can be quiet and a highlight loud.
-- **Speaker** is per clip *and* per element: pick the Windows audio device this clip goes out through. In the studio, a video element also names its own audio output, so two clips on two overlays can go to two different speakers. Routing happens only when an element is actually on an audience screen, so several preview windows never open the same speaker twice.
+- **Speaker** is per clip *and* per element: pick the Windows audio device this clip goes out through. In the studio, a video element also names its own audio output, so two clips on two overlays can go to two different speakers. Routing happens only when an element is actually on an audience screen, so several preview windows never open the same speaker twice. When the library has **speaker buses**, the tag decides what the room hears: a clip plays only through a bus carrying its tag (or an `ANY` bus), and only while that bus is on air — switching a bus off takes its clips silent rather than letting them leak out of another output.
 - **Loop this clip** repeats one video indefinitely — the stadium-screen behaviour.
 - **Loop playlist** repeats the whole ordered run. Without it, a playlist plays its clips one after another until it ends or you press **Stop**.
 
@@ -327,7 +328,7 @@ To tag a clip: select it, pick the tag from the dropdown, press **Set tag**. Sug
 - **Route…** points a camera item at a different device, and can rename it — the item keeps whatever name you gave it, with the device name shown beside it, so "ICS Spring Camera" is identifiable in a list of three.
 - **Switching the device while it is live changes the shot immediately.**
 - **Add microphone** adds an audio capture device the same way, for a commentary or ambient feed. Cameras themselves carry no audio; only a microphone item that you explicitly cue is heard.
-- **Add speaker** adds an output bus. **Route…** names it and chooses its Windows device; select the bus and use the bottom **VOLUME** slider to set that speaker's house level.
+- **Add speaker** adds an output bus. **Route…** names it and chooses its Windows device; select the bus and use the bottom **VOLUME** slider to set that speaker's house level. A bus carries the clips tagged like it, so the tag on a clip is what sends it to that speaker.
 
 ### Replay, End to End
 
@@ -432,6 +433,40 @@ The remote carries the full panel: both teams (name, abbreviation, score, color,
 It is off until you enable it, requires the password for everything (hashed, constant-time compared, login throttled), and serves nothing without a signed-in session. Windows may ask once whether ScorePlus can accept connections — allow it on **private** networks and leave it blocked on public ones.
 
 > Anyone on your Wi-Fi with the password can change the score. Don't enable the remote on a network you don't trust, and change the password if it leaves the building.
+
+---
+
+## Tutorial: Scoreboard Controllers and the Horn
+
+### Connect a controller
+
+Press **Hardware** in the top row. Choose the controller, choose how ScorePlus should receive it, then press **Connect**. The connection is read-only: the controller remains the scorekeeper, and ScorePlus follows it. Turn on **Connect automatically** to restore the same connection when the app starts.
+
+**Daktronics All Sport 5000** is decoded natively. Use a USB-serial adapter and a null-modem cable into the console's 25-pin RTD output; the port is **19200, 8 data bits, no parity, 1 stop bit, no flow control**. ScorePlus reads the RTD frame stream and keeps the console's field buffer, including score, clock, period, timeouts, possession, down and distance, play/shot clock and the baseball count. Every clock the console can start or stop — game, shot and play — is tracked from its own readings, so a START or STOP on the console moves the software clock with it. Press **STOP** on the console once after connecting, because the All Sport sends changes rather than dumping its full state on connection.
+
+**No controller available?** Choose **Simulator — no hardware** and press **Connect**. It generates a live test feed — score, clock, period, possession, down and distance, shot clock and baseball count — so you can verify the Hardware window, the console updates and the audience output before connecting a real console. It is a test source, not a controller decoder.
+
+The other controllers are supported through the paths their manufacturers actually publish:
+
+| Controller | Native capture | Recommended live path | Notes |
+| --- | --- | --- | --- |
+| **All American 8000 / 9000** | 9000 has a DB9 **RS232 I/O**; the 8000's controller output is not publicly documented | Sportzcast ScoreLink → MQTT JSON | Native bytes are proprietary. Raw serial capture is available for diagnostics. |
+| **OES ISC 9000** | **115200 8-N-1** on the Pro network option (often through a Digi serial-to-Ethernet adapter) | Sportzcast ScoreLink → MQTT JSON | OES' own field layout is proprietary and may need OES firmware/configuration. |
+| **OES ISC Edge** | GAME OUT port exists | Sportzcast ScoreLink → MQTT JSON | No public ISC Edge data-output format was found. |
+| **Scorebird NeST** | RS-232 or USB into the NeST | Scorebird WebSocket JSON | Ask `support@scorebird.com` for API/overlay access; the schema is not public. |
+| **Sportzcast Scorebot** | The ScoreLink/ScoreConnect decodes the controller | Sportzcast MQTT JSON | Cloud: `score.sportzcast.net:8883` with TLS. Local: port `1883` without TLS. Topic example `bot/50/json`. Username is your Sportzcast email and password is your access token. |
+| **Electro-Mech** | 1/4-inch stereo data jack (often D1/D2) | Sportzcast ScoreLink → MQTT JSON | The stereo data signal is not RS-232. Use the matching Sportzcast adapter. |
+| **Fair-Play MP-70 / MP-80** | RS-232 through an FTDI adapter and null-modem cable | Sportzcast ScoreLink → MQTT JSON | Fair-Play names its native formats MP-69 and MP-70 but does not publish their byte layout. |
+
+For a controller whose native format is not published, **Raw serial capture** logs the bytes with timestamps and never changes the game. It is a diagnostic mode for reverse engineering, not a substitute for a supported decoder. Reference material: [Sportzcast integration docs](https://docs.sportzcast.net/), the [Daktronics All Sport 5000 manual ED-11976](https://www.daktronics.com/web-documents/customer-service-manuals/ed11976.pdf), the [OES serial/network note](https://www.daktronics.com/en-us/support/kb/000015906), [Scorebird support](https://www.scorebird.com/support/user-manual/manual-13-faq), [All American support](https://allamericanscoreboards.com/technical-support/), [Electro-Mech consoles](https://www.electro-mech.com/control-consoles/), and [Fair-Play MP-80](https://www.fair-play.com/product/mp-80-control/).
+
+### The horn
+
+The **HORN** button sits beside the quick-layout controls. Choose **Air horn**, **Buzzer** or **Siren**, or choose **Custom…** and pick a WAV, MP3 or AIFF file with the **…** button. The custom file is remembered in Preferences. A second press replaces the sound that is playing; the built-in sounds stop on their own.
+
+The horn plays through Windows' default playback device. Set that device in Windows before the show if the horn needs to follow the program feed. The built-in **Air horn**, **Buzzer** and **Siren** use Mixkit recordings under the [Mixkit License](https://mixkit.co/license/#sfxFree); see [third-party notices](docs/third-party-notices.md).
+
+Preferences → **Clock horns** can sound the selected horn automatically when the game clock reaches zero or when the play clock reaches zero. Both options are off by default.
 
 ---
 
@@ -558,7 +593,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 | `Ctrl` + resize | Scale the box and its text together |
 | `Shift` + resize | Lock the box's aspect ratio |
 | `Ctrl` + `Shift` + resize | Both |
-| `F11` in any window | Toggle full screen |
+| `F11` in any window | Toggle true full screen — no title bar, frame or taskbar; `Escape` restores the window |
 | `Enter` in a value field | Commit and leave the field |
 
 ### Display and Layout Bars
@@ -694,13 +729,13 @@ If you had an older installation, the files in `%LOCALAPPDATA%\Scoreboard` are c
 Building needs the **.NET 10 SDK** with the Windows desktop targeting pack.
 
 ```sh
-./scripts/build-release.sh a1.41
+./scripts/build-release.sh a1.5
 ```
 
 This publishes a self-contained single-file build into its own folder:
 
 ```
-dist/ScorePlus-win-x64-a1.41/
+dist/ScorePlus-win-x64-a1.5/
 ├── ScorePlusPortable.exe   run it straight from the folder
 ├── ScorePlusSetup.exe      install it
 ├── README.md               this document, copied in for reference

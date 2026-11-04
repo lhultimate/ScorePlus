@@ -254,7 +254,10 @@ public sealed class VideoSurface : Grid
         try
         {
             _element.IsMuted = _mute || !string.IsNullOrWhiteSpace(_item.AudioDevice) || (_playback?.RoutedToDevice ?? false);
-            _element.Volume = (float)Math.Clamp(_playback?.Volume ?? 1, 0, 1);
+            // The clip's own level, through the bus that carries its tag: a speaker switched off
+            // takes its clips silent with it instead of leaving them playing on another output.
+            var level = (_playback?.Volume ?? 1) * (_playback?.SpeakerGain ?? 1);
+            _element.Volume = (float)Math.Clamp(level, 0, 1);
         }
         catch { }
         SyncRouting(entry!);
@@ -358,12 +361,12 @@ public sealed class VideoSurface : Grid
         {
             // Start at the transport's point so joining a running clip stays in sync.
             var start = _playback?.Position ?? 0;
-            _router.Play(entry.Path, device, Math.Clamp(_playback?.Volume ?? entry.Volume, 0, 1), start);
+            _router.Play(entry.Path, device, Math.Clamp((_playback?.Volume ?? entry.Volume) * (_playback?.SpeakerGain ?? 1), 0, 1), start);
             _routedPath = entry.Path;
             _routedDevice = device;
         }
         if (_playback is { IsPlaying: false }) _router.Pause(); else _router.Resume();
-        if (_playback is not null) _router.SetVolume(Math.Clamp(_playback.Volume, 0, 1));
+        if (_playback is not null) _router.SetVolume(Math.Clamp(_playback.Volume * _playback.SpeakerGain, 0, 1));
     }
 
     void StopRouting()

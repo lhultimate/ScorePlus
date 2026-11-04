@@ -28,6 +28,12 @@
         <CheckBox x:Name="QuickPublishInput" Content="Quick layout buttons also update output" Checked="QuickLayout_Changed" Unchecked="QuickLayout_Changed"/>
         <TextBlock Text="Off by default: the four buttons above the sound meter only stage a layout, and Update Output sends it as usual. On, the same press puts the layout on air — faster, but it changes the audience picture without a second confirmation." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <Separator/>
+        <TextBlock Text="CLOCK HORNS" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
+        <CheckBox x:Name="GameClockHornInput" Content="Sound the horn when the game clock reaches zero" Checked="ClockHorn_Changed" Unchecked="ClockHorn_Changed"/>
+        <TextBlock Text="Off by default. Uses the horn selected on the console, including a custom file. It fires once when a running game clock expires; loading or setting a stopped clock to zero is silent." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
+        <CheckBox x:Name="PlayClockHornInput" Content="Sound the horn when the play clock reaches zero" Checked="ClockHorn_Changed" Unchecked="ClockHorn_Changed"/>
+        <TextBlock Text="Off by default. Fires once when a running play clock expires, independently of the game-clock setting." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
+        <Separator/>
         <TextBlock Text="INTERFACE COLOURS" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <TextBlock Text="The accent draws selected tabs, live badges and outlines; the secondary fills the main actions such as Update Output. Type a hex value or pick one."
                    TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,0,6,6"/>

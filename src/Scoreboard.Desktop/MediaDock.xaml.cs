@@ -813,8 +813,8 @@ public partial class MediaDock : UserControl
             Tag = entry,
             ToolTip = $"{entry.Label}\n{entry.KindLabel} · tag {entry.Tag} · {entry.FolderLabel}{(entry.Loop ? "\nloops" : "")}\n"
                 + (playlist is null
-                    ? "Double-click to play · drag onto a folder or playlist"
-                    : $"Double-click to play from here in {playlist.Name} · drag onto a folder to re-file")
+                    ? "Double-click to put it on air, again to take it off air · drag onto a folder or playlist"
+                    : $"Double-click to put it on air, again to take it off air · plays from here in {playlist.Name}")
         };
         ThemeManager.SetSkipTheme(tile, true);
 
@@ -894,7 +894,10 @@ public partial class MediaDock : UserControl
             session.Select(entry);
             if (e.ClickCount == 2)
             {
-                if (playlist is not null) session.PlayPlaylistFrom(playlist, index);
+                // The tile is the on/off switch: a second double-click on something already on
+                // air takes it off air, so an operator never has to reach for the transport.
+                if (session.IsOnAir(entry)) session.ToggleOnAir(entry);
+                else if (playlist is not null) session.PlayPlaylistFrom(playlist, index);
                 else session.Play(entry);
             }
             e.Handled = true;

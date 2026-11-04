@@ -275,10 +275,33 @@ public sealed class MediaPlayback
     public double Volume => NowPlaying?.Volume ?? 1;
 
     /// <summary>
+    /// The output this clip's sound is going to when it is not the Windows default: the clip's own
+    /// speaker, or the speaker bus whose tag carries it. Empty means the element keeps the sound.
+    /// </summary>
+    public string? RouteDevice { get; private set; }
+
+    /// <summary>
     /// True when the clip's audio is being sent to a chosen speaker instead of the element. A
     /// speaker that could not be opened reports false again, so the element keeps the sound.
     /// </summary>
-    public bool RoutedToDevice => !string.IsNullOrWhiteSpace(NowPlaying?.AudioDevice) && !RoutingFailed;
+    public bool RoutedToDevice => !string.IsNullOrWhiteSpace(RouteDevice) && !RoutingFailed;
+
+    /// <summary>
+    /// The level of the speaker bus that carries the cued clip, 0–1. Zero means no bus with this
+    /// clip's tag is on air, so the clip is silent until that speaker is switched on.
+    /// </summary>
+    public double SpeakerGain { get; private set; } = 1;
+
+    /// <summary>Re-reads where the cued clip plays and how loud, after a bus was switched or moved.</summary>
+    public void ReportAudio(string? device, double gain)
+    {
+        gain = Math.Clamp(double.IsFinite(gain) ? gain : 1, 0, 1);
+        var route = string.IsNullOrWhiteSpace(device) ? null : device;
+        if (string.Equals(RouteDevice, route, StringComparison.OrdinalIgnoreCase) && Math.Abs(SpeakerGain - gain) < 0.0005) return;
+        RouteDevice = route;
+        SpeakerGain = gain;
+        Changed?.Invoke();
+    }
 
     /// <summary>True when the chosen speaker could not be opened and the clip fell back to the default.</summary>
     public bool RoutingFailed { get; private set; }
@@ -303,6 +326,9 @@ public sealed class MediaPlayback
         NowPlaying = entry;
         ReplayOnAir = false;
         IsPlaying = entry is not null;
+        // A cue starts on its own speaker until the session says a tagged bus carries it.
+        RouteDevice = string.IsNullOrWhiteSpace(entry?.AudioDevice) ? null : entry.AudioDevice;
+        SpeakerGain = 1;
         Position = 0;
         // A surface that opens this cue must not resume at the last clip's position.
         LivePosition = 0;
@@ -331,6 +357,9 @@ public sealed class MediaPlayback
         _staged = null;
         ReplayOnAir = true;
         RoutingFailed = false;
+        // A replay is a recorded camera clip: it carries no library speaker of its own.
+        RouteDevice = null;
+        SpeakerGain = 1;
         Changed?.Invoke();
         return true;
     }

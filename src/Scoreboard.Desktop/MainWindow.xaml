@@ -60,6 +60,7 @@
           <Button Style="{StaticResource IconButton}" Content="▶" Click="Output_Click" ToolTip="Audience output — choose a display and open its window (F11 fills the screen)"/>
           <Button Style="{StaticResource IconButton}" Content="☰" Click="EventLog_Click" ToolTip="Event log — open it in its own window"/>
           <Button Style="{StaticResource IconButton}" Content="▦" Click="GameReport_Click" ToolTip="Game report — export a printable HTML summary"/>
+          <Button Style="{StaticResource HeaderButton}" Content="Hardware" Click="Hardware_Click" ToolTip="Connect a scoreboard controller and monitor its data"/>
           <Button Style="{StaticResource HeaderButton}" Content="Save Game" Click="Save_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Open Game" Click="Open_Click"/>
         </StackPanel>

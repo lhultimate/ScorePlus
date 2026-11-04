@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Microsoft.Win32;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -58,6 +59,7 @@ public partial class ControlPanelView : UserControl
     bool _loadingNames;
     bool _showHints;
     KeybindSettings _keybinds = KeybindStore.Load();
+    bool _hornSync;
 
     public ControlPanelView(GameEngine engine, IControlPanelHost host)
     {
@@ -121,6 +123,8 @@ public partial class ControlPanelView : UserControl
         // Update Output keeps its designed fill instead of the generic panel surface, so the
         // operator's secondary interface colour is what the main action actually wears.
         ThemeManager.SetSkipTheme(UpdateButton, true);
+        ThemeManager.SetSkipTheme(HornButton, true);
+        SyncHorn();
 
         _engine.Changed += Refresh;
         Loaded += (_, _) => { ApplyKeybindHints(); Refresh(); };
@@ -695,6 +699,74 @@ public partial class ControlPanelView : UserControl
         var dialog = new AddStatDialog(_engine.State.Stats.Select(s => s.Name).ToArray()) { Owner = Window.GetWindow(this) };
         ThemeManager.Apply(dialog, PreferencesStore.Load().Theme);
         if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.StatName)) _engine.AddStat(dialog.StatName);
+    }
+
+    // ---------- horn ----------
+
+    void SyncHorn()
+    {
+        if (HornType is null) return;
+        var preferences = PreferencesStore.Load();
+        _hornSync = true;
+        try
+        {
+            foreach (var item in HornType.Items.OfType<ComboBoxItem>())
+            {
+                if (string.Equals(item.Tag as string, preferences.HornSound, StringComparison.OrdinalIgnoreCase))
+                {
+                    HornType.SelectedItem = item;
+                    break;
+                }
+            }
+            HornPickButton.ToolTip = string.IsNullOrWhiteSpace(preferences.HornCustomPath)
+                ? "Choose a custom horn audio file"
+                : $"Custom horn: {preferences.HornCustomPath}";
+        }
+        finally { _hornSync = false; }
+    }
+
+    void HornType_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_hornSync || HornType?.SelectedItem is not ComboBoxItem item) return;
+        var sound = item.Tag as string ?? nameof(HornSound.AirHorn);
+        var preferences = PreferencesStore.Load();
+        preferences.HornSound = sound;
+        PreferencesStore.Save(preferences);
+        HornPickButton.ToolTip = string.IsNullOrWhiteSpace(preferences.HornCustomPath)
+            ? "Choose a custom horn audio file"
+            : $"Custom horn: {preferences.HornCustomPath}";
+        if (HornPlayer.Parse(sound) == HornSound.Custom && string.IsNullOrWhiteSpace(preferences.HornCustomPath))
+            PickHorn();
+    }
+
+    void Horn_Click(object sender, RoutedEventArgs e)
+    {
+        var preferences = PreferencesStore.Load();
+        if (HornPlayer.Parse(preferences.HornSound) == HornSound.Custom
+            && string.IsNullOrWhiteSpace(preferences.HornCustomPath))
+        {
+            PickHorn();
+            preferences = PreferencesStore.Load();
+        }
+        if (!HornPlayer.Play(preferences.HornSound, preferences.HornCustomPath))
+            HornButton.ToolTip = "Could not play that horn. Pick a WAV, MP3 or AIFF file.";
+    }
+
+    void HornPick_Click(object sender, RoutedEventArgs e) => PickHorn();
+
+    void PickHorn()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Choose a horn audio file",
+            Filter = "Audio files (*.wav;*.mp3;*.aiff;*.aif)|*.wav;*.mp3;*.aiff;*.aif|All files (*.*)|*.*"
+        };
+        if (dialog.ShowDialog() != true) return;
+        var preferences = PreferencesStore.Load();
+        preferences.HornSound = nameof(HornSound.Custom);
+        preferences.HornCustomPath = dialog.FileName;
+        PreferencesStore.Save(preferences);
+        SyncHorn();
     }
 
     void LiveOutput_Changed(object sender, RoutedEventArgs e)
