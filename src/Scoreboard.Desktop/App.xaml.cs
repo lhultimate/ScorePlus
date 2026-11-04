@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 using System.IO;
 using Scoreboard.Core;
 
@@ -10,6 +11,9 @@ public partial class App : Application
     {
         // Media decoders and other native components can fail on threads the dispatcher never
         // sees. Log those too, so a window that closes on its own leaves a trace to diagnose.
+        // F11 belongs to the application, not to one window: the studio, output, media panel and
+        // dialogs all get the same true fullscreen behavior.
+        EventManager.RegisterClassHandler(typeof(Window), Keyboard.PreviewKeyDownEvent, new KeyEventHandler(HandleWindowKey));
         AppDomain.CurrentDomain.UnhandledException += (_, args) => LogCrash(args.ExceptionObject as Exception);
         DispatcherUnhandledException += (_, args) =>
         {
@@ -41,6 +45,23 @@ public partial class App : Application
         var launcher = new LauncherWindow { Owner = window };
         if (launcher.ShowDialog() != true) { window.Close(); return; }
         window.StartFromLauncher(launcher.Mode, launcher.GamePath, launcher.SportId);
+    }
+
+    static void HandleWindowKey(object sender, KeyEventArgs e)
+    {
+        if (sender is not Window window || e.Handled) return;
+        if (e.Key == Key.Escape && WindowFullscreen.IsFullscreen(window))
+        {
+            WindowFullscreen.Exit(window);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key != Key.F11) return;
+        // F11 on the console, a detached panel or the audience output all mean real fullscreen:
+        // no title bar, no frame and no taskbar. The old maximize toggle made a maximized console
+        // look like it had been returned to a window at the side of the screen.
+        WindowFullscreen.Toggle(window);
+        e.Handled = true;
     }
 
     /// <summary>Appends a timestamped error to <c>%LOCALAPPDATA%\ScorePlus\logs\errors.log</c>.</summary>

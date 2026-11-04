@@ -210,8 +210,14 @@ public sealed class VideoSurface : Grid
         // operator cuts to an instant replay or another clip.
         if (entry is { IsCamera: true })
         {
-            // A live feed has no file for the router to open.
+            // A live feed has no file for the router to open. Stop the MediaElement even when the
+            // same camera index is already selected: a surface that previously held a file must
+            // never keep its soundtrack playing underneath the camera.
             StopRouting();
+            try { _element.Stop(); _element.Source = null; } catch { }
+            _loadedPath = null;
+            _opened = false;
+            _playing = false;
             ShowLiveCamera(entry.CameraIndex);
             if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
             return;
@@ -248,7 +254,12 @@ public sealed class VideoSurface : Grid
         try
         {
             _element.IsMuted = _mute || !string.IsNullOrWhiteSpace(_item.AudioDevice) || (_playback?.RoutedToDevice ?? false);
-            _element.Volume = (float)Math.Clamp(_playback?.Volume ?? 1, 0, 1);
+            // The clip's own level, through the bus that carries its tag: a speaker switched off
+            // takes its clips silent with it instead of leaving them playing on another output.
+            // A surface with no transport behind it has no on-air sound, and a clip whose bus is
+            // switched off is silent rather than falling back to full level on the default output.
+            var level = (_playback?.Volume ?? 1) * (_playback?.SpeakerGain ?? 0);
+            _element.Volume = (float)Math.Clamp(level, 0, 1);
         }
         catch { }
         SyncRouting(entry!);
@@ -352,12 +363,12 @@ public sealed class VideoSurface : Grid
         {
             // Start at the transport's point so joining a running clip stays in sync.
             var start = _playback?.Position ?? 0;
-            _router.Play(entry.Path, device, Math.Clamp(_playback?.Volume ?? entry.Volume, 0, 1), start);
+            _router.Play(entry.Path, device, Math.Clamp((_playback?.Volume ?? entry.Volume) * (_playback?.SpeakerGain ?? 0), 0, 1), start);
             _routedPath = entry.Path;
             _routedDevice = device;
         }
         if (_playback is { IsPlaying: false }) _router.Pause(); else _router.Resume();
-        if (_playback is not null) _router.SetVolume(Math.Clamp(_playback.Volume, 0, 1));
+        if (_playback is not null) _router.SetVolume(Math.Clamp(_playback.Volume * _playback.SpeakerGain, 0, 1));
     }
 
     void StopRouting()

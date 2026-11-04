@@ -1,10 +1,12 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace Scoreboard.Desktop;
 
-/// <summary>Custom color picker: type a hex value, drag RGB/alpha sliders, or tap a palette swatch.</summary>
+/// <summary>Custom color picker: type a hex value, drag RGB/alpha sliders, tap a palette swatch, or sample any pixel on screen.</summary>
 public sealed class ColorPickerWindow : Window
 {
     readonly TextBox _hex = new();
@@ -49,6 +51,19 @@ public sealed class ColorPickerWindow : Window
         root.Children.Add(SliderRow("Blue", _blue, _blueText));
         root.Children.Add(SliderRow("Alpha", _alpha, _alphaText));
 
+        // The eyedropper is deliberately beside the palette: every color menu in ScorePlus uses
+        // this window, so adding it here makes it available to every color field at once.
+        var screenButton = new Button
+        {
+            Content = "Pick from screen…",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(2, 8, 0, 0),
+            ToolTip = "Click anywhere on the screen and use that pixel's color"
+        };
+        screenButton.Click += (_, _) => PickFromScreen();
+        root.Children.Add(screenButton);
+
         var palette = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
         var swatches = new[]
         {
@@ -75,10 +90,9 @@ public sealed class ColorPickerWindow : Window
         {
             if (!TryParse(_hex.Text, out _)) return;
             SelectedHex = Normalize(_hex.Text);
-            DialogResult = true;
-            Close();
+            CloseWith(true);
         };
-        cancel.Click += (_, _) => { DialogResult = false; Close(); };
+        cancel.Click += (_, _) => CloseWith(false);
         buttons.Children.Add(use); buttons.Children.Add(cancel);
         root.Children.Add(buttons);
 
@@ -147,10 +161,113 @@ public sealed class ColorPickerWindow : Window
 
     static string Normalize(string text) => text.Trim().ToUpperInvariant();
 
+    /// <summary>Hides the dialog behind a full-desktop overlay, then samples the pixel the operator clicks.</summary>
+    void PickFromScreen()
+    {
+        var sampler = new ScreenColorPickerWindow();
+        Opacity = 0.01;
+        try
+        {
+            if (sampler.ShowDialog() == true && !string.IsNullOrWhiteSpace(sampler.PickedHex))
+                SetHex(sampler.PickedHex);
+        }
+        finally
+        {
+            Opacity = 1;
+            Activate();
+        }
+    }
+
+    /// <summary>Closes a modal dialog; a modeless caller must not have DialogResult assigned.</summary>
+    void CloseWith(bool result)
+    {
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal) DialogResult = result;
+        Close();
+    }
+
     /// <summary>Shows the picker and returns the chosen hex color, or null when cancelled.</summary>
     public static string? Pick(Window owner, string initial)
     {
         var dialog = new ColorPickerWindow(initial) { Owner = owner };
         return dialog.ShowDialog() == true ? dialog.SelectedHex : null;
     }
+}
+
+/// <summary>A transparent full-screen overlay that turns one click into a desktop color sample.</summary>
+internal sealed class ScreenColorPickerWindow : Window
+{
+    public string? PickedHex { get; private set; }
+
+    public ScreenColorPickerWindow()
+    {
+        WindowStyle = WindowStyle.None;
+        AllowsTransparency = true;
+        Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
+        Topmost = true;
+        ShowInTaskbar = false;
+        ResizeMode = ResizeMode.NoResize;
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = SystemParameters.VirtualScreenLeft;
+        Top = SystemParameters.VirtualScreenTop;
+        Width = Math.Max(1, SystemParameters.VirtualScreenWidth);
+        Height = Math.Max(1, SystemParameters.VirtualScreenHeight);
+        Cursor = Cursors.Cross;
+        // A tiny label makes it clear that the next click is the sample, not a UI action.
+        var hint = new TextBlock
+        {
+            Text = "CLICK ANYWHERE TO PICK THAT COLOR",
+            Foreground = Brushes.White,
+            Background = new SolidColorBrush(Color.FromArgb(210, 9, 16, 24)),
+            Padding = new Thickness(14, 8, 14, 8),
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 26, 0, 0)
+        };
+        Content = hint;
+        MouseLeftButtonDown += (_, e) =>
+        {
+            var point = PointToScreen(e.GetPosition(this));
+            // Make the sampler transparent rather than hiding it: hiding a modal window can make
+            // WPF reject the following DialogResult assignment. Use a short delay so the compositor
+            // has painted the screen underneath before the pixel is read.
+            Opacity = 0;
+            IsHitTestVisible = false;
+            System.Threading.Thread.Sleep(60);
+            var color = Sample(point);
+            PickedHex = $"#FF{color.R:X2}{color.G:X2}{color.B:X2}";
+            Opacity = 1;
+            CloseWith(true);
+        };
+        KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Escape) return;
+            CloseWith(false);
+        };
+        Loaded += (_, _) => Activate();
+    }
+
+    /// <summary>Closes a modal dialog; a modeless caller must not have DialogResult assigned.</summary>
+    void CloseWith(bool result)
+    {
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal) DialogResult = result;
+        Close();
+    }
+
+    static Color Sample(Point point)
+    {
+        var screen = GetDC(IntPtr.Zero);
+        try
+        {
+            var value = GetPixel(screen, (int)Math.Round(point.X), (int)Math.Round(point.Y));
+            // GetPixel returns COLORREF: 0x00BBGGRR.
+            return Color.FromRgb((byte)(value & 0xFF), (byte)((value >> 8) & 0xFF), (byte)((value >> 16) & 0xFF));
+        }
+        finally { _ = ReleaseDC(IntPtr.Zero, screen); }
+    }
+
+    [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
+    [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window, IntPtr dc);
+    [DllImport("gdi32.dll")] static extern uint GetPixel(IntPtr dc, int x, int y);
 }

@@ -84,9 +84,12 @@
         </Grid>
       </Border>
 
-      <!-- The same four quick-layout buttons as the main rail, so a detached panel can reach a
-           layout on any display without a trip back to the main window. -->
-      <ContentControl x:Name="QuickLayoutsHost" Grid.Row="1"/>
+      <!-- The same quick-media and quick-layout buttons as the main rail, so a detached panel can
+           cue media or reach a layout on any display without a trip back to the main window. -->
+      <StackPanel Grid.Row="1">
+        <ContentControl x:Name="QuickMediaHost"/>
+        <ContentControl x:Name="QuickLayoutsHost"/>
+      </StackPanel>
 
       <!-- The same peak meter and show line as the main rail, so a panel on a second monitor can
            see the output level without turning back to the main window. -->

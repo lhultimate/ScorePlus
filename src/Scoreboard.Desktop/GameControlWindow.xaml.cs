@@ -26,7 +26,8 @@ public partial class GameControlWindow : Window
 
     public ControlPanelView Panel { get; }
 
-    /// <summary>This window's display and staged layouts. Null only in the minimal test host.</summary>
+    /// <summary>This window's display, staged layouts and quick media. Null only in the minimal test host.</summary>
+    QuickMediaBar? _quickMedia;
     QuickLayoutBar? _quickLayouts;
 
     public ProgramSelection? Program { get; private set; }
@@ -87,7 +88,10 @@ public partial class GameControlWindow : Window
         Program.Changed += ProgramChanged;
         catalog.Changed += CatalogChanged;
         _engine.Changed += MeterChanged;
-        // The same four quick buttons as the main rail, on the same preferences.
+        // The same quick media and quick layout buttons as the main rail, on the same preferences.
+        _quickMedia = new QuickMediaBar(media ?? new MediaSession(PreferencesStore.Load()), theme);
+        _quickMedia.Status += message => MediaStatus.Text = message;
+        QuickMediaHost.Content = _quickMedia;
         _quickLayouts = new QuickLayoutBar(catalog, engine, theme);
         _quickLayouts.Status += message => MediaStatus.Text = message;
         QuickLayoutsHost.Content = _quickLayouts;

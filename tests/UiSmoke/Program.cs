@@ -36,6 +36,8 @@ internal static class Program
                 throw new Exception("FAIL: the unsaved-game prompt is not on by default");
             // The checks open and close windows constantly; a modal prompt would stall the run.
             MainWindow.PromptOnExit = false;
+            // Do not let a live update modal open over the unattended window checks.
+            MainWindow.CheckForUpdatesOnLoad = false;
             // The sport-switch warning is a real operator guard, but these checks change sports on
             // purpose, so it is off for the run and covered by the core suite instead.
             MainWindow.WarnOnSportSwitch = false;

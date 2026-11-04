@@ -47,13 +47,17 @@ public partial class ScorebugEditorWindow : Window
     readonly IReadOnlyList<AudioOption> _audioOptions;
     readonly System.Windows.Threading.DispatcherTimer _propertySave = new() { Interval=TimeSpan.FromMilliseconds(350) };
     readonly Dictionary<string,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind)> _visuals = [];
-    readonly Dictionary<string,(ScorebugElementKind Kind, ScorebugShape Shape, string? Image, ScorebugAnimation Animation, double Opacity)> _applied = [];
+    readonly Dictionary<string,(ScorebugElementKind Kind, ScorebugShape Shape, string? Image, ScorebugAnimation Animation, double Opacity, double Rotation)> _applied = [];
     string _motionSignature = "";
     bool _loading;
     bool _syncingLayers;
     // Everything selected, in the order it was picked; the primary is the one the property panel
     // edits and the one whose resize handle is shown.
     readonly List<string> _selectedIds = [];
+    // What the operator last copied off another item. It lives for the editing session, like a
+    // clipboard, so a size or a placement can be repeated exactly instead of eyeballed.
+    Size? _copiedSize;
+    (double X,double Y,double Rotation)? _copiedPlacement;
     string? _selectedId;
     ScorebugElement? _dragElement;
     // Where each selected element started, so dragging one object carries the whole selection.
@@ -62,6 +66,11 @@ public partial class ScorebugEditorWindow : Window
     bool _resizing;
     double _resizeStartX, _resizeStartY, _resizeStartWidth, _resizeStartHeight, _resizeStartFontSize;
     Point _listStart;
+    // The canvas is fitted to the studio panel by default. Scrolling changes this multiplier.
+    double _canvasFit = 1;
+    double _canvasZoom = 1;
+    const double GridStep = 20;
+    bool _gridSnap;
 
     sealed record PeriodOption(string? Key, string Label)
     {
@@ -112,6 +121,13 @@ public partial class ScorebugEditorWindow : Window
         public override string ToString() => label;
     }
 
+    /// <summary>A built-in animation-maker preset, offered beside the simple ambient presets.</summary>
+    sealed class AnimationPresetChoice(string name)
+    {
+        public string Name => name;
+        public override string ToString() => $"Preset · {name}";
+    }
+
     static readonly LayoutTransitionOption[] LayoutTransitions =
     [
         new(LayoutTransition.Cut, "Cut — instant"),
@@ -130,7 +146,8 @@ public partial class ScorebugEditorWindow : Window
         new(null, "Follow game default"),
         new("Full", "Quarter 1"),
         new("Short", "Q1"),
-        new("Number", "1")
+        new("Number", "1"),
+        new("Ordinal", "1st")
     ];
 
     static readonly ColorSourceOption[] ColorSources =
@@ -286,6 +303,7 @@ public partial class ScorebugEditorWindow : Window
         var previousVisuals=new Dictionary<string,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind)>(_visuals);
         _videoSurfaces.Clear();
         DesignCanvas.Width=_catalog.Layout.Width; DesignCanvas.Height=_catalog.Layout.Height;
+        GridCanvas.Width=_catalog.Layout.Width; GridCanvas.Height=_catalog.Layout.Height;
         // Elements (video especially) must never paint outside the artwork they belong to.
         DesignCanvas.ClipToBounds=true;
         CanvasInfo.Text=$"{_catalog.Layout.Name} · {_catalog.Layout.Width} × {_catalog.Layout.Height} · drag elements to reposition";
@@ -295,6 +313,7 @@ public partial class ScorebugEditorWindow : Window
         // Only the artwork takes the backdrop: the letterbox around it stays the panel colour, so
         // the canvas edge is unmistakable at the top and the bottom.
         DesignCanvas.Background=backdrop;
+        RefreshCanvasGrid();
         if(!_canvasLoading)
         {
             _canvasLoading=true;
@@ -333,6 +352,7 @@ public partial class ScorebugEditorWindow : Window
             if(!_videoSurfaces.ContainsKey(id))surface.Dispose();
         RefreshAllVisuals();
         _loading=false;
+        FitCanvas();
         LoadProperties();
     }
 
@@ -346,7 +366,8 @@ public partial class ScorebugEditorWindow : Window
         try
         {
             LayoutStrip.Children.Clear();
-            var layouts=_catalog.Layouts;
+            var display=_catalog.ActiveDisplay;
+            var layouts=display.Layouts;
             for(var index=0;index<layouts.Count;index++)
             {
                 var layout=layouts[index];
@@ -384,15 +405,17 @@ public partial class ScorebugEditorWindow : Window
                 var stack=new StackPanel();
                 stack.Children.Add(image);
                 stack.Children.Add(label);
+                var target=index;
                 tile.Content=stack;
                 // The theme pass repaints every button it meets; these tiles carry their own colours.
                 ThemeManager.SetSkipTheme(tile,true);
-                var target=index;
                 tile.Click+=(_,_)=>SelectLayoutFromStrip(target);
                 LayoutStrip.Children.Add(tile);
             }
-            LayoutHintText.Text=_catalog.ActiveIndex==_catalog.PublishedIndex
-                ? "This layout is on air."
+            var onAir=_catalog.PublishedLayoutsOf(display.Id).Count;
+            var thisOnAir=_catalog.ActiveIndex==_catalog.PublishedIndex||_catalog.IsLayoutPinned(display.Id,_catalog.Layout.Id);
+            LayoutHintText.Text=thisOnAir
+                ? onAir>1 ? $"This layout is on air with {onAir-1} other layered layout{(onAir==2?"":"s")}." : "This layout is on air."
                 : "Preview only — press Update Output in the control panel to put it on air.";
         }
         finally { _layoutLoading=false; }
@@ -438,7 +461,14 @@ public partial class ScorebugEditorWindow : Window
 
     static string ThumbSignature(ScorebugLayout layout) =>
         $"{layout.Width}x{layout.Height}|{layout.Background}|"+
-        string.Join(";",layout.Elements.Select(item=>$"{item.Id}:{item.Kind}:{item.X},{item.Y},{item.Width},{item.Height}:{item.Content}:{item.FontSize}:{item.Foreground}:{item.Background}:{item.TransparentBackground}"));
+        string.Join(";",layout.Elements.Select(item=>
+            $"{item.Id}:{item.Kind}:{item.X},{item.Y},{item.Width},{item.Height}:{item.Content}:{item.FontSize}:"
+            +$"{item.Foreground}:{item.ForegroundSource}:{item.Background}:{item.BackgroundSource}:"
+            +$"{item.BackgroundColor2}:{item.BackgroundSource2}:{item.BackgroundGradient}:{item.TransparentBackground}:"
+            +$"{item.Opacity}:{item.TextOpacity}:{item.BackgroundOpacity}:{item.BorderOpacity}:"
+            +$"{item.BorderThickness}:{item.BorderColor}:{item.BorderSource}:{item.Icon}:{item.IconScale}:"
+            +$"{item.IconFillColor}:{item.IconFillSource}:{item.Animation}:{item.MotionAnimation?.Id}:{item.MotionTransition?.Id}:"
+            +$"{item.Shape}:{item.Visible}:{item.LogoSide}:{item.ImagePath}"));
 
     /// <summary>Fills the display picker from the catalog without treating the sync as a choice.</summary>
     void SyncDisplayPicker()
@@ -605,6 +635,7 @@ public partial class ScorebugEditorWindow : Window
         };
         Canvas.SetLeft(host,item.X); Canvas.SetTop(host,item.Y); Panel.SetZIndex(host,_catalog.Layout.Elements.IndexOf(item));
         host.MouseLeftButtonDown+=Element_MouseDown; host.MouseMove+=Element_MouseMove; host.MouseLeftButtonUp+=Element_MouseUp;
+        MotionPlayback.SetDesignRotation(host,item.Rotation);
         _visuals[item.Id]=(host,content,handle,item.Kind);
         ApplyAnimation(item,host);
         return host;
@@ -612,9 +643,11 @@ public partial class ScorebugEditorWindow : Window
 
     void ApplyAnimation(ScorebugElement item,FrameworkElement host)
     {
-        if(_applied.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001)return;
+        if(_applied.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001&&Math.Abs(applied.Rotation-item.Rotation)<0.001)return;
         host.BeginAnimation(UIElement.OpacityProperty,null);
+        MotionPlayback.SetBaseRotation(host,item.Rotation);
         if(host.RenderTransform is TranslateTransform previous){previous.BeginAnimation(TranslateTransform.XProperty,null);previous.BeginAnimation(TranslateTransform.YProperty,null);host.RenderTransform=Transform.Identity;}
+        MotionPlayback.SetDesignRotation(host,item.Rotation);
         switch(item.Animation)
         {
             case ScorebugAnimation.Pulse:
@@ -622,14 +655,17 @@ public partial class ScorebugEditorWindow : Window
                 break;
             case ScorebugAnimation.Drift:
                 // Animate the transform, not the host: the old call animated X on the Border itself,
-                // which moved nothing, so Drift looked broken.
+                // which moved nothing, so Drift looked broken. Keep the design rotation in the group.
                 var drift=new TranslateTransform();
-                host.RenderTransform=drift;
+                var group=new TransformGroup();
+                group.Children.Add(drift);
+                group.Children.Add(new RotateTransform(item.Rotation));
+                host.RenderTransform=group;
                 drift.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(0,14,TimeSpan.FromSeconds(3.2)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 drift.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,7,TimeSpan.FromSeconds(2.1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 break;
         }
-        _applied[item.Id]=(item.Kind,item.Shape,item.ImagePath,item.Animation,item.Opacity);
+        _applied[item.Id]=(item.Kind,item.Shape,item.ImagePath,item.Animation,item.Opacity,item.Rotation);
     }
 
     /// <summary>Updates every visual in place. Used while typing so focus and selection are never lost.</summary>
@@ -796,7 +832,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconVisitorsInput,IconFlipInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -843,8 +879,13 @@ public partial class ScorebugEditorWindow : Window
             LogoInput.SelectedItem=Logos.FirstOrDefault(l=>l.Side==e.LogoSide)??Logos[0];
             PeriodFormatInput.SelectedItem=PeriodOptions.FirstOrDefault(o=>o.Key==e.PeriodFormat)??PeriodOptions[0];
             IconInput.SelectedItem=e.Icon; IconVisitorsInput.IsChecked=e.IconVisitors; IconFlipInput.IsChecked=e.IconFlipped;
+            IconScaleInput.Text=Math.Clamp(e.IconScale,0.25,3).ToString("0.##");
             IconFillInput.Text=e.IconFillColor;
             IconFillSourceInput.SelectedItem=ColorSources.FirstOrDefault(c=>c.Source==e.IconFillSource)??ColorSources[0];
+            TextShadowInput.IsChecked=e.TextShadow;
+            TextShadowColorInput.Text=e.TextShadowColor;
+            TextShadowOffsetInput.Text=e.TextShadowOffset.ToString("0.#");
+            TextShadowSoftnessInput.Text=e.TextShadowSoftness.ToString("0.#");
         }
         if(e is not null&&e.Kind==ScorebugElementKind.Text) LoadPlayerBinding(e);
         _loading=false;
@@ -904,8 +945,8 @@ public partial class ScorebugEditorWindow : Window
         TextSection.Visibility=text||kind==ScorebugElementKind.Html?Visibility.Visible:Visibility.Collapsed;
         // Type is typography: a logo, shape or video has no text to set a face, weight or colour on.
         FontSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
-        // Rotation is drawn inside the text element, so only text can use it.
-        TransformSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
+        // Every kind has a host box, so rotation turns the whole item: plate, artwork and text.
+        TransformSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
         LogoSection.Visibility=kind==ScorebugElementKind.Logo?Visibility.Visible:Visibility.Collapsed;
         ShapePanel.Visibility=kind==ScorebugElementKind.Shape?Visibility.Visible:Visibility.Collapsed;
         VideoPanel.Visibility=kind==ScorebugElementKind.Video?Visibility.Visible:Visibility.Collapsed;
@@ -923,9 +964,12 @@ public partial class ScorebugEditorWindow : Window
         BaseFillPanel.Visibility=text&&IconInput.SelectedItem is ScorebugIcon.Bases?Visibility.Visible:Visibility.Collapsed;
         // A value transition needs a printed value to cross to.
         TransitionSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
+        ShadowSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         var icon=e?.Icon??ScorebugIcon.None;
-        IconVisitorsInput.Visibility=icon==ScorebugIcon.TimeoutBars?Visibility.Visible:Visibility.Collapsed;
-        IconFlipInput.Visibility=icon==ScorebugIcon.PossessionDot?Visibility.Visible:Visibility.Collapsed;
+        var countedIcon=icon is ScorebugIcon.TimeoutBars or ScorebugIcon.TimeoutDots;
+        IconVisitorsInput.Visibility=countedIcon||icon==ScorebugIcon.PossessionArrow?Visibility.Visible:Visibility.Collapsed;
+        IconScalePanel.Visibility=countedIcon?Visibility.Visible:Visibility.Collapsed;
+        IconFlipInput.Visibility=icon is ScorebugIcon.PossessionDot or ScorebugIcon.PossessionArrow?Visibility.Visible:Visibility.Collapsed;
     }
 
     /// <summary>
@@ -976,6 +1020,7 @@ public partial class ScorebugEditorWindow : Window
         var animation=AnimationInput.SelectedItem;
         var transition=TransitionInput.SelectedItem;
         AnimationInput.ItemsSource=Enum.GetValues<ScorebugAnimation>().Cast<object>()
+            .Concat(MotionClip.AnimationPresets.Select(name=>new AnimationPresetChoice(name)))
             .Concat(_catalog.Animations.Select(clip=>new MotionClipChoice(clip,"Saved · "+clip.Name))).ToArray();
         TransitionInput.ItemsSource=Enum.GetValues<ScorebugTransition>().Cast<object>()
             .Concat(_catalog.Transitions.Select(clip=>new MotionClipChoice(clip,"Saved · "+clip.Name))).ToArray();
@@ -986,6 +1031,9 @@ public partial class ScorebugEditorWindow : Window
 
     static object? KeepMotionChoice(ComboBox box,object? previous)
     {
+        if(previous is AnimationPresetChoice preset)
+            return box.Items.OfType<AnimationPresetChoice>()
+                .FirstOrDefault(candidate=>string.Equals(candidate.Name,preset.Name,StringComparison.OrdinalIgnoreCase))??previous;
         if(previous is not MotionClipChoice choice)return previous;
         return box.Items.OfType<MotionClipChoice>()
             .FirstOrDefault(candidate=>string.Equals(candidate.Clip.Id,choice.Clip.Id,StringComparison.OrdinalIgnoreCase))??previous;
@@ -1086,6 +1134,7 @@ public partial class ScorebugEditorWindow : Window
         var borderSource=(BorderSourceInput.SelectedItem as ColorSourceOption)?.Source;
         var animation=AnimationInput.SelectedItem is ScorebugAnimation a?(ScorebugAnimation?)a:null;
         var animationClip=AnimationInput.SelectedItem as MotionClipChoice;
+        var animationPreset=AnimationInput.SelectedItem as AnimationPresetChoice;
         var transition=TransitionInput.SelectedItem is ScorebugTransition t?(ScorebugTransition?)t:null;
         var transitionClip=TransitionInput.SelectedItem as MotionClipChoice;
         var shape=ShapeInput.SelectedItem is ScorebugShape s?(ScorebugShape?)s:null;
@@ -1097,9 +1146,15 @@ public partial class ScorebugEditorWindow : Window
         var periodFormat=PeriodFormatInput.SelectedItem is PeriodOption period?(string?)period.Key:null;
         var icon=IconInput.SelectedItem is ScorebugIcon chosenIcon?(ScorebugIcon?)chosenIcon:null;
         var iconVisitors=IconVisitorsInput.IsChecked==true; var iconFlipped=IconFlipInput.IsChecked==true;
+        var iconScaleOk=double.TryParse(IconScaleInput.Text,out var iconScale);
+        iconScale=Math.Clamp(iconScaleOk?iconScale:1,0.25,3);
         var iconFillText=IconFillInput.Text.Trim();
         var iconFillOk=iconFillText.Length==0||TryColor(iconFillText,out _);
         var iconFillSource=(IconFillSourceInput.SelectedItem as ColorSourceOption)?.Source;
+        var shadowOn=TextShadowInput.IsChecked==true;
+        var shadowColorOk=TryColor(TextShadowColorInput.Text,out _);
+        var shadowOffsetOk=double.TryParse(TextShadowOffsetInput.Text,out var shadowOffset);
+        var shadowSoftnessOk=double.TryParse(TextShadowSoftnessInput.Text,out var shadowSoftness);
         var font=(FontInput.SelectedItem as FontChoice)?.Source;
         var bold=BoldInput.IsChecked==true; var italic=ItalicInput.IsChecked==true;
         var underline=UnderlineInput.IsChecked==true; var strike=StrikeInput.IsChecked==true;
@@ -1115,13 +1170,16 @@ public partial class ScorebugEditorWindow : Window
             &&(animation is null||item.Animation==animation)&&(transition is null||item.Transition==transition)
             &&(animationClip is not null
                 ? string.Equals(item.MotionAnimation?.Id,animationClip.Clip.Id,StringComparison.OrdinalIgnoreCase)
-                : (animation is null||item.MotionAnimation is null))
+                : animationPreset is not null
+                    ? string.Equals(item.MotionAnimation?.Name,animationPreset.Name,StringComparison.OrdinalIgnoreCase)
+                    : (animation is null||item.MotionAnimation is null))
             &&(transitionClip is not null
                 ? string.Equals(item.MotionTransition?.Id,transitionClip.Clip.Id,StringComparison.OrdinalIgnoreCase)
                 : (transition is null||item.MotionTransition is null))
             &&(shape is null||item.Shape==shape)&&item.Visible==visible&&item.TransparentBackground==transparent
             &&item.MediaTag==mediaTag&&(periodFormat is null||item.PeriodFormat==periodFormat)
             &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped
+            &&(!iconScaleOk||Math.Abs(item.IconScale-iconScale)<0.001)
             &&(!iconFillOk||string.Equals(item.IconFillColor,iconFillText,StringComparison.OrdinalIgnoreCase))
             &&(iconFillSource is null||item.IconFillSource==iconFillSource)
             &&(font is null||item.FontFamily==font)&&item.Bold==bold&&item.Italic==italic&&item.Underline==underline&&item.StrikeThrough==strike
@@ -1132,7 +1190,71 @@ public partial class ScorebugEditorWindow : Window
             &&item.BackgroundGradient==gradient&&(!gradientColorOk||item.BackgroundColor2==GradientColorInput.Text)
             &&(gradientSource is null||item.BackgroundSource2==gradientSource)&&(!gradientAngleOk||Math.Abs(item.GradientAngle-gradientAngle)<0.001)
             &&(!opacityOk||Math.Abs(item.Opacity-opacity)<0.001)
-            &&(!transitionSpeedOk||Math.Abs(item.TransitionSeconds-transitionSpeed)<0.001))return;
+            &&Math.Abs(item.TextOpacity-textOpacity)<0.001
+            &&Math.Abs(item.BackgroundOpacity-backgroundOpacity)<0.001
+            &&Math.Abs(item.BorderOpacity-borderOpacity)<0.001
+            &&(!transitionSpeedOk||Math.Abs(item.TransitionSeconds-transitionSpeed)<0.001)
+            &&item.TextShadow==shadowOn&&(!shadowColorOk||item.TextShadowColor==TextShadowColorInput.Text)
+            &&(!shadowOffsetOk||Math.Abs(item.TextShadowOffset-shadowOffset)<0.001)
+            &&(!shadowSoftnessOk||Math.Abs(item.TextShadowSoftness-shadowSoftness)<0.001))return;
+        // Everything below follows the same rule: a group edit carries only what this panel edit
+        // actually changed, measured against the element being edited.
+        var groupEdits=new List<Action<ScorebugElement>>();
+        void Group(Action<ScorebugElement> edit)=>groupEdits.Add(edit);
+        if(xOk&&Math.Abs(item.X-x)>0.001)Group(t=>t.X=x);
+        if(yOk&&Math.Abs(item.Y-y)>0.001)Group(t=>t.Y=y);
+        if(wOk&&Math.Abs(item.Width-w)>0.001)Group(t=>t.Width=Math.Max(16,w));
+        if(hOk&&Math.Abs(item.Height-h)>0.001)Group(t=>t.Height=Math.Max(16,h));
+        if(rotationOk&&Math.Abs(item.Rotation-rotation)>0.001)Group(t=>t.Rotation=Math.Clamp(rotation,-360,360));
+        if(fOk&&Math.Abs(item.FontSize-f)>0.001)Group(t=>t.FontSize=f);
+        if(foregroundOk&&item.Foreground!=ColorInput.Text)Group(t=>t.Foreground=ColorInput.Text);
+        if(backgroundOk&&item.Background!=BackgroundInput.Text)Group(t=>t.Background=BackgroundInput.Text);
+        if(Math.Abs(item.TextOpacity-textOpacity)>0.001)Group(t=>t.TextOpacity=textOpacity);
+        if(Math.Abs(item.BackgroundOpacity-backgroundOpacity)>0.001)Group(t=>t.BackgroundOpacity=backgroundOpacity);
+        if(Math.Abs(item.BorderOpacity-borderOpacity)>0.001)Group(t=>t.BorderOpacity=borderOpacity);
+        if(opacityOk&&Math.Abs(item.Opacity-opacity)>0.001)Group(t=>t.Opacity=Math.Clamp(opacity,0,1));
+        if(animationPreset is not null&&!string.Equals(item.MotionAnimation?.Name,animationPreset.Name,StringComparison.OrdinalIgnoreCase))
+            Group(t=>{t.Animation=ScorebugAnimation.None;t.MotionAnimation=MotionClip.AnimationPreset(animationPreset.Name);});
+        else if(animationClip is not null&&!string.Equals(item.MotionAnimation?.Id,animationClip.Clip.Id,StringComparison.OrdinalIgnoreCase))
+            Group(t=>t.MotionAnimation=animationClip.Clip.Snapshot());
+        else if(animation is not null&&item.Animation!=animation)Group(t=>{t.Animation=animation.Value;t.MotionAnimation=null;});
+        if(transitionClip is not null&&!string.Equals(item.MotionTransition?.Id,transitionClip.Clip.Id,StringComparison.OrdinalIgnoreCase))
+            Group(t=>t.MotionTransition=transitionClip.Clip.Snapshot());
+        else if(transition is not null&&item.Transition!=transition)Group(t=>{t.Transition=transition.Value;t.MotionTransition=null;});
+        if(shape is not null&&item.Shape!=shape)Group(t=>t.Shape=shape.Value);
+        if(item.Visible!=visible)Group(t=>t.Visible=visible);
+        if(item.TransparentBackground!=transparent)Group(t=>t.TransparentBackground=transparent);
+        if(item.MediaTag!=mediaTag)Group(t=>{if(t.Kind==ScorebugElementKind.Video)t.MediaTag=mediaTag;});
+        if(periodFormat is not null&&item.PeriodFormat!=periodFormat)Group(t=>t.PeriodFormat=periodFormat);
+        if(item.PreserveVideoAspect!=preserveAspect)Group(t=>t.PreserveVideoAspect=preserveAspect);
+        if(aspectOk&&Math.Abs(item.VideoAspect-aspect)>0.001)Group(t=>t.VideoAspect=Math.Clamp(aspect,0.1,10));
+        if(!string.Equals(item.AudioDevice,audioDevice,StringComparison.Ordinal))Group(t=>t.AudioDevice=string.IsNullOrWhiteSpace(audioDevice)?null:audioDevice);
+        if(icon is not null&&item.Icon!=icon)Group(t=>t.Icon=icon.Value);
+        if(item.IconVisitors!=iconVisitors)Group(t=>t.IconVisitors=iconVisitors);
+        if(item.IconFlipped!=iconFlipped)Group(t=>t.IconFlipped=iconFlipped);
+        if(iconScaleOk&&Math.Abs(item.IconScale-iconScale)>0.001)Group(t=>t.IconScale=iconScale);
+        if(iconFillOk&&!string.Equals(item.IconFillColor,iconFillText,StringComparison.OrdinalIgnoreCase))Group(t=>t.IconFillColor=iconFillText);
+        if(iconFillSource is not null&&item.IconFillSource!=iconFillSource)Group(t=>t.IconFillSource=iconFillSource.Value);
+        if(font is not null&&item.FontFamily!=font)Group(t=>t.FontFamily=font);
+        if(item.Bold!=bold)Group(t=>t.Bold=bold);
+        if(item.Italic!=italic)Group(t=>t.Italic=italic);
+        if(item.Underline!=underline)Group(t=>t.Underline=underline);
+        if(item.StrikeThrough!=strike)Group(t=>t.StrikeThrough=strike);
+        if(foregroundSource is not null&&item.ForegroundSource!=foregroundSource)Group(t=>t.ForegroundSource=foregroundSource.Value);
+        if(backgroundSource is not null&&item.BackgroundSource!=backgroundSource)Group(t=>t.BackgroundSource=backgroundSource.Value);
+        if(item.BackgroundGradient!=gradient)Group(t=>t.BackgroundGradient=gradient);
+        if(gradientSource is not null&&item.BackgroundSource2!=gradientSource)Group(t=>t.BackgroundSource2=gradientSource.Value);
+        if(gradientColorOk&&item.BackgroundColor2!=GradientColorInput.Text)Group(t=>t.BackgroundColor2=GradientColorInput.Text);
+        if(gradientAngleOk&&Math.Abs(item.GradientAngle-gradientAngle)>0.001)Group(t=>t.GradientAngle=Math.Clamp(gradientAngle,-360,360));
+        if(logoSide is not null&&item.LogoSide!=logoSide)Group(t=>t.LogoSide=logoSide.Value);
+        if(borderWidthOk&&Math.Abs(item.BorderThickness-borderWidth)>0.001)Group(t=>t.BorderThickness=Math.Clamp(borderWidth,0,40));
+        if(borderColorOk&&item.BorderColor!=BorderColorInput.Text)Group(t=>t.BorderColor=BorderColorInput.Text);
+        if(borderSource is not null&&item.BorderSource!=borderSource)Group(t=>t.BorderSource=borderSource.Value);
+        if(transitionSpeedOk&&Math.Abs(item.TransitionSeconds-transitionSpeed)>0.001)Group(t=>t.TransitionSeconds=Math.Clamp(transitionSpeed,0,5));
+        if(item.TextShadow!=shadowOn)Group(t=>t.TextShadow=shadowOn);
+        if(shadowColorOk&&item.TextShadowColor!=TextShadowColorInput.Text)Group(t=>t.TextShadowColor=TextShadowColorInput.Text);
+        if(shadowOffsetOk&&Math.Abs(item.TextShadowOffset-shadowOffset)>0.001)Group(t=>t.TextShadowOffset=Math.Clamp(shadowOffset,0,40));
+        if(shadowSoftnessOk&&Math.Abs(item.TextShadowSoftness-shadowSoftness)>0.001)Group(t=>t.TextShadowSoftness=Math.Clamp(shadowSoftness,0,60));
         var id=item.Id;
         // Switching an element to live artwork changes what it draws, so that one edit has to build
         // the new content rather than paint over the old text.
@@ -1145,8 +1267,17 @@ public partial class ScorebugEditorWindow : Window
         _catalog.Update(layout=>{
             foreach(var target in layout.Elements.Where(z=>ids.Contains(z.Id)))
             {
-                // Name and content belong to one element; everything else is the group's look.
-                if(target.Id==id){target.Name=name;target.Content=content;}
+                // Name and content belong to one element. With a group selected, a secondary element
+                // only takes the properties this edit actually changed, so setting a colour never
+                // rewrites its size, tag, text or position.
+                if(target.Id!=id)
+                {
+                    foreach(var edit in groupEdits)edit(target);
+                    // A linked part carries the edit to every copy of it, on every layout and display.
+                    _catalog.PropagateLink(target);
+                    continue;
+                }
+                target.Name=name;target.Content=content;
                 if(xOk)target.X=x; if(yOk)target.Y=y;
                 var targetW=wOk?w:target.Width; var targetH=hOk?h:target.Height;
                 // A preserved video box follows the picture's shape: moving one side moves the other.
@@ -1158,10 +1289,14 @@ public partial class ScorebugEditorWindow : Window
                     else if(widthChanged) targetH=targetW/aspect;
                 }
                 target.Width=Math.Max(16,targetW); target.Height=Math.Max(16,targetH);
+                target.TextOpacity=textOpacity;
+                target.BackgroundOpacity=backgroundOpacity;
+                target.BorderOpacity=borderOpacity;
                 if(fOk)target.FontSize=f;
                 if(foregroundOk)target.Foreground=ColorInput.Text;
                 if(backgroundOk)target.Background=BackgroundInput.Text;
-                if(animationClip is not null)target.MotionAnimation=animationClip.Clip.Snapshot();
+                if(animationPreset is not null){target.Animation=ScorebugAnimation.None;target.MotionAnimation=MotionClip.AnimationPreset(animationPreset.Name);}
+                else if(animationClip is not null)target.MotionAnimation=animationClip.Clip.Snapshot();
                 else if(animation is not null){target.Animation=animation.Value;target.MotionAnimation=null;}
                 if(transitionClip is not null)target.MotionTransition=transitionClip.Clip.Snapshot();
                 else if(transition is not null){target.Transition=transition.Value;target.MotionTransition=null;}
@@ -1174,8 +1309,13 @@ public partial class ScorebugEditorWindow : Window
                 target.AudioDevice=string.IsNullOrWhiteSpace(audioDevice)?null:audioDevice;
                 if(icon is not null&&target.Icon!=icon.Value){target.Icon=icon.Value;artworkChanged=true;}
                 target.IconVisitors=iconVisitors; target.IconFlipped=iconFlipped;
+                if(iconScaleOk)target.IconScale=iconScale;
                 if(iconFillOk)target.IconFillColor=iconFillText;
                 if(iconFillSource is not null)target.IconFillSource=iconFillSource.Value;
+                target.TextShadow=shadowOn;
+                if(shadowColorOk)target.TextShadowColor=TextShadowColorInput.Text;
+                if(shadowOffsetOk)target.TextShadowOffset=Math.Clamp(shadowOffset,0,40);
+                if(shadowSoftnessOk)target.TextShadowSoftness=Math.Clamp(shadowSoftness,0,60);
                 if(font is not null)target.FontFamily=font;
                 target.Bold=bold; target.Italic=italic;
                 target.Underline=underline; target.StrikeThrough=strike;
@@ -1564,6 +1704,7 @@ public partial class ScorebugEditorWindow : Window
         {
             ("Team · home name","{{HOME_TEAM}}"),("Team · visitors name","{{AWAY_TEAM}}"),
             ("Team · home abbreviation","{{HOME_ABBR}}"),("Team · visitors abbreviation","{{AWAY_ABBR}}"),
+            ("Team · home mascot","{{HOME_MASCOT}}"),("Team · visitors mascot","{{AWAY_MASCOT}}"),
             ("Score · home","{{HOME_SCORE}}"),("Score · visitors","{{AWAY_SCORE}}"),
             ("Period (quarter)","{{PERIOD}}"),("Game clock","{{GAME_CLOCK}}"),("Play clock","{{PLAY_CLOCK}}"),
             ("Timeout clock","{{TIMEOUT_CLOCK}}"),("Timeouts left","{{TIMEOUTS}}"),("Possession","{{POSSESSION}}"),
@@ -1884,9 +2025,18 @@ public partial class ScorebugEditorWindow : Window
     void Element_MouseDown(object sender,MouseButtonEventArgs e)
     {
         if(_resizing||sender is not Border host||host.Tag is not ScorebugElement item)return;
-        var id=item.Id;
         var ctrl=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
         var shift=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
+        // A click that lands on a larger element behind the selected one must keep the selection:
+        // otherwise grabbing a selected label inside a plate silently switches to the plate.
+        if(!ctrl&&!shift&&Selected is { } selectedItem&&selectedItem.Id!=item.Id
+            &&Encloses(item,selectedItem)&&Encloses(selectedItem,e.GetPosition(DesignCanvas))
+            &&_visuals.TryGetValue(selectedItem.Id,out var selectedVisual))
+        {
+            item=selectedItem;
+            host=selectedVisual.Host;
+        }
+        var id=item.Id;
         if(ctrl||shift)
         {
             // Ctrl-click adds this object to the selection, or takes it back out again; Shift-click
@@ -1925,6 +2075,15 @@ public partial class ScorebugEditorWindow : Window
         e.Handled=true;
     }
 
+    static bool Encloses(ScorebugElement outer,ScorebugElement inner) =>
+        inner.X>=outer.X-0.5&&inner.Y>=outer.Y-0.5
+        &&inner.X+inner.Width<=outer.X+outer.Width+0.5
+        &&inner.Y+inner.Height<=outer.Y+outer.Height+0.5;
+
+    static bool Encloses(ScorebugElement element,Point point) =>
+        point.X>=element.X&&point.X<=element.X+element.Width
+        &&point.Y>=element.Y&&point.Y<=element.Y+element.Height;
+
     void Element_MouseMove(object sender,MouseEventArgs e)
     {
         if(_resizing||_dragElement is null||e.LeftButton!=MouseButtonState.Pressed)return;
@@ -1936,8 +2095,10 @@ public partial class ScorebugEditorWindow : Window
         {
             var element=_catalog.Layout.Elements.FirstOrDefault(x=>x.Id==selectedId);
             if(element is null)continue;
-            var x=Math.Clamp(origin.X+dx,0,Math.Max(0,_catalog.Layout.Width-element.Width));
-            var y=Math.Clamp(origin.Y+dy,0,Math.Max(0,_catalog.Layout.Height-element.Height));
+            var x=origin.X+dx; var y=origin.Y+dy;
+            if(_gridSnap){x=Snap(x);y=Snap(y);}
+            x=Math.Clamp(x,0,Math.Max(0,_catalog.Layout.Width-element.Width));
+            y=Math.Clamp(y,0,Math.Max(0,_catalog.Layout.Height-element.Height));
             element.X=x; element.Y=y;
             if(_visuals.TryGetValue(selectedId,out var visual)){Canvas.SetLeft(visual.Host,x);Canvas.SetTop(visual.Host,y);}
         }
@@ -2008,6 +2169,7 @@ public partial class ScorebugEditorWindow : Window
         var maxHeight=Math.Max(24,_catalog.Layout.Height-_dragElement.Y);
         var width=Math.Clamp(_resizeStartWidth+(p.X-_resizeStartX),24,maxWidth);
         var height=Math.Clamp(_resizeStartHeight+(p.Y-_resizeStartY),24,maxHeight);
+        if(_gridSnap){width=Math.Clamp(Snap(width),24,maxWidth);height=Math.Clamp(Snap(height),24,maxHeight);}
         var ctrl=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
         var shift=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
         // A video box that preserves its aspect ratio can only be resized along one diagonal;
@@ -2033,7 +2195,8 @@ public partial class ScorebugEditorWindow : Window
         }
         if(ctrl)RefreshAllVisuals();
         else if(_visuals.TryGetValue(_dragElement.Id,out var resized))
-            ScorebugRender.ApplyToContent(resized.Content,_dragElement,_engine.State);
+            ScorebugRender.ApplyToContent(resized.Content,_dragElement,_engine.State,
+                ScoreboardTemplates.Bind(_dragElement.Content,_engine.State,_dragElement.PeriodFormat));
         if(!_loading)
         {
             _loading=true;
@@ -2081,6 +2244,13 @@ public partial class ScorebugEditorWindow : Window
 
     void ChoosePresetColor(TextBox target)
     {
+        // Choosing a fixed color must also switch the source to Custom: otherwise a team palette
+        // slot keeps overriding the picked color and the change looks like it did nothing.
+        if(target==ColorInput)ForegroundSourceInput.SelectedItem=ColorSources[0];
+        else if(target==BackgroundInput)BackgroundSourceInput.SelectedItem=ColorSources[0];
+        else if(target==GradientColorInput)GradientSourceInput.SelectedItem=ColorSources[0];
+        else if(target==BorderColorInput)BorderSourceInput.SelectedItem=ColorSources[0];
+        else if(target==IconFillInput)IconFillSourceInput.SelectedItem=ColorSources[0];
         var picked=ColorPickerWindow.Pick(this,target.Text);
         if(picked is not null){target.Text=picked;SaveProperties();RefreshAllVisuals();}
     }
@@ -2139,6 +2309,20 @@ public partial class ScorebugEditorWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         var field=Keyboard.FocusedElement as TextBox??e.OriginalSource as TextBox;
+        // Arrow keys nudge the selected items. Text fields, pickers and lists keep their own arrow
+        // behaviour; a chunk is 10 px, or the grid step when snapping is on.
+        if(_selectedIds.Count>0&&field is null&&Keyboard.FocusedElement is not ComboBox
+            &&Keyboard.FocusedElement is not Slider&&Keyboard.FocusedElement is not ListBox
+            &&Keyboard.FocusedElement is not ListBoxItem
+            &&e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
+        {
+            var chunk=(Keyboard.Modifiers&ModifierKeys.Shift)!=0?10:1;
+            var dx=e.Key==Key.Left?-chunk:e.Key==Key.Right?chunk:0;
+            var dy=e.Key==Key.Up?-chunk:e.Key==Key.Down?chunk:0;
+            NudgeSelection(dx,dy);
+            e.Handled=true;
+            return;
+        }
         if(e.Key==Key.Enter&&field is not null)
         {
             // The content field is multi-line: Enter is a new line there, not a commit-and-leave.
@@ -2173,6 +2357,26 @@ public partial class ScorebugEditorWindow : Window
                 return;
             }
         }
+        // Copy and paste of size or placement. Ctrl+Shift carries the size, Ctrl+Alt the X, Y and
+        // angle, so a matching plate or a repeated logo never has to be measured by eye.
+        if(field is null&&Keyboard.FocusedElement is not TextBox&&e.Key is Key.C or Key.V)
+        {
+            var control=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
+            var shift=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
+            var alt=(Keyboard.Modifiers&ModifierKeys.Alt)!=0;
+            if(control&&shift)
+            {
+                if(e.Key==Key.C)CopySize(); else PasteSize();
+                e.Handled=true;
+                return;
+            }
+            if(control&&alt)
+            {
+                if(e.Key==Key.C)CopyPlacement(); else PastePlacement();
+                e.Handled=true;
+                return;
+            }
+        }
         base.OnPreviewKeyDown(e);
     }
     protected override void OnClosed(EventArgs e)
@@ -2184,16 +2388,210 @@ public partial class ScorebugEditorWindow : Window
         _catalog.Changed-=Render; _engine.Changed-=RefreshBoundText;
         base.OnClosed(e);
     }
-    /// <summary>Moves the selected element one step towards the front (+1) or back (-1) of the picture.</summary>
+    /// <summary>Moves the selected element to the front or all the way to the back.</summary>
     void MoveSelectedLayer(int delta)
     {
         if(Selected is not { } item) return;
         var from=_catalog.Layout.Elements.IndexOf(item);
         if(from<0) return;
-        var to=Math.Clamp(from+delta,0,_catalog.Layout.Elements.Count-1);
+        var to=delta>0?_catalog.Layout.Elements.Count-1:0;
         if(from==to) return;
         _catalog.Update(layout=>{var moved=layout.Elements[from];layout.Elements.RemoveAt(from);layout.Elements.Insert(to,moved);});
     }
+
+    static double Snap(double value)=>Math.Round(value/GridStep, MidpointRounding.AwayFromZero)*GridStep;
+
+    void CopySize_Click(object sender,RoutedEventArgs e)=>CopySize();
+    void PasteSize_Click(object sender,RoutedEventArgs e)=>PasteSize();
+    void CopyPlacement_Click(object sender,RoutedEventArgs e)=>CopyPlacement();
+    void PastePlacement_Click(object sender,RoutedEventArgs e)=>PastePlacement();
+    void TextShadowColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(TextShadowColorInput);
+
+    /// <summary>Remembers the width and height of the item being edited.</summary>
+    void CopySize()
+    {
+        if(Selected is not { } item)return;
+        _copiedSize=new Size(item.Width,item.Height);
+        CanvasInfo.Text=$"size copied · {item.Width:0} × {item.Height:0}";
+    }
+
+    /// <summary>Gives every selected item the remembered size.</summary>
+    void PasteSize()
+    {
+        if(_copiedSize is not { } size)return;
+        var ids=TargetIds();
+        if(ids.Length==0)return;
+        ApplyPlacement(ids,item=>{item.Width=Math.Max(16,size.Width);item.Height=Math.Max(16,size.Height);});
+        CanvasInfo.Text=$"size pasted · {size.Width:0} × {size.Height:0}";
+    }
+
+    /// <summary>Remembers where the item sits and how far it is turned.</summary>
+    void CopyPlacement()
+    {
+        if(Selected is not { } item)return;
+        _copiedPlacement=(item.X,item.Y,item.Rotation);
+        CanvasInfo.Text=$"X {item.X:0} · Y {item.Y:0} · {item.Rotation:0}° copied";
+    }
+
+    /// <summary>Moves every selected item to the remembered X, Y and rotation.</summary>
+    void PastePlacement()
+    {
+        if(_copiedPlacement is not { } placement)return;
+        var ids=TargetIds();
+        if(ids.Length==0)return;
+        ApplyPlacement(ids,item=>{item.X=placement.X;item.Y=placement.Y;item.Rotation=placement.Rotation;});
+        CanvasInfo.Text=$"X {placement.X:0} · Y {placement.Y:0} · {placement.Rotation:0}° pasted";
+    }
+
+    /// <summary>The selection, or the element being edited when nothing else is picked.</summary>
+    string[] TargetIds()
+    {
+        if(_selectedIds.Count>0)return _selectedIds.ToArray();
+        return _selectedId is { } id ? new[] { id } : Array.Empty<string>();
+    }
+
+    /// <summary>One edit across every given item, painted in place instead of rebuilding the canvas.</summary>
+    void ApplyPlacement(string[] ids,Action<ScorebugElement> edit)
+    {
+        _propertySave.Stop();
+        _skipRebuild=true;
+        try
+        {
+            _catalog.Update(layout=>
+            {
+                foreach(var target in layout.Elements.Where(z=>ids.Contains(z.Id)))edit(target);
+            });
+        }
+        finally { _skipRebuild=false; }
+        RefreshAllVisuals();
+        LoadProperties();
+        Render();
+    }
+
+    void NudgeSelection(double dx,double dy)
+    {
+        if(_catalog.Layout is not { } layout||_dragElement is not null||_resizing)return;
+        var moved=false;
+        foreach(var id in _selectedIds)
+        {
+            var item=layout.Elements.FirstOrDefault(element=>element.Id==id);
+            if(item is null)continue;
+            var x=item.X+dx; var y=item.Y+dy;
+            if(_gridSnap){x=Snap(x);y=Snap(y);}
+            x=Math.Clamp(x,0,Math.Max(0,layout.Width-item.Width));
+            y=Math.Clamp(y,0,Math.Max(0,layout.Height-item.Height));
+            if(Math.Abs(x-item.X)<0.001&&Math.Abs(y-item.Y)<0.001)continue;
+            item.X=x; item.Y=y;
+            if(_visuals.TryGetValue(id,out var visual)){Canvas.SetLeft(visual.Host,x);Canvas.SetTop(visual.Host,y);}
+            moved=true;
+        }
+        if(!moved)return;
+        var primary=layout.Elements.FirstOrDefault(element=>element.Id==_selectedId);
+        if(primary is not null)
+        {
+            _loading=true;
+            XInput.Text=primary.X.ToString("0");
+            YInput.Text=primary.Y.ToString("0");
+            _loading=false;
+        }
+        _propertySave.Stop(); _propertySave.Start();
+    }
+
+    void CanvasGrid_Changed(object sender,RoutedEventArgs e)
+    {
+        _gridSnap=CanvasGridInput.IsChecked==true;
+        RefreshCanvasGrid();
+    }
+
+    void RefreshCanvasGrid()
+    {
+        if(_catalog is null||GridCanvas is null)return;
+        GridCanvas.Width=_catalog.Layout.Width;
+        GridCanvas.Height=_catalog.Layout.Height;
+        if(!_gridSnap)
+        {
+            GridCanvas.Visibility=Visibility.Collapsed;
+            return;
+        }
+        GridCanvas.Background=GridBrush(_catalog.Layout.Width,_catalog.Layout.Height);
+        GridCanvas.Visibility=Visibility.Visible;
+    }
+
+    void CanvasFrame_SizeChanged(object sender,SizeChangedEventArgs e)=>FitCanvas();
+
+    void CanvasFrame_MouseWheel(object sender,MouseWheelEventArgs e)
+    {
+        if(e.Delta==0)return;
+        _canvasZoom=Math.Clamp(_canvasZoom*(e.Delta>0?1.14:1/1.14),0.25,4);
+        ApplyCanvasZoom();
+        e.Handled=true;
+    }
+
+    void FitCanvas()
+    {
+        if(_catalog is null||CanvasFrame is null||CanvasFrame.ActualWidth<=1||CanvasFrame.ActualHeight<=1)return;
+        var layout=_catalog.Layout;
+        var availableWidth=Math.Max(1,CanvasFrame.ActualWidth-4);
+        var availableHeight=Math.Max(1,CanvasFrame.ActualHeight-4);
+        _canvasFit=Math.Max(0.02,Math.Min(availableWidth/Math.Max(1,layout.Width),availableHeight/Math.Max(1,layout.Height)));
+        ApplyCanvasZoom();
+    }
+
+    void ApplyCanvasZoom()
+    {
+        if(_catalog is null||CanvasFrame is null)return;
+        if(CanvasFrame.ActualWidth<=1||CanvasFrame.ActualHeight<=1){FitCanvas();return;}
+        if(_canvasFit<=0)_canvasFit=1;
+        var scale=Math.Max(0.02,_canvasFit*_canvasZoom);
+        ArtworkEdge.LayoutTransform=new ScaleTransform(scale,scale);
+        if(CanvasZoomText is not null)CanvasZoomText.Text=$"{_canvasZoom*100:0}%";
+    }
+
+    /// <summary>The studio's grid is a guide only: it is never part of the artwork or the output.</summary>
+    Brush GridBrush(double width,double height)
+    {
+        width=Math.Max(1,width); height=Math.Max(1,height);
+        var group=new DrawingGroup();
+        var minor=new GeometryGroup();
+        var major=new GeometryGroup();
+        for(var x=GridStep;x<width;x+=GridStep)
+            (x%100==0?major:minor).Children.Add(new LineGeometry(new Point(x,0),new Point(x,height)));
+        for(var y=GridStep;y<height;y+=GridStep)
+            (y%100==0?major:minor).Children.Add(new LineGeometry(new Point(0,y),new Point(width,y)));
+        group.Children.Add(new GeometryDrawing(null,new Pen(new SolidColorBrush(Color.FromArgb(0x45,0x38,0xD7,0xA3)),1),minor));
+        group.Children.Add(new GeometryDrawing(null,new Pen(new SolidColorBrush(Color.FromArgb(0x85,0x38,0xD7,0xA3)),1),major));
+        group.Freeze();
+        return new DrawingBrush(group)
+        {
+            Viewbox=new Rect(0,0,width,height),Viewport=new Rect(0,0,width,height),
+            ViewboxUnits=BrushMappingMode.Absolute,ViewportUnits=BrushMappingMode.Absolute,
+            Stretch=Stretch.Fill,TileMode=TileMode.None
+        };
+    }
+
+    void OpaqueBackdrop_Click(object sender,RoutedEventArgs e)
+    {
+        if(Selected is not { } chosen)return;
+        _catalog.Update(layout=>
+        {
+            var target=layout.Elements.FirstOrDefault(item=>item.Id==chosen.Id);
+            if(target is null)return;
+            target.TransparentBackground=false;
+            target.Opacity=1;
+            target.BackgroundOpacity=1;
+            target.Background=Opaque(target.Background);
+            target.BackgroundColor2=Opaque(target.BackgroundColor2);
+            target.X=0;target.Y=0;target.Width=layout.Width;target.Height=layout.Height;
+            layout.Elements.Remove(target);
+            layout.Elements.Insert(0,target);
+        });
+        Render();
+        LoadProperties();
+    }
+
+    static string Opaque(string value)=>TryColor(value,out var color)
+        ? $"#FF{color.R:X2}{color.G:X2}{color.B:X2}"
+        : "#FF000000";
 
     void LayerFront_Click(object sender,RoutedEventArgs e)=>MoveSelectedLayer(1);
     void LayerBack_Click(object sender,RoutedEventArgs e)=>MoveSelectedLayer(-1);

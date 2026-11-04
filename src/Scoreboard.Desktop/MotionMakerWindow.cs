@@ -36,6 +36,17 @@ public sealed class MotionMakerWindow : Window
     readonly ComboBox _easePicker = new() { MinHeight = 28, Width = 110 };
     readonly ComboBox _colorRolePicker = new() { MinHeight = 28, Width = 106 };
     readonly ComboBox _presetPicker = new() { MinHeight = 28 };
+    readonly ListBox _presetList = new() { Height = 260, Margin = new Thickness(0, 4, 0, 4) };
+    readonly TextBlock _presetHint = new() { FontSize = 10, Opacity = 0.7, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) };
+    readonly Slider _easyExit = new() { Minimum = 0.05, Maximum = 10, IsMoveToPointEnabled = true, Margin = new Thickness(0, 2, 0, 2) };
+    readonly Slider _easyEnter = new() { Minimum = 0.05, Maximum = 10, IsMoveToPointEnabled = true, Margin = new Thickness(0, 2, 0, 2) };
+    readonly Slider _easyDuration = new() { Minimum = 0.05, Maximum = 10, IsMoveToPointEnabled = true, Margin = new Thickness(0, 2, 0, 2) };
+    readonly TextBlock _easyExitValue = new() { FontSize = 11, MinWidth = 48, TextAlignment = TextAlignment.Right };
+    readonly TextBlock _easyEnterValue = new() { FontSize = 11, MinWidth = 48, TextAlignment = TextAlignment.Right };
+    readonly TextBlock _easyDurationValue = new() { FontSize = 11, MinWidth = 48, TextAlignment = TextAlignment.Right };
+    readonly TextBlock _easySummary = new() { FontSize = 11, TextWrapping = TextWrapping.Wrap, Opacity = 0.78, Margin = new Thickness(0, 10, 0, 4) };
+    readonly Expander _advancedExpander = new() { IsExpanded = false, Margin = new Thickness(0, 12, 0, 0) };
+    bool _easySync;
     readonly ComboBox _exitLayoutPicker = new() { MinHeight = 28 };
     readonly ComboBox _enterLayoutPicker = new() { MinHeight = 28 };
     readonly ComboBox _motionLayoutPicker = new() { MinHeight = 28 };
@@ -139,7 +150,8 @@ public sealed class MotionMakerWindow : Window
         _previewGrid.Height = 150;
         _stageView = new Viewbox { Child = _previewGrid, Stretch = Stretch.Uniform };
 
-        Content = Build();
+        Content = BuildNew();
+        WireEasyControls();
         // Enter in any maker field settles the typing and lets go of the box; it must not leave a
         // value box live, where the next keystroke would silently edit what was just entered.
         foreach (var box in new[]
@@ -162,6 +174,8 @@ public sealed class MotionMakerWindow : Window
             RefreshLayoutChoices();
             BuildStage();
             DrawTimeline();
+            if (start is null)
+                _status.Text = "New here? Press Quick start in the top-right, or pick a style on the left. The three numbered steps are all you need.";
         };
         _ticker.Tick += (_, _) => TrackPlayhead();
         _previewTimer.Tick += (_, _) =>
@@ -182,7 +196,320 @@ public sealed class MotionMakerWindow : Window
 
     // ---------- layout ----------
 
-    UIElement Build()
+    UIElement BuildNew()
+    {
+        var root = new Grid { Margin = new Thickness(14) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition());
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
+        actions.Children.Add(ActionButton("Quick start", QuickStart));
+        actions.Children.Add(ActionButton("How to use", ShowHelp));
+        actions.Children.Add(ActionButton("Save clip", SaveToLibrary));
+        actions.Children.Add(ActionButton("Import " + Extension(), Import));
+        actions.Children.Add(ActionButton("Export " + Extension(), Export));
+        actions.Children.Add(ActionButton("Close", Close));
+        DockPanel.SetDock(actions, Dock.Right);
+        header.Children.Add(actions);
+        var title = new StackPanel();
+        title.Children.Add(new TextBlock
+        {
+            Text = _kind == MotionKind.Transition ? "TRANSITION MAKER" : "ANIMATION MAKER",
+            FontSize = 20,
+            FontWeight = FontWeights.Bold
+        });
+        title.Children.Add(new TextBlock
+        {
+            Text = _kind == MotionKind.Transition
+                ? "Make a graphic leave and arrive. Pick a look, set the pace, watch it, then save it."
+                : "Make a graphic move while it is up, or when its value changes. Pick a look, set the pace, watch it, then save it.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 680
+        });
+        header.Children.Add(title);
+        root.Children.Add(header);
+
+        root.Children.Add(BuildStepStrip());
+        Grid.SetRow((UIElement)root.Children[^1], 1);
+
+        var body = new Grid();
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
+        body.ColumnDefinitions.Add(new ColumnDefinition());
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(380) });
+        Grid.SetRow(body, 2);
+        root.Children.Add(body);
+
+        body.Children.Add(BuildStyleColumn());
+        var adjust = BuildAdjustColumn();
+        Grid.SetColumn(adjust, 1);
+        body.Children.Add(adjust);
+        var preview = BuildPreviewColumn();
+        Grid.SetColumn(preview, 2);
+        body.Children.Add(preview);
+
+        _advancedExpander.Header = _kind == MotionKind.Transition
+            ? "Advanced · exact phases, keyframes and colour keys (optional)"
+            : "Advanced · exact keyframes, phases and colour keys (optional)";
+        var advanced = (ScrollViewer)BuildEditorColumn();
+        advanced.MaxHeight = 370;
+        _advancedExpander.Content = advanced;
+        Grid.SetRow(_advancedExpander, 3);
+        root.Children.Add(_advancedExpander);
+
+        return root;
+    }
+
+    UIElement BuildStepStrip()
+    {
+        var strip = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x10, 0x18, 0x24)),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 8, 12, 8),
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        var row = new WrapPanel();
+        row.Children.Add(StepBadge("1", "Choose a style"));
+        row.Children.Add(StepArrow());
+        row.Children.Add(StepBadge("2", "Set the pace"));
+        row.Children.Add(StepArrow());
+        row.Children.Add(StepBadge("3", "Preview & save"));
+        row.Children.Add(new TextBlock
+        {
+            Text = "  You only need these three steps. Open Advanced at the bottom if you want exact keyframes.",
+            FontSize = 10,
+            Opacity = 0.62,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 2, 0, 0),
+            TextWrapping = TextWrapping.Wrap
+        });
+        strip.Child = row;
+        return strip;
+    }
+
+    static UIElement StepBadge(string number, string text)
+    {
+        var badge = new Border
+        {
+            Width = 20,
+            Height = 20,
+            CornerRadius = new CornerRadius(10),
+            Background = new SolidColorBrush(Color.FromRgb(0x38, 0xD7, 0xA3)),
+            Child = new TextBlock
+            {
+                Text = number,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x09, 0x10, 0x18)),
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        var label = new TextBlock
+        {
+            Text = text,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(5, 0, 2, 0)
+        };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(badge);
+        panel.Children.Add(label);
+        return panel;
+    }
+
+    static TextBlock StepArrow() => new()
+    {
+        Text = "→",
+        FontSize = 13,
+        Opacity = 0.45,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(5, 0, 5, 0)
+    };
+
+    UIElement BuildStyleColumn()
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
+        panel.Children.Add(StepTitle("1", "CHOOSE A STYLE", "Start with the closest look. Nothing is applied until you save."));
+        FillPresetList();
+        _presetList.SelectionChanged += (_, _) =>
+        {
+            if (_presetList.SelectedItem is ListBoxItem item && item.Tag is string name)
+                _presetHint.Text = PresetDescription(_kind, name);
+        };
+        panel.Children.Add(_presetList);
+        panel.Children.Add(_presetHint);
+        panel.Children.Add(ActionButton("Use this style", UsePreset));
+        panel.Children.Add(ActionButton("Start from a blank clip", () =>
+        {
+            _clip = _kind == MotionKind.Transition ? MotionClip.NewTransition() : MotionClip.NewAnimation();
+            _pieceId = "";
+            _phaseIndex = 0;
+            RefreshAll();
+            BuildStage();
+            _status.Text = "Blank clip ready. Add exact keyframes below, or pick a style above.";
+        }));
+
+        panel.Children.Add(Section(_kind == MotionKind.Transition ? "SAVED TRANSITIONS" : "SAVED ANIMATIONS"));
+        _libraryList.Height = 120;
+        panel.Children.Add(_libraryList);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+        buttons.Children.Add(ActionButton("Load", LoadFromLibrary));
+        buttons.Children.Add(ActionButton("Delete", DeleteFromLibrary));
+        panel.Children.Add(buttons);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Saved clips live with the show. A layout that uses one carries its own copy, so exporting can never lose it.",
+            FontSize = 10,
+            Opacity = 0.58,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        });
+        return panel;
+    }
+
+    UIElement BuildAdjustColumn()
+    {
+        var panel = new StackPanel { Margin = new Thickness(14, 0, 14, 0) };
+        panel.Children.Add(StepTitle("2", "SET THE PACE", "Drag a duration and watch the preview. Short is crisp; long is dramatic."));
+
+        if (_kind == MotionKind.Transition)
+        {
+            AddSliderRow(panel, "Leaving (exit)", _easyExit, _easyExitValue);
+            AddSliderRow(panel, "Arriving (enter)", _easyEnter, _easyEnterValue);
+        }
+        else
+        {
+            AddSliderRow(panel, "How long the motion takes", _easyDuration, _easyDurationValue);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "OPTIONS",
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                Opacity = 0.6,
+                Margin = new Thickness(0, 10, 0, 4)
+            });
+            panel.Children.Add(_loopBox);
+            panel.Children.Add(_pingBox);
+            panel.Children.Add(_valueBox);
+        }
+
+        panel.Children.Add(_easySummary);
+        panel.Children.Add(new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x14, 0x1C, 0x26)),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 8, 0, 0),
+            Child = new TextBlock
+            {
+                Text = _kind == MotionKind.Transition
+                    ? "A transition has two halves: the old graphic leaves, then the new one arrives. Both halves play in order."
+                    : "A loop repeats while the graphic is up. A value-change clip plays once after the new number or name lands.",
+                FontSize = 10,
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.68
+            }
+        });
+        return panel;
+    }
+
+    void AddSliderRow(Panel panel, string label, Slider slider, TextBlock readout)
+    {
+        var head = new DockPanel { Margin = new Thickness(0, 5, 0, 0) };
+        DockPanel.SetDock(readout, Dock.Right);
+        head.Children.Add(readout);
+        head.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.Add(head);
+        panel.Children.Add(slider);
+    }
+
+    UIElement BuildPreviewColumn()
+    {
+        var panel = new StackPanel { Margin = new Thickness(4, 0, 0, 0) };
+        panel.Children.Add(StepTitle("3", "PREVIEW & SAVE", "Play the clip on a real layout, then give it a name and save it."));
+        _stage.Height = 250;
+        panel.Children.Add(_stage);
+        var playback = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        playback.Children.Add(ActionButton("▶  Play", Play));
+        playback.Children.Add(ActionButton("■  Stop", () =>
+        {
+            StopPlayback();
+            BuildStage();
+        }));
+        panel.Children.Add(playback);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Tip: press Play, then drag either duration slider until the movement feels right.",
+            FontSize = 10,
+            Opacity = 0.62,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 8)
+        });
+        panel.Children.Add(FieldLabel("Name this clip"));
+        panel.Children.Add(_nameBox);
+        panel.Children.Add(ActionButton("Save clip to library", SaveToLibrary));
+        panel.Children.Add(_status);
+        panel.Children.Add(new TextBlock
+        {
+            Text = _kind == MotionKind.Transition
+                ? "Saving makes it available in the studio's Transition in, Value change and Motion preset lists."
+                : "Saving makes it available in the studio's Motion preset and Value change lists.",
+            FontSize = 10,
+            Opacity = 0.58,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        });
+        return panel;
+    }
+
+    static StackPanel StepTitle(string number, string title, string detail)
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
+        var head = new StackPanel { Orientation = Orientation.Horizontal };
+        head.Children.Add(new Border
+        {
+            Width = 22,
+            Height = 22,
+            CornerRadius = new CornerRadius(11),
+            Background = new SolidColorBrush(Color.FromRgb(0x38, 0xD7, 0xA3)),
+            Child = new TextBlock
+            {
+                Text = number,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x09, 0x10, 0x18)),
+                FontSize = 11,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+        head.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 11,
+            FontWeight = FontWeights.Bold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(7, 0, 0, 0)
+        });
+        panel.Children.Add(head);
+        panel.Children.Add(new TextBlock
+        {
+            Text = detail,
+            FontSize = 10,
+            Opacity = 0.62,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(29, 2, 0, 4)
+        });
+        return panel;
+    }
+
+    UIElement BuildLegacy()
     {
         var root = new Grid { Margin = new Thickness(14) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -379,6 +706,8 @@ public sealed class MotionMakerWindow : Window
         var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(4, 0, 4, 0) };
         var panel = new StackPanel();
 
+        if (_kind == MotionKind.Transition) BuildPiecesSection(panel);
+
         panel.Children.Add(Section("PHASES"));
         var phaseRow = new WrapPanel();
         phaseRow.Children.Add(new TextBlock { Text = "Name", VerticalAlignment = VerticalAlignment.Center, FontSize = 10, Opacity = 0.7, Margin = new Thickness(0, 0, 4, 0) });
@@ -398,12 +727,16 @@ public sealed class MotionMakerWindow : Window
         phaseButtons.Children.Add(ActionButton("Remove phase", RemovePhase));
         panel.Children.Add(phaseButtons);
 
-        if (_kind == MotionKind.Animation)
+        // The simple timing and behaviour controls live in step 2; this drawer is for exact
+        // keyframes, so it stays focused once the operator deliberately opens it.
+        panel.Children.Add(new TextBlock
         {
-            panel.Children.Add(_loopBox);
-            panel.Children.Add(_pingBox);
-            panel.Children.Add(_valueBox);
-        }
+            Text = "This is the exact-key editing view. Most clips are finished in steps 1–3 above; use this only when you need a specific value or time.",
+            FontSize = 10,
+            Opacity = 0.62,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 4)
+        });
 
         panel.Children.Add(Section("TIMELINE"));
         panel.Children.Add(_timelinePiece);
@@ -480,6 +813,47 @@ public sealed class MotionMakerWindow : Window
         return scroll;
     }
 
+    void BuildPiecesSection(StackPanel panel)
+    {
+        panel.Children.Add(Section("PIECES"));
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Select the item you want the keyframes below to affect. Temporary pieces exist only for this transition.",
+            FontSize = 10,
+            Opacity = 0.65,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 4)
+        });
+        _pieceList.SelectionChanged += (_, _) => SelectPiece();
+        panel.Children.Add(_pieceHint);
+        panel.Children.Add(_pieceList);
+        var pieceButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        pieceButtons.Children.Add(ActionButton("Add temporary piece", AddTemporaryPiece));
+        pieceButtons.Children.Add(ActionButton("Remove piece", RemoveTemporaryPiece));
+        panel.Children.Add(pieceButtons);
+
+        _pieceName.Width = 150;
+        _pieceText.Width = 150;
+        _pieceWidth.Width = 58; _pieceHeight.Width = 58; _pieceX.Width = 58; _pieceY.Width = 58;
+        _pieceFill.Width = 92; _pieceTextColor.Width = 92;
+        _pieceEditor.Children.Add(FieldLabel("Name", 2));
+        _pieceEditor.Children.Add(_pieceName);
+        _pieceEditor.Children.Add(FieldLabel("Text", 2));
+        _pieceEditor.Children.Add(_pieceText);
+        var geometry = new WrapPanel();
+        geometry.Children.Add(FieldLabel("W", 2)); geometry.Children.Add(_pieceWidth);
+        geometry.Children.Add(FieldLabel("H", 2)); geometry.Children.Add(_pieceHeight);
+        geometry.Children.Add(FieldLabel("X", 2)); geometry.Children.Add(_pieceX);
+        geometry.Children.Add(FieldLabel("Y", 2)); geometry.Children.Add(_pieceY);
+        _pieceEditor.Children.Add(geometry);
+        var paints = new WrapPanel();
+        paints.Children.Add(FieldLabel("Plate", 2)); paints.Children.Add(_pieceFill);
+        paints.Children.Add(FieldLabel("Text color", 2)); paints.Children.Add(_pieceTextColor);
+        _pieceEditor.Children.Add(paints);
+        _pieceEditor.Children.Add(ActionButton("Update piece", UpdateTemporaryPiece));
+        panel.Children.Add(_pieceEditor);
+    }
+
     static TextBlock Section(string text) => new()
     {
         Text = text,
@@ -522,6 +896,170 @@ public sealed class MotionMakerWindow : Window
 
     string Extension() => "." + MotionFiles.Extension(_kind);
 
+    void WireEasyControls()
+    {
+        _easyExit.ValueChanged += EasyTimingChanged;
+        _easyEnter.ValueChanged += EasyTimingChanged;
+        _easyDuration.ValueChanged += EasyTimingChanged;
+        _loopBox.Checked += EasyBehaviorChanged;
+        _loopBox.Unchecked += EasyBehaviorChanged;
+        _pingBox.Checked += EasyBehaviorChanged;
+        _pingBox.Unchecked += EasyBehaviorChanged;
+        _valueBox.Checked += EasyBehaviorChanged;
+        _valueBox.Unchecked += EasyBehaviorChanged;
+    }
+
+    void FillPresetList()
+    {
+        _presetList.Items.Clear();
+        var names = _kind == MotionKind.Transition ? MotionClip.TransitionPresets : MotionClip.AnimationPresets;
+        foreach (var name in names)
+        {
+            var item = new ListBoxItem
+            {
+                Tag = name,
+                Padding = new Thickness(8, 6, 8, 6),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                ToolTip = PresetDescription(_kind, name)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock { Text = name, FontSize = 12, FontWeight = FontWeights.SemiBold });
+            stack.Children.Add(new TextBlock
+            {
+                Text = PresetDescription(_kind, name),
+                FontSize = 10,
+                Opacity = 0.64,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 1, 0, 0)
+            });
+            item.Content = stack;
+            _presetList.Items.Add(item);
+        }
+    }
+
+    static string PresetDescription(MotionKind kind, string name) => kind == MotionKind.Transition
+        ? name switch
+        {
+            "Dissolve" => "A soft cross-fade. Neutral and safe for any graphic.",
+            "Wipe left" => "The old graphic slides left while the new one follows in.",
+            "Wipe right" => "The old graphic slides right while the new one follows in.",
+            "Push up" => "Both graphics travel upward, like a news ticker.",
+            "Push down" => "Both graphics travel downward, like a drop-in panel.",
+            "Zoom through" => "A punchy scale-through for replays and big moments.",
+            "Flip card" => "A card-flip on the vertical axis.",
+            "Swing" => "A quick swing out and a smooth return.",
+            "Blur cut" => "A fast defocus cut; crisp and modern.",
+            "Color wash" => "Fades through a colour while the graphic changes.",
+            _ => "A saved motion preset."
+        }
+        : name switch
+        {
+            "Bob" => "A gentle up-and-down idle. Good for name straps.",
+            "Sway" => "A small side-to-side drift with a touch of rotation.",
+            "Pulse" => "A subtle breathing scale. Keeps a card alive without distraction.",
+            "Spin" => "A full rotation. Save it for a logo or a celebration.",
+            "Breathe" => "A slow, soft scale in and out.",
+            "Shimmer" => "A quick highlight sweep for sponsor or premium graphics.",
+            "Ticker roll" => "A continuous vertical roll for lists and tickers.",
+            "Slide in" => "Arrives from the left with a clean settle.",
+            "Pop in" => "A quick scale pop when the value first appears.",
+            "Color cycle" => "A slow colour drift around the text or plate.",
+            _ => "A saved motion preset."
+        };
+
+    void SyncPresetSelection()
+    {
+        var match = _presetList.Items.OfType<ListBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag as string, _clip.Name, StringComparison.OrdinalIgnoreCase));
+        _presetList.SelectedItem = match;
+        if (match is null)
+            _presetHint.Text = _clip.Phases.Count == 0 ? "This clip has no phases yet. Start blank only if you want to build from nothing." : "Tune the pace in step 2, or open Advanced for exact keyframes.";
+        else _presetHint.Text = PresetDescription(_kind, (string)match.Tag);
+    }
+
+    void RefreshEasy()
+    {
+        if (_kind == MotionKind.Transition)
+        {
+            var exit = _clip.Phases.ElementAtOrDefault(0);
+            var enter = _clip.Phases.ElementAtOrDefault(1);
+            _easyExit.Maximum = Math.Max(10, exit?.Seconds ?? 0.3);
+            _easyEnter.Maximum = Math.Max(10, enter?.Seconds ?? 0.3);
+            _easySync = true;
+            try
+            {
+                _easyExit.Value = Math.Clamp(exit?.Seconds ?? 0.3, _easyExit.Minimum, _easyExit.Maximum);
+                _easyEnter.Value = Math.Clamp(enter?.Seconds ?? 0.3, _easyEnter.Minimum, _easyEnter.Maximum);
+            }
+            finally { _easySync = false; }
+        }
+        else
+        {
+            var phase = CurrentPhase ?? _clip.Phases.FirstOrDefault();
+            _easyDuration.Maximum = Math.Max(10, phase?.Seconds ?? 1);
+            _easySync = true;
+            try { _easyDuration.Value = Math.Clamp(phase?.Seconds ?? 1, _easyDuration.Minimum, _easyDuration.Maximum); }
+            finally { _easySync = false; }
+        }
+        _easySync = true;
+        try
+        {
+            _loopBox.IsChecked = _clip.Loop;
+            _pingBox.IsChecked = _clip.PingPong;
+            _valueBox.IsChecked = _clip.UseOnValueChange;
+        }
+        finally { _easySync = false; }
+        RefreshEasyReadouts();
+    }
+
+    void RefreshEasyReadouts()
+    {
+        _easyExitValue.Text = $"{_easyExit.Value:0.##}s";
+        _easyEnterValue.Text = $"{_easyEnter.Value:0.##}s";
+        _easyDurationValue.Text = $"{_easyDuration.Value:0.##}s";
+        if (_kind == MotionKind.Transition)
+        {
+            var exit = _clip.Phases.ElementAtOrDefault(0);
+            var enter = _clip.Phases.ElementAtOrDefault(1);
+            var total = (exit?.Seconds ?? 0) + (enter?.Seconds ?? 0);
+            _easySummary.Text = $"Exit {exit?.Seconds ?? 0:0.##}s + enter {enter?.Seconds ?? 0:0.##}s = {total:0.##}s. The old graphic leaves first, then the new one arrives.";
+        }
+        else
+        {
+            var phase = CurrentPhase ?? _clip.Phases.FirstOrDefault();
+            var tracks = phase?.Tracks.Count ?? 0;
+            var behaviour = _clip.UseOnValueChange ? "plays once when the value changes" : _clip.Loop ? "loops while the graphic is up" : "plays once";
+            _easySummary.Text = $"{phase?.Seconds ?? 0:0.##}s · {tracks} keyed propert{(tracks == 1 ? "y" : "ies")} · {behaviour}.";
+        }
+    }
+
+    void EasyTimingChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_easySync || _clip.Phases.Count == 0) return;
+        var seconds = Math.Round(e.NewValue, 2);
+        MotionPhase? phase;
+        if (_kind == MotionKind.Transition)
+            phase = sender == _easyExit ? _clip.Phases.ElementAtOrDefault(0) : _clip.Phases.ElementAtOrDefault(1);
+        else
+            phase = CurrentPhase ?? _clip.Phases.FirstOrDefault();
+        if (phase is null) return;
+        phase.Seconds = seconds;
+        _clip.Normalize();
+        DrawTimeline();
+        RefreshEasyReadouts();
+        _status.Text = $"{phase.Name} is now {seconds:0.##}s.";
+    }
+
+    void EasyBehaviorChanged(object sender, RoutedEventArgs e)
+    {
+        if (_easySync) return;
+        _clip.Loop = _loopBox.IsChecked == true;
+        _clip.PingPong = _pingBox.IsChecked == true;
+        _clip.UseOnValueChange = _valueBox.IsChecked == true;
+        RefreshEasyReadouts();
+        _status.Text = _clip.UseOnValueChange ? "Plays once when the value changes." : _clip.Loop ? "Loops while the graphic is up." : "Plays once.";
+    }
+
     // ---------- refresh ----------
 
     void RefreshAll()
@@ -537,6 +1075,8 @@ public sealed class MotionMakerWindow : Window
         _loopBox.IsChecked = _clip.Loop;
         _pingBox.IsChecked = _clip.PingPong;
         _valueBox.IsChecked = _clip.UseOnValueChange;
+        SyncPresetSelection();
+        RefreshEasy();
         DrawTimeline();
         RefreshStagePaint();
     }
@@ -554,6 +1094,7 @@ public sealed class MotionMakerWindow : Window
         RefreshTracks();
         RefreshColors();
         DrawTimeline();
+        RefreshEasy();
     }
 
     void RefreshTracks()
@@ -814,16 +1355,56 @@ public sealed class MotionMakerWindow : Window
 
     // ---------- editing ----------
 
+    void ShowHelp()
+    {
+        var transition = _kind == MotionKind.Transition;
+        NoticeWindow.Tell(this,
+            transition ? "How the Transition Maker works" : "How the Animation Maker works",
+            transition
+                ? "Use this maker when a graphic comes on or leaves the screen.\n\n" +
+                  "1. Pick a style on the left — for example Wipe left or Dissolve.\n" +
+                  "2. Drag the two pace sliders: one for the old graphic leaving, one for the new graphic arriving.\n" +
+                  "3. Press Play to watch it on a real layout. Give it a name and press Save clip.\n\n" +
+                  "The saved clip then appears in the studio's Transition in list. Advanced is optional; you never need it for a normal transition."
+                : "Use this maker when a value moves while it is already on screen — for example a score popping, a clock pulsing or a lower third looping.\n\n" +
+                  "1. Pick a style on the left — for example Pop in or Pulse.\n" +
+                  "2. Drag the duration slider. Tick Loop for an idle motion, or Play when the value changes for a one-shot flourish.\n" +
+                  "3. Press Play to watch it, name it and press Save clip.\n\n" +
+                  "The saved clip then appears in the studio's Animation / Value change lists. Advanced is optional; you never need it for a normal animation.");
+    }
+
+    void QuickStart()
+    {
+        if (_presetList.Items.Count == 0) return;
+        if (_presetList.SelectedIndex < 0) _presetList.SelectedIndex = 0;
+        UsePreset();
+        if (_kind == MotionKind.Transition)
+        {
+            _easyExit.Value = 0.3;
+            _easyEnter.Value = 0.4;
+        }
+        else _easyDuration.Value = 0.8;
+        BuildStage();
+        Play();
+        _status.Text = "Quick start is playing. If it feels right, give it a name and press Save clip. Use the pace sliders to change the speed.";
+    }
+
     void UsePreset()
     {
-        if (_presetPicker.SelectedItem is not string name) return;
+        var name = (_presetList.SelectedItem as ListBoxItem)?.Tag as string
+            ?? _presetPicker.SelectedItem as string;
+        if (name is null)
+        {
+            _status.Text = "Pick a style first, then press Use this style.";
+            return;
+        }
         _clip = _kind == MotionKind.Transition ? MotionClip.TransitionPreset(name) : MotionClip.AnimationPreset(name);
         _clip.Name = name;
         _pieceId = "";
         _phaseIndex = 0;
         RefreshAll();
         BuildStage();
-        _status.Text = $"Preset loaded: {name}. Tune it, then save it under your own name.";
+        _status.Text = $"Style loaded: {name}. Set the pace in step 2, then save it under your own name.";
     }
 
     void AddPhase()
@@ -1046,6 +1627,7 @@ public sealed class MotionMakerWindow : Window
             host.BorderBrush = ScorebugRender.HostBorder(item, state);
             host.BorderThickness = new Thickness(item.BorderThickness);
         }
+        MotionPlayback.SetDesignRotation(host, item.Rotation);
         Canvas.SetLeft(host, item.X);
         Canvas.SetTop(host, item.Y);
         return host;

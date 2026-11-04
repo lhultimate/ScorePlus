@@ -69,7 +69,10 @@ engine.NewGame("football");engine.SetTeams("<Home & Co>","Visitors");engine.SetF
 engine.NewGame("basketball");engine.AddFoul(true);var basketballReport=GameReport.Build(engine.State);Check(basketballReport.Contains("Fouls: 1 — 0")&&basketballReport.Contains("Shot clock: 30s"),"basketball report includes fouls and shot clock");
 engine.NewGame("baseball");engine.SetTeams("<Home & Co>","Visitors");engine.BaseballHit(true);var baseballReport=GameReport.Build(engine.State);Check(baseballReport.Contains("Hits: &lt;Home &amp; Co&gt; 1")&&baseballReport.Contains("Count: 0 balls"),"baseball report includes hits and count");
 engine.NewGame("football");engine.SetFootballDistance(4,18);engine.PreviousDown();Check(engine.State.Down==1&&engine.State.YardsToGo==4,"previous down steps back from first down safely");engine.AdvanceDown();engine.SetFootballDistance(7,42);engine.NewSeries();Check(engine.State.Down==1&&engine.State.YardsToGo==10,"new series resets the down to first and ten");Check(engine.Undo()&&engine.State.YardsToGo==7,"new series can be undone");
-engine.NewGame("football");Check(PeriodDisplay.Format(engine.State)=="Quarter 1","default period label is Quarter 1");engine.SetPeriodFormat("Short");Check(PeriodDisplay.Format(engine.State)=="Q1"&&ScoreboardTemplates.Bind("{{PERIOD}}",engine.State)=="Q1","short period label is Q1");Check(ScoreboardTemplates.Bind("{{PERIOD}}",engine.State,"Full")=="QUARTER 1"&&ScoreboardTemplates.Bind("{{PERIOD}}",engine.State,"Number")=="1","a studio element can choose its own quarter style");engine.SetPeriodFormat("Number");Check(PeriodDisplay.Format(engine.State)=="1","numeric period label is a bare number");var periodReport=GameReport.Build(engine.State);Check(periodReport.Contains("1 of 4"),"game report honors the selected period format");engine.NewGame("soccer");engine.SetPeriodFormat("Short");Check(PeriodDisplay.Format(engine.State)=="Half 1","period format only applies to quarter-based sports");
+engine.NewGame("football");engine.SetFootballDistance(3,41);engine.AdvanceDown();Check(engine.State.Down==2&&engine.State.YardsToGo==3&&engine.State.YardsToGoal==41,"next down keeps the distance and spot");engine.RecallLastDown();Check(engine.State.Down==1&&engine.State.YardsToGo==3&&engine.State.YardsToGoal==41,"recall last down puts the down, distance and spot back");engine.SetFootballDistance(2,18);Check(engine.State.YardsToGo==2&&engine.State.YardsToGoal==18,"setting the distance is remembered for recall");engine.RecallLastDown();Check(engine.State.YardsToGo==3&&engine.State.YardsToGoal==41,"recall restores the spot after a distance edit");
+var hardwareDowns=new GameEngine();hardwareDowns.NewGame("football");hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:1,YardsToGo:10,BallOn:35));hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));Check(hardwareDowns.State.Down==2&&hardwareDowns.State.YardsToGo==7,"a console frame moves the down");hardwareDowns.RecallLastDown();Check(hardwareDowns.State.Down==1&&hardwareDowns.State.YardsToGo==10&&hardwareDowns.State.YardsToGoal==35,"a recall restores the down a controller sent");hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));hardwareDowns.RecallLastDown();Check(hardwareDowns.State.Down==1&&hardwareDowns.State.YardsToGo==10,"a repeated controller frame still recalls the down before it");
+engine.NewGame("football");Check(PeriodDisplay.Format(engine.State)=="Quarter 1","default period label is Quarter 1");engine.SetPeriodFormat("Short");Check(PeriodDisplay.Format(engine.State)=="Q1"&&ScoreboardTemplates.Bind("{{PERIOD}}",engine.State)=="Q1","short period label is Q1");Check(ScoreboardTemplates.Bind("{{PERIOD}}",engine.State,"Full")=="QUARTER 1"&&ScoreboardTemplates.Bind("{{PERIOD}}",engine.State,"Number")=="1","a studio element can choose its own quarter style");engine.SetPeriodFormat("Number");Check(PeriodDisplay.Format(engine.State)=="1","numeric period label is a bare number");engine.SetPeriodFormat("Ordinal");Check(PeriodDisplay.Format(engine.State)=="1st","ordinal period label is 1st");var periodReport=GameReport.Build(engine.State);Check(periodReport.Contains("1 of 4"),"game report honors the selected period format");engine.NewGame("soccer");engine.SetPeriodFormat("Short");Check(PeriodDisplay.Format(engine.State)=="Half 1","period format only applies to quarter-based sports");
+var ordinalPath=Path.Combine(Path.GetTempPath(),$"ordinal-{Guid.NewGuid():N}.json");try{var ordinalCatalog=new ScorebugCatalog(ordinalPath);ordinalCatalog.Update(layout=>layout.Elements.Add(new ScorebugElement{Name="Ordinal",Content="{{PERIOD}}",PeriodFormat="Ordinal"}));Check(new ScorebugCatalog(ordinalPath).Layout.Elements[^1].PeriodFormat=="Ordinal","an element's ordinal quarter style survives a save");}finally{if(File.Exists(ordinalPath))File.Delete(ordinalPath);}
 var shapeLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Triangle};var shapeCatalogPath=Path.Combine(Path.GetTempPath(),$"shape-{Guid.NewGuid():N}.json");try{var catalog=new ScorebugCatalog(shapeCatalogPath);catalog.Update(layout=>layout.Elements.Add(shapeLayout));var reloaded=new ScorebugCatalog(shapeCatalogPath);Check(reloaded.Layout.Elements[^1].Shape==ScorebugShape.Triangle,"scorebug shapes persist in the studio layout");}finally{if(File.Exists(shapeCatalogPath))File.Delete(shapeCatalogPath);}
 Check(ClockFormat.TryParse("10:30",out var parsedClock)&&parsedClock==630,"MM:SS clock entry parses minutes and seconds");Check(ClockFormat.TryParse("1:05",out var shortClock)&&shortClock==65,"single-digit minutes parse correctly");Check(ClockFormat.TryParse("720",out var rawClock)&&rawClock==720,"plain seconds still parse");Check(!ClockFormat.TryParse("10:75",out _)&&!ClockFormat.TryParse("abc",out _),"invalid clock entry is rejected");Check(ClockFormat.Format(630)=="10:30"&&ClockFormat.Format(0)=="00:00","clock formatting round trips");
 engine.NewGame("football");Check(engine.State.HomeTimeouts==3&&engine.State.AwayTimeouts==3,"new games take the timeout count from the sport profile");var timeoutCatalogPath=Path.Combine(Path.GetTempPath(),$"timeouts-{Guid.NewGuid():N}.json");try{var timeouts=new SportCatalog(timeoutCatalogPath);timeouts.SaveProfile(timeouts.Find("football")! with { Timeouts=7 });var reloaded=new SportCatalog(timeoutCatalogPath);Check(reloaded.Find("football")!.Timeouts==7,"editing a built-in profile is saved as an override");var overrideGame=new GameEngine(reloaded);overrideGame.NewGame("football");Check(overrideGame.State.HomeTimeouts==7,"overridden profile timeouts reach a new game");Check(reloaded.ResetOverride("football")&&reloaded.Find("football")!.Timeouts==3,"resetting an override restores the preset");}finally{if(File.Exists(timeoutCatalogPath))File.Delete(timeoutCatalogPath);}
@@ -518,6 +521,17 @@ try
     Check(page.Contains("data-token")&&page.Contains("ScorePlus")&&page.Contains("<html"),"the web export keeps the tokens a site can update");
     Check(page.Contains(">7<")||page.Contains("7"),"the web export prints the bound values onto the page");
 
+    var arrowGame=new GameEngine();arrowGame.NewGame("football");arrowGame.SetPossession(true);
+    var arrowLayout=new ScorebugLayout{Elements=[
+        new ScorebugElement{Name="Home arrow",Content="",Icon=ScorebugIcon.PossessionArrow,Width=80,Height=40},
+        new ScorebugElement{Name="Away arrow",Content="",Icon=ScorebugIcon.PossessionArrow,IconVisitors=true,Width=80,Height=40}]};
+    var homeArrowPage=ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession");
+    Check(homeArrowPage.Contains("class=\"sp-arrow in")&&!homeArrowPage.Contains("class=\"sp-arrow out"),"the possession arrow only marks the team with the ball");
+    arrowGame.SetPossession(false);
+    Check(ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession").Contains("class=\"sp-arrow out flip"),"the possession arrow follows the ball to the other plate");
+    var shadowItem=new ScorebugElement{Name="Shadowed",Content="TEXAS",TextShadow=true,TextShadowColor="#CC000000",TextShadowOffset=5,TextShadowSoftness=0};
+    Check(ScorebugHtml.Build(new ScorebugLayout{Elements=[shadowItem]},arrowGame.State,"Shadow").Contains("text-shadow:"),"a text shadow is written into the web export");
+
     var reportRoster=Roster.Create("Home Roster");
     var bench=reportRoster.AddPlayer();bench.Name="Bench";bench.SetStat("Yards",0);
     var fullReport=GameReport.Build(webGame.State,[reportRoster]);
@@ -537,6 +551,77 @@ try
     var pieceCopy=pieceClip.Snapshot();
     Check(pieceCopy.Pieces.Count==1&&pieceCopy.Pieces[0].Name=="Flash"
         &&pieceCopy.Phase("Enter")!.Tracks.Any(track=>track.PieceId=="element-a"),"a saved clip carries its temporary pieces and piece-scoped keys");
+
+    // ---------- Daktronics All Sport 5000 RTD decoding ----------
+    // Build one RTD packet exactly as the console does: SYN SOH header STX text EOT checksum ETX.
+    static byte[] DaktronicsFrame(int offset,string text)
+    {
+        var body=new List<byte>{0x01};
+        body.AddRange(System.Text.Encoding.ASCII.GetBytes("004210"+offset.ToString("D4")));
+        body.Add(0x02);
+        body.AddRange(System.Text.Encoding.ASCII.GetBytes(text));
+        body.Add(0x04);
+        var checksum=body.Aggregate(0,static (sum,value)=>(sum+value)&0xFF);
+        var frame=new List<byte>{0x16};
+        frame.AddRange(body);
+        frame.AddRange(System.Text.Encoding.ASCII.GetBytes(checksum.ToString("X2")));
+        frame.Add(0x17);
+        return frame.ToArray();
+    }
+
+    var rtd=new DaktronicsRtdDecoder("football");
+    DeviceSnapshot? rtdState=null;
+    foreach(var (offset,text) in new[]{
+        (1,"16:09"),(108,"  12"),(112,"   7"),(142," 2"),(122," 3"),(130," 1"),
+        (201," 0:25.0z"),(220,"35"),(222,"1ST"),(225,"10")})
+        rtdState=rtd.Feed(DaktronicsFrame(offset,text)) ?? rtdState;
+    Check(rtdState?.ClockSeconds==969&&rtdState.HomeScore==12&&rtdState.AwayScore==7&&rtdState.Period==2,
+        "Daktronics RTD packets splice clock, score and period fields into the persistent buffer");
+    Check(rtdState.HomeTimeouts==3&&rtdState.AwayTimeouts==1&&rtdState.PlayClockSeconds==25,
+        "Daktronics RTD decodes timeouts and the football play clock");
+    Check(rtdState.Down==1&&rtdState.YardsToGo==10&&rtdState.BallOn==35,
+        "Daktronics RTD decodes down, distance and ball spot");
+    var hardwareGame=new GameEngine();hardwareGame.NewGame("football");hardwareGame.HardwareControlled=true;
+    Check(hardwareGame.ApplyHardwareSnapshot(rtdState!),
+        "a device snapshot changes the live game");
+    Check(hardwareGame.State.HomeScore==12&&hardwareGame.State.AwayScore==7&&hardwareGame.State.ClockSeconds==969
+        &&hardwareGame.State.Period==2&&hardwareGame.State.Down==1&&hardwareGame.State.YardsToGo==10,
+        "hardware values reach the console without an operator undo point");
+    var hardwareOutput=new GameEngine();hardwareOutput.LoadFromState(hardwareGame.CloneState());
+    Check(hardwareOutput.UpdateLiveController(hardwareGame.State)==false,
+        "a controller update is idempotent for the published copy");
+    hardwareGame.SetFootballDistance(3,42);hardwareGame.SetPeriod(3);
+    Check(hardwareOutput.UpdateLiveController(hardwareGame.State)
+        &&hardwareOutput.State.YardsToGo==3&&hardwareOutput.State.YardsToGoal==42&&hardwareOutput.State.Period==3,
+        "controller updates carry down, distance and period to the audience copy");
+    hardwareGame.HardwareControlled=false;
+
+    var basketballRtd=new DaktronicsRtdDecoder("basketball");
+    DeviceSnapshot? basketballState=null;
+    foreach(var (offset,text) in new[]{
+        (1," 0:44"),(108,"  21"),(112,"  19"),(201," 0:18.4z"),(236," 4"),(238," 2")})
+        basketballState=basketballRtd.Feed(DaktronicsFrame(offset,text)) ?? basketballState;
+    Check(basketballState?.ShotClockSeconds==18&&basketballState.HomeFouls==4&&basketballState.AwayFouls==2,
+        "Daktronics RTD uses the basketball shot-clock and foul fields");
+
+    // ---------- every clock button reaches the software ----------
+    // RTD sends clock values but no running flag, so each clock is judged from its own readings:
+    // a value that decreases is running, one that holds still was stopped.
+    var runTrack=new ClockRunTracker(1000);
+    Check(runTrack.Track(600,0)==null,"one clock reading does not guess whether the clock runs");
+    Check(runTrack.Track(599,500)==true&&runTrack.Track(598,1000)==true,"a decreasing clock is running");
+    Check(runTrack.Track(598,2600)==false,"a clock that holds still is stopped");
+    Check(runTrack.Track(540,2700)==true&&runTrack.Track(540,3800)==false,
+        "a clock set back reads as running until it holds still again");
+    runTrack.Reset();
+    Check(runTrack.Track(24,4000)==null,"a tracker that was reset forgets the previous game");
+    var shotTrack=new ClockRunTracker(1000);
+    // The shot and play clocks move independently of the game clock.
+    shotTrack.Track(24,0);shotTrack.Track(23,500);
+    var playTrack=new ClockRunTracker(1000);
+    playTrack.Track(25,0);playTrack.Track(25,3000);
+    Check(shotTrack.Track(22,1000)==true&&playTrack.Track(25,3500)==false,
+        "the shot clock and the play clock are tracked separately");
 }
 finally
 {

@@ -39,6 +39,16 @@ public static class SoundLevelMeter
     /// <summary>False when the machine has no output to listen to; the meter then stays dark.</summary>
     public static bool Available { get; }
 
+    /// <summary>
+    /// Answers "is any of this show's audio actually on air?". The show installs it once, and it is
+    /// asked on every read, so a speaker switched off silences the bar immediately instead of leaving
+    /// it dancing to whatever else the machine happens to be playing. Null keeps the old behaviour.
+    /// </summary>
+    public static Func<bool>? AudibleGate { get; set; }
+
+    /// <summary>True while the gate says nothing the show plays is reaching a speaker.</summary>
+    public static bool Suppressed => AudibleGate?.Invoke() == false;
+
     static void OnData(object? sender, WaveInEventArgs e)
     {
         if (e.BytesRecorded <= 0) return;
@@ -71,6 +81,13 @@ public static class SoundLevelMeter
     {
         lock (Gate)
         {
+            if (Suppressed)
+            {
+                _held = 0;
+                _level = 0;
+                _last = DateTime.UtcNow;
+                return 0;
+            }
             var now = DateTime.UtcNow;
             var seconds = Math.Clamp((now - _last).TotalSeconds, 0, 1);
             _last = now;

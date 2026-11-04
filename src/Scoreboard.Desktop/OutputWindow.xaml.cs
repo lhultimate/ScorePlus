@@ -15,15 +15,12 @@ public partial class OutputWindow : Window
     // is ever drawn here, so two screens can be on air with completely different designs.
     readonly string _displayId;
     string _broadcastTheme;
-    WindowStyle _style; WindowState _state; bool _full;
-    double _left, _top, _width, _height;
-    bool _geometrySaved;
     public OutputWindow(GameEngine engine, ScorebugCatalog catalog,string broadcastTheme="Dark",MediaPlayback? playback=null,string? displayId=null)
     {
         InitializeComponent(); _broadcastTheme=broadcastTheme; _engine = engine; _catalog=catalog; _displayState=engine.CloneState();
         _displayId=(catalog.FindDisplay(displayId)??catalog.Displays[0]).Id;
         // The audience only ever sees the layout that was published, never the one being designed.
-        _scorebugView=new ScorebugCanvasView(catalog,engine,()=>_displayState,playback,muteVideo:false,layoutProvider:()=>_catalog.PublishedLayoutOf(_displayId),displayId:_displayId);
+        _scorebugView=new ScorebugCanvasView(catalog,engine,()=>_displayState,playback,muteVideo:false,layoutProvider:()=>_catalog.PublishedCompositeOf(_displayId),displayId:_displayId);
         ScorebugHost.Children.Add(_scorebugView); _engine.Changed+=Update; _engine.Changed+=_scorebugView.Refresh; _catalog.Changed+=Publish; Update();
     }
 
@@ -35,6 +32,23 @@ public partial class OutputWindow : Window
     public void Publish(){_displayState=_engine.CloneState();Update();_scorebugView.Refresh();}
     /// <summary>Re-creates the on-air visuals; used when a new game replaces everything.</summary>
     public void Rebuild(){Update();_scorebugView.Rebuild();}
+    /// <summary>Copies controller-owned game values to the audience without staging them.</summary>
+    public void UpdateLiveController(GameState source)
+    {
+        _displayState.HomeScore=source.HomeScore;_displayState.AwayScore=source.AwayScore;
+        _displayState.ClockSeconds=source.ClockSeconds;_displayState.ClockRunning=source.ClockRunning;
+        _displayState.Period=source.Period;_displayState.HomeTimeouts=source.HomeTimeouts;
+        _displayState.AwayTimeouts=source.AwayTimeouts;_displayState.HomePossession=source.HomePossession;
+        _displayState.Down=source.Down;_displayState.YardsToGo=source.YardsToGo;
+        _displayState.YardsToGoal=source.YardsToGoal;_displayState.BallOnHomeSide=source.BallOnHomeSide;
+        _displayState.ShotClockSeconds=source.ShotClockSeconds;_displayState.ShotClockRunning=source.ShotClockRunning;
+        _displayState.PlayClockSeconds=source.PlayClockSeconds;_displayState.PlayClockRunning=source.PlayClockRunning;
+        _displayState.TimeoutClockSeconds=source.TimeoutClockSeconds;_displayState.TimeoutClockRunning=source.TimeoutClockRunning;
+        _displayState.HomeFouls=source.HomeFouls;_displayState.AwayFouls=source.AwayFouls;
+        _displayState.Balls=source.Balls;_displayState.Strikes=source.Strikes;_displayState.Outs=source.Outs;
+        Update();_scorebugView.Refresh();
+    }
+
     public void UpdateLiveScoreClock(GameState source)
     {
         _displayState.HomeScore=source.HomeScore;_displayState.AwayScore=source.AwayScore;
@@ -98,89 +112,9 @@ public partial class OutputWindow : Window
     static string Dots(int count) => string.Join(" ", Enumerable.Repeat("●", count));
     static string OrdinalSuffix(int value)=>value switch{1=>"st",2=>"nd",3=>"rd",_=>"th"};
     /// <summary>True while this window is filling its screen.</summary>
-    public bool IsFullscreen => _full;
+    public bool IsFullscreen => WindowFullscreen.IsFullscreen(this);
 
-    public void ToggleFullscreen()
-    {
-        if (_full) ExitFullscreen();
-        else EnterFullscreen();
-    }
-
-    void EnterFullscreen()
-    {
-        _full = true;
-        _style = WindowStyle;
-        _state = WindowState;
-        _left = Left;
-        _top = Top;
-        _width = Width;
-        _height = Height;
-        _geometrySaved = true;
-        // Drop back to a normal window before the chrome goes: maximizing while the style is being
-        // changed makes WPF size the window to the old work area, which is what left a strip down
-        // each side of a 16:9 graphic (the "black borders" in fullscreen).
-        WindowState = WindowState.Normal;
-        WindowStyle = WindowStyle.None;
-        ResizeMode = ResizeMode.NoResize;
-        FillMonitor();
-        Topmost = true;
-    }
-
-    void ExitFullscreen()
-    {
-        _full = false;
-        Topmost = false;
-        WindowStyle = _style;
-        ResizeMode = ResizeMode.CanResize;
-        if (_geometrySaved)
-        {
-            Left = _left;
-            Top = _top;
-            Width = _width;
-            Height = _height;
-            _geometrySaved = false;
-        }
-        WindowState = _state;
-    }
-
-    /// <summary>Takes the window to the full bounds of the monitor it is on, taskbar included.</summary>
-    void FillMonitor()
-    {
-        var handle = new WindowInteropHelper(this).Handle;
-        if (handle == IntPtr.Zero) return;
-        var monitor = MonitorFromWindow(handle, MonitorDefaultToNearest);
-        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info)) return;
-        // GetMonitorInfo is in physical pixels; WPF's Left/Top/Width/Height are device-independent.
-        var dpi = VisualTreeHelper.GetDpi(this);
-        Left = info.Monitor.Left / dpi.DpiScaleX;
-        Top = info.Monitor.Top / dpi.DpiScaleY;
-        Width = (info.Monitor.Right - info.Monitor.Left) / dpi.DpiScaleX;
-        Height = (info.Monitor.Bottom - info.Monitor.Top) / dpi.DpiScaleY;
-    }
-
-    const uint MonitorDefaultToNearest = 2;
-
-    [DllImport("user32.dll")]
-    static extern IntPtr MonitorFromWindow(IntPtr handle, uint flags);
-
-    [DllImport("user32.dll")]
-    static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct NativeRect
-    {
-        public int Left, Top, Right, Bottom;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct MonitorInfo
-    {
-        public int Size;
-        public NativeRect Monitor;
-        public NativeRect Work;
-        public uint Flags;
-    }
+    public void ToggleFullscreen() => WindowFullscreen.Toggle(this);
 
     /// <summary>
     /// F11 on the audience window is the same as Broadcast Fullscreen from the main menu: the
@@ -194,9 +128,9 @@ public partial class OutputWindow : Window
             e.Handled = true;
             return;
         }
-        if (e.Key == System.Windows.Input.Key.Escape && _full)
+        if (e.Key == System.Windows.Input.Key.Escape && IsFullscreen)
         {
-            ToggleFullscreen();
+            WindowFullscreen.Exit(this);
             e.Handled = true;
             return;
         }

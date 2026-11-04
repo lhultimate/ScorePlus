@@ -54,6 +54,8 @@ public static class ScoreboardTemplates
         .Replace("{{AWAY_TEAM}}", state.AwayTeam)
         .Replace("{{HOME_ABBR}}", state.HomeAbbreviation)
         .Replace("{{AWAY_ABBR}}", state.AwayAbbreviation)
+        .Replace("{{HOME_MASCOT}}", state.HomeMascot)
+        .Replace("{{AWAY_MASCOT}}", state.AwayMascot)
         .Replace("{{HOME_SCORE}}", state.HomeScore.ToString())
         .Replace("{{AWAY_SCORE}}", state.AwayScore.ToString())
         .Replace("{{PERIOD}}", PeriodDisplay.Format(state, periodFormat).ToUpperInvariant())

@@ -277,8 +277,25 @@ public sealed class ScorebugTextBlock : TextBlock
         if (item.Underline) decorations.Add(System.Windows.TextDecorations.Underline[0]);
         if (item.StrikeThrough) decorations.Add(System.Windows.TextDecorations.Strikethrough[0]);
         TextDecorations = decorations.Count == 0 ? null : decorations;
-        // Slanted text: rotation is part of the element's design, not part of the animation.
-        _rotate.Angle = item.Rotation;
+        // The element's host carries its design rotation now, so the text itself stays upright
+        // inside a rotated plate or logo. Keeping it here would rotate text twice.
+        _rotate.Angle = 0;
+        // A drop shadow lifts lettering off a photograph: a soft one reads as a glow, a hard one as
+        // the broadcast drop shadow over a crowd shot.
+        if (item.TextShadow)
+        {
+            var shadowBrush = ScorebugRender.ParseBrush(item.TextShadowColor);
+            var shadowColor = shadowBrush is SolidColorBrush solid ? solid.Color : Colors.Black;
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = shadowColor,
+                ShadowDepth = Math.Clamp(item.TextShadowOffset, 0, 40),
+                Direction = 315,
+                BlurRadius = Math.Clamp(item.TextShadowSoftness, 0, 60),
+                Opacity = shadowColor.A / 255.0
+            };
+        }
+        else Effect = null;
         _style = item;
     }
 
@@ -557,6 +574,7 @@ public sealed class ScorebugIconView : Grid
     readonly ScorebugElement _item;
     readonly Func<GameState>? _state;
     readonly Ellipse? _dot;
+    readonly Polygon? _arrow;
     readonly StackPanel? _bars;
     readonly Canvas? _bases;
     readonly List<Rectangle> _baseSquares = [];
@@ -569,6 +587,8 @@ public sealed class ScorebugIconView : Grid
     string _baseSignature = "";
     // Which side the dot was last drawn on, so a possession change can animate from the old side.
     bool? _dotRight;
+    // Whether the arrow was showing last time it was refreshed, so its arrival and departure animate.
+    bool? _arrowShown;
 
     /// <summary>
     /// Which live artwork this view was built for, so the studio can tell one icon from another.
@@ -584,7 +604,7 @@ public sealed class ScorebugIconView : Grid
         Icon = item.Icon;
         // Bars and bases are artwork that must stay inside its plate; the dot is a small mark that
         // is allowed to breathe over the edge rather than arrive chopped in half.
-        ClipToBounds = Icon != ScorebugIcon.PossessionDot;
+        ClipToBounds = Icon is not (ScorebugIcon.PossessionDot or ScorebugIcon.PossessionArrow);
         if (Icon == ScorebugIcon.Bases)
         {
             // Three bases in a diamond: a base a runner is standing on is filled, an empty one is
@@ -592,7 +612,19 @@ public sealed class ScorebugIconView : Grid
             _bases = new Canvas { ClipToBounds = true };
             Children.Add(_bases);
         }
-        else if (Icon == ScorebugIcon.TimeoutBars)
+        else if (Icon == ScorebugIcon.PossessionArrow)
+        {
+            // A solid triangle that leans into the plate of the team with the ball. Movement and
+            // sizing happen in Update, so the mark follows possession without being rebuilt.
+            _arrow = new Polygon
+            {
+                Fill = ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item, state?.Invoke())),
+                VerticalAlignment = VerticalAlignment.Center,
+                Stretch = Stretch.Fill
+            };
+            Children.Add(_arrow);
+        }
+        else if (Icon is ScorebugIcon.TimeoutBars or ScorebugIcon.TimeoutDots)
         {
             // One short horizontal line per timeout, in a row from left to right.
             _bars = new StackPanel
@@ -694,39 +726,84 @@ public sealed class ScorebugIconView : Grid
         {
             var count = 0;
             if (state is not null) count = Math.Clamp(_item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 10);
+            var scale = Math.Clamp(_item.IconScale, 0.25, 3);
+            var slot = _item.Width / Math.Max(1, count);
+            var width = Math.Max(3, Math.Min(_item.Width * 0.22, slot * 0.62) * scale);
+            var thickness = Math.Clamp(_item.Height / 8 * scale, 1.5, 18);
+            var gap = Math.Max(1, width * 0.22);
             if (_bars.Children.Count != count)
             {
                 _bars.Children.Clear();
-                var slot = _item.Width / Math.Max(1, count);
-                var width = Math.Max(6, Math.Min(_item.Width * 0.22, slot * 0.62));
-                var thickness = Math.Clamp(_item.Height / 8, 2, 6);
-                var gap = Math.Max(2, width * 0.22);
                 var animate = Animates;
                 for (var i = 0; i < count; i++)
                 {
-                    var bar = new Rectangle
-                    {
-                        Width = width,
-                        Height = thickness,
-                        RadiusX = thickness / 2,
-                        RadiusY = thickness / 2,
-                        Margin = new Thickness(gap / 2, 0, gap / 2, 0),
-                        Fill = ScorebugRender.ParseBrush(foreground)
-                    };
+                    // Bars are rounded lines; the dots variant is the same row of round pips.
+                    Shape bar = Icon == ScorebugIcon.TimeoutDots
+                        ? new Ellipse { Width = width, Height = width, Fill = ScorebugRender.ParseBrush(foreground) }
+                        : new Rectangle
+                        {
+                            Width = width,
+                            Height = thickness,
+                            RadiusX = thickness / 2,
+                            RadiusY = thickness / 2,
+                            Fill = ScorebugRender.ParseBrush(foreground)
+                        };
+                    bar.Margin = new Thickness(gap / 2, 0, gap / 2, 0);
                     _bars.Children.Add(bar);
                     // A timeout being used changes how many bars the icon shows; the new row arrives
                     // with the element's own value-change motion instead of appearing all at once.
-                    if (animate) PlayIn(bar);
+                    if (animate) AnimateIn(bar);
                 }
                 _appliedForeground = foreground;
             }
-            else if (foreground != _appliedForeground)
+            else
             {
-                // A team colour change repaints the existing bars instead of redrawing them.
+                // A size or team-colour change updates the existing bars in place instead of
+                // rebuilding them, so the row never flickers while the slider moves.
                 var brush = ScorebugRender.ParseBrush(foreground);
-                foreach (var child in _bars.Children.OfType<Rectangle>()) child.Fill = brush;
+                foreach (var child in _bars.Children.OfType<Shape>())
+                {
+                    child.Width = width;
+                    child.Height = Icon == ScorebugIcon.TimeoutDots ? width : thickness;
+                    if (child is Rectangle rounded) { rounded.RadiusX = thickness / 2; rounded.RadiusY = thickness / 2; }
+                    child.Margin = new Thickness(gap / 2, 0, gap / 2, 0);
+                    child.Fill = brush;
+                }
                 _appliedForeground = foreground;
             }
+            return;
+        }
+        if (_arrow is not null)
+        {
+            // The arrow belongs to one plate and only exists while that team has the ball. It leans
+            // inward from the plate's edge: left for home, right for away, mirrored by the flip.
+            var arrowHome = !_item.IconVisitors;
+            var hasBall = (state?.HomePossession ?? true) == arrowHome;
+            // Possession arriving plays the element's own value motion — a saved clip wins, then its
+            // preset transition — and leaving fades the mark out instead of blinking it away.
+            if (_arrowShown != hasBall)
+            {
+                _arrowShown = hasBall;
+                if (hasBall)
+                {
+                    _arrow.Visibility = Visibility.Visible;
+                    AnimateIn(_arrow);
+                }
+                else AnimateOut(_arrow, () => { if (_arrowShown == false) _arrow.Visibility = Visibility.Collapsed; });
+            }
+            if (!hasBall) return;
+            var height = Math.Clamp(Math.Min(_item.Height * 0.62, _item.FontSize * 1.05), 6, 200);
+            var width = height * 0.58;
+            var gap = Math.Max(0, _item.Width * 0.02);
+            var flip = (!arrowHome) ^ _item.IconFlipped;
+            _arrow.Points = flip
+                ? new PointCollection { new Point(width, 0), new Point(0, height / 2), new Point(width, height) }
+                : new PointCollection { new Point(0, 0), new Point(width, height / 2), new Point(0, height) };
+            _arrow.Width = width;
+            _arrow.Height = height;
+            _arrow.Margin = new Thickness(gap, 0, gap, 0);
+            _arrow.HorizontalAlignment = _item.IconVisitors ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+            _arrow.Fill = ScorebugRender.ParseBrush(foreground);
             return;
         }
         if (_dot is not null)
@@ -794,6 +871,36 @@ public sealed class ScorebugIconView : Grid
     /// <summary>True when this icon should animate its changes rather than snap.</summary>
     bool Animates => _item.Transition != ScorebugTransition.Cut
         && Math.Clamp(_item.TransitionSeconds, 0, 5) > 0.02 && IsLoaded;
+
+    /// <summary>
+    /// Brings a piece of live artwork in the way the element says it should arrive: a saved
+    /// value-change clip if the studio attached one, otherwise the chosen preset transition.
+    /// </summary>
+    void AnimateIn(FrameworkElement element)
+    {
+        if (_item.MotionTransition is { IsEmpty: false } clip && IsLoaded)
+        {
+            element.Opacity = 1;
+            MotionPlayback.PlayClip(element, clip, 1, ambient: false);
+            return;
+        }
+        if (Animates) PlayIn(element);
+        else element.Opacity = 1;
+    }
+
+    /// <summary>Fades a mark out before it is collapsed, so possession never just disappears.</summary>
+    void AnimateOut(FrameworkElement element, Action done)
+    {
+        if (!Animates || _item.MotionTransition is { IsEmpty: false })
+        {
+            element.Opacity = 0;
+            done();
+            return;
+        }
+        var fade = new DoubleAnimation(0, MotionTime) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        fade.Completed += (_, _) => done();
+        element.BeginAnimation(UIElement.OpacityProperty, fade);
+    }
 
     TimeSpan MotionTime => TimeSpan.FromSeconds(Math.Clamp(_item.TransitionSeconds, 0, 5));
 

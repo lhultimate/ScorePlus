@@ -20,7 +20,8 @@ public sealed record MediaEntry(
     string? AudioDevice = null,
     string? Name = null,
     int? CameraDevice = null,
-    int? MicrophoneDevice = null)
+    int? MicrophoneDevice = null,
+    bool SpeakerMuted = false)
 {
     /// <summary>A camera or microphone with no name of its own is labelled with the device it uses,
     /// so the dock says "icspring camera" rather than "Live camera 1".</summary>
@@ -28,16 +29,19 @@ public sealed record MediaEntry(
         ? Name.Trim()
         : IsCamera ? CameraFeed.CameraName(CameraIndex)
         : IsMicrophone ? MicrophoneFeed.MicrophoneName(MicrophoneIndex)
+        : IsSpeaker ? $"Speaker {(MediaLibrary.SpeakerIndex(Path) ?? 0) + 1}"
         : System.IO.Path.GetFileName(Path);
     public bool IsCamera => MediaLibrary.CameraIndex(Path) is not null;
     /// <summary>A live microphone item: captured from a device, with no file and no picture.</summary>
     public bool IsMicrophone => MediaLibrary.MicrophoneIndex(Path) is not null;
+    /// <summary>An output-bus item: it names a speaker and carries that bus's level.</summary>
+    public bool IsSpeaker => MediaLibrary.SpeakerIndex(Path) is not null;
     /// <summary>Which capture device this camera item routes to; an override beats the path's index.</summary>
     public int CameraIndex => CameraDevice ?? MediaLibrary.CameraIndex(Path) ?? 0;
     /// <summary>Which microphone this item listens to.</summary>
     public int MicrophoneIndex => MicrophoneDevice ?? MediaLibrary.MicrophoneIndex(Path) ?? 0;
     public bool IsVideo => IsCamera || (!IsMicrophone && MediaLibrary.IsVideoFile(Path));
-    public string KindLabel => IsCamera ? "LIVE" : IsMicrophone ? "MIC" : IsVideo ? "VIDEO" : "AUDIO";
+    public string KindLabel => IsCamera ? "LIVE" : IsMicrophone ? "MIC" : IsSpeaker ? "SPEAKER" : IsVideo ? "VIDEO" : "AUDIO";
     public string FolderLabel => string.IsNullOrWhiteSpace(Folder) ? MediaLibrary.RootFolderLabel : Folder;
     public string TagAndFolder => string.IsNullOrWhiteSpace(Folder) ? Tag : $"{Tag} · {Folder}";
 
@@ -45,6 +49,9 @@ public sealed record MediaEntry(
     public int VolumePercent => (int)Math.Round(Math.Clamp(Volume, 0, 1) * 100);
 
     public string AudioLabel => string.IsNullOrWhiteSpace(AudioDevice) ? "Default output" : AudioDevice;
+
+    /// <summary>A speaker bus is on air until it is muted from a quick-media button or its own bus control.</summary>
+    public bool IsSpeakerOnAir => IsSpeaker && !SpeakerMuted;
 }
 
 /// <summary>A named, ordered set of clips that plays one after another.</summary>
@@ -75,6 +82,9 @@ public static class MediaLibrary
     /// <summary>Where a microphone source's path lives. <c>mic:0</c> is the first capture device.</summary>
     public const string MicrophonePrefix = "mic:";
 
+    /// <summary>Where an output-bus item's path lives. <c>speaker:0</c> is the first render device.</summary>
+    public const string SpeakerPrefix = "speaker:";
+
     public static readonly string[] SuggestedTags = [AnyTag, "General", "Ads", "Highlights", "Music", "Anthem", "Sponsors", "Camera", "Microphone"];
 
     public static bool IsVideoFile(string path) => Path.GetExtension(path).ToLowerInvariant() is ".mp4" or ".mov" or ".mkv" or ".webm" or ".avi" or ".m4v";
@@ -89,6 +99,15 @@ public static class MediaLibrary
     }
 
     public static string MicrophonePath(int index) => $"{MicrophonePrefix}{Math.Max(0, index)}";
+
+    public static string SpeakerPath(int index) => $"{SpeakerPrefix}{Math.Max(0, index)}";
+
+    /// <summary>The render-device number behind a speaker path, or null for another media item.</summary>
+    public static int? SpeakerIndex(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !path.StartsWith(SpeakerPrefix, StringComparison.OrdinalIgnoreCase)) return null;
+        return int.TryParse(path[SpeakerPrefix.Length..], out var index) ? index : 0;
+    }
 
     /// <summary>The capture device number behind a microphone path, or null for a real file.</summary>
     public static int? MicrophoneIndex(string path)
@@ -191,6 +210,16 @@ public static class MediaLibrary
         return updated;
     }
 
+    /// <summary>Turns a speaker bus on or off without losing its level.</summary>
+    public static MediaEntry? SetSpeakerMuted(IList<MediaEntry> library, MediaEntry selected, bool muted)
+    {
+        var index = library.IndexOf(selected);
+        if (index < 0) return null;
+        var updated = selected with { SpeakerMuted = muted };
+        library[index] = updated;
+        return updated;
+    }
+
     /// <summary>True when a scorebug element with this tag should show this clip. ANY and blank match everything.</summary>
     public static bool TagMatches(string? elementTag, string clipTag)
     {
@@ -229,6 +258,10 @@ public sealed class MediaPlayback
     /// <summary>True while a replay is waiting in the preview, not yet on air.</summary>
     public bool HasStaged => _staged is not null;
 
+    /// <summary>True once Start replay has promoted the staged replay. Only then does a file cue
+    /// outrank a live camera; ordinary clips and several cameras can still coexist by tag.</summary>
+    public bool ReplayOnAir { get; private set; }
+
     /// <summary>False while the operator has the clip paused, so scorebug video elements freeze with it.</summary>
     public bool IsPlaying { get; private set; }
 
@@ -242,10 +275,33 @@ public sealed class MediaPlayback
     public double Volume => NowPlaying?.Volume ?? 1;
 
     /// <summary>
+    /// The output this clip's sound is going to when it is not the Windows default: the clip's own
+    /// speaker, or the speaker bus whose tag carries it. Empty means the element keeps the sound.
+    /// </summary>
+    public string? RouteDevice { get; private set; }
+
+    /// <summary>
     /// True when the clip's audio is being sent to a chosen speaker instead of the element. A
     /// speaker that could not be opened reports false again, so the element keeps the sound.
     /// </summary>
-    public bool RoutedToDevice => !string.IsNullOrWhiteSpace(NowPlaying?.AudioDevice) && !RoutingFailed;
+    public bool RoutedToDevice => !string.IsNullOrWhiteSpace(RouteDevice) && !RoutingFailed;
+
+    /// <summary>
+    /// The level of the speaker bus that carries the cued clip, 0–1. Zero means no bus with this
+    /// clip's tag is on air, so the clip is silent until that speaker is switched on.
+    /// </summary>
+    public double SpeakerGain { get; private set; } = 1;
+
+    /// <summary>Re-reads where the cued clip plays and how loud, after a bus was switched or moved.</summary>
+    public void ReportAudio(string? device, double gain)
+    {
+        gain = Math.Clamp(double.IsFinite(gain) ? gain : 1, 0, 1);
+        var route = string.IsNullOrWhiteSpace(device) ? null : device;
+        if (string.Equals(RouteDevice, route, StringComparison.OrdinalIgnoreCase) && Math.Abs(SpeakerGain - gain) < 0.0005) return;
+        RouteDevice = route;
+        SpeakerGain = gain;
+        Changed?.Invoke();
+    }
 
     /// <summary>True when the chosen speaker could not be opened and the clip fell back to the default.</summary>
     public bool RoutingFailed { get; private set; }
@@ -268,7 +324,11 @@ public sealed class MediaPlayback
         // Any new cue replaces whatever replay was waiting in the preview.
         _staged = null;
         NowPlaying = entry;
+        ReplayOnAir = false;
         IsPlaying = entry is not null;
+        // A cue starts on its own speaker until the session says a tagged bus carries it.
+        RouteDevice = string.IsNullOrWhiteSpace(entry?.AudioDevice) ? null : entry.AudioDevice;
+        SpeakerGain = 1;
         Position = 0;
         // A surface that opens this cue must not resume at the last clip's position.
         LivePosition = 0;
@@ -281,6 +341,7 @@ public sealed class MediaPlayback
     public void Stage(MediaEntry? entry)
     {
         _staged = entry;
+        ReplayOnAir = false;
         // The staged clip starts from the top until the operator seeks it; keeping the last clip's
         // playhead here would open the new file past its end.
         Position = 0;
@@ -294,7 +355,11 @@ public sealed class MediaPlayback
         if (_staged is null) return false;
         NowPlaying = _staged;
         _staged = null;
+        ReplayOnAir = true;
         RoutingFailed = false;
+        // A replay is a recorded camera clip: it carries no library speaker of its own.
+        RouteDevice = null;
+        SpeakerGain = 1;
         Changed?.Invoke();
         return true;
     }
@@ -349,15 +414,28 @@ public sealed class MediaPlayback
     /// A live camera on air wins over the transport clip, so two video elements watching two tags can
     /// show two cameras at the same time. With no camera for this tag, the cued file is used.
     /// </remarks>
-    public MediaEntry? ActiveFor(string? elementTag) =>
-        Resolve(_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) ?? NowPlaying, elementTag);
+    public MediaEntry? ActiveFor(string? elementTag)
+    {
+        // A promoted replay must outrank the camera it was cut from, or Start replay leaves the live
+        // picture on screen. Ordinary files keep the old order so several camera boxes can coexist.
+        if (ReplayOnAir && NowPlaying is { IsVideo: true, IsCamera: false } replay && Matches(replay, elementTag))
+            return replay;
+        return Resolve(_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) ?? NowPlaying, elementTag);
+    }
 
     /// <summary>
     /// What a preview should show: a replay waiting to go on air takes precedence, so the operator
     /// can scrub it while the audience keeps watching the live camera.
     /// </summary>
-    public MediaEntry? PreviewFor(string? elementTag) =>
-        Resolve(_staged ?? _liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) ?? NowPlaying, elementTag);
+    public MediaEntry? PreviewFor(string? elementTag)
+    {
+        if (_staged is not null) return Resolve(_staged, elementTag);
+        // Once Start replay promotes the file, the preview must show it too; otherwise the operator
+        // starts a replay and the thumbnail still shows the live camera, which reads as a dead button.
+        if (ReplayOnAir && NowPlaying is { IsVideo: true, IsCamera: false } replay && Matches(replay, elementTag))
+            return replay;
+        return Resolve(_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) ?? NowPlaying, elementTag);
+    }
 
     MediaEntry? Resolve(MediaEntry? entry, string? elementTag)
     {

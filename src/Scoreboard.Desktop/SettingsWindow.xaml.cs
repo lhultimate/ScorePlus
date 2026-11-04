@@ -25,6 +25,8 @@ public partial class SettingsWindow : Window
         ThemeSelector.SelectedItem = ThemeSelector.Items.Contains(_draft.Theme) ? _draft.Theme : "System";
         ShowHints.IsChecked = _draft.ShowHeadingHints;
         QuickPublishInput.IsChecked = _draft.QuickLayoutsPublish;
+        GameClockHornInput.IsChecked = _draft.HornOnGameClockZero;
+        PlayClockHornInput.IsChecked = _draft.HornOnPlayClockZero;
         DelayInput.Text = _draft.ValueSwitchDelay.ToString("0.##", CultureInfo.CurrentCulture);
         AccentInput.Text = _draft.AccentColor;
         Accent2Input.Text = _draft.AccentColor2;
@@ -181,6 +183,13 @@ public partial class SettingsWindow : Window
         _draft.QuickLayoutsPublish = QuickPublishInput.IsChecked == true;
     }
 
+    void ClockHorn_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || GameClockHornInput is null || PlayClockHornInput is null) return;
+        _draft.HornOnGameClockZero = GameClockHornInput.IsChecked == true;
+        _draft.HornOnPlayClockZero = PlayClockHornInput.IsChecked == true;
+    }
+
     /// <summary>
     /// Any value the operator types is used as-is inside 0–5, so 0.35 s is a real answer rather
     /// than the nearest item in a fixed list. Half-typed text ("", "0.") leaves the draft alone.
@@ -242,6 +251,8 @@ public partial class SettingsWindow : Window
         _original.Theme = _draft.Theme;
         _original.ShowHeadingHints = _draft.ShowHeadingHints;
         _original.QuickLayoutsPublish = _draft.QuickLayoutsPublish;
+        _original.HornOnGameClockZero = _draft.HornOnGameClockZero;
+        _original.HornOnPlayClockZero = _draft.HornOnPlayClockZero;
         _original.ValueSwitchDelay = Math.Clamp(_draft.ValueSwitchDelay, 0, MaxDelay);
         _original.AccentColor = _draft.AccentColor;
         _original.AccentColor2 = _draft.AccentColor2;

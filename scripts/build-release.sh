@@ -67,6 +67,8 @@ rm -rf "$SETUP_BUILD" "$APP_BUILD"
 rm -f "$PAYLOAD"
 cp "$ROOT/README.md" "$OUT/README.md" 2>/dev/null || true
 cp "$ROOT/docs/updates.md" "$OUT/UPDATES.md" 2>/dev/null || true
+mkdir -p "$OUT/docs"
+cp "$ROOT/docs/third-party-notices.md" "$OUT/docs/third-party-notices.md" 2>/dev/null || true
 
 echo
 echo "==> Done"

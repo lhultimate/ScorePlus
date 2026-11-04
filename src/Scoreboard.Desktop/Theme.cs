@@ -50,11 +50,29 @@ public sealed class UserPreferences
     /// </summary>
     public List<QuickLayoutBinding> QuickLayouts { get; set; } = [];
 
+    /// <summary>Twelve quick-media buttons above the quick layouts. Each one points at a library path.</summary>
+    public List<QuickMediaBinding> QuickMedia { get; set; } = [];
+
     /// <summary>
     /// Off by default: a quick button only stages its layout. When this is on, the same press also
     /// sends it to air, which is faster but updates output without a second confirmation.
     /// </summary>
     public bool QuickLayoutsPublish { get; set; }
+
+    /// <summary>Controller input and its connection details.</summary>
+    public HardwareSettings Hardware { get; set; } = new();
+
+    /// <summary>The built-in horn selected on the console, or Custom.</summary>
+    public string HornSound { get; set; } = nameof(Desktop.HornSound.AirHorn);
+
+    /// <summary>Audio file used when <see cref="HornSound"/> is Custom.</summary>
+    public string HornCustomPath { get; set; } = "";
+
+    /// <summary>Off by default: sound the selected horn when the game clock expires.</summary>
+    public bool HornOnGameClockZero { get; set; }
+
+    /// <summary>Off by default: sound the selected horn when the play clock expires.</summary>
+    public bool HornOnPlayClockZero { get; set; }
 
     public List<MediaEntry> Media { get; set; } = [];
 
@@ -82,7 +100,13 @@ public sealed class UserPreferences
         ValueSwitchDelay = ValueSwitchDelay,
         LastSport = LastSport,
         QuickLayouts = QuickLayouts.Select(binding => new QuickLayoutBinding { Label = binding.Label, DisplayId = binding.DisplayId, LayoutId = binding.LayoutId }).ToList(),
+        QuickMedia = QuickMedia.Select(binding => new QuickMediaBinding { Label = binding.Label, Path = binding.Path }).ToList(),
         QuickLayoutsPublish = QuickLayoutsPublish,
+        Hardware = Hardware.Clone(),
+        HornSound = HornSound,
+        HornCustomPath = HornCustomPath,
+        HornOnGameClockZero = HornOnGameClockZero,
+        HornOnPlayClockZero = HornOnPlayClockZero,
         Media = [.. Media],
         Playlists = Playlists.Select(p => new MediaPlaylist { Name = p.Name, Loop = p.Loop, Paths = p.Paths.ToList() }).ToList(),
         MediaFolders = [.. MediaFolders],
@@ -91,6 +115,15 @@ public sealed class UserPreferences
 }
 
 /// <summary>One of the four quick-layout buttons: a name the operator sees, and where it points.</summary>
+/// <summary>One quick-media button: a library path and the label the operator sees.</summary>
+public sealed class QuickMediaBinding
+{
+    public string Label { get; set; } = "";
+    public string Path { get; set; } = "";
+
+    public bool IsSet => !string.IsNullOrWhiteSpace(Path);
+}
+
 public sealed class QuickLayoutBinding
 {
     public string Label { get; set; } = "";
@@ -128,6 +161,9 @@ public static class PreferencesStore
         preferences.MediaFolders ??= [];
         preferences.MediaFiles ??= [];
         preferences.QuickLayouts ??= [];
+        preferences.QuickMedia ??= [];
+        preferences.Hardware ??= new HardwareSettings();
+        if (string.IsNullOrWhiteSpace(preferences.HornSound)) preferences.HornSound = nameof(Desktop.HornSound.AirHorn);
         if (preferences.Media.Count == 0 && preferences.MediaFiles.Count > 0)
             preferences.Media = preferences.MediaFiles.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => new MediaEntry(p)).ToList();
         preferences.MediaFiles.Clear();

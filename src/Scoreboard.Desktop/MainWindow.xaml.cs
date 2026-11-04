@@ -28,6 +28,7 @@ public partial class MainWindow : Window, IControlPanelHost
     // display at the same time; only Update Output sends anything to an audience.
     readonly ProgramSelection _program;
     readonly MediaSession _session;
+    readonly HardwareService _hardware;
     bool _displaySync;
     readonly MediaPlayback _playback;
     // Every audience window ever opened this session. Opening the output again adds another one
@@ -37,7 +38,8 @@ public partial class MainWindow : Window, IControlPanelHost
     RemoteControlServer? _remote;
     ScorebugCanvasView? _preview;
     AudiencePreview? _audience;
-    // The four assignable quick-layout buttons above the rail's meter.
+    // The assignable quick media and quick layout buttons above the rail's meter.
+    QuickMediaBar? _quickMedia;
     QuickLayoutBar? _quickLayouts;
     int _eventCount = -1;
     readonly UserPreferences _preferences = PreferencesStore.Load();
@@ -55,6 +57,11 @@ public partial class MainWindow : Window, IControlPanelHost
     string? _savedStateJson;
     string? _savedDesignJson;
     bool _closingAfterPrompt;
+    int _lastGameClock = -1;
+    int _lastPlayClock = -1;
+    bool _lastGameClockRunning;
+    bool _lastPlayClockRunning;
+    bool _autoHornReady;
     GameControlWindow.ConsoleTab _tab = GameControlWindow.ConsoleTab.Control;
 
     /// <summary>
@@ -62,6 +69,9 @@ public partial class MainWindow : Window, IControlPanelHost
     /// windows deliberately, and a modal prompt would stall an unattended run.
     /// </summary>
     public static bool PromptOnExit { get; set; } = true;
+
+    /// <summary>Lets unattended checks create windows without opening a network update dialog.</summary>
+    public static bool CheckForUpdatesOnLoad { get; set; } = true;
 
     /// <summary>
     /// Warns before a sport switch clears the old sport's values. The checks turn it off because they
@@ -82,11 +92,17 @@ public partial class MainWindow : Window, IControlPanelHost
         ScreenFit.Track(this);
         _session = new MediaSession(_preferences);
         _playback = _session.Playback;
+        _hardware = new HardwareService(_engine);
+        _hardware.Snapshot += snapshot => Dispatcher.BeginInvoke(new Action(() => ApplyHardware(snapshot)));
+        _hardware.Status += message => Dispatcher.BeginInvoke(new Action(() => StatusText.Text = message));
         ThemeManager.Apply(this, _preferences.Theme);
         BuildSoundMeter();
         _meterTimer.Tick += (_, _) => UpdateSoundMeter();
         _meterTimer.Start();
         DisplayTiming.Apply(_preferences);
+        _quickMedia = new QuickMediaBar(_session, _preferences.Theme);
+        _quickMedia.Status += message => StatusText.Text = message;
+        QuickMediaHost.Content = _quickMedia;
         _quickLayouts = new QuickLayoutBar(_scorebug, _engine, _preferences.Theme);
         _quickLayouts.Status += message => StatusText.Text = message;
         QuickLayoutsHost.Content = _quickLayouts;
@@ -118,7 +134,7 @@ public partial class MainWindow : Window, IControlPanelHost
         {
             ApplyTabVisuals();
             // The remote and the update check belong to a live window, not to the launch sequence.
-            if (!waitForLaunch) { StartRemote(); _ = CheckForUpdatesAsync(); }
+            if (!waitForLaunch) { StartRemote(); StartHardware(); if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync(); }
         };
 
         _panel = new ControlPanelView(_engine, this);
@@ -191,7 +207,8 @@ public partial class MainWindow : Window, IControlPanelHost
         SetWorkspaceEnabled(true);
         Activate();
         StartRemote();
-        _ = CheckForUpdatesAsync();
+        StartHardware();
+        if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync();
     }
 
     /// <summary>Locks or unlocks everything inside the window while the launch box is up.</summary>
@@ -419,9 +436,11 @@ public partial class MainWindow : Window, IControlPanelHost
             for (var index = 0; index < _meterBars.Length; index++)
                 _meterBars[index].Background = index < lit ? new SolidColorBrush((Color)_meterBars[index].Tag) : unlit;
         }
-        SoundLevelText.Text = level <= 0
-            ? (SoundLevelMeter.Available ? "−∞ dB" : "no output")
-            : $"{SoundLevelMeter.Decibels(level):0} dB";
+        SoundLevelText.Text = SoundLevelMeter.Suppressed
+            ? "speakers off"
+            : level <= 0
+                ? (SoundLevelMeter.Available ? "−∞ dB" : "no output")
+                : $"{SoundLevelMeter.Decibels(level):0} dB";
         if (_preview is null) { OnAirInfo.Text = "STANDBY"; ShowInfo.Text = "Start a game to go live"; return; }
         OnAirInfo.Text = _program.HasStagedChanges ? "STAGED · UPDATE TO AIR" : $"ON AIR · {_program.Display.Name.ToUpperInvariant()}";
         var s = _publishedEngine.State;
@@ -483,6 +502,29 @@ public partial class MainWindow : Window, IControlPanelHost
     void TransitionMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Transition);
 
     void AnimationMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Animation);
+
+    void Hardware_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new HardwareWindow(_preferences, _hardware) { Owner = this };
+        ThemeManager.Apply(dialog, _preferences.Theme);
+        dialog.ShowDialog();
+    }
+
+    /// <summary>Applies a controller reading and, when live publishing is on, sends it to air.</summary>
+    void ApplyHardware(DeviceSnapshot snapshot)
+    {
+        if (!_engine.ApplyHardwareSnapshot(snapshot) || !_liveScoreClock) return;
+        if (!_publishedEngine.UpdateLiveController(_engine.State)) return;
+        _preview?.Refresh();
+        foreach (var output in _outputs.Where(output => output.IsVisible)) output.UpdateLiveController(_engine.State);
+    }
+
+    /// <summary>Starts the controller saved in Preferences when the operator asked for it.</summary>
+    void StartHardware()
+    {
+        if (!_preferences.Hardware.AutoConnect || _hardware.IsRunning) return;
+        _hardware.Start(_preferences.Hardware);
+    }
 
     void Preferences_Click(object sender, RoutedEventArgs e)
     {
@@ -633,6 +675,7 @@ public partial class MainWindow : Window, IControlPanelHost
     /// </summary>
     public void StartNewGame(string sportId, bool announce = true)
     {
+        _autoHornReady = false;
         _engine.NewGame(sportId);
         _projectPath = null;
         _startNewAutosavePoint = true;
@@ -672,6 +715,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
     bool LoadGame(string path)
     {
+        _autoHornReady = false;
         try
         {
             var design = _engine.Load(path);
@@ -756,10 +800,66 @@ public partial class MainWindow : Window, IControlPanelHost
         if (enabled) PublishLiveValues();
     }
 
-    void EngineChanged() { if (_liveScoreClock) PublishLiveValues(); }
+    void EngineChanged()
+    {
+        CheckAutoHorns();
+        if (_liveScoreClock) PublishLiveValues();
+    }
+
+    /// <summary>
+    /// The clock ticks and the hardware feed both raise Changed. Arm each expiry only while its
+    /// clock was running, so loading a game at 0:00 or typing 0 into a stopped clock is silent.
+    /// </summary>
+    void CheckAutoHorns()
+    {
+        var state = _engine.State;
+        if (!_autoHornReady)
+        {
+            _autoHornReady = true;
+            _lastGameClock = state.ClockSeconds;
+            _lastPlayClock = state.PlayClockSeconds;
+            _lastGameClockRunning = state.ClockRunning;
+            _lastPlayClockRunning = state.PlayClockRunning;
+            return;
+        }
+
+        var gameExpired = _preferences.HornOnGameClockZero
+            && !state.ClockCountsUp
+            && state.ClockSeconds == 0
+            && _lastGameClock > 0
+            && _lastGameClockRunning
+            && !state.ClockRunning;
+        var playExpired = _preferences.HornOnPlayClockZero
+            && state.PlayClockSeconds == 0
+            && _lastPlayClock > 0
+            && _lastPlayClockRunning
+            && !state.PlayClockRunning;
+        if (gameExpired || playExpired)
+            HornPlayer.Play(_preferences.HornSound, _preferences.HornCustomPath);
+
+        _lastGameClock = state.ClockSeconds;
+        _lastPlayClock = state.PlayClockSeconds;
+        _lastGameClockRunning = state.ClockRunning;
+        _lastPlayClockRunning = state.PlayClockRunning;
+    }
 
     void PublishLiveValues()
     {
+        // A connected console owns down and distance as well as the score and clocks, so an
+        // operator's recall of the console's last down has to ride the same live path as the
+        // console's own frames. Without this the audience kept the wrong down.
+        if (_engine.HardwareControlled)
+        {
+            _publishedEngine.UpdateLiveController(_engine.State);
+            _publishedEngine.UpdateLiveScoreClock(_engine.State);
+            _preview?.Refresh();
+            foreach (var output in _outputs.Where(o => o.IsVisible))
+            {
+                output.UpdateLiveController(_engine.State);
+                output.UpdateLiveScoreClock(_engine.State);
+            }
+            return;
+        }
         if (!_publishedEngine.UpdateLiveScoreClock(_engine.State)) return;
         _preview?.Refresh();
         foreach (var output in _outputs.Where(o => o.IsVisible)) output.UpdateLiveScoreClock(_engine.State);
@@ -880,6 +980,8 @@ public partial class MainWindow : Window, IControlPanelHost
     {
         _engine.Changed -= Refresh;
         _engine.Changed -= EngineChanged;
+        _hardware.Dispose();
+        HornPlayer.Stop();
         _remote?.Dispose();
         _meterTimer.Stop();
         _program.Dispose();

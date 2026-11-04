@@ -60,6 +60,12 @@ public static class ScorebugHtml
         html.AppendLine(".sp-bars{display:flex;align-items:center;justify-content:center;gap:6%;width:100%;height:100%;}");
         html.AppendLine(".sp-bar{height:14%;min-height:3px;flex:1 1 0;border-radius:2px;background:currentColor;}");
         html.AppendLine(".sp-dot{position:absolute;top:50%;width:12%;padding-top:12%;border-radius:50%;transform:translateY(-50%);background:currentColor;}");
+        html.AppendLine(".sp-arrow{position:absolute;top:15%;height:70%;width:18%;background:currentColor;clip-path:polygon(0 0,100% 50%,0 100%);}");
+        html.AppendLine(".sp-arrow.in{left:2%;}");
+        html.AppendLine(".sp-arrow.out{right:2%;}");
+        html.AppendLine(".sp-arrow.flip{clip-path:polygon(100% 0,0 50%,100% 100%);}");
+        html.AppendLine(".sp-dots{display:flex;align-items:center;justify-content:center;gap:8%;width:100%;height:100%;}");
+        html.AppendLine(".sp-pip{width:14%;padding-top:14%;border-radius:50%;background:currentColor;}");
         html.AppendLine(".sp-bases{position:absolute;inset:0;display:block;}");
         html.AppendLine(".sp-base{position:absolute;width:26%;padding-top:26%;border:2px solid currentColor;box-sizing:border-box;transform:rotate(45deg);}");
         html.AppendLine(".sp-base.on{background:currentColor;}");
@@ -156,7 +162,11 @@ public static class ScorebugHtml
         if (item.Underline) decorations.Append("underline ");
         if (item.StrikeThrough) decorations.Append("line-through ");
         var decoration = decorations.Length > 0 ? $"text-decoration:{decorations.ToString().Trim()};" : string.Empty;
-        return $"<div class=\"sp-text\" style=\"color:{colour};font-family:{font};font-size:{Num(item.FontSize)}px;{weight}{italic}{decoration}\">{WebUtility.HtmlEncode(text)}</div>";
+        // A drop shadow is what keeps white lettering readable over a photograph of a crowd.
+        var shadow = item.TextShadow
+            ? $"text-shadow:{Num(item.TextShadowOffset * 0.7)}px {Num(item.TextShadowOffset)}px {Num(item.TextShadowSoftness)}px {Css(item.TextShadowColor)};"
+            : string.Empty;
+        return $"<div class=\"sp-text\" style=\"color:{colour};font-family:{font};font-size:{Num(item.FontSize)}px;{weight}{italic}{decoration}{shadow}\">{WebUtility.HtmlEncode(text)}</div>";
     }
 
     static string LogoHtml(ScorebugElement item, GameState? state)
@@ -188,6 +198,20 @@ public static class ScorebugHtml
                 var onLeft = state.HomePossession ^ item.IconFlipped;
                 var dotStyle = onLeft ? "left:2%;" : "right:2%;";
                 return $"<span class=\"sp-dot\" style=\"{dotStyle}color:{colour};\"></span>";
+            case ScorebugIcon.PossessionArrow:
+                // The arrow belongs to one team's plate and only shows while that team has the ball;
+                // on the away plate it points inward from the right, mirrored by Flipped.
+                var homePlate = !item.IconVisitors;
+                if (state.HomePossession != homePlate) return string.Empty;
+                var flip = (!homePlate) ^ item.IconFlipped;
+                return $"<span class=\"sp-arrow {(homePlate ? "in" : "out")}{(flip ? " flip" : string.Empty)}\" style=\"color:{colour};\"></span>";
+            case ScorebugIcon.TimeoutDots:
+                var pips = Math.Clamp(item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 12);
+                if (pips == 0) return string.Empty;
+                var dots = new StringBuilder($"<div class=\"sp-dots\" style=\"color:{colour};\">");
+                for (var i = 0; i < pips; i++) dots.Append("<span class=\"sp-pip\"></span>");
+                dots.Append("</div>");
+                return dots.ToString();
             case ScorebugIcon.Bases:
                 var first = SportValues.Read(state, "baseball.first") != 0;
                 var second = SportValues.Read(state, "baseball.second") != 0;

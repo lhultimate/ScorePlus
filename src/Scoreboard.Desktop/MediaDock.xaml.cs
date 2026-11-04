@@ -259,6 +259,17 @@ public partial class MediaDock : UserControl
             RouteButton.ToolTip = cameraItem is null
                 ? "Select a camera item in the library to rename it or point it at another camera"
                 : $"Rename {cameraItem.Label} and choose which camera it uses";
+            var speakerItem = _session.Current?.IsSpeaker == true ? _session.Current
+                : _session.Selected?.IsSpeaker == true ? _session.Selected : null;
+            SpeakerRouteButton.IsEnabled = speakerItem is not null;
+            SpeakerRouteButton.ToolTip = speakerItem is null
+                ? "Select a speaker bus in the library to rename it or point it at another output"
+                : $"Rename {speakerItem.Label} and choose its output device";
+            SpeakerStatus.Text = _session.Selected?.IsSpeaker == true
+                ? $"BUS · {_session.Selected.AudioLabel}"
+                : _session.Library.Any(entry => entry.IsSpeaker)
+                    ? $"{_session.Library.Count(entry => entry.IsSpeaker)} in the library"
+                    : "none added yet";
         }
         finally { _syncing = false; }
 
@@ -788,7 +799,7 @@ public partial class MediaDock : UserControl
     {
         var session = _session!;
         var isSelected = ReferenceEquals(entry, session.Selected);
-        var isOnAir = ReferenceEquals(entry, session.Current);
+        var isOnAir = session.IsOnAir(entry);
         var tile = new Border
         {
             Width = _tileWidth,
@@ -802,8 +813,8 @@ public partial class MediaDock : UserControl
             Tag = entry,
             ToolTip = $"{entry.Label}\n{entry.KindLabel} · tag {entry.Tag} · {entry.FolderLabel}{(entry.Loop ? "\nloops" : "")}\n"
                 + (playlist is null
-                    ? "Double-click to play · drag onto a folder or playlist"
-                    : $"Double-click to play from here in {playlist.Name} · drag onto a folder to re-file")
+                    ? "Double-click to put it on air, again to take it off air · drag onto a folder or playlist"
+                    : $"Double-click to put it on air, again to take it off air · plays from here in {playlist.Name}")
         };
         ThemeManager.SetSkipTheme(tile, true);
 
@@ -836,7 +847,7 @@ public partial class MediaDock : UserControl
                 VerticalAlignment = VerticalAlignment.Top,
                 Padding = new Thickness(5, 2, 5, 2),
                 CornerRadius = new CornerRadius(0, 0, 6, 0),
-                Child = new TextBlock { Text = session.IsPlaying ? "ON AIR" : "PAUSED", Foreground = BorderOnAir, FontSize = 9, FontWeight = FontWeights.Bold }
+                Child = new TextBlock { Text = entry.IsSpeaker ? "ON" : session.IsPlaying ? "ON AIR" : "PAUSED", Foreground = BorderOnAir, FontSize = 9, FontWeight = FontWeights.Bold }
             });
         }
         if (index >= 0)
@@ -883,7 +894,12 @@ public partial class MediaDock : UserControl
             session.Select(entry);
             if (e.ClickCount == 2)
             {
-                if (playlist is not null) session.PlayPlaylistFrom(playlist, index);
+                // The tile is the on/off switch: a second double-click on something already on
+                // air takes it off air, so an operator never has to reach for the transport. A
+                // speaker bus is always toggled, because "off air" for a bus means muted and
+                // playing it again would leave it just as muted.
+                if (entry.IsSpeaker || session.IsOnAir(entry)) session.ToggleOnAir(entry);
+                else if (playlist is not null) session.PlayPlaylistFrom(playlist, index);
                 else session.Play(entry);
             }
             e.Handled = true;
@@ -1164,7 +1180,8 @@ public partial class MediaDock : UserControl
     {
         if (_syncing || _session?.Selected is not { } selected) return;
         var device = (AudioDeviceBox.SelectedItem as AudioRouter.OutputDevice)?.Id;
-        _session.SetClipAudioDevice(selected, string.IsNullOrWhiteSpace(device) ? null : device);
+        if (selected.IsSpeaker) _session.SetSpeakerOutput(selected, selected.Name, string.IsNullOrWhiteSpace(device) ? null : device);
+        else _session.SetClipAudioDevice(selected, string.IsNullOrWhiteSpace(device) ? null : device);
     }
 
     /// <summary>Switches which capture device is on air; the scorebug follows the new tag match.</summary>
@@ -1249,6 +1266,30 @@ public partial class MediaDock : UserControl
         var index = 0;
         while (_session.Library.Any(m => m.IsMicrophone && m.MicrophoneIndex == index)) index++;
         _session.AddMicrophone(index, MediaLibrary.NormalizeTag(TagBox.Text));
+        Refresh();
+    }
+
+    /// <summary>Adds an output bus beside the camera and microphone items.</summary>
+    void Speaker_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        var index = 0;
+        while (_session.Library.Any(m => m.IsSpeaker && MediaLibrary.SpeakerIndex(m.Path) == index)) index++;
+        _session.AddSpeaker(index, MediaLibrary.NormalizeTag(TagBox.Text));
+        Refresh();
+    }
+
+    void SpeakerRoute_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        var entry = _session.Current?.IsSpeaker == true ? _session.Current
+            : _session.Selected?.IsSpeaker == true ? _session.Selected : null;
+        if (entry is null)
+        {
+            _session.Report("SELECT A SPEAKER BUS FIRST");
+            return;
+        }
+        if (Window.GetWindow(this) is { } owner) SpeakerRoutingWindow.Ask(owner, _session, entry, _theme);
         Refresh();
     }
 

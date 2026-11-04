@@ -26,11 +26,15 @@
     <!-- The brand mark and the taskbar icon. The transparent mark is the one used inside the app. -->
     <Resource Include="app.ico" />
     <Resource Include="Assets\logo.png" />
+    <Resource Include="Assets\horn-air.mp3" />
+    <Resource Include="Assets\horn-buzzer.mp3" />
+    <Resource Include="Assets\horn-siren.mp3" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <PackageReference Include="NAudio" Version="3.3.0" />
     <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260627" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.14" />
   </ItemGroup>
 </Project>

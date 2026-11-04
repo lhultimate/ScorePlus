@@ -38,7 +38,7 @@ public sealed class ScorebugCanvasView : Grid
     // Keyed by element id so a rebuild can keep the surface (and the running picture) alive.
     readonly Dictionary<string, VideoSurface> _videoSurfaces = [];
     readonly Dictionary<string, HtmlSurface> _htmlSurfaces = [];
-    readonly Dictionary<string, (ScorebugAnimation Animation, double Opacity, string Motion)> _animations = [];
+    readonly Dictionary<string, (ScorebugAnimation Animation, double Opacity, string Motion, double Rotation)> _animations = [];
     readonly Dictionary<string,string> _backgrounds = [];
     readonly Dictionary<string,bool> _transparentStates = [];
     readonly Dictionary<string,string> _borders = [];
@@ -125,6 +125,7 @@ public sealed class ScorebugCanvasView : Grid
             if(!reused)host.Background=ScorebugRender.HostBackground(item,_stateProvider());
             host.Width=item.Width;host.Height=item.Height;host.Opacity=item.Opacity;
             host.Visibility=item.Visible?Visibility.Visible:Visibility.Collapsed;
+            MotionPlayback.SetDesignRotation(host,item.Rotation);
             Canvas.SetLeft(host,item.X);Canvas.SetTop(host,item.Y);Panel.SetZIndex(host,zIndex++);
             _visuals[item.Id]=(host,content);
             // A rebuilt view starts from what it draws right now, so a delay never blanks the graphic.
@@ -415,14 +416,15 @@ public sealed class ScorebugCanvasView : Grid
     void ApplyAnimation(ScorebugElement item,FrameworkElement host)
     {
         var motion=item.MotionAnimation is { UseOnValueChange:false, IsEmpty:false } clip?clip.Summary:"";
-        if(_animations.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001&&applied.Motion==motion)return;
+        if(_animations.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001&&applied.Motion==motion&&Math.Abs(applied.Rotation-item.Rotation)<0.001)return;
+        MotionPlayback.SetBaseRotation(host,item.Rotation);
         // A clip from the animation maker owns the element's motion instead of the two presets.
         if(item.MotionAnimation is { UseOnValueChange:false, IsEmpty:false } loop)
         {
             MotionPlayback.Stop(host);
             host.Opacity=Math.Clamp(item.Opacity,0,1);
             MotionPlayback.PlayClip(host,loop,item.Opacity,ambient:true);
-            _animations[item.Id]=(item.Animation,item.Opacity,motion);
+            _animations[item.Id]=(item.Animation,item.Opacity,motion,item.Rotation);
             return;
         }
         MotionPlayback.Stop(host);
@@ -434,6 +436,7 @@ public sealed class ScorebugCanvasView : Grid
             previous.BeginAnimation(TranslateTransform.YProperty,null);
             host.RenderTransform=Transform.Identity;
         }
+        MotionPlayback.SetDesignRotation(host,item.Rotation);
         switch(item.Animation)
         {
             case ScorebugAnimation.Pulse:
@@ -441,14 +444,18 @@ public sealed class ScorebugCanvasView : Grid
                 break;
             case ScorebugAnimation.Drift:
                 // The old code animated X on the host instead of on its transform, so drift did
-                // nothing at all. Animate the transform itself, on two out-of-phase axes.
+                // nothing at all. Animate the transform itself, on two out-of-phase axes, and keep
+                // the design angle around the whole motion.
                 var drift=new TranslateTransform();
-                host.RenderTransform=drift;
+                var group=new TransformGroup();
+                group.Children.Add(drift);
+                group.Children.Add(new RotateTransform(item.Rotation));
+                host.RenderTransform=group;
                 drift.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(0,14,TimeSpan.FromSeconds(3.2)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 drift.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,7,TimeSpan.FromSeconds(2.1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 break;
         }
-        _animations[item.Id]=(item.Animation,item.Opacity,motion);
+        _animations[item.Id]=(item.Animation,item.Opacity,motion,item.Rotation);
     }
 
     /// <summary>True when any element prints the date or the time of day.</summary>

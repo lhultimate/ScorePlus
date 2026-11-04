@@ -199,7 +199,11 @@
               <ColumnDefinition Width="Auto"/>
               <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Button x:Name="NewSeriesButton" Style="{StaticResource Tiny}" Content="New series" Tag="football.series.new" Click="Action_Click"/>
+            <StackPanel Orientation="Horizontal">
+              <Button x:Name="NewSeriesButton" Style="{StaticResource Tiny}" Content="New series" Tag="football.series.new" Click="Action_Click"/>
+              <Button x:Name="RecallDownButton" Style="{StaticResource Tiny}" Content="↺ Last down" Tag="football.down.recall" Click="Action_Click"
+                      ToolTip="Put the down, distance and ball spot back where they were before the last change"/>
+            </StackPanel>
             <StackPanel Grid.Column="1" />
           </Grid>
         </Grid>
@@ -382,6 +386,18 @@
     <Border Grid.Row="3" Background="#111721" CornerRadius="9" Padding="9,6" Margin="0,8,0,0">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+          <ComboBox x:Name="HornType" Width="108" MinHeight="32" Margin="0,0,4,0"
+                    SelectionChanged="HornType_Changed" ToolTip="Choose the horn sound">
+            <ComboBoxItem Content="Air horn" Tag="AirHorn"/>
+            <ComboBoxItem Content="Buzzer" Tag="Buzzer"/>
+            <ComboBoxItem Content="Siren" Tag="Siren"/>
+            <ComboBoxItem Content="Custom…" Tag="Custom"/>
+          </ComboBox>
+          <Button x:Name="HornButton" Content="HORN" MinWidth="62" MinHeight="36" Padding="10,6"
+                  Background="#8D2B2B" BorderBrush="#D65B5B" Foreground="#FFF4F4" FontWeight="Bold"
+                  Click="Horn_Click" ToolTip="Play the selected horn"/>
+          <Button x:Name="HornPickButton" Content="…" MinWidth="30" MinHeight="36" Padding="4,6"
+                  Margin="3,0,8,0" Click="HornPick_Click" ToolTip="Choose a custom horn audio file"/>
           <Border Background="#171C25" CornerRadius="6" Padding="6,2" Margin="0,0,8,0">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
               <TextBlock Text="LAYOUT" FontSize="10" FontWeight="Bold" Foreground="#7C8A9C" VerticalAlignment="Center" Margin="2,0,5,0"/>

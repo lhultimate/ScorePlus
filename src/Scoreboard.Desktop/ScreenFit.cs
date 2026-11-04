@@ -56,6 +56,9 @@ internal static class ScreenFit
     /// </summary>
     public static void Apply(Window window)
     {
+        // Fullscreen owns the geometry; clamping it to a work area would put the window back in a
+        // normal frame-sized rectangle at the side of the screen.
+        if (WindowFullscreen.IsFullscreen(window)) return;
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero) return;
         var monitor = MonitorFromWindow(handle, MonitorDefaultToNearest);
