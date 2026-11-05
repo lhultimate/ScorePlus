@@ -100,6 +100,10 @@ public sealed class MediaSession
         _player.MediaOpened += (_, _) =>
         {
             _duration = _player.NaturalDuration.HasTimeSpan ? Math.Max(0, _player.NaturalDuration.TimeSpan.TotalSeconds) : 0;
+            // The clip's length belongs in the advertisement log: remembering it here means the log
+            // can show how long a spot runs without counting an extra impression for opening it.
+            if (Current is { IsCamera: false, IsMicrophone: false, IsSpeaker: false } logged)
+                Scoreboard.Core.AdLogStore.RememberLength(logged.Path, logged.Label, _duration);
             if (_pendingSeek is double pending)
             {
                 _pendingSeek = null;
@@ -1455,6 +1459,9 @@ public sealed class MediaSession
         _seekTarget = 0;
         Selected = entry;
         Current = entry;
+        // One impression: this clip has now gone to air. Cued by hand, from a playlist or from a
+        // quick-media button, it is the same play as far as the advertisement log is concerned.
+        Scoreboard.Core.AdLogStore.Count(entry.Path, entry.Label);
         _duration = 0;
         _pendingSeek = null;
         // Video sound lives on the audience output; muting here avoids hearing it twice. A clip

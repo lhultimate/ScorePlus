@@ -100,10 +100,29 @@
             <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
             <Setter Property="Background" Value="{DynamicResource OperatorPanelBrush}"/>
             <Setter Property="Padding" Value="10,7"/>
-            <Style.Triggers>
-              <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#2B3949"/></Trigger>
-              <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#1E2A36"/></Trigger>
-            </Style.Triggers>
+            <!-- Without a template the rows are drawn by the system's own item chrome: a white
+                 hover and a blue selection inside an otherwise dark drop-down, which is what made
+                 the makers' pickers look like they belonged to another app. -->
+            <Setter Property="Template">
+              <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                  <Border x:Name="Row" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"
+                          Margin="2,1" CornerRadius="5" BorderThickness="0" local:ThemeManager.SkipTheme="True">
+                    <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsHighlighted" Value="True">
+                      <Setter TargetName="Row" Property="Background" Value="#2B3949"/>
+                    </Trigger>
+                    <Trigger Property="IsSelected" Value="True">
+                      <Setter TargetName="Row" Property="Background" Value="#1E2A36"/>
+                      <Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                      <Setter TargetName="Row" Property="BorderThickness" Value="3,0,0,0"/>
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Setter.Value>
+            </Setter>
           </Style>
         </Setter.Value>
       </Setter>

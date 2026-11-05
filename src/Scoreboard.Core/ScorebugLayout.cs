@@ -70,7 +70,13 @@ public enum ScorebugIcon
     /// </summary>
     PossessionArrow,
     /// <summary>One round pip per timeout left, for a plate that reads softer than timeout bars.</summary>
-    TimeoutDots
+    TimeoutDots,
+    /// <summary>A yellow card: a caution, shown as the referee's angled yellow rectangle.</summary>
+    YellowCard,
+    /// <summary>A red card: a sending-off, shown as the referee's angled red rectangle.</summary>
+    RedCard,
+    /// <summary>An icon made in the icon maker: a glyph, its colour and its plate.</summary>
+    Custom
 }
 
 public sealed class ScorebugElement
@@ -81,6 +87,9 @@ public sealed class ScorebugElement
     public ScorebugShape Shape { get; set; } = ScorebugShape.Rectangle;
     public string Content { get; set; } = "TEXT";
     public string? ImagePath { get; set; }
+
+    /// <summary>Which icon from the icon library a <see cref="ScorebugIcon.Custom"/> element draws.</summary>
+    public string? CustomIconId { get; set; }
 
     /// <summary>
     /// Set on a part copied out of another layout: every element sharing this id is the same
@@ -189,6 +198,20 @@ public sealed class ScorebugElement
 
     /// <summary>For timeout bars: scale the bars and their gaps. 1 is the box's natural size.</summary>
     public double IconScale { get; set; } = 1;
+
+    /// <summary>
+    /// A value the icon follows, written as a token — <c>{{PENALTY_TYPE}}</c>, <c>{{STAT:Turnovers}}</c>.
+    /// The icon is on the graphic only while that value is set, so a flag icon appears when a flag is
+    /// down and disappears when it is cleared, with no key press in the studio.
+    /// </summary>
+    public string IconToken { get; set; } = "";
+
+    /// <summary>Where the icon sits relative to its box, in design pixels.</summary>
+    public double IconOffsetX { get; set; }
+    public double IconOffsetY { get; set; }
+
+    /// <summary>The icon's own colour. Empty follows the element's text colour.</summary>
+    public string IconColor { get; set; } = "";
 
     /// <summary>
     /// A gradient painted through the text itself, with any number of stops. Off leaves the text in
@@ -340,7 +363,7 @@ public sealed class ScorebugLayout
             new() { Name="Away team", Content="{{AWAY_TEAM}}", X=906, Y=236, Width=300, Height=54, FontSize=36 },
             new() { Name="Away score", Content="{{AWAY_SCORE}}", X=906, Y=300, Width=300, Height=126, FontSize=102, ForegroundSource=ScorebugColorSource.AwayPrimary },
             new() { Name="Period", Content="{{PERIOD}}", X=470, Y=225, Width=340, Height=52, FontSize=28 },
-            new() { Name="Game clock", Content="{{GAME_CLOCK}}", X=430, Y=300, Width=420, Height=92, FontSize=72, Transition=ScorebugTransition.WheelUp },
+            new() { Name="Game clock", Content="{{GAME_CLOCK}}", X=430, Y=300, Width=420, Height=92, FontSize=72, Transition=ScorebugTransition.Cut },
             new() { Name="Home logo", Kind=ScorebugElementKind.Logo, LogoSide=ScorebugLogoSide.Home, Content="HOME LOGO", X=78, Y=160, Width=120, Height=64, FontSize=20 },
             new() { Name="Away logo", Kind=ScorebugElementKind.Logo, LogoSide=ScorebugLogoSide.Away, Content="AWAY LOGO", X=1082, Y=160, Width=120, Height=64, FontSize=20 }
         ]

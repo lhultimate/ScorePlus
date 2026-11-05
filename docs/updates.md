@@ -104,3 +104,23 @@ on that URL. `--draft` is the one that hides a build: drafts are never offered.
   inside that; a roomful of machines behind one NAT still is.
 - The remote control and the update feed are separate features: the remote is off by default and
   needs a password, and neither opens an inbound port for updates.
+
+## Checking a release by hand
+
+Before blaming the app, read the feed the way it reads it:
+
+```sh
+curl -s "https://api.github.com/repos/lhultimate/ScorePlus/releases?per_page=5" \
+  | grep -E '"tag_name"|"name"|"draft"|"prerelease"'
+```
+
+Three things make a release invisible, and each is visible in that output:
+
+- **It is a draft.** Drafts are not served, so their assets never download. Publish it.
+- **It has no `ScorePlusSetup` asset.** A release without the installer is skipped on purpose rather
+  than offered as a half-update; attach the file under that exact base name.
+- **Its number is not higher.** Only the version is compared, never the upload date — a re-uploaded
+  old tag changes nothing on an installed copy.
+
+A portable build never updates itself even when all three are right: it checks the registry marker
+from the installer and skips when there is none.

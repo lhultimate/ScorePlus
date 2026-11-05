@@ -13,7 +13,7 @@ using Scoreboard.Core;
 namespace Scoreboard.Desktop;
 
 /// <summary>
-/// The transition maker and the animation maker. One editor, two doors: a transition keys how a
+/// The transition builder and the animation maker. One editor, two doors: a transition keys how a
 /// graphic leaves and arrives (with colour keys that travel through the hand-over), while an
 /// animation keys motion a value follows — a loop while it is up, or a flourish when it changes.
 /// Nothing is applied from here: saving puts the named clip into the show's library, and the
@@ -111,7 +111,7 @@ public sealed class MotionMakerWindow : Window
         _theme = theme;
         _clip = start?.Snapshot() ?? (kind == MotionKind.Transition ? MotionClip.NewTransition() : MotionClip.NewAnimation());
 
-        Title = kind == MotionKind.Transition ? "ScorePlus — Transition Maker" : "ScorePlus — Animation Maker";
+        Title = kind == MotionKind.Transition ? "ScorePlus — Transition Builder" : "ScorePlus — Animation Maker";
         // Fit the working area: the window is a working surface, not something to drag around a
         // desktop it does not fit on.
         var work = SystemParameters.WorkArea;
@@ -217,7 +217,7 @@ public sealed class MotionMakerWindow : Window
         var title = new StackPanel();
         title.Children.Add(new TextBlock
         {
-            Text = _kind == MotionKind.Transition ? "TRANSITION MAKER" : "ANIMATION MAKER",
+            Text = _kind == MotionKind.Transition ? "TRANSITION BUILDER" : "ANIMATION MAKER",
             FontSize = 20,
             FontWeight = FontWeights.Bold
         });
@@ -528,7 +528,7 @@ public sealed class MotionMakerWindow : Window
         var title = new StackPanel();
         title.Children.Add(new TextBlock
         {
-            Text = _kind == MotionKind.Transition ? "TRANSITION MAKER" : "ANIMATION MAKER",
+            Text = _kind == MotionKind.Transition ? "TRANSITION BUILDER" : "ANIMATION MAKER",
             FontSize = 20,
             FontWeight = FontWeights.Bold
         });
@@ -706,7 +706,11 @@ public sealed class MotionMakerWindow : Window
         var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(4, 0, 4, 0) };
         var panel = new StackPanel();
 
-        if (_kind == MotionKind.Transition) BuildPiecesSection(panel);
+        if (_kind == MotionKind.Transition)
+        {
+            BuildTimelineSection(panel);
+            BuildPiecesSection(panel);
+        }
 
         panel.Children.Add(Section("PHASES"));
         var phaseRow = new WrapPanel();
@@ -777,8 +781,11 @@ public sealed class MotionMakerWindow : Window
         keyRow.Children.Add(new TextBlock { Text = "Value", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
         _keyValue.Width = 68;
         keyRow.Children.Add(_keyValue);
-        _easePicker.ItemsSource = Enum.GetValues<MotionEase>();
-        _easePicker.SelectedIndex = (int)MotionEase.Out;
+        // Labelled options, not the enum itself: "Out" beside a keyframe reads as a direction.
+        _easePicker.ItemsSource = Enum.GetValues<MotionEase>()
+            .Select(ease => new EaseOption(ease, EaseLabel(ease))).ToArray();
+        _easePicker.ToolTip = "How the value approaches this key from the one before it";
+        SelectEase(MotionEase.Out);
         keyRow.Children.Add(_easePicker);
         panel.Children.Add(keyRow);
         var keyButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
@@ -791,8 +798,10 @@ public sealed class MotionMakerWindow : Window
 
         panel.Children.Add(Section("COLOR KEYS"));
         var colorRow = new WrapPanel();
-        _colorRolePicker.ItemsSource = Enum.GetValues<MotionColorRole>();
-        _colorRolePicker.SelectedIndex = 0;
+        _colorRolePicker.ItemsSource = Enum.GetValues<MotionColorRole>()
+            .Select(role => new RoleOption(role, RoleLabel(role))).ToArray();
+        _colorRolePicker.ToolTip = "Which part of the item the colour key paints";
+        SelectRole(MotionColorRole.Text);
         colorRow.Children.Add(_colorRolePicker);
         colorRow.Children.Add(new TextBlock { Text = "Time", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
         _colorTime.Width = 56;
@@ -811,6 +820,86 @@ public sealed class MotionMakerWindow : Window
 
         scroll.Content = panel;
         return scroll;
+    }
+
+    // ---------- layout timeline ----------
+
+    readonly ComboBox _timelineLayoutPicker = new();
+    readonly ListBox _timelineList = new();
+    List<ScorebugElement> _timelineItems = [];
+
+    /// <summary>
+    /// The timeline: pick the layout the hand-over is for, then put its items in the order they
+    /// leave and arrive. It is the simplest way to make a transition feel designed rather than
+    /// everything moving at once.
+    /// </summary>
+    void BuildTimelineSection(StackPanel panel)
+    {
+        panel.Children.Add(Section("TIMELINE"));
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Pick the layout this hand-over is for, then order its items. The top item moves first and the rest follow; items left out of the list still move, with the layout.",
+            FontSize = 10,
+            Opacity = 0.65,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 4)
+        });
+        _timelineLayoutPicker.MinWidth = 230;
+        _timelineLayoutPicker.SelectionChanged += (_, _) => RefreshTimeline();
+        panel.Children.Add(_timelineLayoutPicker);
+        _timelineList.Height = 124;
+        _timelineList.Margin = new Thickness(0, 4, 0, 0);
+        panel.Children.Add(_timelineList);
+        var timelineButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        timelineButtons.Children.Add(ActionButton("Move up", () => MoveTimeline(-1)));
+        timelineButtons.Children.Add(ActionButton("Move down", () => MoveTimeline(1)));
+        timelineButtons.Children.Add(ActionButton("Layout order", ResetTimeline));
+        panel.Children.Add(timelineButtons);
+    }
+
+    void RefreshTimeline()
+    {
+        if (_clip is null) return;
+        var layout = (_timelineLayoutPicker.SelectedItem as LayoutChoice)?.Layout ?? _catalog.Layout;
+        var ranks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var id in _clip.PieceOrder ?? [])
+            if (!ranks.ContainsKey(id)) ranks[id] = ranks.Count;
+        _timelineItems = layout.Elements
+            .OrderBy(item => ranks.TryGetValue(item.Id, out var rank) ? rank : int.MaxValue)
+            .ToList();
+        var selected = (_timelineList.SelectedItem as TimelineRow)?.Id;
+        _timelineList.ItemsSource = _timelineItems
+            .Select((item, index) => new TimelineRow(index + 1, item.Id, string.IsNullOrWhiteSpace(item.Name) ? item.Id : item.Name))
+            .ToList();
+        _timelineList.SelectedIndex = selected is null ? -1
+            : Math.Max(0, _timelineItems.FindIndex(item => string.Equals(item.Id, selected, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    void MoveTimeline(int delta)
+    {
+        if (_timelineList.SelectedItem is not TimelineRow row) return;
+        var index = _timelineItems.FindIndex(item => string.Equals(item.Id, row.Id, StringComparison.OrdinalIgnoreCase));
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= _timelineItems.Count) return;
+        var moved = _timelineItems[index];
+        _timelineItems.RemoveAt(index);
+        _timelineItems.Insert(target, moved);
+        _clip.PieceOrder = _timelineItems.Select(item => item.Id).ToList();
+        RefreshTimeline();
+        _timelineList.SelectedIndex = target;
+        _status.Text = $"Timeline: {moved.Name} is {target + 1} of {_timelineItems.Count}.";
+    }
+
+    void ResetTimeline()
+    {
+        _clip.PieceOrder = [];
+        RefreshTimeline();
+        _status.Text = "Timeline cleared: every item moves together.";
+    }
+
+    sealed record TimelineRow(int Position, string Id, string Label)
+    {
+        public override string ToString() => $"{Position}.  {Label}";
     }
 
     void BuildPiecesSection(StackPanel panel)
@@ -1152,14 +1241,14 @@ public sealed class MotionMakerWindow : Window
         if (SelectedKey is not { } key) return;
         _keyTime.Text = key.Time.ToString("0.##", CultureInfo.CurrentCulture);
         _keyValue.Text = key.Value.ToString("0.###", CultureInfo.CurrentCulture);
-        _easePicker.SelectedItem = key.Ease;
+        SelectEase(key.Ease);
         DrawTimeline();
     }
 
     void LoadColor()
     {
         if (SelectedColorRow is not { } row) return;
-        _colorRolePicker.SelectedItem = row.Track.Role;
+        SelectRole(row.Track.Role);
         _colorTime.Text = row.Key.Time.ToString("0.##", CultureInfo.CurrentCulture);
         _colorValue.Text = row.Key.Color;
     }
@@ -1335,6 +1424,8 @@ public sealed class MotionMakerWindow : Window
         SetChoices(_exitLayoutPicker, options, exitId);
         SetChoices(_enterLayoutPicker, options, enterId);
         SetChoices(_motionLayoutPicker, options, motionId);
+        SetChoices(_timelineLayoutPicker, options, (_timelineLayoutPicker.SelectedItem as LayoutChoice)?.Layout?.Id ?? enterId);
+        RefreshTimeline();
         // First run: preview the layout being designed rather than the stand-in plate.
         if (exitId is null && enterId is null && motionId is null)
         {
@@ -1359,7 +1450,7 @@ public sealed class MotionMakerWindow : Window
     {
         var transition = _kind == MotionKind.Transition;
         NoticeWindow.Tell(this,
-            transition ? "How the Transition Maker works" : "How the Animation Maker works",
+            transition ? "How the Transition Builder works" : "How the Animation Maker works",
             transition
                 ? "Use this maker when a graphic comes on or leaves the screen.\n\n" +
                   "1. Pick a style on the left — for example Wipe left or Dissolve.\n" +
@@ -1485,7 +1576,7 @@ public sealed class MotionMakerWindow : Window
         if (track is null) { _status.Text = "Pick a track first, then add a key to it."; return; }
         var time = Number(_keyTime.Text, 0, 0, CurrentPhase?.Seconds ?? 5);
         var value = Number(_keyValue.Text, Default(track.Target), -100000, 100000);
-        var ease = _easePicker.SelectedItem is MotionEase chosen ? chosen : MotionEase.Out;
+        var ease = SelectedEase;
         track.Keys.RemoveAll(key => Math.Abs(key.Time - time) < 0.005);
         track.Keys.Add(new MotionKey(time, value, ease));
         track.Normalize(CurrentPhase?.Seconds ?? 5);
@@ -1502,7 +1593,7 @@ public sealed class MotionMakerWindow : Window
         if (SelectedKey is not { } key) { _status.Text = "Select a key to update it."; return; }
         key.Time = Number(_keyTime.Text, key.Time, 0, CurrentPhase?.Seconds ?? 5);
         key.Value = Number(_keyValue.Text, key.Value, -100000, 100000);
-        if (_easePicker.SelectedItem is MotionEase ease) key.Ease = ease;
+        key.Ease = SelectedEase;
         SelectedTrack?.Normalize(CurrentPhase?.Seconds ?? 5);
         RefreshTracks();
         BuildStage();
@@ -1526,7 +1617,7 @@ public sealed class MotionMakerWindow : Window
     {
         var phase = CurrentPhase;
         if (phase is null) return;
-        var role = _colorRolePicker.SelectedItem is MotionColorRole chosen ? chosen : MotionColorRole.Text;
+        var role = SelectedRole;
         var track = phase.Color(role, _pieceId);
         var time = Number(_colorTime.Text, 0, 0, phase.Seconds);
         track.Keys.RemoveAll(key => Math.Abs(key.Time - time) < 0.005);
@@ -2178,7 +2269,7 @@ public sealed class MotionMakerWindow : Window
 
     sealed class KeyRow(MotionKey key, int index)
     {
-        public override string ToString() => $"{index + 1}.  {key.Time:0.##}s  →  {key.Value:0.###}  ·  {key.Ease}";
+        public override string ToString() => $"{index + 1}.  {key.Time:0.##}s  →  {key.Value:0.###}  ·  {EaseLabel(key.Ease)}";
     }
 
     sealed class ColorRow(ColorTrack track, ColorKey key)
@@ -2192,6 +2283,45 @@ public sealed class MotionMakerWindow : Window
     {
         public MotionClip Clip => clip;
         public override string ToString() => $"{clip.Name}  —  {clip.Summary}";
+    }
+
+    /// <summary>The ease's own wording: "Out" alone says nothing on a keyframe row.</summary>
+    static string EaseLabel(MotionEase ease) => ease switch
+    {
+        MotionEase.Linear => "Linear",
+        MotionEase.In => "Ease in",
+        MotionEase.Out => "Ease out",
+        MotionEase.InOut => "Ease in-out",
+        MotionEase.Back => "Back (overshoot)",
+        MotionEase.Bounce => "Bounce",
+        _ => "Elastic"
+    };
+
+    static string RoleLabel(MotionColorRole role) => role switch
+    {
+        MotionColorRole.Background => "Plate",
+        MotionColorRole.Border => "Border",
+        _ => "Text colour"
+    };
+
+    MotionEase SelectedEase => (_easePicker.SelectedItem as EaseOption)?.Value ?? MotionEase.Out;
+
+    MotionColorRole SelectedRole => (_colorRolePicker.SelectedItem as RoleOption)?.Value ?? MotionColorRole.Text;
+
+    void SelectEase(MotionEase ease) => _easePicker.SelectedItem = _easePicker.Items.OfType<EaseOption>()
+        .FirstOrDefault(option => option.Value == ease) ?? _easePicker.Items.OfType<EaseOption>().FirstOrDefault();
+
+    void SelectRole(MotionColorRole role) => _colorRolePicker.SelectedItem = _colorRolePicker.Items.OfType<RoleOption>()
+        .FirstOrDefault(option => option.Value == role) ?? _colorRolePicker.Items.OfType<RoleOption>().FirstOrDefault();
+
+    sealed record EaseOption(MotionEase Value, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    sealed record RoleOption(MotionColorRole Value, string Label)
+    {
+        public override string ToString() => Label;
     }
 
     sealed class TargetOption(MotionTarget target)

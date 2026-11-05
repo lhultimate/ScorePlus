@@ -193,7 +193,7 @@ There is also a show-wide **value switch delay** in Preferences (0 by default): 
 
 ### Live Artwork Instead of Numbers
 
-Three elements can draw artwork from game state instead of (or alongside) typed text, chosen from the **ICON** section:
+Any text element can draw artwork from game state instead of (or alongside) typed text, chosen from the **ICON** section:
 
 | Icon | What it draws | Follows |
 | --- | --- | --- |
@@ -202,6 +202,8 @@ Three elements can draw artwork from game state instead of (or alongside) typed 
 | **Bases** | Three diamond bases, filled when a runner is on, faint outline when empty | The runner on each base |
 | **Possession arrow** | A solid arrow pointing into the plate of the team with the ball, and nothing at all on the other team | The team with the ball; **Visitors** picks the away plate and **Flip** turns the arrow around |
 | **Timeout dots** | Round pips instead of bars, one per timeout left | Home or visitors timeouts |
+| **Yellow card / Red card** | The referee's angled card, in its own yellow or red whatever the plate's colour is | Nothing — a fixed mark |
+| **Custom** | An icon you made in the **Icon maker**: a glyph on its own plate | Nothing — pick which made icon under **Made icon** |
 
 They update themselves with no studio edit, and **every icon animates** with the element's own value transition: a base fades and pops in as a runner arrives and shrinks away when they leave, new timeout bars slide or dissolve into the row, and the possession dot slides across the plate when the ball changes hands. The possession dot and the text are exclusive: turning on the dot removes the text rather than sitting under it. Small icons keep their size when you resize the box, unless you hold `Ctrl`, exactly like text.
 
@@ -364,6 +366,10 @@ The **ROSTERS** tab is a player desk, not another console.
 3. Add a player and fill in number, name, position and any stat values. Each sport ships with **20+ stat columns** already present (27 for American football; 22 for basketball, baseball, soccer and the rest), so you never have to name a stat before typing a value. Columns are the roster's, not the player's — every player in the roster gets the same ones.
 4. **Select player** makes someone the *selected player* for that side. **No player** takes them off the graphic entirely, leaving player elements blank until somebody is selected again. That choice survives a roster edit and a save.
 
+### Group a Roster
+
+Give a player a **Group** — `Defence`, `Forwards`, `Special teams` — and the roster list folds into sections: click a heading to collapse it, and the search box matches a group name as well as a player. A long roster then reads as a depth chart instead of one scroll. The group travels with the roster, with the `.spr` export and with the game.
+
 ### Put a Player on the Graphic
 
 In the studio, add a text element and press **PLAYER DATA +** (or use the PLAYER DATA section in the property panel). Pick the team and the value — `Name`, `Number`, `Position`, `Yards`, whatever the roster tracks — and the element binds to
@@ -432,7 +438,13 @@ Preferences can serve the whole control panel to a phone or tablet on the same W
 3. On the phone, open that address, sign in with the password, and the console appears in a thumb-sized layout: both teams above and below the clock, so nothing clips on a narrow screen.
 4. Type into any value and press **Enter**. Every action runs exactly the same code as the on-screen button.
 
-The remote carries the full panel: both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance, the ball spot and its side, possession, the sport's own values, custom stats, layout switching, **Update Output**, **Live**, **Undo** and **New panel**.
+The remote is three tabs, the same shape as the desktop:
+
+- **Console** — both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance with **Next down / Previous down / New series / Last down**, the ball spot and its side, possession, the sport's own values, custom stats, layout switching, **Update Output**, **Live**, **Undo** and **New panel**.
+- **Media** — the library as a list, with one tap to put a clip on air, one to take it off, and a **Play / Pause** for whatever is on air now.
+- **Roster** — both sides, the roster each one draws from, and its players; tap a roster to assign it and a player to put them on the graphic.
+
+It also serves a read-only wall board at **`/watch`** on the same address: the program layout with the published game data on it, for a screen in a hallway that should not be able to change anything. The board updates its values in place, without reloading the page.
 
 It is off until you enable it, requires the password for everything (hashed, constant-time compared, login throttled), and serves nothing without a signed-in session. Windows may ask once whether ScorePlus can accept connections — allow it on **private** networks and leave it blocked on public ones.
 
@@ -524,6 +536,8 @@ The main window is one page, top to bottom.
 | **▶ Audience output** | Choose a display and open its on-air window (F11 fills the screen) |
 | **☰ Event log** | The game's event history in its own movable window |
 | **▦ Game report** | Export a printable HTML summary of the game |
+| **▤ Ad log** | What the show has played: impressions per clip and how long each one runs |
+| **⌁ Hardware** | Connect a scoreboard controller and watch the data it sends |
 | **Save Game** / **Open Game** | `.spg` save and load |
 | **Scorebug Studio** | Design the on-air graphic |
 | **Sport Profiles** | Edit how the sport behaves |
@@ -534,7 +548,8 @@ The main window is one page, top to bottom.
 - **Visitors** on the left, **Home** on the right, each with a **…** team box (name, abbreviation, mascot name, logo, primary/secondary colors), a score stepper, and timeouts.
 - **Game clock** — typed as `MM:SS` or a plain number of seconds, with ±1s and ±1m buttons and Start/Stop.
 - **Play clock** and **shot clock** — presets (40/25, 24/14), ±1, start/stop. Clocks count the whole way down and show `0` rather than stopping a second early.
-- **Down & distance**, the **ball spot** with its own side (`Home 37`, `Visitors 25` — independent of possession, capped at 50) and possession (`HOME ▶` / `◀ AWAY`).
+- **Down & distance**, the **ball spot** with its own side (`Home 37`, `Visitors 25` — independent of possession, capped at 50) and possession (`HOME ▶` / `◀ AWAY`). **Last down** puts back the down, distance and spot that were on air *before* the current one; it only lights up once a newer down has been published, and it stages the change instead of publishing it, so you can look before pressing **Update Output**.
+- **Penalty box** — on the console itself rather than behind a dialog: a flag toggle, what the flag was given for and which team it is against. It stages like every other value, so **Update Output** is what puts a flag on air.
 - **Timeout clock** — one-minute clock with a reset and ±1s/±10s.
 - **Sport controls** — that sport's own values as compact `− value +` strips, typed over by clicking the number.
 - **Custom stats** — any number *or* any text: `3rd`, `N/A`, `TBD`. **＋ Add** creates one, and each can be shown on the graphic with `{{STAT:Name}}` and in the report.
@@ -601,10 +616,14 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 | `F11` in any window | Toggle true full screen — no title bar, frame or taskbar; `Escape` restores the window |
 | `Enter` in a value field | Commit and leave the field |
 
+### Making Icons
+
+The **ICON** section of the element panel draws live artwork — timeout bars, the possession dot or arrow, the baseball diamond, the referee's yellow and red cards — or an icon you make. Choose **Custom** in the Icon list, press **Icon maker…**, and draw one: a glyph (one to three characters — ★ ⚑ ▲ ⬤ or a letter), its colour and its plate, round or squared. Saved icons go into one shared library, so a house badge works in every layout and every display, and it travels inside any layout you export.
+
 ### Display and Layout Bars
 
 - **DISPLAY** — which screen you're editing; also where displays are added, renamed and removed.
-- **TRANSITION IN** — the arriving layout's hand-over and its duration.
+- **TRANSITION IN** — the arriving layout's hand-over and its duration. The **Transition Builder** also has a **TIMELINE**: pick the layout, then order its items with **Move up / Move down**, and the hand-over runs them in that order instead of moving every box at once. **Layout order** clears the timeline back to a single beat.
 - **LINK THIS LAYOUT TO** — the layout on another display that moves with this one, with a both-ways checkbox.
 - **LAYOUT** — the display's layouts as thumbnails with their names underneath, plus **Import .spl… / Export .spl…** and **Import .spd… / Export .spd…**, **Copy to… / Move to…** and **PARTS +**.
 - **CANVAS BACKGROUND** — green screen, navy reset, black, custom color.
@@ -717,13 +736,15 @@ The game report is a complete record: every value the game holds, the sport's ow
 | Sport profiles | `%LOCALAPPDATA%\ScorePlus\sports.json` |
 | Scorebug displays and layouts | `%LOCALAPPDATA%\ScorePlus\scorebug.json` |
 | Rosters and stat columns | `%LOCALAPPDATA%\ScorePlus\rosters.json` |
+| Advertisement log | `%LOCALAPPDATA%\ScorePlus\adverts.json` |
+| Made icons | `%LOCALAPPDATA%\ScorePlus\icons.json` |
 | Keybinds | `%LOCALAPPDATA%\ScorePlus\keybinds.json` |
 | Imported fonts | `%LOCALAPPDATA%\ScorePlus\Fonts` |
 | Team logos | `%LOCALAPPDATA%\ScorePlus\TeamLogos` |
 | Diagnostics | `%LOCALAPPDATA%\ScorePlus\logs` |
 | Program (installed) | `%LOCALAPPDATA%\Programs\ScorePlus` |
 
-Autosaves roll: a new one is written every five seconds, at most one per minute is kept as a recovery point, and anything past the newest eight is deleted automatically — including at startup. **Delete all** in the launch box or Preferences clears them on demand, behind a second click.
+Autosaves roll: a new one is written every fifteen seconds, at most one per minute is kept as a recovery point, and anything past the newest eight is deleted automatically — including at startup. **Delete all** in the launch box or Preferences clears them on demand, behind a second click.
 
 If you had an older installation, the files in `%LOCALAPPDATA%\Scoreboard` are copied into `%LOCALAPPDATA%\ScorePlus` on first run. Copied, not moved, so an older build still works.
 
@@ -804,7 +825,7 @@ dotnet run --project tests/HtmlRender/HtmlRender.csproj -c Release
 
 `HtmlRender` is separate because the browser engine refuses to start unless the app's own event loop is running; the smoke harness drives the dispatcher itself.
 
-Between them the suites cover scoring, undo, clock behaviour, period formats, sport profiles and overrides, custom stats and tokens, live-versus-staged publishing, multiple layouts and displays, linked and copied parts, element typography and transitions, icon artwork, media tags, volume and speaker routing, camera and replay staging, roster files, layout and display files, media folder files, report output, the remote page, the installer's update path, and the studio's keyboard and canvas behaviour.
+Between them the suites cover scoring, undo, clock behaviour, period formats, sport profiles and overrides, custom stats and tokens, live-versus-staged publishing, multiple layouts and displays, linked and copied parts, element typography and transitions, icon artwork, media tags, volume and speaker routing, camera and replay staging, roster files, the advertisement log and the icon library, layout and display files, media folder files, report output, the remote page, the installer's update path, and the studio's keyboard and canvas behaviour.
 
 ---
 
@@ -845,7 +866,7 @@ ScorePlus is an evolving production tool, not yet a full broadcast package. Stil
 
 - Network and hardware control (not for a bit)
 - Multi-game communication
-- Full remote control support
+- More of the console reachable from the phone (the media and roster tabs are in; the long tail of sport-specific verbs is not)
 - Professional/commercial use
 
 Also worth knowing: video sound plays through the audience output window while the preview and studio stay muted, so you never hear a cue twice — and a video element with its own audio output is only routed when it is on an audience screen, so several preview windows never open the same speaker more than once.

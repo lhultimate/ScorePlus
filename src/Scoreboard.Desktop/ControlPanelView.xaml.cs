@@ -210,7 +210,6 @@ public partial class ControlPanelView : UserControl
     public void SetHintVisibility(bool show)
     {
         _showHints = show;
-        DetailCardHint.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void SyncLiveState(bool live)
@@ -258,6 +257,12 @@ public partial class ControlPanelView : UserControl
         ShotClockToggle.Content = s.ShotClockRunning ? "Stop" : "Start";
         TimeoutClockToggle.Content = s.TimeoutClockRunning ? "Stop" : "Start";
 
+        // The penalty box sits on the console itself, so the flag is read and set in place.
+        SyncPenalty(s);
+        // Last down only exists once a newer down has been published; until then it has nothing to
+        // put back, and a live button that does nothing reads as broken.
+        RecallDownButton.IsEnabled = _engine.CanRecallLastDown;
+
         PossessionValue.Text = s.HomePossession ? s.HomeTeam : s.AwayTeam;
         AwayPossessionTag.Text = s.HomePossession ? "" : "◀ POSSESSION";
         HomePossessionTag.Text = s.HomePossession ? "POSSESSION ▶" : "";
@@ -269,8 +274,6 @@ public partial class ControlPanelView : UserControl
         OtherDetail.Visibility = football ? Visibility.Collapsed : Visibility.Visible;
         NewSeriesButton.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
         DetailCardTitle.Text = football ? "DOWN & DISTANCE" : "SPORT CONTROLS";
-        DetailCardHint.Text = football ? $"{Ordinal(s.Down)} & {s.YardsToGo} · ball on {(s.BallOnHomeSide ? "home" : "visitors")}' {s.YardsToGoal}" : string.Empty;
-        DetailCardHint.Visibility = _showHints && football ? Visibility.Visible : Visibility.Collapsed;
         PlayClockRow.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
         // Football has a play clock; showing a shot clock there as well only crowded the page.
         ShotClockRow.Visibility = _engine.Sport.HasShotClock && !football ? Visibility.Visible : Visibility.Collapsed;
@@ -305,6 +308,40 @@ public partial class ControlPanelView : UserControl
         catch { target.Source = null; }
     }
 
+
+    // ---------- penalty box ----------
+
+    bool _penaltySync;
+
+    /// <summary>Paints the penalty box from the game without writing the game back while it does.</summary>
+    void SyncPenalty(GameState s)
+    {
+        _penaltySync = true;
+        try
+        {
+            PenaltyActiveToggle.IsChecked = s.PenaltyActive;
+            PenaltyActiveToggle.Content = s.PenaltyActive ? "Flag down" : "No flag";
+            if (PenaltyTypeBox.ItemsSource is null) PenaltyTypeBox.ItemsSource = GameEngine.PenaltyTypes;
+            PenaltyTypeBox.SelectedItem = GameEngine.PenaltyTypes.Contains(s.PenaltyType) ? s.PenaltyType : GameEngine.PenaltyTypes[0];
+            var teams = new[] { $"Home · {s.HomeTeam}", $"Visitors · {s.AwayTeam}" };
+            if (PenaltyTeamBox.Items.Count != 2 || !Equals(PenaltyTeamBox.Items[0], teams[0]) || !Equals(PenaltyTeamBox.Items[1], teams[1]))
+                PenaltyTeamBox.ItemsSource = teams;
+            PenaltyTeamBox.SelectedIndex = s.PenaltyHome ? 0 : 1;
+            // The strip is one line beside three controls, so the hint stays to the point.
+            PenaltyHint.Text = s.PenaltyActive
+                ? $"{(s.PenaltyHome ? s.HomeTeam : s.AwayTeam)} — {s.PenaltyType}"
+                : "No flag up";
+        }
+        finally { _penaltySync = false; }
+    }
+
+    /// <summary>Any of the three controls writes the whole flag, so the box can never half-change.</summary>
+    void Penalty_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_penaltySync || _engine is null) return;
+        var type = PenaltyTypeBox.SelectedItem as string ?? _engine.State.PenaltyType;
+        _engine.SetPenalty(PenaltyActiveToggle.IsChecked == true, type, PenaltyTeamBox.SelectedIndex != 1);
+    }
 
     void AwayDetails_Click(object sender, RoutedEventArgs e) => EditTeam(false);
     void HomeDetails_Click(object sender, RoutedEventArgs e) => EditTeam(true);
@@ -728,7 +765,7 @@ public partial class ControlPanelView : UserControl
     void HornType_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (_hornSync || HornType?.SelectedItem is not ComboBoxItem item) return;
-        var sound = item.Tag as string ?? nameof(HornSound.AirHorn);
+        var sound = item.Tag as string ?? nameof(HornSound.Buzzer);
         var preferences = PreferencesStore.Load();
         preferences.HornSound = sound;
         PreferencesStore.Save(preferences);
@@ -825,6 +862,8 @@ public partial class ControlPanelView : UserControl
             case "football.ball.side": _engine.SetBallSide(!_engine.State.BallOnHomeSide); break;
             case "football.ball.plus": _engine.SetFootballDistance(_engine.State.YardsToGo, Math.Min(50, _engine.State.YardsToGoal + 1)); break;
             case "football.series.new": _engine.NewSeries(); break;
+            // The flag itself is a keybind too: a flag goes down on the field, not in a menu.
+            case "penalty.toggle": _engine.SetPenalty(!_engine.State.PenaltyActive, _engine.State.PenaltyType, _engine.State.PenaltyHome); break;
             case "basketball.foul.home": _engine.AddFoul(true); break;
             case "basketball.foul.away": _engine.AddFoul(false); break;
             case "basketball.shotclock.toggle": _engine.ToggleShotClock(); break;

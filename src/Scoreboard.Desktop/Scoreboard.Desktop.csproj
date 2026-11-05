@@ -16,6 +16,11 @@
     <Description>ScorePlus live production scoreboard</Description>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- WPF loads a few of its own assemblies by name at run time: the drag-and-drop helper, the
+         popup accessibility bridge. Inside a single-file bundle they are not on disk under those
+         names, so DoDragDrop and every drop-down threw "assembly not found" and the program died
+         on the next layout pass. Extracting the whole bundle gives them the files they look for. -->
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>embedded</DebugType>
     <!-- Only the program itself lands in the release folder: no NuGet XML docs beside it. -->

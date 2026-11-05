@@ -62,8 +62,8 @@ public sealed class UserPreferences
     /// <summary>Controller input and its connection details.</summary>
     public HardwareSettings Hardware { get; set; } = new();
 
-    /// <summary>The built-in horn selected on the console, or Custom.</summary>
-    public string HornSound { get; set; } = nameof(Desktop.HornSound.AirHorn);
+    /// <summary>The built-in horn selected on the console, or Custom. The buzzer ships as the default.</summary>
+    public string HornSound { get; set; } = nameof(Desktop.HornSound.Buzzer);
 
     /// <summary>Audio file used when <see cref="HornSound"/> is Custom.</summary>
     public string HornCustomPath { get; set; } = "";
@@ -163,7 +163,7 @@ public static class PreferencesStore
         preferences.QuickLayouts ??= [];
         preferences.QuickMedia ??= [];
         preferences.Hardware ??= new HardwareSettings();
-        if (string.IsNullOrWhiteSpace(preferences.HornSound)) preferences.HornSound = nameof(Desktop.HornSound.AirHorn);
+        if (string.IsNullOrWhiteSpace(preferences.HornSound)) preferences.HornSound = nameof(Desktop.HornSound.Buzzer);
         if (preferences.Media.Count == 0 && preferences.MediaFiles.Count > 0)
             preferences.Media = preferences.MediaFiles.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => new MediaEntry(p)).ToList();
         preferences.MediaFiles.Clear();
@@ -176,6 +176,15 @@ public static class PreferencesStore
             preferences.Theme = "System";
             preferences.ShowHeadingHints = false;
             preferences.Schema = 2;
+            try { Save(preferences); } catch { }
+        }
+        // a1.6 ships the buzzer as the console's horn. A file still carrying the old air-horn
+        // default takes the new one once; a deliberate Siren or Custom choice is left alone.
+        if (preferences.Schema < 3)
+        {
+            if (string.Equals(preferences.HornSound, nameof(Desktop.HornSound.AirHorn), StringComparison.OrdinalIgnoreCase))
+                preferences.HornSound = nameof(Desktop.HornSound.Buzzer);
+            preferences.Schema = 3;
             try { Save(preferences); } catch { }
         }
         if (preferences.Theme is not ("System" or "Dark" or "Light")) preferences.Theme = "System";
@@ -270,6 +279,14 @@ public static class ThemeManager
         }
         window.Loaded += (_, _) => ApplyTheme();
         if (window.IsLoaded) window.Dispatcher.BeginInvoke(ApplyTheme);
+        // A control built after the window loaded starts with the shipped green: the studio rebuilds
+        // its panels when an element is moved, a property row is opened, a list is refilled. Painting
+        // each newcomer as it loads keeps the operator's accent on what they are actually looking at
+        // instead of letting those rebuilt pieces snap back to the default colour.
+        window.AddHandler(FrameworkElement.LoadedEvent, new RoutedEventHandler((_, args) =>
+        {
+            if (args.OriginalSource is DependencyObject element) PaintAccent(element, accent, secondary);
+        }), handledEventsToo: true);
     }
 
     static Brush Brush(string color) => (Brush)new BrushConverter().ConvertFromString(color)!;
@@ -321,6 +338,16 @@ public static class ThemeManager
         if (root is null) return;
         if (root is ScorebugCanvasView) return;
         if (root is FrameworkElement { Name: "DesignCanvas" }) return;
+        PaintAccent(root, accent, secondary);
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            ApplyAccent(VisualTreeHelper.GetChild(root, i), accent, secondary);
+    }
+
+    /// <summary>Paints one element (not its children) with the operator's accent, for a newcomer.</summary>
+    static void PaintAccent(DependencyObject root, Color accent, Color secondary)
+    {
+        if (root is ScorebugCanvasView) return;
+        if (root is FrameworkElement { Name: "DesignCanvas" }) return;
 
         Color? Map(Color color)
         {
@@ -354,8 +381,6 @@ public static class ThemeManager
             if (control.BorderBrush is SolidColorBrush controlBorder && Map(controlBorder.Color) is Color controlEdge)
                 control.BorderBrush = UiPalette.Frozen(controlEdge);
         }
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            ApplyAccent(VisualTreeHelper.GetChild(root, i), accent, secondary);
     }
 }
 

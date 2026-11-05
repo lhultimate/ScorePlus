@@ -263,6 +263,9 @@ public sealed class ScorebugCanvasView : Grid
         // The outgoing frame: the whole still, or one cropped still per item when the exit itself is
         // keyed piece by piece. The crops are exactly what was on screen, so a piece moves on its own.
         FrameworkElement outgoingHost;
+        // One step per item: the timeline below decides the order they run in.
+        var exitSteps=new List<(string Id,Action Play)>();
+        var enterSteps=new List<(string Id,Action Play)>();
         if(exitScoped)
         {
             var crops=new Canvas{Width=width,Height=height,IsHitTestVisible=false};
@@ -292,8 +295,12 @@ public sealed class ScorebugCanvasView : Grid
                 var image=new Image{Source=crop,Width=w,Height=h,Stretch=Stretch.Fill,IsHitTestVisible=false};
                 Canvas.SetLeft(image,item.X);Canvas.SetTop(image,item.Y);
                 crops.Children.Add(image);
-                MotionPlayback.PlayPhase(image,exit,Math.Clamp(item.Opacity,0,1),pieceId:PieceIdFor(item));
+                var step=image;var id=PieceIdFor(item);
+                exitSteps.Add((id,()=>MotionPlayback.PlayPhase(step,exit,Math.Clamp(item.Opacity,0,1),pieceId:id)));
             }
+            // The crop order is the timeline order, so a hand-over can travel across the graphic
+            // instead of every item leaving on the same beat.
+            PlayStaggered(exitSteps,exit!.Seconds,clip.PieceOrder);
             outgoingHost=crops;
         }
         else
@@ -346,14 +353,17 @@ public sealed class ScorebugCanvasView : Grid
             {
                 if(stationary.Contains(item.Id))continue;
                 if(!_visuals.TryGetValue(item.Id,out var visual))continue;
-                MotionPlayback.PlayPhase(visual.Host,enter,Math.Clamp(item.Opacity,0,1),pieceId:item.Id);
+                var host=visual.Host;var id=item.Id;var opacity=Math.Clamp(item.Opacity,0,1);
+                enterSteps.Add((id,()=>MotionPlayback.PlayPhase(host,enter,opacity,pieceId:id)));
             }
+            PlayStaggered(enterSteps,enter.Seconds,clip.PieceOrder);
             foreach(var (host,piece) in temporary)
                 MotionPlayback.PlayPhase(host,enter,Math.Clamp(piece.Opacity,0,1),pieceId:piece.Id);
-            // Scoped pieces finish individually; one timer ends the hand-over once the leg is over.
-            StartSwapTimer(enter.Seconds,FinishSwap);
+            // Scoped pieces finish individually; one timer ends the hand-over once the leg is over,
+            // including the time the timeline spends spreading its items out.
+            StartSwapTimer(enter.Seconds+StaggerFor(enterSteps,clip.PieceOrder),FinishSwap);
         }
-        if(exit is {Enabled:true,IsEmpty:false}&&exit.Seconds>0.001) StartSwapTimer(exit.Seconds,Arrive);
+        if(exit is {Enabled:true,IsEmpty:false}&&exit.Seconds>0.001) StartSwapTimer(exit.Seconds+StaggerFor(exitSteps,clip.PieceOrder),Arrive);
         else Arrive();
     }
 
@@ -383,6 +393,41 @@ public sealed class ScorebugCanvasView : Grid
         host.RenderTransformOrigin=new Point(0.5,0.5);
         Canvas.SetLeft(host,piece.X);Canvas.SetTop(host,piece.Y);
         return host;
+    }
+
+    /// <summary>
+    /// Runs each item's own part of a leg in timeline order: the top item starts at once and every
+    /// later item follows, sharing half the leg between them, so the order is visible but the leg
+    /// still finishes on time. A clip with no order keeps its single, simultaneous beat.
+    /// </summary>
+    void PlayStaggered(List<(string Id,Action Play)> steps,double leg,IReadOnlyList<string>? order)
+    {
+        if(steps.Count==0)return;
+        var ranks=new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+        if(order is not null)
+            foreach(var id in order)
+                if(!ranks.ContainsKey(id))ranks[id]=ranks.Count;
+        var ordered=steps
+            .Select((step,index)=>(step.Id,step.Play,index,Rank:ranks.TryGetValue(step.Id,out var rank)?rank:int.MaxValue))
+            .OrderBy(step=>step.Rank).ThenBy(step=>step.index)
+            .ToList();
+        var gap=StaggerFor(steps,order)/(ordered.Count>1?ordered.Count-1:1);
+        for(var index=0;index<ordered.Count;index++)
+        {
+            var play=ordered[index].Play;
+            if(index==0||gap<=0.001){play();continue;}
+            var timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(gap*index)};
+            timer.Tick+=(_,_)=>{timer.Stop();play();};
+            timer.Start();
+        }
+    }
+
+    /// <summary>How long the timeline spreads a leg out, or zero when the clip has no order.</summary>
+    static double StaggerFor(List<(string Id,Action Play)> steps,IReadOnlyList<string>? order)
+    {
+        if(steps.Count<2||order is null||order.Count<2)return 0;
+        var ordered=steps.Count(step=>order.Contains(step.Id,StringComparer.OrdinalIgnoreCase));
+        return ordered<2?0:Math.Clamp(0.06*(ordered-1),0.01,0.6);
     }
 
     void StartSwapTimer(double seconds,Action done)
