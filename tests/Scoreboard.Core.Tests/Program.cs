@@ -469,7 +469,7 @@ var transitionPath=Path.Combine(Path.GetTempPath(),$"transition-{Guid.NewGuid():
 try
 {
     var transitions=new ScorebugCatalog(transitionPath);
-    Check(transitions.Layout.Transition==LayoutTransition.Fade&&transitions.Layout.TransitionSeconds>0,"a layout starts with a dissolve onto air");
+    Check(transitions.Layout.Transition==LayoutTransition.Cut&&transitions.Layout.TransitionSeconds==0,"a layout starts with a cut onto air");
     transitions.SetTransition(LayoutTransition.Zoom,9);
     Check(transitions.Layout.Transition==LayoutTransition.Zoom&&Math.Abs(transitions.Layout.TransitionSeconds-5)<0.001,"a layout hand-over is capped at five seconds");
     var second=transitions.AddLayout("Lower third");
@@ -529,6 +529,11 @@ try
     Check(homeArrowPage.Contains("class=\"sp-arrow in")&&!homeArrowPage.Contains("class=\"sp-arrow out"),"the possession arrow only marks the team with the ball");
     arrowGame.SetPossession(false);
     Check(ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession").Contains("class=\"sp-arrow out flip"),"the possession arrow follows the ball to the other plate");
+    var freshItem=new ScorebugElement{Name="Fresh",Content="X"};
+    Check(freshItem.TextAlign==ScorebugTextAlign.Center,"a new element centres its text");
+    Check(Math.Abs(freshItem.TextShadowAngle-45)<0.001,"a new element's shadow falls down and to the right");
+    var uncutLayout=new ScorebugLayout{Name="Fresh layout"};
+    Check(uncutLayout.Transition==LayoutTransition.Cut&&uncutLayout.TransitionSeconds==0,"a new layout cuts instead of dissolving");
     var shadowItem=new ScorebugElement{Name="Shadowed",Content="TEXAS",TextShadow=true,TextShadowColor="#CC000000",TextShadowOffset=5,TextShadowSoftness=0};
     Check(ScorebugHtml.Build(new ScorebugLayout{Elements=[shadowItem]},arrowGame.State,"Shadow").Contains("text-shadow:"),"a text shadow is written into the web export");
 

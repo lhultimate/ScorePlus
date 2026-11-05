@@ -1,12 +1,15 @@
 using System.Windows;
 using System.Windows.Input;
 using System.IO;
+using System.Threading;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
 
 public partial class App : Application
 {
+    // Held for the life of the process; the OS releases it when ScorePlus exits.
+    static Mutex? _singleInstance;
     protected override void OnStartup(StartupEventArgs e)
     {
         // Media decoders and other native components can fail on threads the dispatcher never
@@ -23,6 +26,19 @@ public partial class App : Application
             args.Handled = true;
         };
         base.OnStartup(e);
+
+        // One copy per desktop. Two copies share %LOCALAPPDATA%\ScorePlus, and each keeps its own
+        // layout and preferences in memory — so the older one silently overwrites the newer one's
+        // edits, which reads as accents and backgrounds snapping back on their own.
+        _singleInstance = new Mutex(true, "ScorePlus.SingleInstance", out var isFirstCopy);
+        if (!isFirstCopy)
+        {
+            NoticeWindow.Tell(null, "ScorePlus is already running",
+                "Close the other copy first.\n\nTwo copies share the same layouts and preferences, so the older one undoes the newer one's edits.",
+                warning: true);
+            Shutdown();
+            return;
+        }
 
         // The main window opens first and stays locked behind the launch box, so the operator can
         // see the workspace they are about to load into before choosing a game.

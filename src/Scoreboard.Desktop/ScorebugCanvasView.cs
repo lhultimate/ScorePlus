@@ -169,6 +169,9 @@ public sealed class ScorebugCanvasView : Grid
     /// </summary>
     void PlaySwap(RenderTargetBitmap outgoing,ScorebugLayout? outgoingLayout,ScorebugLayout incoming)
     {
+        // A video file chosen for this layout is the hand-over: it plays full-frame over the
+        // outgoing still and ends with the new layout showing underneath.
+        if(TryPlayVideoSwap(outgoing,incoming))return;
         // A hand-over built in the transition maker replaces the seven presets for this layout:
         // its exit keys run on the outgoing still and its enter keys (and colour keys) on the new one.
         if(incoming.TransitionClip is { Kind:MotionKind.Transition } clip && !clip.IsEmpty)
@@ -391,11 +394,52 @@ public sealed class ScorebugCanvasView : Grid
         timer.Start();
     }
 
+    /// <summary>
+    /// Plays a video file as this layout's hand-over. False when the layout has no usable clip, so
+    /// the ordinary preset runs instead.
+    /// </summary>
+    bool TryPlayVideoSwap(RenderTargetBitmap outgoing,ScorebugLayout incoming)
+    {
+        var path=incoming.TransitionVideoPath;
+        if(string.IsNullOrWhiteSpace(path)||!System.IO.File.Exists(path))return false;
+        var extension=System.IO.Path.GetExtension(path).ToLowerInvariant();
+        if(extension is not (".mp4" or ".m4v" or ".wmv" or ".avi" or ".mov" or ".mkv" or ".webm"))return false;
+        FinishSwap();
+        var width=Math.Max(1,_canvas.Width);
+        var height=Math.Max(1,_canvas.Height);
+        var stack=new Grid{Width=width,Height=height,IsHitTestVisible=false};
+        var still=new Image{Source=outgoing,Width=width,Height=height,Stretch=Stretch.Fill};
+        var video=new MediaElement{Width=width,Height=height,Stretch=Stretch.Fill,IsMuted=true,
+            LoadedBehavior=MediaState.Play,UnloadedBehavior=MediaState.Manual};
+        try{video.Source=new Uri(path);}catch{return false;}
+        stack.Children.Add(still);
+        stack.Children.Add(video);
+        _stage.Children.Add(stack);
+        _swapOverlay=stack;
+        void Finish()
+        {
+            if(!ReferenceEquals(_swapOverlay,stack))return;
+            try{video.Stop();video.Close();}catch{}
+            _stage.Children.Remove(stack);
+            _swapOverlay=null;
+        }
+        video.MediaEnded+=(_,_)=>Finish();
+        // A clip that cannot open on this machine must not leave the old picture over the new layout.
+        video.MediaFailed+=(_,_)=>Finish();
+        StartSwapTimer(12,Finish);
+        return true;
+    }
+
     /// <summary>Stops a hand-over in progress and leaves the new layout alone on the stage.</summary>
     void FinishSwap()
     {
         _swapTimer?.Stop();
         _swapTimer=null;
+        if(_swapOverlay is Panel panel)
+            foreach(var media in panel.Children.OfType<MediaElement>())
+            {
+                try{media.Stop();media.Close();}catch{}
+            }
         if(_swapOverlay is not null)
         {
             _stage.Children.Remove(_swapOverlay);

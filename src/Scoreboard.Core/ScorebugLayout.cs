@@ -11,6 +11,9 @@ public enum ScorebugElementKind { Text, Logo, Shape, Video, Html, Image }
 /// </summary>
 public enum LayoutTransition { Cut, Fade, SlideLeft, SlideRight, SlideUp, SlideDown, Zoom }
 
+/// <summary>Where a value sits inside its box: its own text lines, and the block inside the plate.</summary>
+public enum ScorebugTextAlign { Left, Center, Right }
+
 /// <summary>Ambient motion that runs all the time, whatever the value is.</summary>
 public enum ScorebugAnimation { None, Pulse, Drift }
 
@@ -227,6 +230,15 @@ public sealed class ScorebugElement
     public double TextShadowSoftness { get; set; }
 
     /// <summary>
+    /// Which way the shadow falls, in degrees clockwise: 0 sends it right, 90 straight down,
+    /// 180 left and 270 up. 45 is the broadcast down-right default.
+    /// </summary>
+    public double TextShadowAngle { get; set; } = 45;
+
+    /// <summary>How the value sits inside its box: hard left, centred, or hard right.</summary>
+    public ScorebugTextAlign TextAlign { get; set; } = ScorebugTextAlign.Center;
+
+    /// <summary>
     /// The hand-over a value plays when it changes: how the old value leaves and the new one
     /// arrives, with its own colour keys. Null follows <see cref="Transition"/> instead.
     /// </summary>
@@ -283,10 +295,10 @@ public sealed class ScorebugLayout
     /// zoom. The hand-over belongs to the incoming layout, so a main scorebug can snap on while a
     /// lower third dissolves in beside it.
     /// </summary>
-    public LayoutTransition Transition { get; set; } = LayoutTransition.Fade;
+    public LayoutTransition Transition { get; set; } = LayoutTransition.Cut;
 
     /// <summary>How long this layout's hand-over takes, in seconds: 0 cuts, 5 is a slow dissolve.</summary>
-    public double TransitionSeconds { get; set; } = 0.5;
+    public double TransitionSeconds { get; set; } = 0;
 
     /// <summary>
     /// A hand-over built in the transition maker. When it is set it replaces the preset
@@ -294,6 +306,12 @@ public sealed class ScorebugLayout
     /// in an .spl or .spd file and in a saved game.
     /// </summary>
     public MotionClip? TransitionClip { get; set; }
+
+    /// <summary>
+    /// A video file played as this layout's hand-over, instead of the preset or a motion clip. It
+    /// runs full-frame over the outgoing picture and ends with the new layout showing underneath.
+    /// </summary>
+    public string TransitionVideoPath { get; set; } = "";
 
     /// <summary>
     /// Items that opt out of the arrival motion for this layout. Empty means the whole graphic
@@ -763,7 +781,7 @@ public sealed class ScorebugCatalog
                 if (string.IsNullOrWhiteSpace(layout.Name)) layout.Name = "Untitled layout";
                 if (!IsColor(layout.Background)) layout.Background = "#FF091018";
                 layout.TransitionSeconds = Math.Clamp(double.IsFinite(layout.TransitionSeconds) ? layout.TransitionSeconds : 0.5, 0, 5);
-                if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Fade;
+                if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Cut;
                 layout.TransitionClip?.Normalize();
                 layout.Handover ??= [];
                 layout.Handover = layout.Handover.Where(entry => entry is not null).Take(200).ToList();
@@ -792,6 +810,8 @@ public sealed class ScorebugCatalog
                     item.MotionAnimation?.Normalize();
                     item.TextShadowOffset = Math.Clamp(double.IsFinite(item.TextShadowOffset) ? item.TextShadowOffset : 4, 0, 40);
                     item.TextShadowSoftness = Math.Clamp(double.IsFinite(item.TextShadowSoftness) ? item.TextShadowSoftness : 0, 0, 60);
+                    item.TextShadowAngle = Math.Clamp(double.IsFinite(item.TextShadowAngle) ? item.TextShadowAngle : 45, 0, 360);
+                    if (!Enum.IsDefined(item.TextAlign)) item.TextAlign = ScorebugTextAlign.Center;
                     if (string.IsNullOrWhiteSpace(item.TextShadowColor)) item.TextShadowColor = "#CC000000";
                     if (string.IsNullOrWhiteSpace(item.BorderColor)) item.BorderColor = "#FFFFFFFF";
                     if (string.IsNullOrWhiteSpace(item.BackgroundColor2)) item.BackgroundColor2 = "#CC101820";

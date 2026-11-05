@@ -141,6 +141,52 @@ public partial class ScorebugEditorWindow : Window
 
     // Per-element quarter style. "Follow game default" keeps the old behaviour for layouts that
     // never asked for anything else.
+    /// <summary>Chooses a video file to play as this layout's hand-over.</summary>
+    void TransitionVideo_Click(object sender,RoutedEventArgs e)
+    {
+        var dialog=new Microsoft.Win32.OpenFileDialog
+        {
+            Title="Choose a transition video",
+            Filter="Video (*.mp4;*.wmv;*.avi;*.mov;*.mkv;*.webm)|*.mp4;*.wmv;*.avi;*.mov;*.mkv;*.webm|All files (*.*)|*.*"
+        };
+        if(dialog.ShowDialog(this)!=true)return;
+        var path=dialog.FileName;
+        _catalog.Update(layout=>layout.TransitionVideoPath=path);
+        SyncTransitionVideo();
+        LoadProperties();
+    }
+
+    void TransitionVideoClear_Click(object sender,RoutedEventArgs e)
+    {
+        _catalog.Update(layout=>layout.TransitionVideoPath="");
+        SyncTransitionVideo();
+        LoadProperties();
+    }
+
+    /// <summary>Names the chosen hand-over video on the transition bar.</summary>
+    void SyncTransitionVideo()
+    {
+        if(TransitionVideoClearButton is null||TransitionCaption is null)return;
+        var path=_catalog.Layout.TransitionVideoPath;
+        TransitionVideoClearButton.Visibility=string.IsNullOrWhiteSpace(path)?Visibility.Collapsed:Visibility.Visible;
+        TransitionCaption.Text=string.IsNullOrWhiteSpace(path)
+            ? "  Saved with this layout — every layout can arrive differently."
+            : $"  Video hand-over · {System.IO.Path.GetFileName(path)}";
+    }
+
+    /// <summary>Where the value sits inside its box, offered beside the text content.</summary>
+    sealed record AlignOption(ScorebugTextAlign Align, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    static readonly AlignOption[] AlignOptions =
+    [
+        new(ScorebugTextAlign.Left, "Left"),
+        new(ScorebugTextAlign.Center, "Center"),
+        new(ScorebugTextAlign.Right, "Right")
+    ];
+
     static readonly PeriodOption[] PeriodOptions =
     [
         new(null, "Follow game default"),
@@ -187,6 +233,7 @@ public partial class ScorebugEditorWindow : Window
         ShapeInput.ItemsSource=Enum.GetValues<ScorebugShape>();
         IconInput.ItemsSource=Enum.GetValues<ScorebugIcon>();
         PeriodFormatInput.ItemsSource=PeriodOptions;
+        TextAlignInput.ItemsSource=AlignOptions;
         ForegroundSourceInput.ItemsSource=ColorSources;
         BackgroundSourceInput.ItemsSource=ColorSources;
         GradientSourceInput.ItemsSource=ColorSources;
@@ -321,6 +368,7 @@ public partial class ScorebugEditorWindow : Window
             CanvasHeightInput.Text=_catalog.Layout.Height.ToString();
             CanvasPreset.SelectedIndex=PresetIndex(_catalog.Layout.Width,_catalog.Layout.Height);
             CanvasBackgroundInput.Text=_catalog.Layout.Background;
+            SyncTransitionVideo();
             _canvasLoading=false;
             CanvasBackgroundSwatch.Background=backdrop;
             CanvasBackgroundSwatch.ToolTip=$"Backdrop colour: {_catalog.Layout.Background}";
@@ -832,7 +880,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -886,6 +934,8 @@ public partial class ScorebugEditorWindow : Window
             TextShadowColorInput.Text=e.TextShadowColor;
             TextShadowOffsetInput.Text=e.TextShadowOffset.ToString("0.#");
             TextShadowSoftnessInput.Text=e.TextShadowSoftness.ToString("0.#");
+            TextShadowAngleInput.Text=e.TextShadowAngle.ToString("0");
+            TextAlignInput.SelectedItem=AlignOptions.FirstOrDefault(o=>o.Align==e.TextAlign)??AlignOptions[1];
         }
         if(e is not null&&e.Kind==ScorebugElementKind.Text) LoadPlayerBinding(e);
         _loading=false;
@@ -903,7 +953,9 @@ public partial class ScorebugEditorWindow : Window
         TextColorSwatch.Background=item is null?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item,_engine.State));
         BackgroundColorSwatch.Background=item is null||item.TransparentBackground?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveBackground(item,_engine.State));
         GradientColorSwatch.Background=item is null||item.TransparentBackground||!item.BackgroundGradient?Brushes.Transparent:ScorebugRender.ParseBrush(_engine.State.ColorFor(item.BackgroundSource2)??item.BackgroundColor2);
-        BorderColorSwatch.Background=item is null||item.BorderThickness<=0?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveBorder(item,_engine.State));
+        // The chosen outline colour shows even at width 0: the panel is where the colour is picked,
+        // and a hidden swatch made a just-chosen colour look like it had not taken.
+        BorderColorSwatch.Background=item is null?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveBorder(item,_engine.State));
         IconFillSwatch.Background=item is null||item.Icon!=ScorebugIcon.Bases?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveIconFill(item,_engine.State));
         TextColorSwatch.ToolTip=item is null?null:$"Text colour: {ScorebugRender.ResolveForeground(item,_engine.State)}";
         BackgroundColorSwatch.ToolTip=item is null?null:item.TransparentBackground?"No background box":$"Background colour: {ScorebugRender.ResolveBackground(item,_engine.State)}";
@@ -1155,6 +1207,8 @@ public partial class ScorebugEditorWindow : Window
         var shadowColorOk=TryColor(TextShadowColorInput.Text,out _);
         var shadowOffsetOk=double.TryParse(TextShadowOffsetInput.Text,out var shadowOffset);
         var shadowSoftnessOk=double.TryParse(TextShadowSoftnessInput.Text,out var shadowSoftness);
+        var shadowAngleOk=double.TryParse(TextShadowAngleInput.Text,out var shadowAngle);
+        var align=(TextAlignInput.SelectedItem as AlignOption)?.Align;
         var font=(FontInput.SelectedItem as FontChoice)?.Source;
         var bold=BoldInput.IsChecked==true; var italic=ItalicInput.IsChecked==true;
         var underline=UnderlineInput.IsChecked==true; var strike=StrikeInput.IsChecked==true;
@@ -1196,7 +1250,9 @@ public partial class ScorebugEditorWindow : Window
             &&(!transitionSpeedOk||Math.Abs(item.TransitionSeconds-transitionSpeed)<0.001)
             &&item.TextShadow==shadowOn&&(!shadowColorOk||item.TextShadowColor==TextShadowColorInput.Text)
             &&(!shadowOffsetOk||Math.Abs(item.TextShadowOffset-shadowOffset)<0.001)
-            &&(!shadowSoftnessOk||Math.Abs(item.TextShadowSoftness-shadowSoftness)<0.001))return;
+            &&(!shadowSoftnessOk||Math.Abs(item.TextShadowSoftness-shadowSoftness)<0.001)
+            &&(!shadowAngleOk||Math.Abs(item.TextShadowAngle-shadowAngle)<0.001)
+            &&(align is null||item.TextAlign==align))return;
         // Everything below follows the same rule: a group edit carries only what this panel edit
         // actually changed, measured against the element being edited.
         var groupEdits=new List<Action<ScorebugElement>>();
@@ -1255,6 +1311,8 @@ public partial class ScorebugEditorWindow : Window
         if(shadowColorOk&&item.TextShadowColor!=TextShadowColorInput.Text)Group(t=>t.TextShadowColor=TextShadowColorInput.Text);
         if(shadowOffsetOk&&Math.Abs(item.TextShadowOffset-shadowOffset)>0.001)Group(t=>t.TextShadowOffset=Math.Clamp(shadowOffset,0,40));
         if(shadowSoftnessOk&&Math.Abs(item.TextShadowSoftness-shadowSoftness)>0.001)Group(t=>t.TextShadowSoftness=Math.Clamp(shadowSoftness,0,60));
+        if(shadowAngleOk&&Math.Abs(item.TextShadowAngle-shadowAngle)>0.001)Group(t=>t.TextShadowAngle=Math.Clamp(shadowAngle,0,360));
+        if(align is not null&&item.TextAlign!=align)Group(t=>t.TextAlign=align.Value);
         var id=item.Id;
         // Switching an element to live artwork changes what it draws, so that one edit has to build
         // the new content rather than paint over the old text.
@@ -1316,6 +1374,8 @@ public partial class ScorebugEditorWindow : Window
                 if(shadowColorOk)target.TextShadowColor=TextShadowColorInput.Text;
                 if(shadowOffsetOk)target.TextShadowOffset=Math.Clamp(shadowOffset,0,40);
                 if(shadowSoftnessOk)target.TextShadowSoftness=Math.Clamp(shadowSoftness,0,60);
+                if(shadowAngleOk)target.TextShadowAngle=Math.Clamp(shadowAngle,0,360);
+                if(align is not null)target.TextAlign=align.Value;
                 if(font is not null)target.FontFamily=font;
                 target.Bold=bold; target.Italic=italic;
                 target.Underline=underline; target.StrikeThrough=strike;
@@ -2595,6 +2655,18 @@ public partial class ScorebugEditorWindow : Window
 
     void LayerFront_Click(object sender,RoutedEventArgs e)=>MoveSelectedLayer(1);
     void LayerBack_Click(object sender,RoutedEventArgs e)=>MoveSelectedLayer(-1);
+    void LayerForward_Click(object sender,RoutedEventArgs e)=>StepSelectedLayer(1);
+    void LayerBackward_Click(object sender,RoutedEventArgs e)=>StepSelectedLayer(-1);
+
+    /// <summary>Moves the selected element one place towards the front (+1) or the back (-1).</summary>
+    void StepSelectedLayer(int step)
+    {
+        if(Selected is not { } item)return;
+        var from=_catalog.Layout.Elements.IndexOf(item);
+        var to=Math.Clamp(from+step,0,_catalog.Layout.Elements.Count-1);
+        if(from<0||from==to)return;
+        _catalog.Update(layout=>{var moved=layout.Elements[from];layout.Elements.RemoveAt(from);layout.Elements.Insert(to,moved);});
+    }
 
     sealed class LayerItem
     {

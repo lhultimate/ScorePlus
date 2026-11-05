@@ -197,6 +197,9 @@ public static class PreferencesStore
 /// </summary>
 public static class ThemeManager
 {
+    // The last accent pair a window applied, kept so a preference read that fails mid-session does
+    // not repaint every accent control in the stock green.
+    static (Color Accent, Color Secondary)? _lastAccent;
     public static readonly DependencyProperty SkipThemeProperty =
         DependencyProperty.RegisterAttached("SkipTheme", typeof(bool), typeof(ThemeManager), new PropertyMetadata(false));
 
@@ -244,11 +247,18 @@ public static class ThemeManager
         window.Resources["OperatorTextBrush"] = Brush(foreground);
         window.Resources["OperatorBorderBrush"] = Brush(border);
 
-        // The operator's own accent pair: the outline colour and the filled-action colour.
-        UserPreferences preferences;
-        try { preferences = PreferencesStore.Load(); } catch { preferences = new UserPreferences(); }
-        var accent = UiPalette.Accent(preferences);
-        var secondary = UiPalette.Secondary(preferences);
+        // The operator's own accent pair: the outline colour and the filled-action colour. A failed
+        // read keeps the last accent that worked rather than falling back to the stock green, which
+        // made a saved accent look like it had reset itself while the app was busy.
+        UserPreferences? preferences = null;
+        try { preferences = PreferencesStore.Load(); } catch { }
+        var accent = preferences is not null
+            ? UiPalette.Accent(preferences)
+            : _lastAccent?.Accent ?? UiPalette.Accent(new UserPreferences());
+        var secondary = preferences is not null
+            ? UiPalette.Secondary(preferences)
+            : _lastAccent?.Secondary ?? UiPalette.Secondary(new UserPreferences());
+        _lastAccent = (accent, secondary);
         window.Resources["Accent"] = UiPalette.Frozen(accent);
         window.Resources["AccentFillBrush"] = UiPalette.Frozen(UiPalette.Soft(accent));
         window.Resources["AccentActionBrush"] = UiPalette.Frozen(secondary);

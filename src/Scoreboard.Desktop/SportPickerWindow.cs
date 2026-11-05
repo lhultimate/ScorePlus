@@ -96,7 +96,7 @@ public sealed class SportPickerWindow : Window
         cancel.IsCancel = true;
         cancel.Click += (_, _) => { _selectedId = null; Close(); };
         buttons.Children.Add(cancel);
-        var start = MakeButton("Start new game", primary: true);
+        var start = MakeButton("Start New Game", primary: true);
         start.IsDefault = true;
         start.Click += (_, _) => Start();
         buttons.Children.Add(start);

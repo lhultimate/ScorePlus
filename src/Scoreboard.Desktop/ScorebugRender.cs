@@ -280,6 +280,17 @@ public sealed class ScorebugTextBlock : TextBlock
         // The element's host carries its design rotation now, so the text itself stays upright
         // inside a rotated plate or logo. Keeping it here would rotate text twice.
         _rotate.Angle = 0;
+        // Left and right sit against the box's own edges, which needs the block to fill it; the
+        // centred default keeps the block sized to its text exactly as before.
+        TextAlignment = item.TextAlign switch
+        {
+            ScorebugTextAlign.Left => System.Windows.TextAlignment.Left,
+            ScorebugTextAlign.Right => System.Windows.TextAlignment.Right,
+            _ => System.Windows.TextAlignment.Center
+        };
+        HorizontalAlignment = item.TextAlign == ScorebugTextAlign.Center
+            ? System.Windows.HorizontalAlignment.Center
+            : System.Windows.HorizontalAlignment.Stretch;
         // A drop shadow lifts lettering off a photograph: a soft one reads as a glow, a hard one as
         // the broadcast drop shadow over a crowd shot.
         if (item.TextShadow)
@@ -290,7 +301,9 @@ public sealed class ScorebugTextBlock : TextBlock
             {
                 Color = shadowColor,
                 ShadowDepth = Math.Clamp(item.TextShadowOffset, 0, 40),
-                Direction = 315,
+                // WPF measures the direction anticlockwise from the right; the setting is the
+                // familiar clockwise bearing (0 right, 90 down), so 45 keeps the old down-right drop.
+                Direction = (360 - Math.Clamp(double.IsFinite(item.TextShadowAngle) ? item.TextShadowAngle : 45, 0, 360)) % 360,
                 BlurRadius = Math.Clamp(item.TextShadowSoftness, 0, 60),
                 Opacity = shadowColor.A / 255.0
             };

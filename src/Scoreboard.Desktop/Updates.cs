@@ -204,6 +204,9 @@ public static class UpdateChecker
             if (!int.TryParse(parts[i], out var value) || value < 0) return null;
             numbers[i] = value;
         }
+        // The same rule the release script uses: a one-digit minor is a two-digit one, so tag a1.6
+        // reads as 1.60.0 and sorts after a1.51 (1.51.0) instead of before it.
+        if (parts.Length >= 2 && parts[1].Length == 1) numbers[1] *= 10;
         return $"{numbers[0]}.{numbers[1]}.{numbers[2]}";
     }
 

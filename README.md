@@ -775,7 +775,7 @@ Things worth knowing:
 
 - **Only installed copies update.** A build run out of a folder has no install marker, so it never checks and never replaces itself. That is deliberate: your test copy can't be swapped out from under you.
 - **The check runs at startup**, plus a manual **Check now** in Preferences → Updates. If a release goes live while the app is open, it won't notice until the next launch.
-- **Release numbers must increase.** `a1.3` reads as 1.3.0, and the highest published number wins — not the most recent upload. Watch out for `a1.03`: it parses to the same 1.03 → 1.3.0 as `a1.3`, so it isn't "newer" to an a1.3 install.
+- **Release numbers must increase.** The digits in the label become the version, and the highest published number wins — not the most recent upload. A one-digit minor counts as two, so `a1.6` is 1.60.0 and sorts after `a1.51` (1.51.0); `a1.7` becomes 1.70.0, and `a1.61` (1.61.0) sorts after both. Watch out for `a1.03`: it parses to the same 1.03 → 1.3.0 as `a1.3`, so it isn't "newer" to an a1.3 install.
 - **Prefer a custom host?** Preferences → Updates can point at a JSON manifest elsewhere. See [docs/updates.md](docs/updates.md).
 
 ---

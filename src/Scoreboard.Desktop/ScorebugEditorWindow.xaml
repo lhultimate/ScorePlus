@@ -86,7 +86,7 @@
               <Button Content="Delete" Style="{StaticResource LayoutButton}" Click="DisplayDelete_Click" ToolTip="Remove this display and its layouts (the last one cannot be deleted)"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal">
-              <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,7,0"/>
+              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
               <TextBlock Text="DISPLAY" FontSize="11" FontWeight="Bold" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,8,0"/>
               <ComboBox x:Name="DisplayBox" Width="220" SelectionChanged="DisplayBox_Changed" ToolTip="Which screen these layouts belong to"/>
               <TextBlock x:Name="DisplayHintText" Text="  Each display gets its own audience window." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
@@ -95,13 +95,18 @@
           <!-- How this layout lands on air: dissolve, slide or swing, over 0–5 seconds. -->
           <DockPanel Margin="0,7,0,0">
             <StackPanel Orientation="Horizontal">
-              <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,7,0"/>
+              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
               <TextBlock Text="TRANSITION IN" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
               <ComboBox x:Name="TransitionBox" Width="128" FontSize="11" SelectionChanged="Transition_Changed"
                         ToolTip="How this layout arrives on air when it goes to output"/>
               <TextBox x:Name="TransitionSecondsInput" Width="54" FontSize="11" Margin="6,0,0,0" TextChanged="TransitionSeconds_Changed"
                        ToolTip="Seconds this layout's hand-over takes: 0 cuts, 5 is a slow dissolve"/>
               <TextBlock Text="s" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="2,0,0,0"/>
+              <Button Content="Video…" FontSize="10" Padding="8,3" Margin="8,0,0,0" Click="TransitionVideo_Click"
+                      ToolTip="Use a video clip as this layout's hand-over"/>
+              <Button x:Name="TransitionVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0"
+                      Click="TransitionVideoClear_Click" Visibility="Collapsed"
+                      ToolTip="Go back to the preset transition"/>
               <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
@@ -132,7 +137,7 @@
             <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
           <StackPanel Orientation="Horizontal">
-            <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,7,0"/>
+            <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
             <TextBlock Text="LAYOUT" FontSize="11" FontWeight="Bold" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <TextBlock x:Name="LayoutHintText" Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="4,0,0,0"
                        Text="Pick a layout here — Update Output puts it on air."/>
@@ -166,16 +171,22 @@
           <DockPanel Margin="2,2,2,6">
             <TextBlock x:Name="LayerCount" DockPanel.Dock="Right" Text="" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center"/>
             <StackPanel Orientation="Horizontal">
-              <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,6,0"/>
+              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,6,0"/>
               <TextBlock Text="LAYERS" FontSize="11" FontWeight="Bold" Foreground="#93A0B2" VerticalAlignment="Center"/>
             </StackPanel>
           </DockPanel>
           <TextBlock x:Name="LayersHintText" Text="Front of the picture at the top. Ctrl-click to add rows, Shift-click for a range, Delete to remove them."
                      FontSize="10" Foreground="#5C6B7E" TextWrapping="Wrap" Margin="2,0,2,6"/>
+          <UniformGrid Columns="2" Margin="0,0,0,4">
+            <Button x:Name="LayerForwardButton" Content="▲ Forward" FontSize="11" Padding="6,6" Margin="0,0,3,0"
+                    Click="LayerForward_Click" ToolTip="Move the selected element one step in front"/>
+            <Button x:Name="LayerBackwardButton" Content="▼ Backward" FontSize="11" Padding="6,6" Margin="3,0,0,0"
+                    Click="LayerBackward_Click" ToolTip="Move the selected element one step behind"/>
+          </UniformGrid>
           <UniformGrid Columns="2" Margin="0,0,0,6">
-            <Button x:Name="LayerFrontButton" Content="▲ To front" FontSize="11" Padding="6,7" Margin="0,0,3,0"
+            <Button x:Name="LayerFrontButton" Content="▲ To front" FontSize="11" Padding="6,6" Margin="0,0,3,0"
                     Click="LayerFront_Click" ToolTip="Move the selected element in front of every other element"/>
-            <Button x:Name="LayerBackButton" Content="▼ To back" FontSize="11" Padding="6,7" Margin="3,0,0,0"
+            <Button x:Name="LayerBackButton" Content="▼ To back" FontSize="11" Padding="6,6" Margin="3,0,0,0"
                     Click="LayerBack_Click" ToolTip="Move the selected element behind every other element"/>
           </UniformGrid>
         </StackPanel>
@@ -232,9 +243,9 @@
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
               <!-- The two named colors share one width: "Navy" is a shorter word, and letting the
                    text size the button made it read as a smaller control than "Black". -->
-              <Button Content="Navy" FontSize="11" Padding="8,4" MinWidth="66" Click="CanvasBackgroundNavy_Click"
+              <Button Content="Navy" FontSize="11" Padding="8,4" MinWidth="66" Height="30" VerticalAlignment="Center" Click="CanvasBackgroundNavy_Click"
                       ToolTip="Reset the artwork backdrop to ScorePlus navy"/>
-              <Button Content="Black" FontSize="11" Padding="8,4" MinWidth="66" Margin="4,0,0,0" Click="CanvasBackgroundBlack_Click"/>
+              <Button Content="Black" FontSize="11" Padding="8,4" MinWidth="66" Height="30" VerticalAlignment="Center" Margin="4,0,0,0" Click="CanvasBackgroundBlack_Click"/>
               <Button Content="Choose…" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasBackground_Click"
                       ToolTip="Pick any color for the artwork backdrop"/>
               <Border x:Name="CanvasBackgroundSwatch" Width="26" Height="26" CornerRadius="4" Margin="6,0,0,0"
@@ -343,6 +354,9 @@
           <TextBox x:Name="ContentInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    AcceptsReturn="True" TextWrapping="Wrap" MinHeight="52" MaxHeight="180"
                    VerticalScrollBarVisibility="Auto" ToolTip="Text, a {{TOKEN}}, or the markup of an HTML element"/>
+          <TextBlock Text="Text alignment" Style="{StaticResource FieldLabel}"/>
+          <ComboBox x:Name="TextAlignInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
+                    ToolTip="Where the value sits inside its box: hard left, centred, or hard right"/>
           <!-- Which player and stat this element prints, whatever is selected on the desk. -->
           <StackPanel x:Name="PlayerDataSection">
             <TextBlock Text="PLAYER DATA" Style="{StaticResource SectionTitle}"/>
@@ -398,6 +412,9 @@
                        ToolTip="0 is a hard drop, 30 a soft glow"/>
             </StackPanel>
           </Grid>
+          <TextBlock Text="Shadow angle (degrees)" Style="{StaticResource FieldLabel}"/>
+          <TextBox x:Name="TextShadowAngleInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                   ToolTip="Which way the shadow falls: 0 right, 90 straight down, 180 left, 270 up. 45 is down-right."/>
         </StackPanel>
 
         <StackPanel x:Name="FontSection">

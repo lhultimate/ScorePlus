@@ -17,7 +17,9 @@ public partial class MainWindow : Window, IControlPanelHost
     readonly GameEngine _publishedEngine = new();
     readonly ScorebugCatalog _scorebug = new();
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(40) };
-    readonly DispatcherTimer _autosave = new() { Interval = TimeSpan.FromSeconds(5) };
+    // Every fifteen seconds, not five: a recovery point that overwrites the newest file within the
+    // minute gains nothing from being written three times as often, and each write is a stall.
+    readonly DispatcherTimer _autosave = new() { Interval = TimeSpan.FromSeconds(15) };
     // The rail's peak meter, redrawn a few times a second; the level itself is shared by every window.
     readonly DispatcherTimer _meterTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
     readonly Border[] _meterBars = new Border[22];
@@ -69,6 +71,10 @@ public partial class MainWindow : Window, IControlPanelHost
     /// windows deliberately, and a modal prompt would stall an unattended run.
     /// </summary>
     public static bool PromptOnExit { get; set; } = true;
+
+    // True once the launch box has actually started or opened a game. While it is false the window
+    // is still the empty workspace behind the launcher, so closing must never ask to save.
+    bool _gameStarted;
 
     /// <summary>Lets unattended checks create windows without opening a network update dialog.</summary>
     public static bool CheckForUpdatesOnLoad { get; set; } = true;
@@ -186,6 +192,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
         _savedStateJson ??= _engine.ExportJson();
         _savedDesignJson ??= DesignJson();
+        _gameStarted = true;
 
         // Panels are opened deliberately with New Panel; starting a game never spawns a second window.
     }
@@ -204,6 +211,7 @@ public partial class MainWindow : Window, IControlPanelHost
         }
         _savedStateJson = _engine.ExportJson();
         _savedDesignJson = DesignJson();
+        _gameStarted = true;
         SetWorkspaceEnabled(true);
         Activate();
         StartRemote();
@@ -926,7 +934,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (PromptOnExit && !_closingAfterPrompt && HasUnsavedChanges())
+        if (PromptOnExit && _gameStarted && !_closingAfterPrompt && HasUnsavedChanges())
         {
             e.Cancel = true;
             var detail = "You have changes that are not in a saved game file. Autosave keeps a recovery point every few seconds, but the .spg on disk is out of date. Save it before closing?";
@@ -940,6 +948,13 @@ public partial class MainWindow : Window, IControlPanelHost
             return;
         }
         base.OnClosing(e);
+    }
+
+    /// <summary>Opens the multiview: every camera live, with the replay preview beside it.</summary>
+    void Multiview_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new MultiviewWindow(_session, _preferences.Theme) { Owner = this };
+        window.Show();
     }
 
     void Open_Click(object sender, RoutedEventArgs e)

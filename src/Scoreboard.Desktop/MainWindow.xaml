@@ -79,6 +79,7 @@
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Style="{StaticResource HeaderButton}" Content="Transition Maker" Click="TransitionMaker_Click" ToolTip="Build a keyframed hand-over: how a graphic leaves, how it arrives, and its colors on the way"/>
           <Button Style="{StaticResource HeaderButton}" Content="Animation Maker" Click="AnimationMaker_Click" ToolTip="Key motion a value follows — a loop while it is up, or a flourish when it changes"/>
+          <Button Style="{StaticResource HeaderButton}" Content="Multiview" Click="Multiview_Click" ToolTip="Every camera at once, with the replay preview beside the live picture"/>
           <Button Style="{StaticResource HeaderButton}" Content="Scorebug Studio" Click="ScorebugStudio_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Sport Profiles" Click="SportProfiles_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="New Game" Click="NewGame_Click"/>

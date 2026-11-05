@@ -21,6 +21,10 @@ public sealed class VideoSurface : Grid
     readonly RectangleGeometry _clip = new();
     // Live camera frames are drawn on this image instead of the MediaElement.
     readonly Image _live = new() { Stretch = Stretch.UniformToFill, Visibility = Visibility.Collapsed };
+    // Decoded replay frames are drawn here for the same reason: no media player is involved, so a
+    // recorded clip can never come out black or stuck on its first frame.
+    readonly Image _replay = new() { Stretch = Stretch.UniformToFill, Visibility = Visibility.Collapsed };
+    ReplayFeed? _replayFeed;
     readonly bool _mute;
     // True for a surface that is showing what the audience gets, even when it is muted. The
     // audience-view monitor is one: silent, but it must never show a replay the audience cannot.
@@ -130,6 +134,7 @@ public sealed class VideoSurface : Grid
         _element.MediaFailed += (_, _) => Fail();
         Children.Add(_element);
         Children.Add(_live);
+        Children.Add(_replay);
 
         if (showPlaceholder)
         {
@@ -163,6 +168,7 @@ public sealed class VideoSurface : Grid
         var stretch = item.PreserveVideoAspect ? Stretch.Uniform : Stretch.UniformToFill;
         _element.Stretch = stretch;
         _live.Stretch = stretch;
+        _replay.Stretch = stretch;
         if (_placeholder is not null)
             _placeholder.Text = string.IsNullOrWhiteSpace(item.MediaTag) ? "VIDEO" : $"VIDEO · {item.MediaTag.ToUpperInvariant()}";
         Apply();
@@ -205,6 +211,11 @@ public sealed class VideoSurface : Grid
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(Apply); return; }
         SyncClip();
         var entry = Cue();
+
+        // A replay is decoded to frames by the session, not opened as a media file: the recorded
+        // clips are MJPG AVI, which a MediaElement shows as one still frame on a machine without an
+        // MJPEG decoder. Every surface shows the session's decoded picture, exactly like a camera.
+        if (ShowReplayFrames(entry)) return;
 
         // A live camera has no file to open: its frames replace the MediaElement until the
         // operator cuts to an instant replay or another clip.
@@ -433,9 +444,58 @@ public sealed class VideoSurface : Grid
         if (_placeholder is not null) _placeholder.Visibility = Visibility.Visible;
     }
 
+    /// <summary>
+    /// Draws a replay's decoded frames and reports false for every other cue, which also releases
+    /// the subscription so a surface never keeps a picture from a clip it no longer shows.
+    /// </summary>
+    bool ShowReplayFrames(MediaEntry? entry)
+    {
+        var feed = _playback?.ReplayFrames;
+        if (entry is null || feed is null || !feed.Contains(entry.Path))
+        {
+            StopReplayFrames();
+            return false;
+        }
+        HideLiveCamera();
+        StopRouting();
+        if (!ReferenceEquals(_replayFeed, feed))
+        {
+            StopReplayFrames();
+            _replayFeed = feed;
+            feed.FrameReady += OnReplayFrame;
+        }
+        if (_loadedPath is not null)
+        {
+            // The file is never opened here, so nothing must stay on the MediaElement underneath.
+            try { _element.Stop(); _element.Close(); _element.Source = null; } catch { }
+            _loadedPath = null;
+            _opened = false;
+        }
+        _playing = false;
+        _element.Visibility = Visibility.Collapsed;
+        if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
+        if (_replay.Source is null && feed.Frame is { } picture) _replay.Source = picture;
+        _replay.Visibility = Visibility.Visible;
+        return true;
+    }
+
+    void StopReplayFrames()
+    {
+        if (_replayFeed is not null) _replayFeed.FrameReady -= OnReplayFrame;
+        _replayFeed = null;
+        if (_replay.Visibility != Visibility.Collapsed) _replay.Visibility = Visibility.Collapsed;
+        _replay.Source = null;
+    }
+
+    void OnReplayFrame(System.Windows.Media.Imaging.BitmapSource frame)
+    {
+        if (_replay.Visibility == Visibility.Visible) _replay.Source = frame;
+    }
+
     public void Dispose()
     {
         if (_playback is not null) _playback.Changed -= Apply;
+        StopReplayFrames();
         StopRouting();
         _router?.Dispose();
         _router = null;

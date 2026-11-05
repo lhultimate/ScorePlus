@@ -17,6 +17,9 @@ if [[ -z "$NUMERIC" ]]; then
 fi
 IFS='.' read -r -a PARTS <<< "$NUMERIC"
 while [[ ${#PARTS[@]} -lt 3 ]]; do PARTS+=("0"); done
+# A one-digit minor is read as a two-digit one, so a1.6 (1.60.0) sorts after a1.51 (1.51.0)
+# rather than before it. The updater applies the same rule to release tags.
+if [[ ${#PARTS[1]} -eq 1 ]]; then PARTS[1]="${PARTS[1]}0"; fi
 NUMERIC="${PARTS[0]}.${PARTS[1]}.${PARTS[2]}"
 if [[ ! "$NUMERIC" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Release must look like a1.1 or 1.0.0 (got '$VERSION')." >&2
@@ -31,8 +34,12 @@ PAYLOAD="$ROOT/src/ScorePlus.Setup/payload.zip"
 
 echo "==> ScorePlus $VERSION (assembly $NUMERIC) → $OUT"
 mkdir -p "$DIST"
-rm -rf "$OUT" "$SETUP_BUILD" "$APP_BUILD"
+rm -rf "$SETUP_BUILD" "$APP_BUILD"
+# A copy running out of the release folder holds a handle on it, which Windows refuses to delete.
+# Empty that folder instead of removing it, so a rebuild never needs your test copy closed first.
 mkdir -p "$OUT"
+rm -f "$OUT/ScorePlusPortable.exe" "$OUT/ScorePlusSetup.exe" "$OUT/README.md" "$OUT/UPDATES.md"
+rm -rf "$OUT/docs"
 
 # The app is published off to the side, not into the release folder, because a release holds only
 # the two files it ships as: ScorePlusPortable and ScorePlusSetup.

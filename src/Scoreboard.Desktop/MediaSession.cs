@@ -59,10 +59,27 @@ public sealed class MediaSession
     MediaPlaylist? _playlist;
     int _playlistIndex = -1;
 
+    // Replay decodes the recorded camera clips itself: they are MJPG AVI, and a MediaElement shows
+    // those as a single still frame (or nothing) where an MJPEG decoder is missing.
+    readonly ReplayFeed _replay;
+
     public MediaSession(UserPreferences preferences)
     {
         _preferences = preferences;
         Playback = new MediaPlayback();
+        _replay = new ReplayFeed(_ui);
+        Playback.AttachReplay(_replay);
+        // The replay's playhead is the transport's: the scrubber, the previews and the multiview all
+        // read it, so they can never disagree about where the replay is.
+        _replay.PositionChanged += seconds =>
+        {
+            Playback.ReportPosition(seconds);
+            if (IsReplaying) TrackReplay();
+            TransportChanged?.Invoke();
+        };
+        // A recorded clip running out is the same event as a file ending: the next clip plays, or
+        // the replay cuts back to the live camera at the end of the buffer.
+        _replay.Ended += () => { if (IsReplaying) AdvanceReplay(); };
         foreach (var entry in preferences.Media)
             if (!string.IsNullOrWhiteSpace(entry.Path) && !Library.Any(m => string.Equals(m.Path, entry.Path, StringComparison.OrdinalIgnoreCase)))
                 Library.Add(entry with { Tag = MediaLibrary.NormalizeTag(entry.Tag), Folder = MediaLibrary.NormalizeFolder(entry.Folder) });
@@ -187,11 +204,13 @@ public sealed class MediaSession
     {
         get
         {
+            // A replay has no transport player: its playhead is the decoder's frame count.
+            if (IsReplaying) return _replay.Position;
             try { return Math.Max(0, _player.Position.TotalSeconds); } catch { return 0; }
         }
     }
 
-    public double Duration => _duration;
+    public double Duration => IsReplaying && _replay.Duration > 0 ? _replay.Duration : _duration;
 
     /// <summary>Raised when the library or the selection changes.</summary>
     public event Action? StateChanged;
@@ -968,6 +987,7 @@ public sealed class MediaSession
         _pendingSeek = null;
         _audio.Stop();
         _audioDevice = null;
+        _replay.Close();
         _camera = CameraFeed.Get(entry.CameraIndex);
         _camera.Start();
         // A camera already on air is not added twice; a second entry on another device joins it.
@@ -1023,16 +1043,15 @@ public sealed class MediaSession
             Status?.Invoke("START REPLAY · press Replay first");
             return false;
         }
-        // Start replay is the play action, not just a promotion: a replay opened from the scrubber
-        // must roll when the operator presses it. Play/Pause still handles freeze-frame review.
-        if (!_playing)
-        {
-            _playing = true;
-            try { _player.Play(); } catch { }
-            SetTransportPlaying(true);
-        }
-        // Start replay puts the replay on air and does nothing else. A paused replay goes out as a
-        // freeze frame and stays paused until the operator presses Play, so a scrub is never lost.
+        // Start replay only puts the replay on air: it never changes whether it is rolling. A replay
+        // the operator left paused goes out as a freeze frame at the frame they paused on, and one
+        // they left playing keeps playing. Play/Pause remains the only thing that starts or stops it.
+        // Replay opens on the newest frame, which is fifty milliseconds from the end of the newest
+        // clip: going to air there would be a freeze frame at the end and, if it rolled, would finish
+        // before a frame moved. Step back a few seconds first, but never move a playhead the operator
+        // has scrubbed to on purpose.
+        if (!_replayOnAir && ReplayDepth > 2 && ReplayBack < 0.5)
+            SeekReplay(Math.Min(ReplayDepth - 0.5, 6));
         if (!_replayOnAir)
         {
             _replayOnAir = true;
@@ -1073,16 +1092,10 @@ public sealed class MediaSession
         _seekApply.Stop();
         _audio.Stop();
         _audioDevice = null;
-        _pendingSeek = offset;
-        try
-        {
-            _player.Close();
-            // A camera clip is recorded without sound, so the transport stays muted.
-            _player.Volume = 0;
-            _player.Open(new Uri(segment.Path));
-            if (play) _player.Play();
-        }
-        catch { }
+        _pendingSeek = null;
+        // The clip is decoded to frames rather than handed to a media player — a camera clip is
+        // recorded without sound, so there is no audio to open either.
+        _replay.Open(segment.Path, offset, play);
         // Before Start replay the cue is staged: only the previews pick it up.
         if (_replayOnAir) Playback.Start(entry);
         else Playback.Stage(entry);
@@ -1145,6 +1158,7 @@ public sealed class MediaSession
         if (CameraEntry is null) return false;
         var camera = CameraEntry;
         IsReplaying = false;
+        _replay.Close();
         _replayOnAir = false;
         _replayBuffer.Clear();
         _replayIndex = -1;
@@ -1270,6 +1284,7 @@ public sealed class MediaSession
         _pendingSeek = null;
         _audio.Stop();
         _audioDevice = null;
+        _replay.Close();
         Current = entry;
         MicrophoneEntry = entry;
         // Each microphone is its own capture and its own speaker, so adding one never takes another
@@ -1392,6 +1407,7 @@ public sealed class MediaSession
         ReplayDepth = 0;
         Current = null;
         _playing = false;
+        _replay.Close();
         Playback.Stop();
         StateChanged?.Invoke();
         TransportChanged?.Invoke();
@@ -1430,6 +1446,7 @@ public sealed class MediaSession
         // A clip sent to a speaker must not keep playing after the next clip is cued.
         _audio.Stop();
         _audioDevice = null;
+        _replay.Close();
         _playlist = playlist;
         _playlistIndex = index;
         try { _player.Close(); } catch { }
@@ -1497,7 +1514,7 @@ public sealed class MediaSession
         {
             if (_playing)
             {
-                try { _player.Pause(); } catch { }
+                _replay.Pause();
                 SetTransportPlaying(false);
                 Status?.Invoke($"REPLAY PAUSED · {Math.Round(ReplayBack)}s behind live");
             }
@@ -1506,7 +1523,7 @@ public sealed class MediaSession
             else
             {
                 if (!_replayOnAir) PlayReplay();
-                try { _player.Play(); } catch { }
+                _replay.Play();
                 SetTransportPlaying(true);
                 Status?.Invoke($"REPLAY ON AIR · playing · {Math.Round(ReplayBack)}s behind live");
             }

@@ -162,11 +162,20 @@ public static class ScorebugHtml
         if (item.Underline) decorations.Append("underline ");
         if (item.StrikeThrough) decorations.Append("line-through ");
         var decoration = decorations.Length > 0 ? $"text-decoration:{decorations.ToString().Trim()};" : string.Empty;
-        // A drop shadow is what keeps white lettering readable over a photograph of a crowd.
+        // A drop shadow is what keeps white lettering readable over a photograph of a crowd. The
+        // shadow falls along its own angle, so a light source in the artwork can be matched.
+        var radians = (double.IsFinite(item.TextShadowAngle) ? item.TextShadowAngle : 45) * Math.PI / 180;
         var shadow = item.TextShadow
-            ? $"text-shadow:{Num(item.TextShadowOffset * 0.7)}px {Num(item.TextShadowOffset)}px {Num(item.TextShadowSoftness)}px {Css(item.TextShadowColor)};"
+            ? $"text-shadow:{Num(Math.Cos(radians) * item.TextShadowOffset)}px {Num(Math.Sin(radians) * item.TextShadowOffset)}px {Num(item.TextShadowSoftness)}px {Css(item.TextShadowColor)};"
             : string.Empty;
-        return $"<div class=\"sp-text\" style=\"color:{colour};font-family:{font};font-size:{Num(item.FontSize)}px;{weight}{italic}{decoration}{shadow}\">{WebUtility.HtmlEncode(text)}</div>";
+        // The line itself and the block inside the plate both follow the element's alignment.
+        var align = item.TextAlign switch
+        {
+            ScorebugTextAlign.Left => "text-align:left;justify-content:flex-start;",
+            ScorebugTextAlign.Right => "text-align:right;justify-content:flex-end;",
+            _ => "text-align:center;justify-content:center;"
+        };
+        return $"<div class=\"sp-text\" style=\"color:{colour};font-family:{font};font-size:{Num(item.FontSize)}px;{weight}{italic}{decoration}{shadow}{align}\">{WebUtility.HtmlEncode(text)}</div>";
     }
 
     static string LogoHtml(ScorebugElement item, GameState? state)

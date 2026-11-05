@@ -22,7 +22,7 @@ For each release the app:
 
 | Reads | From |
 | --- | --- |
-| Version | The tag, with any leading text stripped: `v1.4.0`, `1.4`, `release-1.4.2` and `a1.01` all become a comparable `major.minor.patch`. A tag with no number in it is skipped. |
+| Version | The tag, with any leading text stripped: `v1.4.0`, `1.4`, `release-1.4.2` and `a1.01` all become a comparable `major.minor.patch`. A one-digit minor counts as two, so `a1.6` is 1.60.0 and sorts after `a1.51` (1.51.0). A tag with no number in it is skipped. |
 | Installer | The asset named **`ScorePlusSetup`** — matched on that base name, so `ScorePlusSetup.exe` and a bare `ScorePlusSetup` both work. A release without one is skipped, so an update can never half-exist. The other asset, **`ScorePlusPortable.exe`**, is never offered as an update: a copy running out of a folder replaces itself by downloading the new one. |
 | Checksum | The asset's own `digest`, which GitHub computes on upload (`sha256:…`). Nothing to publish by hand. |
 | Notes | The release title, else the first non-empty line of its body, shortened to 180 characters. |
