@@ -24,7 +24,7 @@
     <Resource Include="App.axaml" />
     <!-- Phase 2 renames+converts each window XAML to Avalonia markup; listed now so the
          build system owns every surface from the start. -->
-    <Resource Include="MainWindow.xaml" />
+    <Resource Include="MainWindow.axaml" />
     <Resource Include="LauncherWindow.xaml" />
     <Resource Include="OutputWindow.xaml" />
     <Resource Include="GameControlWindow.xaml" />
