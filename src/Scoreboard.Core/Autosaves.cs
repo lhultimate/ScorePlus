@@ -40,11 +40,12 @@ public static class AutosaveStore
         try
         {
             Directory.CreateDirectory(Folder);
-            var existing = List();
-            var newest = existing.FirstOrDefault();
-            var roll = startNewPoint || newest is null || DateTimeOffset.Now - newest.SavedAt >= RollInterval;
+            // The roll decision reads the newest file's name, not the file: parsing every recovery
+            // point on a five-second timer was what made the console hitch while a show was running.
+            var newest = Newest();
+            var roll = startNewPoint || newest is null || DateTimeOffset.Now - newest.Value.Saved >= RollInterval;
             string path;
-            if (!roll && newest is not null) path = newest.Path;
+            if (!roll && newest is not null) path = newest.Value.Path;
             else
             {
                 // Names have one-second resolution, so two points in the same second need a suffix
@@ -153,12 +154,60 @@ public static class AutosaveStore
     static bool IsGameFile(string path) =>
         System.IO.Path.GetExtension(path).ToLowerInvariant() is ".spg" or ".scoreboard" or ".json";
 
+    /// <summary>The newest recovery point and when it was written, read without parsing any JSON.</summary>
+    static (string Path, DateTimeOffset Saved)? Newest()
+    {
+        try
+        {
+            if (!Directory.Exists(Folder)) return null;
+            (string Path, DateTimeOffset Saved)? newest = null;
+            foreach (var path in Directory.EnumerateFiles(Folder).Where(IsGameFile))
+            {
+                var stamp = StampOf(path);
+                if (newest is null || stamp > newest.Value.Saved) newest = (path, stamp);
+            }
+            return newest;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// When a recovery point was written: the timestamp in its name, or the file's own time for a
+    /// file that did not come from this folder's naming scheme.
+    /// </summary>
+    static DateTimeOffset StampOf(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        if (name.StartsWith("autosave-", StringComparison.OrdinalIgnoreCase) && name.Length >= 24)
+        {
+            // autosave-yyyyMMdd-HHmmss, with a -2/-3 suffix for a second save in the same second.
+            if (DateTime.TryParseExact(name.Substring(9, 15), "yyyyMMdd-HHmmss",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var parsed))
+                return new DateTimeOffset(parsed);
+        }
+        try { return new DateTimeOffset(File.GetLastWriteTime(path)); }
+        catch { return DateTimeOffset.MinValue; }
+    }
+
+    /// <summary>Keeps the newest points and deletes the rest, by name rather than by parsing each file.</summary>
     static void Prune()
     {
-        var extra = List().Skip(Keep).ToArray();
-        foreach (var entry in extra)
+        try
         {
-            try { File.Delete(entry.Path); } catch { }
+            if (!Directory.Exists(Folder)) return;
+            var extra = Directory.EnumerateFiles(Folder).Where(IsGameFile)
+                .Select(path => (Path: path, Saved: StampOf(path)))
+                .OrderByDescending(entry => entry.Saved)
+                .Skip(Keep);
+            foreach (var entry in extra)
+            {
+                try { File.Delete(entry.Path); } catch { }
+            }
+        }
+        catch
+        {
+            // A locked file simply stays; the rest are pruned.
         }
     }
 

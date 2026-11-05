@@ -22,7 +22,11 @@
       <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="TextWrapping" Value="Wrap"/>
     </Style>
-    <Style x:Key="Accent" TargetType="Border">
+    <!-- Deliberately not named "Accent": a drop-down's pop-up resolves resources through this view,
+         and the accent BRUSH in App.xaml/the window is called Accent. The collision handed the
+         pop-up's BorderBrush a Style and the console died with an InvalidCastException the moment a
+         penalty list opened. -->
+    <Style x:Key="AccentBar" TargetType="Border">
       <Setter Property="Width" Value="3"/>
       <Setter Property="Height" Value="12"/>
       <Setter Property="CornerRadius" Value="2"/>
@@ -72,7 +76,7 @@
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="*" MinHeight="226"/>
-      <RowDefinition Height="*" MinHeight="190"/>
+      <RowDefinition Height="*" MinHeight="210"/>
       <RowDefinition Height="196" MinHeight="196"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
@@ -94,7 +98,7 @@
           <DockPanel>
             <TextBlock x:Name="AwayPossessionTag" DockPanel.Dock="Right" Text="" Foreground="#38D7A3" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
             <StackPanel Orientation="Horizontal">
-              <Border Style="{StaticResource Accent}"/>
+              <Border Style="{StaticResource AccentBar}"/>
               <TextBlock Text="VISITORS" Style="{StaticResource CardTitle}"/>
             </StackPanel>
           </DockPanel>
@@ -131,7 +135,7 @@
           <DockPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
               <TextBlock Text="HOME" Style="{StaticResource CardTitle}"/>
-              <Border Style="{StaticResource Accent}" Margin="6,0,0,0"/>
+              <Border Style="{StaticResource AccentBar}" Margin="6,0,0,0"/>
             </StackPanel>
             <TextBlock x:Name="HomePossessionTag" Text="" Foreground="#38D7A3" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" HorizontalAlignment="Left"/>
           </DockPanel>
@@ -171,9 +175,16 @@
             <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
           <DockPanel>
-            <TextBlock x:Name="DetailCardHint" DockPanel.Dock="Right" Style="{StaticResource Caption}" HorizontalAlignment="Right"/>
-            <StackPanel Orientation="Horizontal">
-              <Border Style="{StaticResource Accent}"/>
+            <!-- The down's own two actions ride in the title row. Under the penalty strip they
+                 formed a second row, and the two together were taller than this card, so they
+                 were the part that got clipped. -->
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+              <Button x:Name="NewSeriesButton" Style="{StaticResource Tiny}" Content="New series" Tag="football.series.new" Click="Action_Click"/>
+              <Button x:Name="RecallDownButton" Style="{StaticResource Tiny}" Content="↺ Last down" Tag="football.down.recall" Click="Action_Click"
+                      ToolTip="Put the down, distance and ball spot back where they were before the last change"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Border Style="{StaticResource AccentBar}"/>
               <TextBlock x:Name="DetailCardTitle" Text="DOWN &amp; DISTANCE" Style="{StaticResource CardTitle}"/>
             </StackPanel>
           </DockPanel>
@@ -194,33 +205,46 @@
                steppers and switches. Built in code from the game's sport controls. -->
           <WrapPanel x:Name="OtherDetail" Grid.Row="2" Margin="0,4,0,0" VerticalAlignment="Top"/>
 
-          <Grid Grid.Row="3" Margin="0,6,0,0">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="Auto"/>
-              <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal">
-              <Button x:Name="NewSeriesButton" Style="{StaticResource Tiny}" Content="New series" Tag="football.series.new" Click="Action_Click"/>
-              <Button x:Name="RecallDownButton" Style="{StaticResource Tiny}" Content="↺ Last down" Tag="football.down.recall" Click="Action_Click"
-                      ToolTip="Put the down, distance and ball spot back where they were before the last change"/>
+          <!-- The penalty strip shares this card rather than taking a row of its own: it is the
+               same drive as the down, it only needs a line, and the row it used to claim came out
+               of the timing column below, which is what clipped the play clock. -->
+          <DockPanel Grid.Row="3" Margin="0,6,0,0">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+              <ToggleButton x:Name="PenaltyActiveToggle" Content="No flag" MinHeight="32"
+                            Padding="10,2" Checked="Penalty_Changed" Unchecked="Penalty_Changed"
+                            ToolTip="Whether a flag is up at all"/>
+              <ComboBox x:Name="PenaltyTypeBox" Width="132" MinHeight="30" Margin="6,0,0,0"
+                        SelectionChanged="Penalty_Changed"
+                        ToolTip="What the flag was given for — holding, offside, handball and the rest"/>
+              <ComboBox x:Name="PenaltyTeamBox" Width="132" MinHeight="30" Margin="6,0,0,0"
+                        SelectionChanged="Penalty_Changed"
+                        ToolTip="Which team the flag is against"/>
             </StackPanel>
-            <StackPanel Grid.Column="1" />
-          </Grid>
+            <TextBlock x:Name="PenaltyHint" Style="{StaticResource Caption}" VerticalAlignment="Center"
+                       Margin="8,0,0,0" TextTrimming="CharacterEllipsis"
+                       Text="No flag is up. Update Output puts one on air."/>
+          </DockPanel>
+
         </Grid>
       </Border>
 
       <Border Style="{StaticResource Card}" Grid.Column="1" Margin="0">
+        <!-- The timing column holds the most rows in the console, so it scrolls rather than
+             clipping when the window is short: a cut-off clock button is worse than a scrollbar. -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
-          <StackPanel Orientation="Horizontal">
-            <Border Style="{StaticResource Accent}"/>
-            <TextBlock Text="TIMING" Style="{StaticResource CardTitle}"/>
-          </StackPanel>
-
-          <!-- Quarter is a compact inline stepper: - / value / +, same button size as the rest. -->
-          <ContentControl x:Name="QuarterHost" Margin="0,6,0,0"/>
+          <!-- Quarter rides in the title row: - / value / +, same button size as the rest, but
+               it no longer costs a whole row of its own. -->
+          <DockPanel>
+            <ContentControl x:Name="QuarterHost" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Border Style="{StaticResource AccentBar}"/>
+              <TextBlock Text="TIMING" Style="{StaticResource CardTitle}"/>
+            </StackPanel>
+          </DockPanel>
 
           <!-- Game clock: type over the value, or step it a second or a minute at a time. -->
-          <Grid Grid.Row="2" Margin="0,7,0,0">
+          <Grid Grid.Row="2" Margin="0,5,0,0">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
@@ -245,7 +269,7 @@
             </UniformGrid>
           </Grid>
 
-          <Grid x:Name="PlayClockRow" Grid.Row="3" Margin="0,7,0,0">
+          <Grid x:Name="PlayClockRow" Grid.Row="3" Margin="0,5,0,0">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
@@ -295,6 +319,7 @@
             </UniformGrid>
           </Grid>
         </StackPanel>
+        </ScrollViewer>
       </Border>
     </Grid>
 
@@ -310,7 +335,7 @@
       <Border Style="{StaticResource Card}" Grid.Column="0">
         <StackPanel>
           <StackPanel Orientation="Horizontal">
-            <Border Style="{StaticResource Accent}"/>
+            <Border Style="{StaticResource AccentBar}"/>
             <TextBlock Text="TIMEOUTS" Style="{StaticResource CardTitle}"/>
           </StackPanel>
           <Grid Margin="0,6,0,0">
@@ -327,7 +352,7 @@
       <Border Style="{StaticResource Card}" Grid.Column="1">
         <StackPanel>
           <StackPanel Orientation="Horizontal">
-            <Border Style="{StaticResource Accent}"/>
+            <Border Style="{StaticResource AccentBar}"/>
             <TextBlock Text="POSSESSION" Style="{StaticResource CardTitle}"/>
           </StackPanel>
           <TextBlock x:Name="PossessionValue" Text="VISITORS" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,8,0,4"/>
@@ -341,7 +366,7 @@
       <Border Style="{StaticResource Card}" Grid.Column="2">
         <StackPanel>
           <StackPanel Orientation="Horizontal">
-            <Border Style="{StaticResource Accent}"/>
+            <Border Style="{StaticResource AccentBar}"/>
             <TextBlock Text="TIMEOUT CLOCK" Style="{StaticResource CardTitle}"/>
           </StackPanel>
           <TextBox x:Name="TimeoutClockValue" Text="1:00" Style="{StaticResource ClockBox}" FontSize="30"
@@ -370,7 +395,7 @@
           <DockPanel>
             <Button DockPanel.Dock="Right" Style="{StaticResource Tiny}" Content="＋ Add" Click="AddStat_Click"/>
             <StackPanel Orientation="Horizontal">
-              <Border Style="{StaticResource Accent}"/>
+              <Border Style="{StaticResource AccentBar}"/>
               <TextBlock Text="CUSTOM STATS" Style="{StaticResource CardTitle}"/>
             </StackPanel>
           </DockPanel>

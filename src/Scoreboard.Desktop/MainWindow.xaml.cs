@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -17,7 +18,9 @@ public partial class MainWindow : Window, IControlPanelHost
     readonly GameEngine _publishedEngine = new();
     readonly ScorebugCatalog _scorebug = new();
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(40) };
-    readonly DispatcherTimer _autosave = new() { Interval = TimeSpan.FromSeconds(5) };
+    // Every fifteen seconds, not five: a recovery point that overwrites the newest file within the
+    // minute gains nothing from being written three times as often, and each write is a stall.
+    readonly DispatcherTimer _autosave = new() { Interval = TimeSpan.FromSeconds(15) };
     // The rail's peak meter, redrawn a few times a second; the level itself is shared by every window.
     readonly DispatcherTimer _meterTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
     readonly Border[] _meterBars = new Border[22];
@@ -36,6 +39,11 @@ public partial class MainWindow : Window, IControlPanelHost
     readonly List<OutputWindow> _outputs = [];
     EventLogWindow? _log;
     RemoteControlServer? _remote;
+    // What /watch is showing: the last frame, the artwork that produced it, and a counter the page
+    // watches so a wall screen only fetches a picture when the graphic changed.
+    byte[]? _watchPng;
+    string? _watchSignature;
+    long _watchVersion;
     ScorebugCanvasView? _preview;
     AudiencePreview? _audience;
     // The assignable quick media and quick layout buttons above the rail's meter.
@@ -69,6 +77,10 @@ public partial class MainWindow : Window, IControlPanelHost
     /// windows deliberately, and a modal prompt would stall an unattended run.
     /// </summary>
     public static bool PromptOnExit { get; set; } = true;
+
+    // True once the launch box has actually started or opened a game. While it is false the window
+    // is still the empty workspace behind the launcher, so closing must never ask to save.
+    bool _gameStarted;
 
     /// <summary>Lets unattended checks create windows without opening a network update dialog.</summary>
     public static bool CheckForUpdatesOnLoad { get; set; } = true;
@@ -149,6 +161,12 @@ public partial class MainWindow : Window, IControlPanelHost
         // The dock now lives in a full-width tab instead of a narrow rail, so its controls are the
         // same size as the console's.
         MediaControl.SetLargeMode(true);
+        // The phone's Media and Roster tabs read and drive the same library and game as the desk.
+        RemoteControlServer.MediaJson = MediaSnapshotJson;
+        RemoteControlServer.MediaAction = MediaAction;
+        RemoteControlServer.RosterJson = RosterSnapshotJson;
+        RemoteControlServer.RosterAction = RosterAction;
+        RemoteControlServer.PenaltyAction = PenaltyAction;
         _session.Status += message => StatusText.Text = message;
         ApplyHintVisibility();
 
@@ -186,6 +204,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
         _savedStateJson ??= _engine.ExportJson();
         _savedDesignJson ??= DesignJson();
+        _gameStarted = true;
 
         // Panels are opened deliberately with New Panel; starting a game never spawns a second window.
     }
@@ -204,6 +223,7 @@ public partial class MainWindow : Window, IControlPanelHost
         }
         _savedStateJson = _engine.ExportJson();
         _savedDesignJson = DesignJson();
+        _gameStarted = true;
         SetWorkspaceEnabled(true);
         Activate();
         StartRemote();
@@ -254,8 +274,98 @@ public partial class MainWindow : Window, IControlPanelHost
     /// Sends the game data (score, clocks, down, stats) to the audience copies. It deliberately
     /// touches no layout, so a detached panel can publish its own display right after it.
     /// </summary>
+    /// <summary>The library as the phone's Media tab lists it.</summary>
+    string MediaSnapshotJson() => JsonSerializer.Serialize(new
+    {
+        current = _session.Current?.Label ?? string.Empty,
+        clips = _session.Library.Select(entry => new
+        {
+            id = entry.Path,
+            label = entry.Label,
+            onAir = ReferenceEquals(_session.Current, entry)
+                || _session.IsCameraOnAir(entry)
+                || _session.IsMicrophoneOnAir(entry)
+        }).ToList()
+    });
+
+    /// <summary>The three media buttons a phone can reach: on air, play/pause, and back off air.</summary>
+    bool MediaAction(string action, string id)
+    {
+        var entry = _session.Library.FirstOrDefault(item => string.Equals(item.Path, id, StringComparison.OrdinalIgnoreCase));
+        switch (action)
+        {
+            case "toggle": _session.TogglePlayPause(); return true;
+            case "play" when entry is not null: _session.Play(entry); return true;
+            case "onair" when entry is not null: _session.ToggleOnAir(entry); return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>Both rosters, their players and the library, as the phone's Roster tab lists them.</summary>
+    string RosterSnapshotJson()
+    {
+        var s = _engine.State;
+        object Side(bool home)
+        {
+            var rosterId = home ? s.HomeRosterId : s.AwayRosterId;
+            var roster = RosterStore.Book.Find(rosterId);
+            var selected = (home ? s.HomePlayer : s.AwayPlayer)?.PlayerId;
+            return new
+            {
+                name = home ? s.HomeTeam : s.AwayTeam,
+                rosterId,
+                rosterName = roster?.Name ?? string.Empty,
+                players = (roster?.Players ?? []).Select(player => new
+                {
+                    id = player.Id,
+                    name = player.Name,
+                    number = player.Number,
+                    selected = string.Equals(player.Id, selected, StringComparison.OrdinalIgnoreCase)
+                }).ToList()
+            };
+        }
+        return JsonSerializer.Serialize(new
+        {
+            home = Side(true),
+            away = Side(false),
+            rosters = RosterStore.All().Select(roster => new { id = roster.Id, name = roster.Name }).ToList()
+        });
+    }
+
+    /// <summary>Assigns a roster or puts one player on the graphic, from the phone.</summary>
+    bool RosterAction(string action, string side, string id)
+    {
+        var home = !string.Equals(side, "away", StringComparison.OrdinalIgnoreCase);
+        switch (action)
+        {
+            case "roster": _engine.AssignRoster(home, string.IsNullOrWhiteSpace(id) ? null : id); return true;
+            case "player": _engine.SelectPlayer(home, id); return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>
+    /// The phone's flag card. Choosing the type or the side leaves the flag exactly as it is, so a
+    /// penalty can be corrected on air without the mark flickering off between two taps.
+    /// </summary>
+    bool PenaltyAction(string action, string type, string side)
+    {
+        var home = !string.Equals(side, "away", StringComparison.OrdinalIgnoreCase);
+        var chosen = string.IsNullOrWhiteSpace(type) ? _engine.State.PenaltyType : type;
+        switch (action)
+        {
+            case "flag": _engine.SetPenalty(!_engine.State.PenaltyActive, chosen, home); return true;
+            case "clear": _engine.SetPenalty(false, chosen, home); return true;
+            case "type":
+            case "team": _engine.SetPenalty(_engine.State.PenaltyActive, chosen, home); return true;
+            default: return false;
+        }
+    }
+
     public void PublishGameState()
     {
+        // Remember the down going to air, so Last down can put back the one before it.
+        _engine.MarkPublished();
         _publishedEngine.LoadFromState(_engine.CloneState());
         _preview?.Refresh();
         // The monitor listens to the published engine itself, so the copy above already repaints it.
@@ -503,6 +613,12 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void AnimationMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Animation);
 
+    void AdLog_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new AdLogWindow(_preferences.Theme) { Owner = this };
+        dialog.ShowDialog();
+    }
+
     void Hardware_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new HardwareWindow(_preferences, _hardware) { Owner = this };
@@ -560,11 +676,72 @@ public partial class MainWindow : Window, IControlPanelHost
     {
         _remote?.Dispose();
         _remote = null;
+        RemoteControlServer.WatchSource = null;
+        RemoteControlServer.WatchImage = null;
         if (!_preferences.RemoteEnabled || string.IsNullOrWhiteSpace(_preferences.RemotePassword)) return;
         var server = new RemoteControlServer(_engine, this, id => { _panel.Execute(id); return true; }, Dispatcher, _preferences.RemotePort, _preferences.RemotePassword);
+        // The audience feed draws the published program, on the UI thread: the program selection and
+        // the published game belong to this window, and the server asks from a background thread.
+        RemoteControlServer.WatchSource = () => Dispatcher.Invoke(WatchSnapshot);
+        RemoteControlServer.WatchImage = () => Dispatcher.Invoke(WatchImageSnapshot);
         server.Status += message => Dispatcher.BeginInvoke(new Action(() => StatusText.Text = message));
         server.Start();
         _remote = server;
+    }
+
+    /// <summary>What a browser watching /watch should see: the program layout and the published game.</summary>
+    (ScorebugLayout Layout, GameState State)? WatchSnapshot() =>
+        (_program.Layout, _publishedEngine.State);
+
+    /// <summary>
+    /// The program graphic as a PNG, drawn by the same view the audience window draws. A wall board
+    /// then gets the real fonts, palette colours, logos and made icons, and the page only downloads
+    /// a new frame when the artwork or the published game changed.
+    /// </summary>
+    (byte[] Png, long Version)? WatchImageSnapshot()
+    {
+        var layout = _program.Layout;
+        var state = _publishedEngine.State;
+        var signature = $"{layout.Id}|{layout.Width}x{layout.Height}|{GameEngine.StagedSignature(state)}|" +
+                        string.Join(";", layout.Elements.Select(item =>
+                            $"{item.Id}:{item.X},{item.Y},{item.Width}x{item.Height}:{item.Content}:{item.Foreground}:{item.Visible}"));
+        if (!string.Equals(signature, _watchSignature, StringComparison.Ordinal))
+        {
+            _watchSignature = signature;
+            _watchVersion++;
+            _watchPng = null;
+        }
+        _watchPng ??= RenderProgramPng(layout);
+        return _watchPng is null ? null : (_watchPng, _watchVersion);
+    }
+
+    /// <summary>One off-screen render of the program layout, encoded as PNG for the browser.</summary>
+    byte[]? RenderProgramPng(ScorebugLayout layout)
+    {
+        try
+        {
+            var width = Math.Max(1, layout.Width);
+            var height = Math.Max(1, layout.Height);
+            var view = new ScorebugCanvasView(_scorebug, _engine,
+                stateProvider: () => _publishedEngine.State, playback: null, layoutProvider: () => layout)
+            {
+                Width = width,
+                Height = height
+            };
+            view.Measure(new Size(width, height));
+            view.Arrange(new Rect(0, 0, width, height));
+            view.UpdateLayout();
+            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(view);
+            bitmap.Freeze();
+            view.Dispose();
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var buffer = new MemoryStream();
+            encoder.Save(buffer);
+            return buffer.ToArray();
+        }
+        catch { return null; }
     }
 
     /// <summary>
@@ -926,7 +1103,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (PromptOnExit && !_closingAfterPrompt && HasUnsavedChanges())
+        if (PromptOnExit && _gameStarted && !_closingAfterPrompt && HasUnsavedChanges())
         {
             e.Cancel = true;
             var detail = "You have changes that are not in a saved game file. Autosave keeps a recovery point every few seconds, but the .spg on disk is out of date. Save it before closing?";
@@ -940,6 +1117,13 @@ public partial class MainWindow : Window, IControlPanelHost
             return;
         }
         base.OnClosing(e);
+    }
+
+    /// <summary>Opens the multiview: every camera live, with the replay preview beside it.</summary>
+    void Multiview_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new MultiviewWindow(_session, _preferences.Theme) { Owner = this };
+        window.Show();
     }
 
     void Open_Click(object sender, RoutedEventArgs e)

@@ -291,7 +291,9 @@
           <TextBlock Text="REPLAY" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
           <Button x:Name="StartReplayButton" Style="{StaticResource DockAction}" Content="Start replay" Click="StartReplay_Click"
                   IsEnabled="False"
-                  ToolTip="Play the replay from where you have scrubbed to, on air"/>
+                  ToolTip="Put the replay on air at the frame you have scrubbed to; Play rolls it"/>
+          <Button x:Name="JumpToLiveButton" Style="{StaticResource DockAction}" Content="↩ Jump to live" Click="Live_Click"
+                  IsEnabled="False" ToolTip="Leave the replay and go straight back to the live camera"/>
           <Button x:Name="SaveReplayButton" Style="{StaticResource DockAction}" Content="Save replay…" Click="SaveReplay_Click"
                   IsEnabled="False"
                   ToolTip="Save everything from where the replay is paused through to now as a clip on your computer"/>

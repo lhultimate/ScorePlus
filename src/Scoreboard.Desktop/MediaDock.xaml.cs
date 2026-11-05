@@ -240,6 +240,7 @@ public partial class MediaDock : UserControl
             // Camera transport: Replay has something to cut to while live, Live goes back again.
             ReplayButton.IsEnabled = _session.IsCameraLive || _session.IsReplaying;
             LiveButton.IsEnabled = _session.IsReplaying;
+            JumpToLiveButton.IsEnabled = _session.IsReplaying;
             StartReplayButton.IsEnabled = _session.IsReplaying;
             SaveReplayButton.IsEnabled = _session.IsReplaying;
             MicrophoneStatus.Text = _session.Current?.IsMicrophone == true
@@ -939,7 +940,7 @@ public partial class MediaDock : UserControl
             ElapsedText.Text = $"-{Stamp(TimeSpan.FromSeconds(back))}";
             DurationText.Text = "LIVE";
             ReplayHint.Text = _session.ReplayOnAir
-                ? $"  ON AIR · {Stamp(TimeSpan.FromSeconds(back))} behind live"
+                ? $"  ON AIR · {Stamp(TimeSpan.FromSeconds(back))} behind live · Jump to live leaves the replay"
                 : $"  PREVIEW ONLY · {Stamp(TimeSpan.FromSeconds(back))} behind live · Start replay goes to air";
             if (_scrubbing || _syncingBar || DateTime.UtcNow < _settleUntil || ScrubBar.IsMouseCaptureWithin || ScrubBar.IsKeyboardFocusWithin) return;
             _syncingBar = true;

@@ -280,6 +280,17 @@ public sealed class ScorebugTextBlock : TextBlock
         // The element's host carries its design rotation now, so the text itself stays upright
         // inside a rotated plate or logo. Keeping it here would rotate text twice.
         _rotate.Angle = 0;
+        // Left and right sit against the box's own edges, which needs the block to fill it; the
+        // centred default keeps the block sized to its text exactly as before.
+        TextAlignment = item.TextAlign switch
+        {
+            ScorebugTextAlign.Left => System.Windows.TextAlignment.Left,
+            ScorebugTextAlign.Right => System.Windows.TextAlignment.Right,
+            _ => System.Windows.TextAlignment.Center
+        };
+        HorizontalAlignment = item.TextAlign == ScorebugTextAlign.Center
+            ? System.Windows.HorizontalAlignment.Center
+            : System.Windows.HorizontalAlignment.Stretch;
         // A drop shadow lifts lettering off a photograph: a soft one reads as a glow, a hard one as
         // the broadcast drop shadow over a crowd shot.
         if (item.TextShadow)
@@ -290,7 +301,9 @@ public sealed class ScorebugTextBlock : TextBlock
             {
                 Color = shadowColor,
                 ShadowDepth = Math.Clamp(item.TextShadowOffset, 0, 40),
-                Direction = 315,
+                // WPF measures the direction anticlockwise from the right; the setting is the
+                // familiar clockwise bearing (0 right, 90 down), so 45 keeps the old down-right drop.
+                Direction = (360 - Math.Clamp(double.IsFinite(item.TextShadowAngle) ? item.TextShadowAngle : 45, 0, 360)) % 360,
                 BlurRadius = Math.Clamp(item.TextShadowSoftness, 0, 60),
                 Opacity = shadowColor.A / 255.0
             };
@@ -589,6 +602,11 @@ public sealed class ScorebugIconView : Grid
     bool? _dotRight;
     // Whether the arrow was showing last time it was refreshed, so its arrival and departure animate.
     bool? _arrowShown;
+    // A referee's yellow or red card, drawn as the angled rectangle the official holds up.
+    Rectangle? _card;
+    // An icon made in the icon maker: a glyph on its plate.
+    Border? _customHost;
+    TextBlock? _customText;
 
     /// <summary>
     /// Which live artwork this view was built for, so the studio can tell one icon from another.
@@ -624,6 +642,20 @@ public sealed class ScorebugIconView : Grid
             };
             Children.Add(_arrow);
         }
+        else if (Icon is ScorebugIcon.YellowCard or ScorebugIcon.RedCard)
+        {
+            // A card is its own colour, not the plate's: a yellow card has to read yellow from the
+            // far side of the arena. It is drawn slightly taller than wide, like the real thing.
+            _card = new Rectangle
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(-8),
+                Fill = new SolidColorBrush(Icon == ScorebugIcon.RedCard ? Color.FromRgb(0xE2, 0x3B, 0x3B) : Color.FromRgb(0xF2, 0xC2, 0x30))
+            };
+            Children.Add(_card);
+        }
         else if (Icon is ScorebugIcon.TimeoutBars or ScorebugIcon.TimeoutDots)
         {
             // One short horizontal line per timeout, in a row from left to right.
@@ -635,6 +667,24 @@ public sealed class ScorebugIconView : Grid
             };
             Children.Add(_bars);
         }
+        else if (Icon == ScorebugIcon.Custom)
+        {
+            // The maker's icon draws a glyph on its own plate, exactly as it looked while it was made.
+            _customText = new TextBlock
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                FontWeight = FontWeights.Bold
+            };
+            _customHost = new Border
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = _customText
+            };
+            Children.Add(_customHost);
+        }
         else
         {
             // The dot is the whole icon: it marks the side with the ball, on the side that has it.
@@ -645,11 +695,65 @@ public sealed class ScorebugIconView : Grid
         Update(text);
     }
 
+    /// <summary>Draws a made icon: its glyph, colour and plate, sized to the element's own box.</summary>
+    void UpdateCustom()
+    {
+        if (_customText is null || _customHost is null) return;
+        var icon = Scoreboard.Core.CustomIconStore.Find(_item.CustomIconId);
+        if (icon is null)
+        {
+            _customText.Text = string.Empty;
+            _customHost.Background = Brushes.Transparent;
+            return;
+        }
+        var width = Math.Max(12, _item.Width);
+        var height = Math.Max(12, _item.Height);
+        _customText.Text = icon.Glyph;
+        _customText.FontSize = Math.Clamp(Math.Min(width, height) * 0.62, 8, 260);
+        _customText.Foreground = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? icon.Color : _item.IconColor);
+        _customHost.Background = ScorebugRender.ParseBrush(icon.Plate);
+        _customHost.Width = width;
+        _customHost.Height = height;
+        _customHost.CornerRadius = new CornerRadius(icon.Round ? Math.Min(width, height) / 2 : Math.Min(width, height) * 0.16);
+    }
+
+    /// <summary>Moves the icon off its box's centre, so one element can carry a mark elsewhere.</summary>
+    void ApplyIconPlacement()
+    {
+        RenderTransform = Math.Abs(_item.IconOffsetX) < 0.01 && Math.Abs(_item.IconOffsetY) < 0.01
+            ? null
+            : new TranslateTransform(_item.IconOffsetX, _item.IconOffsetY);
+    }
+
     /// <summary>Copies the current game into the icon: bar count, dot side, and the text beside it.</summary>
     public void Update(string? text = null)
     {
+        // A value-bound icon is on the graphic only while its value says so: a flag icon with no flag
+        // in the game must not sit there pointing at nothing, and it comes back on its own when the
+        // value is set again.
+        if (!string.IsNullOrWhiteSpace(_item.IconToken))
+        {
+            var bound = _state is null ? string.Empty : ScoreboardTemplates.Bind(_item.IconToken, _state(), _item.PeriodFormat);
+            var showing = !string.IsNullOrWhiteSpace(bound)
+                && !string.Equals(bound.Trim(), "0", StringComparison.Ordinal)
+                && !bound.Trim().Equals("false", StringComparison.OrdinalIgnoreCase)
+                && !bound.Trim().Equals("no", StringComparison.OrdinalIgnoreCase);
+            Visibility = showing ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+            if (!showing) return;
+        }
+        else if (Visibility != System.Windows.Visibility.Visible) Visibility = System.Windows.Visibility.Visible;
+        ApplyIconPlacement();
+        if (_customText is not null)
+        {
+            UpdateCustom();
+            return;
+        }
         var state = _state?.Invoke();
-        var foreground = ScorebugRender.ResolveForeground(_item, state);
+        // The icon can carry its own colour, which is what makes a flag icon read as a flag rather
+        // than as part of the score text it happens to share a box with.
+        var foreground = string.IsNullOrWhiteSpace(_item.IconColor)
+            ? ScorebugRender.ResolveForeground(_item, state)
+            : _item.IconColor;
         if (_bases is not null)
         {
             var first = state is not null && SportValues.Read(state, "baseball.first") != 0;
@@ -804,6 +908,20 @@ public sealed class ScorebugIconView : Grid
             _arrow.Margin = new Thickness(gap, 0, gap, 0);
             _arrow.HorizontalAlignment = _item.IconVisitors ? HorizontalAlignment.Right : HorizontalAlignment.Left;
             _arrow.Fill = ScorebugRender.ParseBrush(foreground);
+            return;
+        }
+        if (_card is not null)
+        {
+            // The card is sized from the element's type size and then capped by its own box, so a
+            // small plate shows a small card instead of a cropped one.
+            var height = Math.Clamp(Math.Min(_item.Height, _item.FontSize * 1.7), 8, 400);
+            var width = height * 0.68;
+            var cardRoom = DotBox();
+            if (cardRoom.Width > 0) width = Math.Min(width, cardRoom.Width * 0.92);
+            if (cardRoom.Height > 0) height = Math.Min(height, cardRoom.Height * 0.92);
+            _card.Width = width;
+            _card.Height = height;
+            _card.RadiusX = _card.RadiusY = Math.Max(2, width * 0.08);
             return;
         }
         if (_dot is not null)

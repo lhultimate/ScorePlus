@@ -17,7 +17,10 @@ internal static class Program
     [STAThread]
     static int Main()
     {
-        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        // The real App, not a bare Application: the console's drop-downs only exist in the app's own
+        // styles, so a probe that runs without them proves nothing about what the operator sees.
+        var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        app.InitializeComponent();
         var layoutPath = Path.Combine(Path.GetTempPath(), $"smoke-scorebug-{Guid.NewGuid():N}.json");
         // Keep the operator's real preferences.json out of reach: earlier runs overwrote it, which
         // is how a light theme and an empty media library ended up on the reviewer's machine.
@@ -53,6 +56,42 @@ internal static class Program
                 throw new Exception("FAIL: the unsaved-game prompt still shows the game score card");
             unsavedPrompt.Close();
             Console.WriteLine("PASS: exiting a changed game asks with a themed save/discard/keep prompt");
+
+            // The penalty drop-downs: open the real list, pick a row, and make sure the console is
+            // still standing afterwards. These two crashed the program when the penalty box moved
+            // onto the console, so they are checked before anything else opens a window.
+            var penaltyEngine = new GameEngine();
+            penaltyEngine.NewGame("football");
+            var penaltyWindow = new GameControlWindow(penaltyEngine, () => { }, _ => { }, () => true) { Width = 1280, Height = 860 };
+            penaltyWindow.Show();
+            penaltyWindow.UpdateLayout();
+            var penaltyTypeBox = (ComboBox)penaltyWindow.Panel.FindName("PenaltyTypeBox")!;
+            var penaltyTeamBox = (ComboBox)penaltyWindow.Panel.FindName("PenaltyTeamBox")!;
+            Exception? dropdownFailure = null;
+            DispatcherUnhandledExceptionEventHandler captureDropdownFailure = (_, args) => { dropdownFailure = args.Exception; args.Handled = true; };
+            Application.Current.DispatcherUnhandledException += captureDropdownFailure;
+            try
+            {
+                foreach (var box in new[] { penaltyTypeBox, penaltyTeamBox })
+                {
+                    box.IsDropDownOpen = true;
+                    penaltyWindow.UpdateLayout();
+                    Pump(TimeSpan.FromMilliseconds(250));
+                    box.SelectedIndex = box.Items.Count > 1 ? 1 : 0;
+                    penaltyWindow.UpdateLayout();
+                    Pump(TimeSpan.FromMilliseconds(250));
+                    box.IsDropDownOpen = false;
+                    penaltyWindow.UpdateLayout();
+                }
+            }
+            catch (Exception ex) { dropdownFailure = ex; }
+            finally { Application.Current.DispatcherUnhandledException -= captureDropdownFailure; }
+            penaltyWindow.Close();
+            if (dropdownFailure is not null)
+                throw new Exception($"FAIL: a penalty drop-down threw {dropdownFailure.GetType().Name}: {dropdownFailure.Message}", dropdownFailure);
+            Console.WriteLine("PASS: both penalty drop-downs open, take a pick and leave the console standing");
+            // A focused way to re-check this one regression without waiting for the whole suite.
+            if (Environment.GetEnvironmentVariable("SP_PROBE_ONLY") == "1") return 0;
 
             var engine = new GameEngine();
             engine.NewGame("football");

@@ -97,6 +97,7 @@ public static class ControlActions
         new("football.ball.side","Football","Ball spot side (home / visitors)"),
         new("football.series.new","Football","New series"),
         new("football.down.recall","Football","Recall last down"),
+        new("penalty.toggle","Football","Flag down on / off"),
         new("output.publish","Output","Update Output (publish staged changes)"),
         new("output.live.toggle","Output","Live score & clocks on / off"),
         new("basketball.foul.home","Basketball","Home foul"),

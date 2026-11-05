@@ -237,6 +237,15 @@ public sealed class MediaPlayback
 {
     public MediaEntry? NowPlaying { get; private set; }
 
+    /// <summary>
+    /// The decoded pictures of the clip being replayed, shared by every surface that shows it. A
+    /// replay is frames, not a media file: the recorded clips are MJPG AVI, which a MediaElement
+    /// renders as one still frame. Null only before the session attaches its decoder.
+    /// </summary>
+    public ReplayFeed? ReplayFrames { get; private set; }
+
+    public void AttachReplay(ReplayFeed feed) => ReplayFrames = feed;
+
     // A show can carry several live cameras at once — wide, tight, bench — and each scorebug video
     // element picks the one whose tag it watches. Files still travel through NowPlaying.
     readonly List<MediaEntry> _liveCameras = [];

@@ -158,33 +158,11 @@
           </DockPanel>
         </Border>
 
-        <ListBox x:Name="PlayerList" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource RosterTextBrush}"
-                 ItemContainerStyle="{StaticResource PlayerRow}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                 SelectionChanged="Player_SelectionChanged">
-          <ListBox.ItemTemplate>
-            <DataTemplate>
-              <Border Background="{Binding RowBackground}" Padding="10,7">
-                <Grid>
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="38"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                  </Grid.ColumnDefinitions>
-                  <TextBlock Text="{Binding NumberLabel}" FontWeight="Bold" FontSize="13"
-                             Foreground="{Binding RowForeground}" TextAlignment="Right" VerticalAlignment="Center"
-                             Margin="0,0,10,0"/>
-                  <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="{Binding RowForeground}"
-                             TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                  <TextBlock Grid.Column="2" Text="{Binding Position}" Foreground="{Binding RowForeground}"
-                             Opacity="0.75" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                  <TextBlock Grid.Column="3" Text="{Binding Badge}" Foreground="{Binding RowForeground}"
-                             FontSize="10" FontWeight="Bold" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                </Grid>
-              </Border>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
+        <!-- Grouped player list: one headed section per squad group, each header folding the
+             players under it. Built in code so a group can be collapsed without a view-model. -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel x:Name="PlayerListHost" Background="Transparent"/>
+        </ScrollViewer>
       </DockPanel>
     </Border>
 
@@ -217,6 +195,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
               </Grid.RowDefinitions>
               <TextBlock Text="Number:" Style="{StaticResource FieldLabel}"/>
               <TextBox x:Name="NumberInput" Grid.Column="1" Style="{StaticResource FieldBox}" Margin="0,2,0,6"
@@ -225,8 +204,12 @@
               <TextBox x:Name="NameInput" Grid.Row="1" Grid.Column="1" Style="{StaticResource FieldBox}" Margin="0,2,0,6"
                        LostKeyboardFocus="Player_LostFocus" KeyDown="Player_KeyDown"/>
               <TextBlock Grid.Row="2" Text="Position:" Style="{StaticResource FieldLabel}"/>
-              <TextBox x:Name="PositionInput" Grid.Row="2" Grid.Column="1" Style="{StaticResource FieldBox}" Margin="0,2,0,0"
+              <TextBox x:Name="PositionInput" Grid.Row="2" Grid.Column="1" Style="{StaticResource FieldBox}" Margin="0,2,0,6"
                        LostKeyboardFocus="Player_LostFocus" KeyDown="Player_KeyDown"/>
+              <TextBlock Grid.Row="3" Text="Group:" Style="{StaticResource FieldLabel}"/>
+              <TextBox x:Name="GroupInput" Grid.Row="3" Grid.Column="1" Style="{StaticResource FieldBox}" Margin="0,2,0,0"
+                       LostKeyboardFocus="Player_LostFocus" KeyDown="Player_KeyDown"
+                       ToolTip="Put this player in a squad group — Defence, Bench, U12. Players in the same group share a foldable section in the list."/>
             </Grid>
 
             <Border Height="1" Background="{DynamicResource RosterBorderBrush}" Margin="0,14,0,12"/>

@@ -11,6 +11,9 @@ public enum ScorebugElementKind { Text, Logo, Shape, Video, Html, Image }
 /// </summary>
 public enum LayoutTransition { Cut, Fade, SlideLeft, SlideRight, SlideUp, SlideDown, Zoom }
 
+/// <summary>Where a value sits inside its box: its own text lines, and the block inside the plate.</summary>
+public enum ScorebugTextAlign { Left, Center, Right }
+
 /// <summary>Ambient motion that runs all the time, whatever the value is.</summary>
 public enum ScorebugAnimation { None, Pulse, Drift }
 
@@ -67,7 +70,13 @@ public enum ScorebugIcon
     /// </summary>
     PossessionArrow,
     /// <summary>One round pip per timeout left, for a plate that reads softer than timeout bars.</summary>
-    TimeoutDots
+    TimeoutDots,
+    /// <summary>A yellow card: a caution, shown as the referee's angled yellow rectangle.</summary>
+    YellowCard,
+    /// <summary>A red card: a sending-off, shown as the referee's angled red rectangle.</summary>
+    RedCard,
+    /// <summary>An icon made in the icon maker: a glyph, its colour and its plate.</summary>
+    Custom
 }
 
 public sealed class ScorebugElement
@@ -78,6 +87,9 @@ public sealed class ScorebugElement
     public ScorebugShape Shape { get; set; } = ScorebugShape.Rectangle;
     public string Content { get; set; } = "TEXT";
     public string? ImagePath { get; set; }
+
+    /// <summary>Which icon from the icon library a <see cref="ScorebugIcon.Custom"/> element draws.</summary>
+    public string? CustomIconId { get; set; }
 
     /// <summary>
     /// Set on a part copied out of another layout: every element sharing this id is the same
@@ -188,6 +200,20 @@ public sealed class ScorebugElement
     public double IconScale { get; set; } = 1;
 
     /// <summary>
+    /// A value the icon follows, written as a token — <c>{{PENALTY_TYPE}}</c>, <c>{{STAT:Turnovers}}</c>.
+    /// The icon is on the graphic only while that value is set, so a flag icon appears when a flag is
+    /// down and disappears when it is cleared, with no key press in the studio.
+    /// </summary>
+    public string IconToken { get; set; } = "";
+
+    /// <summary>Where the icon sits relative to its box, in design pixels.</summary>
+    public double IconOffsetX { get; set; }
+    public double IconOffsetY { get; set; }
+
+    /// <summary>The icon's own colour. Empty follows the element's text colour.</summary>
+    public string IconColor { get; set; } = "";
+
+    /// <summary>
     /// A gradient painted through the text itself, with any number of stops. Off leaves the text in
     /// its flat colour; a radial gradient glows out from a centre instead of running in a line.
     /// </summary>
@@ -225,6 +251,15 @@ public sealed class ScorebugElement
 
     /// <summary>How soft the shadow's edge is: 0 is a hard drop, 30 a soft glow.</summary>
     public double TextShadowSoftness { get; set; }
+
+    /// <summary>
+    /// Which way the shadow falls, in degrees clockwise: 0 sends it right, 90 straight down,
+    /// 180 left and 270 up. 45 is the broadcast down-right default.
+    /// </summary>
+    public double TextShadowAngle { get; set; } = 45;
+
+    /// <summary>How the value sits inside its box: hard left, centred, or hard right.</summary>
+    public ScorebugTextAlign TextAlign { get; set; } = ScorebugTextAlign.Center;
 
     /// <summary>
     /// The hand-over a value plays when it changes: how the old value leaves and the new one
@@ -283,10 +318,10 @@ public sealed class ScorebugLayout
     /// zoom. The hand-over belongs to the incoming layout, so a main scorebug can snap on while a
     /// lower third dissolves in beside it.
     /// </summary>
-    public LayoutTransition Transition { get; set; } = LayoutTransition.Fade;
+    public LayoutTransition Transition { get; set; } = LayoutTransition.Cut;
 
     /// <summary>How long this layout's hand-over takes, in seconds: 0 cuts, 5 is a slow dissolve.</summary>
-    public double TransitionSeconds { get; set; } = 0.5;
+    public double TransitionSeconds { get; set; } = 0;
 
     /// <summary>
     /// A hand-over built in the transition maker. When it is set it replaces the preset
@@ -294,6 +329,12 @@ public sealed class ScorebugLayout
     /// in an .spl or .spd file and in a saved game.
     /// </summary>
     public MotionClip? TransitionClip { get; set; }
+
+    /// <summary>
+    /// A video file played as this layout's hand-over, instead of the preset or a motion clip. It
+    /// runs full-frame over the outgoing picture and ends with the new layout showing underneath.
+    /// </summary>
+    public string TransitionVideoPath { get; set; } = "";
 
     /// <summary>
     /// Items that opt out of the arrival motion for this layout. Empty means the whole graphic
@@ -322,7 +363,7 @@ public sealed class ScorebugLayout
             new() { Name="Away team", Content="{{AWAY_TEAM}}", X=906, Y=236, Width=300, Height=54, FontSize=36 },
             new() { Name="Away score", Content="{{AWAY_SCORE}}", X=906, Y=300, Width=300, Height=126, FontSize=102, ForegroundSource=ScorebugColorSource.AwayPrimary },
             new() { Name="Period", Content="{{PERIOD}}", X=470, Y=225, Width=340, Height=52, FontSize=28 },
-            new() { Name="Game clock", Content="{{GAME_CLOCK}}", X=430, Y=300, Width=420, Height=92, FontSize=72, Transition=ScorebugTransition.WheelUp },
+            new() { Name="Game clock", Content="{{GAME_CLOCK}}", X=430, Y=300, Width=420, Height=92, FontSize=72, Transition=ScorebugTransition.Cut },
             new() { Name="Home logo", Kind=ScorebugElementKind.Logo, LogoSide=ScorebugLogoSide.Home, Content="HOME LOGO", X=78, Y=160, Width=120, Height=64, FontSize=20 },
             new() { Name="Away logo", Kind=ScorebugElementKind.Logo, LogoSide=ScorebugLogoSide.Away, Content="AWAY LOGO", X=1082, Y=160, Width=120, Height=64, FontSize=20 }
         ]
@@ -763,7 +804,7 @@ public sealed class ScorebugCatalog
                 if (string.IsNullOrWhiteSpace(layout.Name)) layout.Name = "Untitled layout";
                 if (!IsColor(layout.Background)) layout.Background = "#FF091018";
                 layout.TransitionSeconds = Math.Clamp(double.IsFinite(layout.TransitionSeconds) ? layout.TransitionSeconds : 0.5, 0, 5);
-                if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Fade;
+                if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Cut;
                 layout.TransitionClip?.Normalize();
                 layout.Handover ??= [];
                 layout.Handover = layout.Handover.Where(entry => entry is not null).Take(200).ToList();
@@ -792,6 +833,8 @@ public sealed class ScorebugCatalog
                     item.MotionAnimation?.Normalize();
                     item.TextShadowOffset = Math.Clamp(double.IsFinite(item.TextShadowOffset) ? item.TextShadowOffset : 4, 0, 40);
                     item.TextShadowSoftness = Math.Clamp(double.IsFinite(item.TextShadowSoftness) ? item.TextShadowSoftness : 0, 0, 60);
+                    item.TextShadowAngle = Math.Clamp(double.IsFinite(item.TextShadowAngle) ? item.TextShadowAngle : 45, 0, 360);
+                    if (!Enum.IsDefined(item.TextAlign)) item.TextAlign = ScorebugTextAlign.Center;
                     if (string.IsNullOrWhiteSpace(item.TextShadowColor)) item.TextShadowColor = "#CC000000";
                     if (string.IsNullOrWhiteSpace(item.BorderColor)) item.BorderColor = "#FFFFFFFF";
                     if (string.IsNullOrWhiteSpace(item.BackgroundColor2)) item.BackgroundColor2 = "#CC101820";

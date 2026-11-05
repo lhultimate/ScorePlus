@@ -142,7 +142,7 @@ public static class HornPlayer
 
     public static HornSound Parse(string? value) => Enum.TryParse<HornSound>(value, true, out var result)
         ? result
-        : HornSound.AirHorn;
+        : HornSound.Buzzer;
 
     static byte[] Generate(HornSound kind)
     {

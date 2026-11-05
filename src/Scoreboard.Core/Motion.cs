@@ -339,6 +339,12 @@ public sealed class MotionClip
     /// <summary>Pieces that exist only while this clip runs; empty for animations.</summary>
     public List<MotionPiece> Pieces { get; set; } = [];
 
+    /// <summary>
+    /// Transitions: the order the layout's items leave and arrive in. Item ids not listed here run
+    /// with the phase, so a clip saved before the timeline existed plays exactly as it used to.
+    /// </summary>
+    public List<string> PieceOrder { get; set; } = [];
+
     /// <summary>A short line for lists: how many phases, tracks and colour keys the clip holds.</summary>
     public string Summary
     {
@@ -395,6 +401,8 @@ public sealed class MotionClip
         if (string.IsNullOrWhiteSpace(Id)) Id = Guid.NewGuid().ToString("N");
         if (!Enum.IsDefined(Kind)) Kind = MotionKind.Transition;
         Notes ??= "";
+        PieceOrder ??= [];
+        PieceOrder = PieceOrder.Take(60).Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
         Pieces ??= [];
         Pieces = Pieces.Take(12).Where(piece => piece is not null).ToList();
         var seenPieces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

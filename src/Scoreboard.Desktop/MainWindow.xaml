@@ -59,8 +59,9 @@
           <Button Style="{StaticResource IconButton}" Content="⚙" Click="Preferences_Click" ToolTip="Preferences"/>
           <Button Style="{StaticResource IconButton}" Content="▶" Click="Output_Click" ToolTip="Audience output — choose a display and open its window (F11 fills the screen)"/>
           <Button Style="{StaticResource IconButton}" Content="☰" Click="EventLog_Click" ToolTip="Event log — open it in its own window"/>
+          <Button Style="{StaticResource IconButton}" Content="▤" Click="AdLog_Click" ToolTip="Ad log — how many times each clip has played, and how long it runs"/>
           <Button Style="{StaticResource IconButton}" Content="▦" Click="GameReport_Click" ToolTip="Game report — export a printable HTML summary"/>
-          <Button Style="{StaticResource HeaderButton}" Content="Hardware" Click="Hardware_Click" ToolTip="Connect a scoreboard controller and monitor its data"/>
+          <Button Style="{StaticResource IconButton}" Content="⌁" Click="Hardware_Click" ToolTip="Hardware — connect a scoreboard controller and monitor its data"/>
           <Button Style="{StaticResource HeaderButton}" Content="Save Game" Click="Save_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Open Game" Click="Open_Click"/>
         </StackPanel>
@@ -77,8 +78,9 @@
     <Border DockPanel.Dock="Top" Background="#12171F" Padding="14,6">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button Style="{StaticResource HeaderButton}" Content="Transition Maker" Click="TransitionMaker_Click" ToolTip="Build a keyframed hand-over: how a graphic leaves, how it arrives, and its colors on the way"/>
+          <Button Style="{StaticResource HeaderButton}" Content="Transition Builder" Click="TransitionMaker_Click" ToolTip="Build a keyframed hand-over: how a graphic leaves, how it arrives, and its colors on the way"/>
           <Button Style="{StaticResource HeaderButton}" Content="Animation Maker" Click="AnimationMaker_Click" ToolTip="Key motion a value follows — a loop while it is up, or a flourish when it changes"/>
+          <Button Style="{StaticResource HeaderButton}" Content="Multiview" Click="Multiview_Click" ToolTip="Every camera at once, with the replay preview beside the live picture"/>
           <Button Style="{StaticResource HeaderButton}" Content="Scorebug Studio" Click="ScorebugStudio_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Sport Profiles" Click="SportProfiles_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="New Game" Click="NewGame_Click"/>

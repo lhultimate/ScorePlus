@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows.Threading;
 using Scoreboard.Core;
 
@@ -47,6 +48,43 @@ public sealed class RemoteControlServer : IDisposable
 
     public bool Running => _listener is not null;
 
+    /// <summary>
+    /// What <c>/watch</c> draws: the layout and state going out on the program display right now.
+    /// Set by the main window, because the server only knows the control panel — the program
+    /// selection belongs to the studio.
+    /// </summary>
+    public static Func<(ScorebugLayout Layout, GameState State)?>? WatchSource { get; set; }
+
+    /// <summary>
+    /// The program graphic as a PNG, rendered by the app's own scorebug view. <c>/watch</c> used to
+    /// rebuild the layout in HTML, which lost the real fonts, the palette colours and the made
+    /// icons; a picture of the actual graphic cannot drift from what the audience sees.
+    /// The number is a version the page watches so it only downloads a frame that changed.
+    /// </summary>
+    public static Func<(byte[] Png, long Version)?>? WatchImage { get; set; }
+
+    /// <summary>
+    /// The wall board page. It shows one picture of the program graphic and swaps that picture when
+    /// the version changes, so nothing is rebuilt in the browser and no font or colour can be lost.
+    /// </summary>
+    const string WatchPage =
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">" +
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
+        "<title>ScorePlus — Program</title><style>" +
+        "html,body{margin:0;height:100%;background:#000;overflow:hidden}" +
+        "#shot{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none}" +
+        "#wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
+        "color:#7C8A9C;font:600 14px/1.4 'Segoe UI',Arial,sans-serif;text-align:center;padding:24px}" +
+        "</style></head><body>" +
+        "<img id=\"shot\" alt=\"ScorePlus program graphic\">" +
+        "<div id=\"wait\">Nothing is on the program output yet. Press Update Output in ScorePlus.</div>" +
+        "<script>(function(){var shot=document.getElementById('shot'),wait=document.getElementById('wait'),now='';" +
+        "function tick(){fetch('/api/watch/version',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})" +
+        ".then(function(v){if(!v||!v.version)return;var next=String(v.version);if(next===now)return;now=next;" +
+        "shot.onload=function(){shot.style.display='block';wait.style.display='none';};" +
+        "shot.src='/watch.png?v='+encodeURIComponent(next);}).catch(function(){})" +
+        ".then(function(){setTimeout(tick,1000);});}tick();})();</script></body></html>";
+
     /// <summary>The addresses an operator can type on a phone on the same network.</summary>
     public static IReadOnlyList<string> Urls(int port)
     {
@@ -71,7 +109,7 @@ public sealed class RemoteControlServer : IDisposable
             _cancel = new CancellationTokenSource();
             var token = _cancel.Token;
             _ = Task.Run(() => AcceptLoop(token), token);
-            Status?.Invoke($"REMOTE ON · {Urls(_port).LastOrDefault()} · password required");
+            Status?.Invoke($"REMOTE ON · {Urls(_port).LastOrDefault()} · password required · /watch is the program feed");
         }
         catch (Exception ex)
         {
@@ -167,6 +205,18 @@ public sealed class RemoteControlServer : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// The phone's Media and Roster tabs read through these, so the server never keeps a copy of the
+    /// library: the phone always shows what the desktop shows.
+    /// </summary>
+    public static Func<string>? MediaJson { get; set; }
+    public static Func<string, string, bool>? MediaAction { get; set; }
+    public static Func<string>? RosterJson { get; set; }
+    public static Func<string, string, string, bool>? RosterAction { get; set; }
+
+    /// <summary>The phone's flag card: raise or clear a penalty, and pick what it was for and who.</summary>
+    public static Func<string, string, string, bool>? PenaltyAction { get; set; }
+
     async Task Handle(NetworkStream stream, RemoteRequest request, CancellationToken token)
     {
         var ip = "remote";
@@ -183,6 +233,32 @@ public sealed class RemoteControlServer : IDisposable
             var logo = LogoBytes.Value;
             if (logo is null) { await Write(stream, 404, "text/plain; charset=utf-8", "No logo."); return; }
             await WriteBytes(stream, 200, "image/png", logo);
+            return;
+        }
+        if (request.Path == "/watch" && request.Method == "GET")
+        {
+            // The program feed: a page any phone, tablet or spare screen on the same network can
+            // open. Read-only and public, because it is exactly what the audience is already
+            // seeing; there is nothing here to control.
+            await Write(stream, 200, "text/html; charset=utf-8", WatchPage);
+            return;
+        }
+        if (request.Path == "/watch.png" && request.Method == "GET")
+        {
+            // The picture itself, drawn by the app's own scorebug view. This is what makes the wall
+            // board look like the broadcast: real fonts, real palette colours, real logos.
+            var frame = WatchImage?.Invoke();
+            if (frame is null) { await Write(stream, 404, "text/plain; charset=utf-8", "Nothing is on the program output yet."); return; }
+            await WriteBytes(stream, 200, "image/png", frame.Value.Png);
+            return;
+        }
+        if (request.Path == "/api/watch/version" && request.Method == "GET")
+        {
+            // The page polls this, never the picture: a wall screen only downloads a new frame when
+            // the graphic actually changed, and never reloads the page between changes.
+            var frame = WatchImage?.Invoke();
+            var version = frame is null ? string.Empty : frame.Value.Version.ToString();
+            await Write(stream, 200, "application/json; charset=utf-8", $"{{\"version\":\"{version}\"}}");
             return;
         }
         if (request.Path == "/login" && request.Method == "POST")
@@ -219,6 +295,39 @@ public sealed class RemoteControlServer : IDisposable
             var form = Form(request.Body);
             var result = Execute(form);
             await Write(stream, result.Ok ? 200 : 400, "application/json; charset=utf-8", JsonSerializer.Serialize(new { ok = result.Ok, message = result.Message }));
+            return;
+        }
+        if (request.Path == "/api/media" && request.Method == "GET")
+        {
+            await Write(stream, 200, "application/json; charset=utf-8", _dispatcher.Invoke(() => MediaJson?.Invoke()) ?? "{}");
+            return;
+        }
+        if (request.Path == "/api/rosters" && request.Method == "GET")
+        {
+            await Write(stream, 200, "application/json; charset=utf-8", _dispatcher.Invoke(() => RosterJson?.Invoke()) ?? "{}");
+            return;
+        }
+        if (request.Path == "/api/media/action" && request.Method == "POST")
+        {
+            var form = Form(request.Body);
+            var ok = _dispatcher.Invoke(() => MediaAction?.Invoke(form.GetValueOrDefault("a", string.Empty), form.GetValueOrDefault("id", string.Empty)) ?? false);
+            var message = ok ? string.Empty : "That media button is not available.";
+            await Write(stream, ok ? 200 : 400, "application/json; charset=utf-8", JsonSerializer.Serialize(new { ok, message }));
+            return;
+        }
+        if (request.Path == "/api/penalty/action" && request.Method == "POST")
+        {
+            var form = Form(request.Body);
+            var ok = _dispatcher.Invoke(() => PenaltyAction?.Invoke(form.GetValueOrDefault("a", string.Empty), form.GetValueOrDefault("type", string.Empty), form.GetValueOrDefault("side", "home")) ?? false);
+            await Write(stream, ok ? 200 : 400, "application/json; charset=utf-8", JsonSerializer.Serialize(new { ok }));
+            return;
+        }
+        if (request.Path == "/api/roster/action" && request.Method == "POST")
+        {
+            var form = Form(request.Body);
+            var ok = _dispatcher.Invoke(() => RosterAction?.Invoke(form.GetValueOrDefault("a", string.Empty), form.GetValueOrDefault("side", "home"), form.GetValueOrDefault("id", string.Empty)) ?? false);
+            var message = ok ? string.Empty : "That roster button is not available.";
+            await Write(stream, ok ? 200 : 400, "application/json; charset=utf-8", JsonSerializer.Serialize(new { ok, message }));
             return;
         }
         await Write(stream, 404, "text/plain; charset=utf-8", "Not found.");
@@ -354,6 +463,8 @@ public sealed class RemoteControlServer : IDisposable
                 max = c.Max
             }),
             stats = s.Stats.Select(x => new { id = x.Id, name = x.Name, display = x.Display }),
+            penalty = new { active = s.PenaltyActive, type = s.PenaltyType, home = s.PenaltyHome },
+            penaltyTypes = GameEngine.PenaltyTypes,
             layout = _host.LayoutLabel,
             staged = _host.HasStagedChanges,
             live = _host.LiveScoreClock
