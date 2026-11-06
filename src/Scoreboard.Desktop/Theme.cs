@@ -36,6 +36,15 @@ public sealed class UserPreferences
     public bool CheckForUpdates { get; set; } = true;
 
     /// <summary>
+    /// Next down prints the new down alone ("2nd Down") until the distance is set, instead of
+    /// showing the previous series' distance beside it.
+    /// </summary>
+    public bool NextDownPreview { get; set; }
+
+    /// <summary>New series goes straight to air instead of waiting for Update Output.</summary>
+    public bool NewSeriesLive { get; set; }
+
+    /// <summary>
     /// How long the graphic holds an old value before printing the new one, in seconds. 0 is
     /// instant. This is a show-wide timing choice, not a property of one element.
     /// </summary>
@@ -98,6 +107,8 @@ public sealed class UserPreferences
         UpdateFeedUrl = UpdateFeedUrl,
         CheckForUpdates = CheckForUpdates,
         ValueSwitchDelay = ValueSwitchDelay,
+        NextDownPreview = NextDownPreview,
+        NewSeriesLive = NewSeriesLive,
         LastSport = LastSport,
         QuickLayouts = QuickLayouts.Select(binding => new QuickLayoutBinding { Label = binding.Label, DisplayId = binding.DisplayId, LayoutId = binding.LayoutId }).ToList(),
         QuickMedia = QuickMedia.Select(binding => new QuickMediaBinding { Label = binding.Label, Path = binding.Path }).ToList(),
@@ -316,7 +327,20 @@ public static class ThemeManager
                 case TextBox: control.Background = Brush(input); control.BorderBrush = Brush(border); break;
                 case Button: control.Background = Brush(surface); control.BorderBrush = Brush(border); break;
                 case ListBox: control.Background = Brush(input); control.BorderBrush = Brush(border); break;
-                case ComboBox: control.Background = Brush(input); control.BorderBrush = Brush(border); break;
+                case ComboBox combo:
+                {
+                    control.Background = Brush(input);
+                    control.BorderBrush = Brush(border);
+                    // Drop-down items are created when the list opens, after the theme pass, so they
+                    // kept the system's white text on a light list. The container style is what
+                    // makes a light-mode menu readable.
+                    var items = new Style(typeof(ComboBoxItem));
+                    items.Setters.Add(new Setter(Control.BackgroundProperty, Brush(surface)));
+                    items.Setters.Add(new Setter(Control.ForegroundProperty, Brush(foreground)));
+                    items.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8, 4, 8, 4)));
+                    combo.ItemContainerStyle = items;
+                    break;
+                }
                 case ToggleButton: control.Background = Brush(surface); control.BorderBrush = Brush(border); break;
             }
         }

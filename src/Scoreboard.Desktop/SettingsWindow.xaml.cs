@@ -25,6 +25,8 @@ public partial class SettingsWindow : Window
         ThemeSelector.SelectedItem = ThemeSelector.Items.Contains(_draft.Theme) ? _draft.Theme : "System";
         ShowHints.IsChecked = _draft.ShowHeadingHints;
         QuickPublishInput.IsChecked = _draft.QuickLayoutsPublish;
+        DownPreviewInput.IsChecked = _draft.NextDownPreview;
+        NewSeriesInput.IsChecked = _draft.NewSeriesLive;
         GameClockHornInput.IsChecked = _draft.HornOnGameClockZero;
         PlayClockHornInput.IsChecked = _draft.HornOnPlayClockZero;
         DelayInput.Text = _draft.ValueSwitchDelay.ToString("0.##", CultureInfo.CurrentCulture);
@@ -176,6 +178,18 @@ public partial class SettingsWindow : Window
         _draft.ShowHeadingHints = ShowHints.IsChecked == true;
     }
 
+    void DownPreview_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || DownPreviewInput is null) return;
+        _draft.NextDownPreview = DownPreviewInput.IsChecked == true;
+    }
+
+    void NewSeries_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || NewSeriesInput is null) return;
+        _draft.NewSeriesLive = NewSeriesInput.IsChecked == true;
+    }
+
     /// <summary>A quick button either stages or publishes; the choice is saved with everything else.</summary>
     void QuickLayout_Changed(object sender, RoutedEventArgs e)
     {
@@ -251,6 +265,8 @@ public partial class SettingsWindow : Window
         _original.Theme = _draft.Theme;
         _original.ShowHeadingHints = _draft.ShowHeadingHints;
         _original.QuickLayoutsPublish = _draft.QuickLayoutsPublish;
+        _original.NextDownPreview = _draft.NextDownPreview;
+        _original.NewSeriesLive = _draft.NewSeriesLive;
         _original.HornOnGameClockZero = _draft.HornOnGameClockZero;
         _original.HornOnPlayClockZero = _draft.HornOnPlayClockZero;
         _original.ValueSwitchDelay = Math.Clamp(_draft.ValueSwitchDelay, 0, MaxDelay);
@@ -263,6 +279,8 @@ public partial class SettingsWindow : Window
         _original.CheckForUpdates = _draft.CheckForUpdates;
         _original.UpdateFeedUrl = _draft.UpdateFeedUrl;
         PreferencesStore.Save(_original);
+        GameEngine.DownPreviewEnabled = _original.NextDownPreview;
+        GameEngine.NewSeriesLiveEnabled = _original.NewSeriesLive;
         DisplayTiming.Apply(_original);
     }
 

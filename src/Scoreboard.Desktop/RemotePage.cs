@@ -341,6 +341,8 @@ public static class RemotePage
         }
 
         function renderPenalty(state) {
+          const card = $('penaltyCard');
+          if (card) card.style.display = state.football ? '' : 'none';
           if (!state.penalty) return;
           penaltySide = state.penalty.home ? 'home' : 'away';
           const flag = $('penaltyFlag');

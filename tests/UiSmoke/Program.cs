@@ -45,6 +45,53 @@ internal static class Program
             // purpose, so it is off for the run and covered by the core suite instead.
             MainWindow.WarnOnSportSwitch = false;
 
+            // The studio's background editor and the per-direction transition, exercised through the
+            // real window: pick a colour on an element that starts with "no background", then tick a
+            // down transition, and read back both the model and the painted host.
+            var smokeCatalogPath = Path.Combine(Path.GetTempPath(), $"smoke-bg-{Guid.NewGuid():N}.json");
+            var smokeCatalog = new ScorebugCatalog(smokeCatalogPath);
+            var smokeElement = new ScorebugElement
+            {
+                Name = "Smoke plate", Content = "SMOKE", X = 120, Y = 120, Width = 320, Height = 110,
+                Background = "#CC141D28", TransparentBackground = true
+            };
+            smokeCatalog.Update(layout => layout.Elements.Add(smokeElement));
+            var smokeTarget = smokeCatalog.Layout.Elements.First(element => element.Id == smokeElement.Id);
+            var smokeEngine = new GameEngine();
+            smokeEngine.NewGame("football");
+            var smokeEditor = new ScorebugEditorWindow(smokeCatalog, smokeEngine, null, "Dark");
+            smokeEditor.Show();
+            smokeEditor.UpdateLayout();
+            var smokeAll = smokeCatalog.Layout.Elements.ToArray();
+            var smokeLayers = (ListBox)smokeEditor.FindName("Layers")!;
+            smokeLayers.SelectedIndex = smokeAll.Length - 1 - Array.IndexOf(smokeAll, smokeTarget);
+            smokeEditor.UpdateLayout();
+            var smokeBackground = (TextBox)smokeEditor.FindName("BackgroundInput")!;
+            smokeBackground.Text = "#FF00FF00";
+            smokeEditor.UpdateLayout();
+            var smokeCanvas = (Canvas)smokeEditor.FindName("DesignCanvas")!;
+            var smokeHost = smokeCanvas.Children.OfType<Border>().First(border => (border.Tag as ScorebugElement)?.Id == smokeTarget.Id);
+            var smokeAlpha = (smokeHost.Background as SolidColorBrush)?.Color.A ?? -1;
+            if (smokeTarget.TransparentBackground || smokeTarget.Background != "#FF00FF00" || smokeAlpha <= 0)
+                throw new Exception($"FAIL: a background colour did not paint (transparent={smokeTarget.TransparentBackground}, colour={smokeTarget.Background}, alpha={smokeAlpha})");
+            var smokeDown = (CheckBox)smokeEditor.FindName("DownTransitionInput")!;
+            var smokeDownChoice = (ComboBox)smokeEditor.FindName("TransitionDownInput")!;
+            smokeDownChoice.SelectedItem = ScorebugTransition.SlideUp;
+            Console.WriteLine($"after combo: choice={smokeDownChoice.SelectedItem} model={smokeTarget.TransitionDown} check={smokeDown.IsChecked}");
+            smokeDown.IsChecked = true;
+            Console.WriteLine($"after check: choice={smokeDownChoice.SelectedItem} model={smokeTarget.TransitionDown} check={smokeDown.IsChecked}");
+            smokeEditor.UpdateLayout();
+            if (smokeTarget.TransitionDown != ScorebugTransition.SlideUp)
+                throw new Exception($"FAIL: the down transition did not stick ({smokeTarget.TransitionDown})");
+            smokeEditor.Close();
+            GameEngine.NewSeriesLiveEnabled = true;
+            smokeEngine.NewSeries();
+            if (!smokeEngine.TakePublishRequest()) throw new Exception("FAIL: New series did not ask to publish");
+            GameEngine.NewSeriesLiveEnabled = false;
+            smokeEngine.NewSeries();
+            if (smokeEngine.TakePublishRequest()) throw new Exception("FAIL: New series published while the preference was off");
+            Console.WriteLine("PASS: a background colour clears No background and paints; the down transition saves; New series live obeys its preference");
+
             // The exit prompt is the app's own chrome, not a system message box.
             var unsavedPrompt = new UnsavedChangesWindow("Dark", "detail");
             unsavedPrompt.Show();

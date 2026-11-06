@@ -50,7 +50,16 @@ public partial class MainWindow : Window, IControlPanelHost
     QuickMediaBar? _quickMedia;
     QuickLayoutBar? _quickLayouts;
     int _eventCount = -1;
-    readonly UserPreferences _preferences = PreferencesStore.Load();
+    readonly UserPreferences _preferences = LoadPreferences();
+
+    /// <summary>Reads preferences and arms the Next down preview before the console can use it.</summary>
+    static UserPreferences LoadPreferences()
+    {
+        var prefs = PreferencesStore.Load();
+        GameEngine.DownPreviewEnabled = prefs.NextDownPreview;
+        GameEngine.NewSeriesLiveEnabled = prefs.NewSeriesLive;
+        return prefs;
+    }
     string? _projectPath;
     bool _initializing = true;
     bool _liveScoreClock = true;
@@ -980,6 +989,8 @@ public partial class MainWindow : Window, IControlPanelHost
     void EngineChanged()
     {
         CheckAutoHorns();
+        // New series can ask to go on air by itself; publish the whole staged state in that case.
+        if (_engine.TakePublishRequest()) { PublishGameState(); return; }
         if (_liveScoreClock) PublishLiveValues();
     }
 

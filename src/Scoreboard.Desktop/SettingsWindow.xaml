@@ -27,6 +27,10 @@
         <TextBlock Text="How long every graphic holds an old value before it switches to the new one. Type any value from 0 to 5; 0 prints instantly and is the default." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
         <CheckBox x:Name="QuickPublishInput" Content="Quick layout buttons also update output" Checked="QuickLayout_Changed" Unchecked="QuickLayout_Changed"/>
         <TextBlock Text="Off by default: the four buttons above the sound meter only stage a layout, and Update Output sends it as usual. On, the same press puts the layout on air — faster, but it changes the audience picture without a second confirmation." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
+        <CheckBox x:Name="DownPreviewInput" Content="Next down shows &quot;2nd Down&quot; until the distance is set" Checked="DownPreview_Changed" Unchecked="DownPreview_Changed"/>
+        <TextBlock Text="Off by default. Pressing Next down prints just the new down, so the graphic never shows the old series' distance beside it; setting the distance (or Update Output) turns it into 2nd &amp; 4." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
+        <CheckBox x:Name="NewSeriesInput" Content="New series updates output immediately" Checked="NewSeries_Changed" Unchecked="NewSeries_Changed"/>
+        <TextBlock Text="Off by default. Pressing New series puts 1st &amp; 10 on air at once instead of waiting for Update Output." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <Separator/>
         <TextBlock Text="CLOCK HORNS" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="GameClockHornInput" Content="Sound the horn when the game clock reaches zero" Checked="ClockHorn_Changed" Unchecked="ClockHorn_Changed"/>

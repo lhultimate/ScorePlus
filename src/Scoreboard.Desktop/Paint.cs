@@ -83,7 +83,8 @@ internal static class Paint
     /// <summary>The background: flat, multi-stop or radial, carrying its finish and its own opacity.</summary>
     public static Brush Background(ScorebugElement item, GameState? state)
     {
-        var flat = ColorOf(state?.ColorFor(item.BackgroundSource) ?? item.Background, Colors.Transparent);
+        var slot = state?.ColorFor(item.BackgroundSource);
+        var flat = ColorOf(string.IsNullOrWhiteSpace(slot) ? item.Background : slot, Colors.Transparent);
         var opacity = item.BackgroundOpacity;
         var paint = item.BackgroundGradientPaint;
         Brush brush;
@@ -92,8 +93,10 @@ internal static class Paint
         else if (item.BackgroundGradient)
         {
             // A layout written before multi-stop gradients: two colours and an angle.
-            var start = ColorOf(state?.ColorFor(item.BackgroundSource) ?? item.Background, Colors.Transparent);
-            var end = ColorOf(state?.ColorFor(item.BackgroundSource2) ?? item.BackgroundColor2, Colors.Transparent);
+            var startSlot = state?.ColorFor(item.BackgroundSource);
+            var endSlot = state?.ColorFor(item.BackgroundSource2);
+            var start = ColorOf(string.IsNullOrWhiteSpace(startSlot) ? item.Background : startSlot, Colors.Transparent);
+            var end = ColorOf(string.IsNullOrWhiteSpace(endSlot) ? item.BackgroundColor2 : endSlot, Colors.Transparent);
             brush = Linear([(0, start), (1, end)], item.GradientAngle, opacity);
         }
         else

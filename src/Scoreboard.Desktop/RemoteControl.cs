@@ -464,7 +464,7 @@ public sealed class RemoteControlServer : IDisposable
             }),
             stats = s.Stats.Select(x => new { id = x.Id, name = x.Name, display = x.Display }),
             penalty = new { active = s.PenaltyActive, type = s.PenaltyType, home = s.PenaltyHome },
-            penaltyTypes = GameEngine.PenaltyTypes,
+            penaltyTypes = GameEngine.PenaltyTypesFor(s.SportId),
             layout = _host.LayoutLabel,
             staged = _host.HasStagedChanges,
             live = _host.LiveScoreClock

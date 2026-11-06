@@ -148,7 +148,7 @@ public static class HornPlayer
     {
         var seconds = kind switch
         {
-            HornSound.Buzzer => 0.92,
+            HornSound.Buzzer => 1.25,
             HornSound.Siren => 2.25,
             _ => 1.35
         };

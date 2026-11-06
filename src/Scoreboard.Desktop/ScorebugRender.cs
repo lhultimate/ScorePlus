@@ -23,8 +23,11 @@ internal static class ScorebugRender
     public static string ResolveForeground(ScorebugElement item, GameState? state) =>
         state?.ColorFor(item.ForegroundSource) ?? item.Foreground;
 
-    public static string ResolveBackground(ScorebugElement item, GameState? state) =>
-        state?.ColorFor(item.BackgroundSource) ?? item.Background;
+    public static string ResolveBackground(ScorebugElement item, GameState? state)
+    {
+        var slot = state?.ColorFor(item.BackgroundSource);
+        return string.IsNullOrWhiteSpace(slot) ? item.Background : slot;
+    }
 
     /// <summary>The gradient's second colour, after its team-palette slot is resolved.</summary>
     public static string ResolveBackground2(ScorebugElement item, GameState? state) =>
@@ -49,11 +52,17 @@ internal static class ScorebugRender
     /// <summary>The outline an element draws around its own box, or nothing when it is switched off.</summary>
     public static Brush HostBorder(ScorebugElement item, GameState? state = null) => Paint.Border(item, state);
 
-    /// <summary>Background painted behind an element. Shapes/logo draw themselves, so their host stays clear.</summary>
-    public static Brush HostBackground(ScorebugElement item, GameState? state = null) =>
-        item.Kind is ScorebugElementKind.Shape or ScorebugElementKind.Logo || item.TransparentBackground
-            ? Brushes.Transparent
-            : BackgroundBrush(item, state);
+    /// <summary>Background painted behind an element. Text always has its plate; shapes and logos
+    /// keep their old clear host until a background is actually chosen for them.</summary>
+    public static Brush HostBackground(ScorebugElement item, GameState? state = null)
+    {
+        if (item.TransparentBackground) return Brushes.Transparent;
+        if (item.Kind is ScorebugElementKind.Shape or ScorebugElementKind.Logo
+            && item.BackgroundSource == ScorebugColorSource.Custom
+            && string.Equals(item.Background, "#CC141D28", StringComparison.OrdinalIgnoreCase))
+            return Brushes.Transparent;
+        return BackgroundBrush(item, state);
+    }
 
     /// <summary>
     /// The colour the inside of a baseball base is filled with. Empty follows the element's text
@@ -64,8 +73,12 @@ internal static class ScorebugRender
             ? state?.ColorFor(item.IconFillSource) ?? item.IconFillColor
             : string.IsNullOrWhiteSpace(item.IconFillColor) ? ResolveForeground(item, state) : item.IconFillColor;
 
-    public static string? ResolveLogoPath(ScorebugElement item, GameState? state) =>
-        item.LogoSide == ScorebugLogoSide.None ? item.ImagePath : state?.LogoFor(item.LogoSide) ?? item.ImagePath;
+    public static string? ResolveLogoPath(ScorebugElement item, GameState? state)
+    {
+        if (item.LogoSide == ScorebugLogoSide.None) return item.ImagePath;
+        var path = state?.LogoFor(item.LogoSide);
+        return string.IsNullOrWhiteSpace(path) ? item.ImagePath : path;
+    }
 
     public static FrameworkElement CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false)
     {
@@ -318,6 +331,17 @@ public sealed class ScorebugTextBlock : TextBlock
     {
         text ??= "";
         var total = Math.Clamp(double.IsFinite(seconds) ? seconds : 0.2, 0, 5);
+        // A value that falls can cross differently from one that rises: a score ticking down can
+        // drop away while a score ticking up rises in. Plain numeric values only, so a name change
+        // is never mistaken for a fall.
+        if (_style?.TransitionDown is { } down
+            && double.TryParse(_shown.Trim(), out var before)
+            && double.TryParse(text.Trim(), out var after)
+            && after < before)
+        {
+            transition = down;
+            total = Math.Clamp(_style.TransitionDownSeconds ?? total, 0, 5);
+        }
         if (_shown == text && !_animating) return;
         // A hand-over built in the transition maker wins over the preset: the old value leaves on
         // the clip's exit keys and the new one arrives on its enter keys, colour keys and all.
@@ -588,6 +612,8 @@ public sealed class ScorebugIconView : Grid
     readonly Func<GameState>? _state;
     readonly Ellipse? _dot;
     readonly Polygon? _arrow;
+    Polygon? _flagCloth;
+    Rectangle? _flagPole;
     readonly StackPanel? _bars;
     readonly Canvas? _bases;
     readonly List<Rectangle> _baseSquares = [];
@@ -641,6 +667,25 @@ public sealed class ScorebugIconView : Grid
                 Stretch = Stretch.Fill
             };
             Children.Add(_arrow);
+        }
+        else if (Icon == ScorebugIcon.PenaltyFlag)
+        {
+            // A referee's flag: a slim pole with a yellow pennant at the top.
+            _flagPole = new Rectangle
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Fill = ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item, state?.Invoke()))
+            };
+            _flagCloth = new Polygon
+            {
+                Points = new PointCollection { new Point(0, 0), new Point(1, 0.5), new Point(0, 1) },
+                Stretch = Stretch.Fill,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            Children.Add(_flagPole);
+            Children.Add(_flagCloth);
         }
         else if (Icon is ScorebugIcon.YellowCard or ScorebugIcon.RedCard)
         {
@@ -881,33 +926,60 @@ public sealed class ScorebugIconView : Grid
         {
             // The arrow belongs to one plate and only exists while that team has the ball. It leans
             // inward from the plate's edge: left for home, right for away, mirrored by the flip.
-            var arrowHome = !_item.IconVisitors;
-            var hasBall = (state?.HomePossession ?? true) == arrowHome;
-            // Possession arriving plays the element's own value motion — a saved clip wins, then its
-            // preset transition — and leaving fades the mark out instead of blinking it away.
-            if (_arrowShown != hasBall)
+            // One arrow follows the ball rather than belonging to one plate, so a possession change
+            // never leaves the graphic with no mark at all. Flipped mirrors the field when the
+            // home team is drawn on the right.
+            var home = state?.HomePossession ?? true;
+            // Home normally sits on the west side: the arrow hugs that edge and faces east into
+            // the plate. A mirrored field (home drawn on the right) flips the edge and the arrow.
+            var homeSide = _item.IconFlipped ? !home : home;
+            var pointsEast = homeSide;
+            // The turn plays whenever the ball changes hands: the mark slides and fades in from the
+            // side it is leaving, so possession never blinks from one edge to the other.
+            if (_arrowShown != pointsEast)
             {
-                _arrowShown = hasBall;
-                if (hasBall)
-                {
-                    _arrow.Visibility = Visibility.Visible;
-                    AnimateIn(_arrow);
-                }
-                else AnimateOut(_arrow, () => { if (_arrowShown == false) _arrow.Visibility = Visibility.Collapsed; });
+                _arrowShown = pointsEast;
+                _arrow.Visibility = Visibility.Visible;
+                // A held fade from the previous switch would keep the mark invisible; drop it first.
+                _arrow.BeginAnimation(UIElement.OpacityProperty, null);
+                if (_arrow.RenderTransform is TranslateTransform running) running.BeginAnimation(TranslateTransform.XProperty, null);
+                // The turn always animates, even on a Cut element: the ball changing hands should be
+                // visible rather than the arrow blinking to the other side.
+                var reveal = TimeSpan.FromSeconds(Math.Clamp(_item.TransitionSeconds, 0.15, 0.5));
+                _arrow.Opacity = 0;
+                _arrow.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, reveal));
+                var slide = new TranslateTransform(pointsEast ? -14 : 14, 0);
+                _arrow.RenderTransform = slide;
+                slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(pointsEast ? -14 : 14, 0, reveal));
             }
-            if (!hasBall) return;
+            _arrow.Visibility = Visibility.Visible;
             var height = Math.Clamp(Math.Min(_item.Height * 0.62, _item.FontSize * 1.05), 6, 200);
             var width = height * 0.58;
             var gap = Math.Max(0, _item.Width * 0.02);
-            var flip = (!arrowHome) ^ _item.IconFlipped;
+            var flip = !pointsEast;
             _arrow.Points = flip
                 ? new PointCollection { new Point(width, 0), new Point(0, height / 2), new Point(width, height) }
                 : new PointCollection { new Point(0, 0), new Point(width, height / 2), new Point(0, height) };
             _arrow.Width = width;
             _arrow.Height = height;
             _arrow.Margin = new Thickness(gap, 0, gap, 0);
-            _arrow.HorizontalAlignment = _item.IconVisitors ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+            _arrow.HorizontalAlignment = homeSide ? HorizontalAlignment.Left : HorizontalAlignment.Right;
             _arrow.Fill = ScorebugRender.ParseBrush(foreground);
+            return;
+        }
+        if (_flagPole is not null)
+        {
+            // A flag is sized from the element's type like a card, then capped by its own box.
+            var height = Math.Clamp(Math.Min(_item.Height, _item.FontSize * 1.7), 8, 400);
+            var width = height * 0.7;
+            var pole = Math.Max(1.5, width * 0.1);
+            _flagPole.Width = pole;
+            _flagPole.Height = height;
+            _flagCloth!.Width = width;
+            _flagCloth.Height = height * 0.52;
+            _flagCloth.Margin = new Thickness(pole, 0, 0, height * 0.48);
+            _flagCloth.Fill = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? "#FFF2C230" : _item.IconColor);
+            _flagPole.Fill = ScorebugRender.ParseBrush(foreground);
             return;
         }
         if (_card is not null)

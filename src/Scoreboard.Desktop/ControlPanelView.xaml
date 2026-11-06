@@ -208,7 +208,7 @@
           <!-- The penalty strip shares this card rather than taking a row of its own: it is the
                same drive as the down, it only needs a line, and the row it used to claim came out
                of the timing column below, which is what clipped the play clock. -->
-          <DockPanel Grid.Row="3" Margin="0,6,0,0">
+          <DockPanel x:Name="PenaltyStrip" Grid.Row="3" Margin="0,6,0,0">
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
               <ToggleButton x:Name="PenaltyActiveToggle" Content="No flag" MinHeight="32"
                             Padding="10,2" Checked="Penalty_Changed" Unchecked="Penalty_Changed"
@@ -266,6 +266,35 @@
               <Button Style="{StaticResource CardButton}" Content="−0:01" Tag="clock.minus1" Click="Action_Click" ToolTip="Clock −1 second"/>
               <Button Style="{StaticResource CardButton}" Content="+0:01" Tag="clock.plus1" Click="Action_Click" ToolTip="Clock +1 second"/>
               <Button Style="{StaticResource CardButton}" Content="+1:00" Tag="clock.plus60" Click="Action_Click" ToolTip="Clock +1 minute"/>
+            </UniformGrid>
+          </Grid>
+
+          <!-- Soccer's added time: start it while the game is stopped, stop it when play resumes.
+               The game clock then runs past 90:00 for exactly what this clock collected. -->
+          <Grid x:Name="StoppageRow" Margin="0,5,0,0" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="STOPPAGE" Style="{StaticResource Caption}" Margin="0,0,8,0"/>
+              <TextBox x:Name="StoppageValue" Grid.Column="1" Style="{StaticResource ClockBox}" IsReadOnly="True"
+                       ToolTip="Added time accrued: the game clock runs this long past 90:00"/>
+              <Button x:Name="StoppageToggle" Grid.Column="2" Style="{StaticResource Tiny}" Content="Start"
+                      Tag="clock.stoppage.toggle" Click="Action_Click"/>
+              <Button Grid.Column="3" Style="{StaticResource Tiny}" Content="Clear"
+                      Tag="clock.stoppage.reset" Click="Action_Click" ToolTip="Clear the accrued added time"/>
+            </Grid>
+            <UniformGrid Grid.Row="1" Columns="3" Margin="0,1,0,0">
+              <Button Style="{StaticResource CardButton}" Content="+0:30" Tag="clock.stoppage.plus30" Click="Action_Click" ToolTip="Add 30 seconds of stoppage"/>
+              <Button Style="{StaticResource CardButton}" Content="+1:00" Tag="clock.stoppage.plus60" Click="Action_Click" ToolTip="Add a minute of stoppage"/>
+              <Button Style="{StaticResource CardButton}" Content="−0:30" Tag="clock.stoppage.minus30" Click="Action_Click" ToolTip="Remove 30 seconds of stoppage"/>
             </UniformGrid>
           </Grid>
 

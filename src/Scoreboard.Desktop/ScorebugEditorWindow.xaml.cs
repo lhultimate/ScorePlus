@@ -918,9 +918,15 @@ public partial class ScorebugEditorWindow : Window
             FontInput.SelectedItem=FontCatalog.All.FirstOrDefault(c=>string.Equals(c.Source,font.Source,StringComparison.OrdinalIgnoreCase))??font;
             BoldInput.IsChecked=e.Bold; ItalicInput.IsChecked=e.Italic;
             UnderlineInput.IsChecked=e.Underline; StrikeInput.IsChecked=e.StrikeThrough;
-            ColorInput.Text=e.Foreground; BackgroundInput.Text=e.Background;
+            // Show the colour that actually paints, so a palette slot is never an empty box.
+            ColorInput.Text=string.IsNullOrWhiteSpace(e.Foreground)?ScorebugRender.ResolveForeground(e,_engine.State):e.Foreground;
+            BackgroundInput.Text=string.IsNullOrWhiteSpace(e.Background)?ScorebugRender.ResolveBackground(e,_engine.State):e.Background;
             BorderColorInput.Text=e.BorderColor; BorderWidthInput.Text=e.BorderThickness.ToString("0.#");
             TransitionSpeedInput.Text=e.TransitionSeconds.ToString("0.00");
+            TransitionDownInput.ItemsSource??=Enum.GetValues<ScorebugTransition>();
+            TransitionDownInput.SelectedItem=e.TransitionDown??ScorebugTransition.Fade;
+            DownTransitionInput.IsChecked=e.TransitionDown is not null;
+            TransitionDownSpeedInput.Text=(e.TransitionDownSeconds??e.TransitionSeconds).ToString("0.00");
             GradientInput.IsChecked=e.BackgroundGradient;
             GradientColorInput.Text=e.BackgroundColor2;
             GradientAngleInput.Text=e.GradientAngle.ToString("0");
@@ -999,13 +1005,15 @@ public partial class ScorebugEditorWindow : Window
     /// <summary>A colour box only takes typing when the element uses a fixed colour.</summary>
     void UpdateColorAvailability()
     {
-        ColorInput.IsEnabled=Selected is not null && (ForegroundSourceInput.SelectedItem as ColorSourceOption)?.Source==ScorebugColorSource.Custom;
-        BackgroundInput.IsEnabled=Selected is not null && (BackgroundSourceInput.SelectedItem as ColorSourceOption)?.Source==ScorebugColorSource.Custom;
+        // The hex boxes stay editable even on a palette slot: typing into one switches the element
+        // to that fixed colour instead of silently writing a value the slot then overrides.
+        ColorInput.IsEnabled=Selected is not null;
+        BackgroundInput.IsEnabled=Selected is not null;
         var gradientOn=Selected is not null && GradientInput.IsChecked==true;
-        GradientColorInput.IsEnabled=gradientOn && (GradientSourceInput.SelectedItem as ColorSourceOption)?.Source==ScorebugColorSource.Custom;
+        GradientColorInput.IsEnabled=gradientOn;
         GradientSourceInput.IsEnabled=gradientOn;
         GradientAngleInput.IsEnabled=gradientOn;
-        BorderColorInput.IsEnabled=Selected is not null && (BorderSourceInput.SelectedItem as ColorSourceOption)?.Source==ScorebugColorSource.Custom;
+        BorderColorInput.IsEnabled=Selected is not null;
         // The base fill only means something on a diamond, and only when it is not a palette slot.
         IconFillInput.IsEnabled=Selected is not null
             && IconInput.SelectedItem is ScorebugIcon.Bases
@@ -1177,7 +1185,25 @@ public partial class ScorebugEditorWindow : Window
     void ApplyProperties(object sender)
     {
         if(_loading||Selected is null)return;
-        if(sender==ForegroundSourceInput||sender==BackgroundSourceInput||sender==GradientSourceInput||sender==IconFillSourceInput){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();return;}
+        // Every Add button creates an element with no background box. The moment a background
+        // colour, palette slot or gradient is chosen, that flag has to come off — otherwise the
+        // new paint is discarded at the last step and the swatch stays blank.
+        if(TransparentBackgroundInput is not null&&TransparentBackgroundInput.IsChecked==true
+            &&(sender==BackgroundInput||sender==GradientColorInput||sender==BackgroundSourceInput||sender==GradientSourceInput
+               ||(sender==GradientInput&&GradientInput.IsChecked==true)))
+            TransparentBackgroundInput.IsChecked=false;
+        // Typing a fixed colour has to take the element off its palette slot, or the slot keeps
+        // overriding the typed value and the change looks like it did nothing.
+        if(sender==ColorInput&&(ForegroundSourceInput.SelectedItem as ColorSourceOption)?.Source!=ScorebugColorSource.Custom)ForegroundSourceInput.SelectedItem=ColorSources[0];
+        else if(sender==BackgroundInput&&(BackgroundSourceInput.SelectedItem as ColorSourceOption)?.Source!=ScorebugColorSource.Custom)BackgroundSourceInput.SelectedItem=ColorSources[0];
+        else if(sender==BorderColorInput&&(BorderSourceInput.SelectedItem as ColorSourceOption)?.Source!=ScorebugColorSource.Custom)BorderSourceInput.SelectedItem=ColorSources[0];
+        else if(sender==GradientColorInput&&(GradientSourceInput.SelectedItem as ColorSourceOption)?.Source!=ScorebugColorSource.Custom)GradientSourceInput.SelectedItem=ColorSources[0];
+        if(sender==ForegroundSourceInput||sender==BackgroundSourceInput||sender==GradientSourceInput||sender==IconFillSourceInput){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();RefreshColorSwatches();return;}
+        // The swatch has to follow the hex box, or a colour that did land reads as unchanged.
+        if(sender==ColorInput||sender==BackgroundInput||sender==BorderColorInput||sender==GradientColorInput)RefreshColorSwatches();
+        // The down transition is only a stored property: rebuilding the studio here would reload the
+        // property panel from the model and snap the just-picked choice back to its old value.
+        if(sender==TransitionDownInput){SaveProperties();RefreshAllVisuals();return;}
         if(sender is ComboBox)
         {
             // Shape/font/animation changes need fresh geometry or a new face.
@@ -1248,6 +1274,9 @@ public partial class ScorebugEditorWindow : Window
         var borderWidthOk=double.TryParse(BorderWidthInput.Text,out var borderWidth);
         var borderColorOk=TryColor(BorderColorInput.Text,out _);
         var transitionSpeedOk=double.TryParse(TransitionSpeedInput.Text,out var transitionSpeed);
+        var downOn=DownTransitionInput.IsChecked==true;
+        var downTransition=TransitionDownInput.SelectedItem is ScorebugTransition downChoice?(ScorebugTransition?)downChoice:null;
+        var downSpeedOk=double.TryParse(TransitionDownSpeedInput.Text,out var downSpeed);
         var gradient=GradientInput.IsChecked==true;
         var gradientColorOk=TryColor(GradientColorInput.Text,out _);
         var gradientAngleOk=double.TryParse(GradientAngleInput.Text,out var gradientAngle);
@@ -1332,6 +1361,8 @@ public partial class ScorebugEditorWindow : Window
             &&Math.Abs(item.BackgroundOpacity-backgroundOpacity)<0.001
             &&Math.Abs(item.BorderOpacity-borderOpacity)<0.001
             &&(!transitionSpeedOk||Math.Abs(item.TransitionSeconds-transitionSpeed)<0.001)
+            &&item.TransitionDown==(downOn?downTransition:null)
+            &&(!downOn||!downSpeedOk||item.TransitionDownSeconds is null||Math.Abs(item.TransitionDownSeconds.Value-Math.Clamp(downSpeed,0,5))<0.001)
             &&item.TextShadow==shadowOn&&(!shadowColorOk||item.TextShadowColor==TextShadowColorInput.Text)
             &&(!shadowOffsetOk||Math.Abs(item.TextShadowOffset-shadowOffset)<0.001)
             &&(!shadowSoftnessOk||Math.Abs(item.TextShadowSoftness-shadowSoftness)<0.001)
@@ -1395,6 +1426,11 @@ public partial class ScorebugEditorWindow : Window
         if(borderColorOk&&item.BorderColor!=BorderColorInput.Text)Group(t=>t.BorderColor=BorderColorInput.Text);
         if(borderSource is not null&&item.BorderSource!=borderSource)Group(t=>t.BorderSource=borderSource.Value);
         if(transitionSpeedOk&&Math.Abs(item.TransitionSeconds-transitionSpeed)>0.001)Group(t=>t.TransitionSeconds=Math.Clamp(transitionSpeed,0,5));
+        if(downOn&&downTransition is not null&&item.TransitionDown!=downTransition)
+            Group(t=>{t.TransitionDown=downTransition;if(downSpeedOk)t.TransitionDownSeconds=Math.Clamp(downSpeed,0,5);});
+        else if(downOn&&downTransition is not null&&downSpeedOk&&item.TransitionDownSeconds is not null&&Math.Abs(item.TransitionDownSeconds.Value-Math.Clamp(downSpeed,0,5))>0.001)
+            Group(t=>t.TransitionDownSeconds=Math.Clamp(downSpeed,0,5));
+        if(!downOn&&item.TransitionDown is not null)Group(t=>{t.TransitionDown=null;t.TransitionDownSeconds=null;});
         if(item.TextShadow!=shadowOn)Group(t=>t.TextShadow=shadowOn);
         if(shadowColorOk&&item.TextShadowColor!=TextShadowColorInput.Text)Group(t=>t.TextShadowColor=TextShadowColorInput.Text);
         if(shadowOffsetOk&&Math.Abs(item.TextShadowOffset-shadowOffset)>0.001)Group(t=>t.TextShadowOffset=Math.Clamp(shadowOffset,0,40));
@@ -1446,6 +1482,10 @@ public partial class ScorebugEditorWindow : Window
                 else if(animation is not null){target.Animation=animation.Value;target.MotionAnimation=null;}
                 if(transitionClip is not null)target.MotionTransition=transitionClip.Clip.Snapshot();
                 else if(transition is not null){target.Transition=transition.Value;target.MotionTransition=null;}
+                // These live in groupEdits for a multi-selection; the primary element is written
+                // field by field, so it needs them too or the checkbox never sticks.
+                if(downOn&&downTransition is not null){target.TransitionDown=downTransition;if(downSpeedOk)target.TransitionDownSeconds=Math.Clamp(downSpeed,0,5);}
+                if(!downOn){target.TransitionDown=null;target.TransitionDownSeconds=null;}
                 if(shape is not null)target.Shape=shape.Value;
                 target.Visible=visible; target.TransparentBackground=transparent;
                 if(target.Kind==ScorebugElementKind.Video)target.MediaTag=mediaTag;
@@ -1500,6 +1540,23 @@ public partial class ScorebugEditorWindow : Window
     static bool TryColor(string value,out Color color){try{color=(Color)ColorConverter.ConvertFromString(value)!;return true;}catch{color=Colors.White;return false;}}
 
     // ---------- fonts ----------
+
+    double? _copiedTextSize;
+
+    void CopyTextSize_Click(object sender,RoutedEventArgs e)
+    {
+        if(Selected is not { } item)return;
+        _copiedTextSize=item.FontSize;
+        FontInputSize.ToolTip=$"Copied {item.FontSize:0} px — Paste applies it to another element";
+    }
+
+    void PasteTextSize_Click(object sender,RoutedEventArgs e)
+    {
+        if(_copiedTextSize is not { } size||Selected is null)return;
+        FontInputSize.Text=size.ToString("0");
+        SaveProperties();
+        RefreshAllVisuals();
+    }
 
     void ImportFont_Click(object sender,RoutedEventArgs e)
     {

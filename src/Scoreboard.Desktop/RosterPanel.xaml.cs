@@ -340,13 +340,16 @@ public partial class RosterPanel : UserControl
                 ? "Click to edit this player"
                 : $"{player.Group} · click to edit this player"
         };
-        row.MouseLeftButtonUp += (_, e) => { SelectRow(player); e.Handled = true; };
+        // Select on press: a row can be rebuilt while the button is down (the engine raises Changed
+        // for the clock), and the matching up event then lands on a row that never saw the press.
+        row.PreviewMouseLeftButtonDown += (_, e) => { SelectRow(player); e.Handled = true; };
         return row;
     }
 
     void SelectRow(RosterPlayer player)
     {
-        if (_player?.Id == player.Id) return;
+        // Even a click on the already-highlighted row refreshes the editor: imported rosters can
+        // share an id, and an early return made every row look dead.
         _player = player;
         _signature = "";
         Refresh();
