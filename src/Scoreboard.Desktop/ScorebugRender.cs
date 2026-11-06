@@ -290,9 +290,9 @@ public sealed class ScorebugTextBlock : TextBlock
         if (item.Underline) decorations.Add(System.Windows.TextDecorations.Underline[0]);
         if (item.StrikeThrough) decorations.Add(System.Windows.TextDecorations.Strikethrough[0]);
         TextDecorations = decorations.Count == 0 ? null : decorations;
-        // The element's host carries its design rotation now, so the text itself stays upright
-        // inside a rotated plate or logo. Keeping it here would rotate text twice.
-        _rotate.Angle = 0;
+        // Text turns its own glyphs; the host only positions the box. This also lets standalone
+        // text (the studio preview, a paint sample and a plain canvas) rotate without a host.
+        _rotate.Angle = double.IsFinite(item.Rotation) ? item.Rotation : 0;
         // Left and right sit against the box's own edges, which needs the block to fill it; the
         // centred default keeps the block sized to its text exactly as before.
         TextAlignment = item.TextAlign switch
@@ -1167,19 +1167,12 @@ public sealed class ScorebugIconView : Grid
         var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
         if (!on)
         {
-            // A runner leaving shrinks the lit base out, then leaves the faint outline behind.
-            var shrink = new DoubleAnimation(1, 0.55, duration.Value) { EasingFunction = easing };
-            scale.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
-            scale.BeginAnimation(ScaleTransform.ScaleYProperty, shrink);
-            var fade = new DoubleAnimation(1, 0, duration.Value) { EasingFunction = easing };
-            fade.Completed += (_, _) =>
-            {
-                ApplyBaseLook(square, false);
-                square.Opacity = 1;
-                scale.ScaleX = 1;
-                scale.ScaleY = 1;
-            };
-            square.BeginAnimation(UIElement.OpacityProperty, fade);
+            // A runner leaving is a quiet change: the base goes back to its faint outline immediately,
+            // rather than staying lit for the length of an exit animation.
+            ApplyBaseLook(square, false);
+            square.Opacity = 1;
+            scale.ScaleX = 1;
+            scale.ScaleY = 1;
             return;
         }
         ApplyBaseLook(square, true);

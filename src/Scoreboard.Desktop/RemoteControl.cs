@@ -61,29 +61,47 @@ public sealed class RemoteControlServer : IDisposable
     /// icons; a picture of the actual graphic cannot drift from what the audience sees.
     /// The number is a version the page watches so it only downloads a frame that changed.
     /// </summary>
-    public static Func<(byte[] Png, long Version)?>? WatchImage { get; set; }
+    public static Func<string?, (byte[] Png, long Version)?>? WatchImage { get; set; }
+
+    /// <summary>True while the operator has locked the desk; every remote edit is refused until it clears.</summary>
+    public static Func<bool>? LockState { get; set; }
 
     /// <summary>
     /// The wall board page. It shows one picture of the program graphic and swaps that picture when
     /// the version changes, so nothing is rebuilt in the browser and no font or colour can be lost.
     /// </summary>
-    const string WatchPage =
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">" +
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
-        "<title>ScorePlus — Program</title><style>" +
-        "html,body{margin:0;height:100%;background:#000;overflow:hidden}" +
-        "#shot{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none}" +
-        "#wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
-        "color:#7C8A9C;font:600 14px/1.4 'Segoe UI',Arial,sans-serif;text-align:center;padding:24px}" +
-        "</style></head><body>" +
-        "<img id=\"shot\" alt=\"ScorePlus program graphic\">" +
-        "<div id=\"wait\">Nothing is on the program output yet. Press Update Output in ScorePlus.</div>" +
-        "<script>(function(){var shot=document.getElementById('shot'),wait=document.getElementById('wait'),now='';" +
-        "function tick(){fetch('/api/watch/version',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})" +
-        ".then(function(v){if(!v||!v.version)return;var next=String(v.version);if(next===now)return;now=next;" +
-        "shot.onload=function(){shot.style.display='block';wait.style.display='none';};" +
-        "shot.src='/watch.png?v='+encodeURIComponent(next);}).catch(function(){})" +
-        ".then(function(){setTimeout(tick,1000);});}tick();})();</script></body></html>";
+    const string WatchPage = """
+        <!doctype html><html lang="en"><head><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>ScorePlus — Program</title><style>
+        html,body{margin:0;height:100%;background:#000;overflow:hidden}
+        #shot{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none;image-rendering:auto}
+        #wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#7C8A9C;font:600 14px/1.4 'Segoe UI',Arial,sans-serif;text-align:center;padding:24px}
+        </style></head><body>
+        <img id="shot" alt="ScorePlus program graphic">
+        <div id="wait">Nothing is on the program output yet. Press Update Output in ScorePlus.</div>
+        <script>(function(){
+          var shot=document.getElementById('shot'),wait=document.getElementById('wait'),now='';
+          // ?display=1 is the first display, ?display=Program matches a name, and no key follows
+          // the desktop window's current display.
+          var display=new URLSearchParams(location.search).get('display')||'';
+          function url(path,version){
+            var query=new URLSearchParams();
+            if(display)query.set('display',display);
+            if(version)query.set('v',version);
+            var suffix=query.toString();
+            return suffix?path+'?'+suffix:path;
+          }
+          function tick(){
+            fetch(url('/api/watch/version'),{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
+              .then(function(v){if(!v||!v.version)return;var next=String(v.version);if(next===now)return;now=next;
+                shot.onload=function(){shot.style.display='block';wait.style.display='none';};
+                shot.src=url('/watch.png',next);}).catch(function(){})
+              .then(function(){setTimeout(tick,1000);});
+          }
+          tick();
+        })();</script></body></html>
+        """;
 
     /// <summary>The addresses an operator can type on a phone on the same network.</summary>
     public static IReadOnlyList<string> Urls(int port)
@@ -159,7 +177,7 @@ public sealed class RemoteControlServer : IDisposable
         }
     }
 
-    sealed record RemoteRequest(string Method, string Path, Dictionary<string, string> Headers, string Body);
+    sealed record RemoteRequest(string Method, string Path, Dictionary<string, string> Headers, string Body, string Query);
 
     static async Task<RemoteRequest?> ReadRequest(NetworkStream stream, CancellationToken token)
     {
@@ -199,8 +217,7 @@ public sealed class RemoteControlServer : IDisposable
             var query = string.Empty;
             var q = path.IndexOf('?');
             if (q >= 0) { query = path[(q + 1)..]; path = path[..q]; }
-            if (query.Length > 0) body = body.Length > 0 ? body + "&" + query : query;
-            return new RemoteRequest(start[0].ToUpperInvariant(), path, headers, body);
+            return new RemoteRequest(start[0].ToUpperInvariant(), path, headers, body, query);
         }
         return null;
     }
@@ -212,7 +229,7 @@ public sealed class RemoteControlServer : IDisposable
     public static Func<string>? MediaJson { get; set; }
     public static Func<string, string, bool>? MediaAction { get; set; }
     public static Func<string>? RosterJson { get; set; }
-    public static Func<string, string, string, bool>? RosterAction { get; set; }
+    public static Func<string, string, string, string, string, bool>? RosterAction { get; set; }
 
     /// <summary>The phone's flag card: raise or clear a penalty, and pick what it was for and who.</summary>
     public static Func<string, string, string, bool>? PenaltyAction { get; set; }
@@ -247,7 +264,7 @@ public sealed class RemoteControlServer : IDisposable
         {
             // The picture itself, drawn by the app's own scorebug view. This is what makes the wall
             // board look like the broadcast: real fonts, real palette colours, real logos.
-            var frame = WatchImage?.Invoke();
+            var frame = WatchImage?.Invoke(Form(request.Query).GetValueOrDefault("display"));
             if (frame is null) { await Write(stream, 404, "text/plain; charset=utf-8", "Nothing is on the program output yet."); return; }
             await WriteBytes(stream, 200, "image/png", frame.Value.Png);
             return;
@@ -256,7 +273,7 @@ public sealed class RemoteControlServer : IDisposable
         {
             // The page polls this, never the picture: a wall screen only downloads a new frame when
             // the graphic actually changed, and never reloads the page between changes.
-            var frame = WatchImage?.Invoke();
+            var frame = WatchImage?.Invoke(Form(request.Query).GetValueOrDefault("display"));
             var version = frame is null ? string.Empty : frame.Value.Version.ToString();
             await Write(stream, 200, "application/json; charset=utf-8", $"{{\"version\":\"{version}\"}}");
             return;
@@ -284,6 +301,13 @@ public sealed class RemoteControlServer : IDisposable
             return;
         }
         if (!authorized) { await Write(stream, 401, "text/plain; charset=utf-8", "Sign in first."); return; }
+
+        if (request.Method == "POST" && LockState?.Invoke() == true)
+        {
+            await Write(stream, 423, "application/json; charset=utf-8",
+                JsonSerializer.Serialize(new { ok = false, locked = true, message = "ScorePlus is locked on the desktop. Ask the operator to unlock it." }));
+            return;
+        }
 
         if (request.Path == "/api/state" && request.Method == "GET")
         {
@@ -325,7 +349,12 @@ public sealed class RemoteControlServer : IDisposable
         if (request.Path == "/api/roster/action" && request.Method == "POST")
         {
             var form = Form(request.Body);
-            var ok = _dispatcher.Invoke(() => RosterAction?.Invoke(form.GetValueOrDefault("a", string.Empty), form.GetValueOrDefault("side", "home"), form.GetValueOrDefault("id", string.Empty)) ?? false);
+            var ok = _dispatcher.Invoke(() => RosterAction?.Invoke(
+                form.GetValueOrDefault("a", string.Empty),
+                form.GetValueOrDefault("side", "home"),
+                form.GetValueOrDefault("id", string.Empty),
+                form.GetValueOrDefault("stat", string.Empty),
+                form.GetValueOrDefault("value", string.Empty)) ?? false);
             var message = ok ? string.Empty : "That roster button is not available.";
             await Write(stream, ok ? 200 : 400, "application/json; charset=utf-8", JsonSerializer.Serialize(new { ok, message }));
             return;
@@ -467,7 +496,8 @@ public sealed class RemoteControlServer : IDisposable
             penaltyTypes = GameEngine.PenaltyTypesFor(s.SportId),
             layout = _host.LayoutLabel,
             staged = _host.HasStagedChanges,
-            live = _host.LiveScoreClock
+            live = _host.LiveScoreClock,
+            locked = LockState?.Invoke() == true
         };
         return JsonSerializer.Serialize(state);
     });
@@ -572,7 +602,7 @@ public sealed class RemoteControlServer : IDisposable
 
     static async Task Write(NetworkStream stream, int status, string contentType, string body, string? extraHeaders = null)
     {
-        var reason = status switch { 200 => "OK", 303 => "See Other", 400 => "Bad Request", 401 => "Unauthorized", 404 => "Not Found", 429 => "Too Many Requests", _ => "OK" };
+        var reason = status switch { 200 => "OK", 303 => "See Other", 400 => "Bad Request", 401 => "Unauthorized", 404 => "Not Found", 423 => "Locked", 429 => "Too Many Requests", _ => "OK" };
         var bytes = Encoding.UTF8.GetBytes(body ?? string.Empty);
         var head = new StringBuilder()
             .Append($"HTTP/1.1 {status} {reason}\r\n")

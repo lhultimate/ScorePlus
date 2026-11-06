@@ -30,6 +30,7 @@ public partial class SettingsWindow : Window
         GameClockHornInput.IsChecked = _draft.HornOnGameClockZero;
         PlayClockHornInput.IsChecked = _draft.HornOnPlayClockZero;
         DelayInput.Text = _draft.ValueSwitchDelay.ToString("0.##", CultureInfo.CurrentCulture);
+        AutosaveMinutesInput.Text = _draft.AutosaveMinutes.ToString(CultureInfo.InvariantCulture);
         AccentInput.Text = _draft.AccentColor;
         Accent2Input.Text = _draft.AccentColor2;
         PaintSwatches();
@@ -39,9 +40,11 @@ public partial class SettingsWindow : Window
         CheckUpdatesInput.IsChecked = _draft.CheckForUpdates;
         UpdateFeedInput.Text = _draft.UpdateFeedUrl;
         _loading = false;
+        UpdateAutosaveStatus();
+        UpdateLockStatus();
         UpdateRemoteStatus();
         UpdateStatus.Text = AppInfo.IsInstalled
-            ? $"Installed build {AppInfo.Version}. Updates are checked at launch when a feed is set."
+            ? $"Installed build {AppInfo.Release}. Updates are checked at launch when a feed is set."
             : "This copy runs from a folder, so it does not check for updates. Install ScorePlus to enable updates.";
     }
 
@@ -99,6 +102,60 @@ public partial class SettingsWindow : Window
     }
 
     // ---------- remote control ----------
+
+    /// <summary>Explains the lock state as the operator types, without revealing the stored password.</summary>
+    void Lock_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || OperatorLockStatus is null) return;
+        OperatorLockPasswordInput.IsEnabled = ClearOperatorLockInput.IsChecked != true;
+        OperatorLockConfirmInput.IsEnabled = ClearOperatorLockInput.IsChecked != true;
+        UpdateLockStatus();
+    }
+
+    void UpdateLockStatus()
+    {
+        if (OperatorLockStatus is null) return;
+        if (ClearOperatorLockInput.IsChecked == true)
+        {
+            OperatorLockStatus.Text = "The lock password will be removed when you save.";
+            return;
+        }
+        var first = OperatorLockPasswordInput.Password;
+        var second = OperatorLockConfirmInput.Password;
+        if (first.Length == 0 && second.Length == 0)
+        {
+            OperatorLockStatus.Text = string.IsNullOrWhiteSpace(_draft.OperatorLockPasswordHash)
+                ? "No lock password is set. Type it twice to add one."
+                : "A lock password is set. Leave both boxes empty to keep it, or type a new one twice to replace it.";
+            return;
+        }
+        if (first != second)
+        {
+            OperatorLockStatus.Text = "The two passwords do not match yet.";
+            return;
+        }
+        OperatorLockStatus.Text = "The new lock password is ready to save.";
+    }
+
+    /// <summary>Applies the typed lock password, refusing to save a mismatch. Blank keeps the old one.</summary>
+    bool ApplyLockPassword()
+    {
+        if (ClearOperatorLockInput.IsChecked == true)
+        {
+            _draft.OperatorLockPasswordHash = "";
+            return true;
+        }
+        var first = OperatorLockPasswordInput.Password;
+        var second = OperatorLockConfirmInput.Password;
+        if (first.Length == 0 && second.Length == 0) return true;
+        if (first != second)
+        {
+            OperatorLockStatus.Text = "The two lock passwords do not match. They were not saved.";
+            return false;
+        }
+        _draft.OperatorLockPasswordHash = OperatorLock.Hash(first);
+        return true;
+    }
 
     void Remote_Changed(object sender, RoutedEventArgs e)
     {
@@ -163,8 +220,8 @@ public partial class SettingsWindow : Window
             : "Checking…";
         var manifest = await UpdateChecker.CheckAsync(feed);
         UpdateStatus.Text = manifest is null
-            ? $"You are on the newest version ({AppInfo.Version})."
-            : $"Version {manifest.Version} is ready. {(string.IsNullOrWhiteSpace(manifest.Notes) ? "" : manifest.Notes)}";
+            ? $"You are on the newest version ({AppInfo.Release})."
+            : $"Version {manifest.Label ?? manifest.Version} is ready. {(string.IsNullOrWhiteSpace(manifest.Notes) ? "" : manifest.Notes)}";
     }
 
     void Theme_Changed(object sender, SelectionChangedEventArgs e)
@@ -215,6 +272,25 @@ public partial class SettingsWindow : Window
         _draft.ValueSwitchDelay = Math.Clamp(seconds, 0, MaxDelay);
     }
 
+    void Autosave_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_loading || AutosaveMinutesInput is null) return;
+        if (!int.TryParse(AutosaveMinutesInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes)) return;
+        _draft.AutosaveMinutes = Math.Max(0, minutes);
+        UpdateAutosaveStatus();
+    }
+
+    void UpdateAutosaveStatus()
+    {
+        if (AutosaveStatus is null) return;
+        var minutes = _draft.AutosaveMinutes;
+        AutosaveStatus.Text = minutes <= 0
+            ? "Autosave is off. Existing recovery points are kept."
+            : minutes == 1
+                ? "A recovery point is written every minute while you work."
+                : $"A recovery point is written every {minutes} minutes while you work.";
+    }
+
     /// <summary>Clears every recovery point; a second click confirms, so one tap cannot wipe them.</summary>
     void DeleteAutosaves_Click(object sender, RoutedEventArgs e)
     {
@@ -250,18 +326,21 @@ public partial class SettingsWindow : Window
     {
         if (e.Key != Key.Enter || e.OriginalSource is not (TextBox or PasswordBox)) return;
         e.Handled = true;
-        Commit();
+        if (!Commit()) return;
         _committed = true;
         // Show the value that was actually stored, so "0.50" or "7" read back as what stuck.
         if (DelayInput is not null)
             DelayInput.Text = _draft.ValueSwitchDelay.ToString("0.##", CultureInfo.CurrentCulture);
+        if (AutosaveMinutesInput is not null)
+            AutosaveMinutesInput.Text = _draft.AutosaveMinutes.ToString(CultureInfo.InvariantCulture);
         // The page was painted with the theme it opened with; follow a theme picked this way.
         ThemeManager.Apply(this, _draft.Theme);
     }
 
     /// <summary>Writes the draft over the live preferences and stores them.</summary>
-    void Commit()
+    bool Commit()
     {
+        if (!ApplyLockPassword()) return false;
         _original.Theme = _draft.Theme;
         _original.ShowHeadingHints = _draft.ShowHeadingHints;
         _original.QuickLayoutsPublish = _draft.QuickLayoutsPublish;
@@ -270,10 +349,13 @@ public partial class SettingsWindow : Window
         _original.HornOnGameClockZero = _draft.HornOnGameClockZero;
         _original.HornOnPlayClockZero = _draft.HornOnPlayClockZero;
         _original.ValueSwitchDelay = Math.Clamp(_draft.ValueSwitchDelay, 0, MaxDelay);
+        _original.AutosaveMinutes = Math.Max(0, _draft.AutosaveMinutes);
+        _original.AutosaveMinutes = Math.Max(0, _draft.AutosaveMinutes);
         _original.AccentColor = _draft.AccentColor;
         _original.AccentColor2 = _draft.AccentColor2;
         _original.RemotePort = _draft.RemotePort;
         _original.RemotePassword = _draft.RemotePassword;
+        _original.OperatorLockPasswordHash = _draft.OperatorLockPasswordHash;
         // A remote with no password is refused rather than served openly on the network.
         _original.RemoteEnabled = _draft.RemoteEnabled && !string.IsNullOrWhiteSpace(_draft.RemotePassword);
         _original.CheckForUpdates = _draft.CheckForUpdates;
@@ -282,11 +364,12 @@ public partial class SettingsWindow : Window
         GameEngine.DownPreviewEnabled = _original.NextDownPreview;
         GameEngine.NewSeriesLiveEnabled = _original.NewSeriesLive;
         DisplayTiming.Apply(_original);
+        return true;
     }
 
     void Save_Click(object sender, RoutedEventArgs e)
     {
-        Commit();
+        if (!Commit()) return;
         // DialogResult is only valid for a modal dialog; the window may also be shown modelessly.
         if (System.Windows.Interop.ComponentDispatcher.IsThreadModal) DialogResult = true;
         Close();

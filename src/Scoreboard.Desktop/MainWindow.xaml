@@ -50,11 +50,14 @@
     </Style>
   </Window.Resources>
 
+  <Grid>
   <DockPanel x:Name="Root">
     <Border DockPanel.Dock="Top" Background="#171C25" Padding="14,7">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Style="{StaticResource IconButton}" Content="⚙" Click="Preferences_Click" ToolTip="Preferences"/>
+          <Button x:Name="LockButton" Style="{StaticResource IconButton}" Content="🔒" Click="Lock_Click"
+                  ToolTip="Lock ScorePlus — console, media, rosters and the remote stay locked until the password is entered"/>
           <Button Style="{StaticResource IconButton}" Content="⧉" Click="NewPanel_Click" ToolTip="New panel — open a detached control panel that stays in sync"/>
           <Button Style="{StaticResource IconButton}" Content="⌨" Click="Keybinds_Click" ToolTip="Keybinds — assign a key combination to any control"/>
           <Button Style="{StaticResource IconButton}" Content="▶" Click="Output_Click" ToolTip="Audience output — choose a display and open its window (F11 fills the screen)"/>
@@ -207,4 +210,23 @@
       </Grid>
     </Grid>
   </DockPanel>
+
+  <!-- Covers the whole operator window while the desk is locked. It sits outside Root so the
+       password box stays usable while everything behind it is disabled. -->
+  <Border x:Name="LockOverlay" Visibility="Collapsed" Background="#F20B0F15">
+    <Border Width="400" Padding="26,22" CornerRadius="14" Background="#171C25" BorderBrush="#2E3B4A" BorderThickness="1"
+            HorizontalAlignment="Center" VerticalAlignment="Center">
+      <StackPanel>
+        <TextBlock Text="🔒" FontSize="44" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+        <TextBlock Text="SCOREPLUS LOCKED" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center"/>
+        <TextBlock Text="The console, media, rosters, control panels and the phone remote are locked. Enter the operator lock password to continue."
+                   TextWrapping="Wrap" TextAlignment="Center" Foreground="#93A0B2" FontSize="11" Margin="4,8,4,14"/>
+        <PasswordBox x:Name="UnlockPasswordInput" MinHeight="38" Padding="10,6" Background="#050505"
+                     Foreground="#F4F7FB" BorderBrush="#383838" KeyDown="UnlockPassword_KeyDown"/>
+        <Button Content="Unlock" Click="Unlock_Click" IsDefault="True" Margin="0,10,0,0" MinHeight="40"/>
+        <TextBlock x:Name="UnlockError" Foreground="#FF7272" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Margin="4,8,4,0"/>
+      </StackPanel>
+    </Border>
+  </Border>
+  </Grid>
 </Window>

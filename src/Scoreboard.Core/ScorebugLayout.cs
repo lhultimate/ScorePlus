@@ -332,6 +332,13 @@ public sealed class ScorebugLayout
     public double TransitionSeconds { get; set; } = 0;
 
     /// <summary>
+    /// When true, a hand-over only animates the items that actually changed between the outgoing
+    /// and incoming layouts. Adding one stat window leaves the rest of the graphic still instead of
+    /// sliding the whole canvas, which is what an operator expects from a small edit.
+    /// </summary>
+    public bool OnlyAnimateChanges { get; set; } = true;
+
+    /// <summary>
     /// A hand-over built in the transition maker. When it is set it replaces the preset
     /// <see cref="Transition"/> for this layout, keyframe for keyframe, and travels with the layout
     /// in an .spl or .spd file and in a saved game.
@@ -547,6 +554,7 @@ public sealed class ScorebugCatalog
             Background = first.Background,
             Transition = first.Transition,
             TransitionSeconds = first.TransitionSeconds,
+            OnlyAnimateChanges = first.OnlyAnimateChanges,
             TransitionClip = first.TransitionClip,
             Handover = first.Handover,
             Elements = layouts.SelectMany(layout => layout.Elements).ToList()

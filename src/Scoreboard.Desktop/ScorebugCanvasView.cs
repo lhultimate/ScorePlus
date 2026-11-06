@@ -4,6 +4,8 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -125,7 +127,8 @@ public sealed class ScorebugCanvasView : Grid
             if(!reused)host.Background=ScorebugRender.HostBackground(item,_stateProvider());
             host.Width=item.Width;host.Height=item.Height;host.Opacity=item.Opacity;
             host.Visibility=item.Visible?Visibility.Visible:Visibility.Collapsed;
-            MotionPlayback.SetDesignRotation(host,item.Rotation);
+            // Text rotates its own glyphs; a border or plate is not turned with it.
+            MotionPlayback.SetDesignRotation(host,item.Kind==ScorebugElementKind.Text?0:item.Rotation);
             Canvas.SetLeft(host,item.X);Canvas.SetTop(host,item.Y);Panel.SetZIndex(host,zIndex++);
             _visuals[item.Id]=(host,content);
             // A rebuilt view starts from what it draws right now, so a delay never blanks the graphic.
@@ -177,6 +180,13 @@ public sealed class ScorebugCanvasView : Grid
         if(incoming.TransitionClip is { Kind:MotionKind.Transition } clip && !clip.IsEmpty)
         {
             PlayClipSwap(outgoing,outgoingLayout,incoming,clip);
+            return;
+        }
+        // The smart mode keeps every unchanged item exactly where it is and animates only the
+        // items that were added, removed or edited between the two layouts.
+        if(incoming.OnlyAnimateChanges&&outgoingLayout is not null)
+        {
+            PlaySmartSwap(outgoing,outgoingLayout,incoming);
             return;
         }
         var transition=incoming.Transition;
@@ -240,6 +250,140 @@ public sealed class ScorebugCanvasView : Grid
     }
 
     /// <summary>
+    /// Animates a preset transition item by item. Unchanged artwork is left alone: adding a stat
+    /// window therefore brings in only that window, while removing one lets only the removed
+    /// artwork leave. The outgoing still is cropped to the changed items so unchanged pieces are
+    /// never painted twice or covered by a moving background.
+    /// </summary>
+    void PlaySmartSwap(RenderTargetBitmap outgoing,ScorebugLayout outgoingLayout,ScorebugLayout incoming)
+    {
+        var changes=ChangedElements(outgoingLayout,incoming);
+        var transition=incoming.Transition;
+        var seconds=Math.Clamp(incoming.TransitionSeconds,0,5);
+        FinishSwap();
+        if(transition==LayoutTransition.Cut||seconds<=0)return;
+        if(changes.Incoming.Count==0&&changes.Outgoing.Count==0)return;
+        var width=Math.Max(1,_canvas.Width);
+        var height=Math.Max(1,_canvas.Height);
+        var duration=TimeSpan.FromSeconds(seconds);
+        var easing=new CubicEase{EasingMode=EasingMode.EaseInOut};
+
+        // The changed parts of the outgoing picture, with each crop at its old position.
+        var overlay=new Canvas{Width=width,Height=height,IsHitTestVisible=false};
+        var pixelWidth=Math.Max(1,outgoing.PixelWidth);
+        var pixelHeight=Math.Max(1,outgoing.PixelHeight);
+        foreach(var item in outgoingLayout.Elements.Where(element=>element.Visible&&changes.Outgoing.Contains(element.Id)))
+        {
+            var x=(int)Math.Clamp(item.X,0,Math.Max(0,pixelWidth-1));
+            var y=(int)Math.Clamp(item.Y,0,Math.Max(0,pixelHeight-1));
+            var w=(int)Math.Clamp(item.Width,1,pixelWidth-x);
+            var h=(int)Math.Clamp(item.Height,1,pixelHeight-y);
+            if(w<1||h<1)continue;
+            var crop=new CroppedBitmap(outgoing,new Int32Rect(x,y,w,h));
+            crop.Freeze();
+            var image=new Image{Source=crop,Width=w,Height=h,Stretch=Stretch.Fill,IsHitTestVisible=false,Opacity=Math.Clamp(item.Opacity,0,1)};
+            Canvas.SetLeft(image,item.X);Canvas.SetTop(image,item.Y);
+            overlay.Children.Add(image);
+        }
+        var hasOutgoing=overlay.Children.Count>0;
+        if(hasOutgoing){_stage.Children.Add(overlay);_swapOverlay=overlay;}
+
+        var moving=new List<(ScorebugElement Item,FrameworkElement Host,Transform Original,double OriginalOpacity)>();
+        foreach(var item in incoming.Elements.Where(element=>changes.Incoming.Contains(element.Id)))
+        {
+            if(!_visuals.TryGetValue(item.Id,out var visual))continue;
+            var host=visual.Host;
+            var original=host.RenderTransform??Transform.Identity;
+            var originalOpacity=host.Opacity;
+            moving.Add((item,host,original,originalOpacity));
+            if(transition==LayoutTransition.Fade)
+            {
+                // A fade keeps the incoming change invisible until its turn, then brings it up with
+                // the same clock and easing as the outgoing crop, rather than popping in at the end.
+                host.Opacity=0;
+                host.BeginAnimation(UIElement.OpacityProperty,new DoubleAnimation(0,originalOpacity,duration){EasingFunction=easing});
+            }
+            else if(transition is LayoutTransition.SlideLeft or LayoutTransition.SlideRight or LayoutTransition.SlideUp or LayoutTransition.SlideDown)
+            {
+                var fromX=transition==LayoutTransition.SlideLeft?width:transition==LayoutTransition.SlideRight?-width:0;
+                var fromY=transition==LayoutTransition.SlideUp?height:transition==LayoutTransition.SlideDown?-height:0;
+                AttachTranslate(host,original,fromX,fromY,0,0,duration,easing);
+            }
+            else if(transition==LayoutTransition.Zoom)
+            {
+                AttachScale(host,original,0.92,1,duration,easing);
+            }
+        }
+
+        if(hasOutgoing)
+        {
+            if(transition is LayoutTransition.SlideLeft or LayoutTransition.SlideRight or LayoutTransition.SlideUp or LayoutTransition.SlideDown)
+            {
+                var leaving=new TranslateTransform();
+                overlay.RenderTransform=leaving;
+                var toX=transition==LayoutTransition.SlideLeft?-width:transition==LayoutTransition.SlideRight?width:0;
+                var toY=transition==LayoutTransition.SlideUp?-height:transition==LayoutTransition.SlideDown?height:0;
+                leaving.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(0,toX,duration){EasingFunction=easing});
+                leaving.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,toY,duration){EasingFunction=easing});
+            }
+            else if(transition==LayoutTransition.Zoom)
+            {
+                overlay.RenderTransformOrigin=new Point(0.5,0.5);
+                var scale=new ScaleTransform(1,1);
+                overlay.RenderTransform=scale;
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty,new DoubleAnimation(1,1.14,duration){EasingFunction=easing});
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty,new DoubleAnimation(1,1.14,duration){EasingFunction=easing});
+            }
+            overlay.BeginAnimation(UIElement.OpacityProperty,new DoubleAnimation(1,0,duration){EasingFunction=easing});
+        }
+
+        if(moving.Count==0&&!hasOutgoing)return;
+        StartSwapTimer(seconds,() =>
+        {
+            if(!ReferenceEquals(_swapOverlay,overlay)&&hasOutgoing)return;
+            if(hasOutgoing)
+            {
+                _stage.Children.Remove(overlay);
+                _swapOverlay=null;
+            }
+            foreach(var (item,host,original,originalOpacity) in moving)
+            {
+                host.BeginAnimation(UIElement.OpacityProperty,null);
+                host.Opacity=originalOpacity;
+                host.RenderTransform=original;
+                // The fade replaced any ambient pulse; let the normal painter put it back.
+                _animations.Remove(item.Id);
+                ApplyAnimation(item,host);
+            }
+        });
+    }
+
+    /// <summary>Wraps an element's own transform with a translation that settles at zero.</summary>
+    static void AttachTranslate(FrameworkElement host,Transform original,double fromX,double fromY,double toX,double toY,TimeSpan duration,IEasingFunction easing)
+    {
+        var translate=new TranslateTransform(fromX,fromY);
+        var group=new TransformGroup();
+        if(original is not null&&original!=Transform.Identity)group.Children.Add(original);
+        group.Children.Add(translate);
+        host.RenderTransform=group;
+        translate.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(fromX,toX,duration){EasingFunction=easing});
+        translate.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(fromY,toY,duration){EasingFunction=easing});
+    }
+
+    /// <summary>Wraps an element's own transform with a scale that settles at one.</summary>
+    static void AttachScale(FrameworkElement host,Transform original,double from,double to,TimeSpan duration,IEasingFunction easing)
+    {
+        host.RenderTransformOrigin=new Point(0.5,0.5);
+        var scale=new ScaleTransform(from,from);
+        var group=new TransformGroup();
+        if(original is not null&&original!=Transform.Identity)group.Children.Add(original);
+        group.Children.Add(scale);
+        host.RenderTransform=group;
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty,new DoubleAnimation(from,to,duration){EasingFunction=easing});
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty,new DoubleAnimation(from,to,duration){EasingFunction=easing});
+    }
+
+    /// <summary>
     /// Runs a keyframed hand-over: the outgoing frame follows the clip's exit leg and the incoming
     /// artwork follows its enter leg, with the clip's colour keys repainting the new graphic as it
     /// arrives. The outgoing frame is a still, so only its movement and opacity are animated.
@@ -251,6 +395,11 @@ public sealed class ScorebugCanvasView : Grid
         var height=Math.Max(1,_canvas.Height);
         var exit=clip.ExitPhase;
         var enter=clip.EnterPhase;
+        // Smart mode applies to custom clips too: the exit and arrival only run on the items that
+        // differ between the two layouts, not on the whole canvas.
+        var smart=incoming.OnlyAnimateChanges&&outgoingLayout is not null;
+        var changes=smart?ChangedElements(outgoingLayout!,incoming):null;
+        if(smart&&changes!.Incoming.Count==0&&changes.Outgoing.Count==0)return;
         // Items the operator unchecked in the transition maker stay put, and any key scoped to a
         // piece means the arrival runs on each item's own box rather than on the whole canvas.
         var stationary=incoming.Handover?.Where(entry=>!entry.Arrives).Select(entry=>entry.ElementId).ToHashSet(StringComparer.OrdinalIgnoreCase)??[];
@@ -259,6 +408,7 @@ public sealed class ScorebugCanvasView : Grid
         var exitScoped=outgoingLayout is not null&&exit is not null
             &&(exit.Tracks.Any(track=>!string.IsNullOrWhiteSpace(track.PieceId))
                ||exit.Colors.Any(track=>!string.IsNullOrWhiteSpace(track.PieceId)));
+        var useCrops=exitScoped||smart;
 
         // The outgoing frame: the whole still, or one cropped still per item when the exit itself is
         // keyed piece by piece. The crops are exactly what was on screen, so a piece moves on its own.
@@ -266,7 +416,7 @@ public sealed class ScorebugCanvasView : Grid
         // One step per item: the timeline below decides the order they run in.
         var exitSteps=new List<(string Id,Action Play)>();
         var enterSteps=new List<(string Id,Action Play)>();
-        if(exitScoped)
+        if(useCrops)
         {
             var crops=new Canvas{Width=width,Height=height,IsHitTestVisible=false};
             // Crop against the outgoing still's own pixels: the two layouts may be different sizes.
@@ -283,7 +433,7 @@ public sealed class ScorebugCanvasView : Grid
                     &&string.Equals(candidate.Name,leaving.Name,StringComparison.OrdinalIgnoreCase));
                 return match?.Id??leaving.Id;
             }
-            foreach(var item in outgoingLayout!.Elements.Where(element=>element.Visible))
+            foreach(var item in outgoingLayout!.Elements.Where(element=>element.Visible&&(!smart||changes!.Outgoing.Contains(element.Id))))
             {
                 var x=(int)Math.Clamp(item.X,0,Math.Max(0,pixelWidth-1));
                 var y=(int)Math.Clamp(item.Y,0,Math.Max(0,pixelHeight-1));
@@ -300,7 +450,7 @@ public sealed class ScorebugCanvasView : Grid
             }
             // The crop order is the timeline order, so a hand-over can travel across the graphic
             // instead of every item leaving on the same beat.
-            PlayStaggered(exitSteps,exit!.Seconds,clip.PieceOrder);
+            PlayStaggered(exitSteps,exit?.Seconds??0,clip.PieceOrder);
             outgoingHost=crops;
         }
         else
@@ -343,7 +493,7 @@ public sealed class ScorebugCanvasView : Grid
             if(!Active())return;
             ClearOutgoing();
             if(enter is null||enter.IsEmpty){FinishSwap();return;}
-            var perItem=pieceKeys||stationary.Count>0||clip.Pieces.Count>0;
+            var perItem=smart||pieceKeys||stationary.Count>0||clip.Pieces.Count>0;
             if(!perItem)
             {
                 MotionPlayback.PlayPhase(_canvas,enter,1,FinishSwap);
@@ -351,6 +501,7 @@ public sealed class ScorebugCanvasView : Grid
             }
             foreach(var item in incoming.Elements)
             {
+                if(smart&&!changes!.Incoming.Contains(item.Id))continue;
                 if(stationary.Contains(item.Id))continue;
                 if(!_visuals.TryGetValue(item.Id,out var visual))continue;
                 var host=visual.Host;var id=item.Id;var opacity=Math.Clamp(item.Opacity,0,1);
@@ -365,6 +516,51 @@ public sealed class ScorebugCanvasView : Grid
         }
         if(exit is {Enabled:true,IsEmpty:false}&&exit.Seconds>0.001) StartSwapTimer(exit.Seconds+StaggerFor(exitSteps,clip.PieceOrder),Arrive);
         else Arrive();
+    }
+
+    /// <summary>Which items are new or edited between two layouts, matched by exact visual state.</summary>
+    sealed record LayoutChanges(HashSet<string> Incoming, HashSet<string> Outgoing);
+
+    /// <summary>
+    /// Compares the two layouts by what each item draws, independent of its id and name. Matching
+    /// equal items as unchanged is what lets a duplicated layout add one stat window without every
+    /// other element sliding. Duplicate identical items are paired one-for-one.
+    /// </summary>
+    static LayoutChanges ChangedElements(ScorebugLayout outgoing,ScorebugLayout incoming)
+    {
+        var incomingChanged=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var outgoingChanged=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if(outgoing.Width!=incoming.Width||outgoing.Height!=incoming.Height)
+        {
+            foreach(var item in incoming.Elements)incomingChanged.Add(item.Id);
+            foreach(var item in outgoing.Elements)outgoingChanged.Add(item.Id);
+            return new(incomingChanged,outgoingChanged);
+        }
+        var pool=new Dictionary<string,List<ScorebugElement>>(StringComparer.Ordinal);
+        foreach(var item in outgoing.Elements)
+        {
+            var signature=VisualSignature(item);
+            if(!pool.TryGetValue(signature,out var list))pool[signature]=list=[];
+            list.Add(item);
+        }
+        foreach(var item in incoming.Elements)
+        {
+            var signature=VisualSignature(item);
+            if(pool.TryGetValue(signature,out var list)&&list.Count>0)list.RemoveAt(list.Count-1);
+            else incomingChanged.Add(item.Id);
+        }
+        foreach(var remaining in pool.Values.SelectMany(list=>list))outgoingChanged.Add(remaining.Id);
+        return new(incomingChanged,outgoingChanged);
+    }
+
+    /// <summary>The visual properties of an item, with identity and labels removed.</summary>
+    static string VisualSignature(ScorebugElement item)
+    {
+        var node=JsonSerializer.SerializeToNode(item)?.AsObject();
+        if(node is null)return string.Empty;
+        node.Remove(nameof(ScorebugElement.Id));
+        node.Remove(nameof(ScorebugElement.Name));
+        return node.ToJsonString();
     }
 
     FrameworkElement BuildTemporaryPiece(MotionPiece piece)
@@ -506,7 +702,8 @@ public sealed class ScorebugCanvasView : Grid
     {
         var motion=item.MotionAnimation is { UseOnValueChange:false, IsEmpty:false } clip?clip.Summary:"";
         if(_animations.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001&&applied.Motion==motion&&Math.Abs(applied.Rotation-item.Rotation)<0.001)return;
-        MotionPlayback.SetBaseRotation(host,item.Rotation);
+        var hostRotation=item.Kind==ScorebugElementKind.Text?0:item.Rotation;
+        MotionPlayback.SetBaseRotation(host,hostRotation);
         // A clip from the animation maker owns the element's motion instead of the two presets.
         if(item.MotionAnimation is { UseOnValueChange:false, IsEmpty:false } loop)
         {
@@ -525,7 +722,7 @@ public sealed class ScorebugCanvasView : Grid
             previous.BeginAnimation(TranslateTransform.YProperty,null);
             host.RenderTransform=Transform.Identity;
         }
-        MotionPlayback.SetDesignRotation(host,item.Rotation);
+        MotionPlayback.SetDesignRotation(host,hostRotation);
         switch(item.Animation)
         {
             case ScorebugAnimation.Pulse:
@@ -536,10 +733,14 @@ public sealed class ScorebugCanvasView : Grid
                 // nothing at all. Animate the transform itself, on two out-of-phase axes, and keep
                 // the design angle around the whole motion.
                 var drift=new TranslateTransform();
-                var group=new TransformGroup();
-                group.Children.Add(drift);
-                group.Children.Add(new RotateTransform(item.Rotation));
-                host.RenderTransform=group;
+                if(Math.Abs(hostRotation)>0.001)
+                {
+                    var group=new TransformGroup();
+                    group.Children.Add(drift);
+                    group.Children.Add(new RotateTransform(hostRotation));
+                    host.RenderTransform=group;
+                }
+                else host.RenderTransform=drift;
                 drift.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(0,14,TimeSpan.FromSeconds(3.2)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 drift.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,7,TimeSpan.FromSeconds(2.1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 break;

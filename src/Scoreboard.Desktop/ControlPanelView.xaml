@@ -186,6 +186,8 @@
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
               <Border Style="{StaticResource AccentBar}"/>
               <TextBlock x:Name="DetailCardTitle" Text="DOWN &amp; DISTANCE" Style="{StaticResource CardTitle}"/>
+              <TextBlock x:Name="DetailCardHint" Style="{StaticResource Caption}" Text="the sport's live values"
+                         Margin="8,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
             </StackPanel>
           </DockPanel>
 
@@ -244,7 +246,7 @@
           </DockPanel>
 
           <!-- Game clock: type over the value, or step it a second or a minute at a time. -->
-          <Grid Grid.Row="2" Margin="0,5,0,0">
+          <Grid Grid.Row="2" Margin="0,2,0,0">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
@@ -271,7 +273,7 @@
 
           <!-- Soccer's added time: start it while the game is stopped, stop it when play resumes.
                The game clock then runs past 90:00 for exactly what this clock collected. -->
-          <Grid x:Name="StoppageRow" Margin="0,5,0,0" Visibility="Collapsed">
+          <Grid x:Name="StoppageRow" Margin="0,2,0,0" Visibility="Collapsed">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
@@ -298,7 +300,7 @@
             </UniformGrid>
           </Grid>
 
-          <Grid x:Name="PlayClockRow" Grid.Row="3" Margin="0,5,0,0">
+          <Grid x:Name="PlayClockRow" Grid.Row="3" Margin="0,2,0,0">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
@@ -323,7 +325,7 @@
             </UniformGrid>
           </Grid>
 
-          <Grid x:Name="ShotClockRow" Grid.Row="4" Margin="0,7,0,0" Visibility="Collapsed">
+          <Grid x:Name="ShotClockRow" Grid.Row="4" Margin="0,4,0,0" Visibility="Collapsed">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>

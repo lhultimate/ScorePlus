@@ -15,15 +15,15 @@ public sealed record SportDefinition(string Id, string Name, string Unit, int Pe
     public static IReadOnlyList<SportDefinition> BuiltIns { get; } = new[]
     {
         new SportDefinition("football", "American Football", "Quarter", 4, 15 * 60, [1, 2, 3, 6, 7, 8], true, false, 3) { Controls = [.. SportControls.For("football")] },
-        new SportDefinition("australian-football", "Australian Football", "Quarter", 4, 20 * 60, [1, 2, 3, 6], false, false, 0) { Controls = [.. SportControls.For("australian-football")] },
-        new SportDefinition("baseball", "Baseball", "Inning", 9, 0, [1], false, true, 3) { Controls = [.. SportControls.For("baseball")] },
+        new SportDefinition("australian-football", "Australian Football", "Quarter", 4, 20 * 60, [1, 6], false, false, 0) { Controls = [.. SportControls.For("australian-football")] },
+        new SportDefinition("baseball", "Baseball", "Inning", 9, 0, [1], false, true, 0) { Controls = [.. SportControls.For("baseball")] },
         new SportDefinition("basketball", "Basketball", "Quarter", 4, 12 * 60, [1, 2, 3], true, false, 5) { Controls = [.. SportControls.For("basketball")] },
-        new SportDefinition("cricket", "Cricket", "Innings", 2, 0, [1, 2, 3, 4, 6], false, true, 0) { Controls = [.. SportControls.For("cricket")] },
-        new SportDefinition("hockey", "Hockey", "Period", 3, 20 * 60, [1], true, false, 1) { Controls = [.. SportControls.For("hockey")] },
+        new SportDefinition("cricket", "Cricket", "Innings", 2, 0, [1, 2, 3, 4, 5, 6], false, true, 0) { Controls = [.. SportControls.For("cricket")] },
+        new SportDefinition("hockey", "Hockey", "Period", 3, 20 * 60, [1], false, false, 1) { Controls = [.. SportControls.For("hockey")] },
         new SportDefinition("lacrosse", "Lacrosse", "Quarter", 4, 12 * 60, [1], true, false, 3) { Controls = [.. SportControls.For("lacrosse")] },
         new SportDefinition("rugby", "Rugby", "Half", 2, 40 * 60, [2, 3, 5, 7], false, false, 3) { Controls = [.. SportControls.For("rugby")] },
-        new SportDefinition("soccer", "Soccer", "Half", 2, 45 * 60, [1], false, true, 5) { Controls = [.. SportControls.For("soccer")] },
-        new SportDefinition("tennis", "Tennis", "Set", 3, 0, [1], false, true, 3) { Controls = [.. SportControls.For("tennis")] },
+        new SportDefinition("soccer", "Soccer", "Half", 2, 45 * 60, [1], false, true, 0) { Controls = [.. SportControls.For("soccer")] },
+        new SportDefinition("tennis", "Tennis", "Set", 3, 0, [1], false, true, 0) { Controls = [.. SportControls.For("tennis")] },
         new SportDefinition("volleyball", "Volleyball", "Set", 5, 0, [1], false, true, 2) { Controls = [.. SportControls.For("volleyball")] },
         new SportDefinition("wrestling", "Wrestling", "Period", 3, 3 * 60, [1, 2, 3], false, false, 0) { Controls = [.. SportControls.For("wrestling")] },
         // The blank starting point: everything editable in Sport Profiles.
@@ -197,9 +197,69 @@ public sealed class GameEngine
         "Illegal substitution", "Kick catch interference", "Fair catch interference", "Leaping", "Other"
     ];
 
-    /// <summary>Flags offered for a sport: football's own list, and nothing at all for the rest.</summary>
+    /// <summary>Flags offered for a sport, from that sport's own rulebook; empty when it has none.</summary>
     public static string[] PenaltyTypesFor(string? sportId) =>
-        string.Equals(sportId, "football", StringComparison.OrdinalIgnoreCase) ? PenaltyTypes : [];
+        sportId is not null && PenaltyTypesBySport.TryGetValue(sportId, out var types) ? types : [];
+
+    static readonly Dictionary<string, string[]> PenaltyTypesBySport = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["football"] = PenaltyTypes,
+        ["australian-football"] =
+        [
+            "Holding the ball", "Throw", "Deliberate out of bounds", "Push in the back", "High tackle",
+            "Rough conduct", "Interference", "50-metre penalty", "Reportable offence", "Other"
+        ],
+        ["baseball"] =
+        [
+            "Balk", "Catcher's interference", "Batter interference", "Runner interference", "Obstruction",
+            "Illegal pitch", "Hit by pitch", "Unsportsmanlike conduct", "Ejection", "Other"
+        ],
+        ["basketball"] =
+        [
+            "Personal foul", "Shooting foul", "Offensive foul", "Team foul", "Technical foul",
+            "Flagrant foul", "Defensive three seconds", "Delay of game", "Unsportsmanlike conduct", "Other"
+        ],
+        ["cricket"] =
+        [
+            "No-ball", "Wide", "Bye", "Leg bye", "Dead ball", "Obstruction", "Hit wicket",
+            "Time wasting", "Dangerous play", "Unsportsmanlike conduct", "Other"
+        ],
+        ["hockey"] =
+        [
+            "Green card", "Yellow card", "Red card", "Penalty corner", "Penalty stroke", "Obstruction",
+            "Stick tackle", "Back of stick", "Foot", "Dangerous play", "Other"
+        ],
+        ["lacrosse"] =
+        [
+            "Slash", "Tripping", "Cross-check", "Illegal body check", "Holding", "Push", "Interference",
+            "Offside", "Unsportsmanlike conduct", "Ejection", "Other"
+        ],
+        ["rugby"] =
+        [
+            "High tackle", "Offside", "Not releasing", "Not rolling away", "Scrum infringement",
+            "Lineout infringement", "Dangerous play", "Foul play", "Deliberate knock-on", "Dissent", "Other"
+        ],
+        ["soccer"] =
+        [
+            "Foul", "Offside", "Handball", "Penalty kick", "Free kick", "Throw-in", "Corner", "Goal kick",
+            "Yellow card", "Red card", "Simulation", "Dissent", "Other"
+        ],
+        ["tennis"] =
+        [
+            "Code violation", "Warning", "Point penalty", "Game penalty", "Default", "Hindrance",
+            "Coaching", "Racquet abuse", "Unsportsmanlike conduct", "Other"
+        ],
+        ["volleyball"] =
+        [
+            "Double hit", "Lift", "Net touch", "Foot fault", "Rotation fault", "Delay",
+            "Unsportsmanlike conduct", "Red card", "Other"
+        ],
+        ["wrestling"] =
+        [
+            "Stalling", "Fleeing", "Illegal hold", "Caution", "Injury time", "Blood time",
+            "Unsportsmanlike conduct", "Other"
+        ]
+    };
 
     static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     readonly Stopwatch _watch = Stopwatch.StartNew();
@@ -573,10 +633,11 @@ public sealed class GameEngine
     /// </summary>
     public void SetPenalty(bool active, string type, bool home)
     {
-        // A flag is an American-football mark: another sport's console must never raise one.
-        if (State.SportId != "football") return;
+        // Each sport brings its own flag list; a sport with no flags (Custom) never raises one.
+        var types = PenaltyTypesFor(State.SportId);
+        if (types.Length == 0) return;
         type = (type ?? "").Trim();
-        if (type.Length == 0) type = PenaltyTypes[0];
+        if (type.Length == 0) type = types[0];
         if (State.PenaltyActive == active && string.Equals(State.PenaltyType, type, StringComparison.Ordinal) && State.PenaltyHome == home) return;
         SaveUndo("Penalty");
         var was = State.PenaltyActive;

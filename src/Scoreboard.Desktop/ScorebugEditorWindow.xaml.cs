@@ -561,6 +561,7 @@ public partial class ScorebugEditorWindow : Window
                 ? (object)MotionChoice(TransitionBox,handover)
                 : LayoutTransitions.FirstOrDefault(option=>option.Transition==layout.Transition)??LayoutTransitions[1];
             TransitionSecondsInput.Text=layout.TransitionSeconds.ToString("0.##");
+            OnlyChangesInput.IsChecked=layout.OnlyAnimateChanges;
             TransitionCaption.Text=layout.TransitionClip is { } custom
                 ? $"  Custom “{custom.Name}” — the transition maker's hand-over, saved with {layout.Name}."
                 : $"  Saved with {layout.Name} — every layout can arrive differently.";
@@ -582,6 +583,12 @@ public partial class ScorebugEditorWindow : Window
         // Half-typed text ("", "0.") leaves the setting alone instead of snapping it to zero.
         if(!double.TryParse(TransitionSecondsInput.Text,out var seconds))return;
         _catalog.SetTransition(_catalog.Layout.Transition,seconds);
+    }
+
+    void OnlyChanges_Changed(object sender,RoutedEventArgs e)
+    {
+        if(_displayLoading||_layoutLoading)return;
+        _catalog.Update(layout=>layout.OnlyAnimateChanges=OnlyChangesInput.IsChecked==true);
     }
 
     /// <summary>Shows this layout's link to another display, if it has one that still resolves.</summary>
@@ -709,7 +716,7 @@ public partial class ScorebugEditorWindow : Window
         };
         Canvas.SetLeft(host,item.X); Canvas.SetTop(host,item.Y); Panel.SetZIndex(host,_catalog.Layout.Elements.IndexOf(item));
         host.MouseLeftButtonDown+=Element_MouseDown; host.MouseMove+=Element_MouseMove; host.MouseLeftButtonUp+=Element_MouseUp;
-        MotionPlayback.SetDesignRotation(host,item.Rotation);
+        MotionPlayback.SetDesignRotation(host,content is ScorebugTextBlock?0:item.Rotation);
         _visuals[item.Id]=(host,content,handle,item.Kind);
         ApplyAnimation(item,host);
         return host;
@@ -719,9 +726,10 @@ public partial class ScorebugEditorWindow : Window
     {
         if(_applied.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001&&Math.Abs(applied.Rotation-item.Rotation)<0.001)return;
         host.BeginAnimation(UIElement.OpacityProperty,null);
-        MotionPlayback.SetBaseRotation(host,item.Rotation);
+        var hostRotation=item.Kind==ScorebugElementKind.Text?0:item.Rotation;
+        MotionPlayback.SetBaseRotation(host,hostRotation);
         if(host.RenderTransform is TranslateTransform previous){previous.BeginAnimation(TranslateTransform.XProperty,null);previous.BeginAnimation(TranslateTransform.YProperty,null);host.RenderTransform=Transform.Identity;}
-        MotionPlayback.SetDesignRotation(host,item.Rotation);
+        MotionPlayback.SetDesignRotation(host,hostRotation);
         switch(item.Animation)
         {
             case ScorebugAnimation.Pulse:
@@ -731,10 +739,14 @@ public partial class ScorebugEditorWindow : Window
                 // Animate the transform, not the host: the old call animated X on the Border itself,
                 // which moved nothing, so Drift looked broken. Keep the design rotation in the group.
                 var drift=new TranslateTransform();
-                var group=new TransformGroup();
-                group.Children.Add(drift);
-                group.Children.Add(new RotateTransform(item.Rotation));
-                host.RenderTransform=group;
+                if(Math.Abs(hostRotation)>0.001)
+                {
+                    var group=new TransformGroup();
+                    group.Children.Add(drift);
+                    group.Children.Add(new RotateTransform(hostRotation));
+                    host.RenderTransform=group;
+                }
+                else host.RenderTransform=drift;
                 drift.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(0,14,TimeSpan.FromSeconds(3.2)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 drift.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,7,TimeSpan.FromSeconds(2.1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 break;
@@ -1037,8 +1049,9 @@ public partial class ScorebugEditorWindow : Window
         TextSection.Visibility=text||kind==ScorebugElementKind.Html?Visibility.Visible:Visibility.Collapsed;
         // Type is typography: a logo, shape or video has no text to set a face, weight or colour on.
         FontSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
-        // Every kind has a host box, so rotation turns the whole item: plate, artwork and text.
-        TransformSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
+        // Rotation is a text property in the studio; shapes and media can still carry a saved
+        // angle on their host, but the text block owns the editable control.
+        TransformSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         LogoSection.Visibility=kind==ScorebugElementKind.Logo?Visibility.Visible:Visibility.Collapsed;
         ShapePanel.Visibility=kind==ScorebugElementKind.Shape?Visibility.Visible:Visibility.Collapsed;
         VideoPanel.Visibility=kind==ScorebugElementKind.Video?Visibility.Visible:Visibility.Collapsed;
@@ -2754,7 +2767,10 @@ public partial class ScorebugEditorWindow : Window
         if(CanvasFrame.ActualWidth<=1||CanvasFrame.ActualHeight<=1){FitCanvas();return;}
         if(_canvasFit<=0)_canvasFit=1;
         var scale=Math.Max(0.02,_canvasFit*_canvasZoom);
-        ArtworkEdge.LayoutTransform=new ScaleTransform(scale,scale);
+        // A Viewbox, not a layout transform: it always paints the artwork inside its own bounds, so
+        // every edge stays draggable even at 100% zoom.
+        ArtworkViewbox.Width=Math.Max(1,_catalog.Layout.Width*scale);
+        ArtworkViewbox.Height=Math.Max(1,_catalog.Layout.Height*scale);
         if(CanvasZoomText is not null)CanvasZoomText.Text=$"{_canvasZoom*100:0}%";
     }
 

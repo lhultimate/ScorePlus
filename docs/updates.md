@@ -22,7 +22,7 @@ For each release the app:
 
 | Reads | From |
 | --- | --- |
-| Version | The tag, with any leading text stripped: `v1.4.0`, `1.4`, `release-1.4.2` and `a1.01` all become a comparable `major.minor.patch`. A one-digit minor counts as two, so `a1.6` is 1.60.0 and sorts after `a1.51` (1.51.0). A tag with no number in it is skipped. |
+| Version | The tag, with any leading text stripped: `v1.4.0`, `1.4`, `release-1.4.2` and `a1.01` all become a comparable `major.minor.patch`. Alpha tags use a two-digit minor, so `a1.6` is 1.60.0 and both `a1.7` and `a1.70` are 1.70.0. Beta sits above every alpha (`b1.0` is 2.0.0), and `c`/stable sits above beta (`c1.0` is 3.0.0). A tag with no number in it is skipped. |
 | Installer | The asset named **`ScorePlusSetup`** — matched on that base name, so `ScorePlusSetup.exe` and a bare `ScorePlusSetup` both work. A release without one is skipped, so an update can never half-exist. The other asset, **`ScorePlusPortable.exe`**, is never offered as an update: a copy running out of a folder replaces itself by downloading the new one. |
 | Checksum | The asset's own `digest`, which GitHub computes on upload (`sha256:…`). Nothing to publish by hand. |
 | Notes | The release title, else the first non-empty line of its body, shortened to 180 characters. |
@@ -30,7 +30,7 @@ For each release the app:
 Drafts are ignored (their assets are not served), prereleases are offered, and the **highest**
 version wins rather than the first entry listed, so a back-dated tag cannot hide a newer build. A
 release only updates copies older than its version; an installed build is compared by its own
-assembly version.
+release label, with the alpha/beta/stable stages mapped onto the numeric major.
 
 If GitHub is unreachable, the API is rate-limited, or nothing suitable is published, the check is
 silent. An offline laptop must never nag mid-show.
@@ -88,6 +88,12 @@ own URL, since the built-in feed names this repository explicitly.
 `--prerelease` marks the release as a prerelease. Installed copies on the built-in feed accept it
 like any other; only the `…/releases/latest/download/…` URL skips it, and the app no longer depends
 on that URL. `--draft` is the one that hides a build: drafts are never offered.
+
+**Alpha → beta.** An installed `a1.6` copy uses the older tag parser, which reads `b1.0` as 1.0.0
+and cannot see the beta as newer. It does see `a1.7` (1.70.0) and updates to it; `a1.7` then reads
+`b1.0` as 2.0.0 and offers the beta on its next check. Publish `a1.7` first, then `b1.0`. To make
+an `a1.6` copy jump straight to the beta, publish a duplicate release tagged `2.0.0` with the same
+installer — old copies pick the highest number, while new copies still prefer the `b1.0` label.
 
 ## Security notes
 

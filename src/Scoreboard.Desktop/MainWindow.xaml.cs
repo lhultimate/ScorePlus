@@ -39,10 +39,9 @@ public partial class MainWindow : Window, IControlPanelHost
     readonly List<OutputWindow> _outputs = [];
     EventLogWindow? _log;
     RemoteControlServer? _remote;
-    // What /watch is showing: the last frame, the artwork that produced it, and a counter the page
-    // watches so a wall screen only fetches a picture when the graphic changed.
-    byte[]? _watchPng;
-    string? _watchSignature;
+    // What /watch is showing, one frame per display, and a counter the page watches so a wall
+    // screen only fetches a picture when the graphic changed.
+    readonly Dictionary<string,(string Signature, byte[]? Png, long Version)> _watchFrames = new(StringComparer.Ordinal);
     long _watchVersion;
     ScorebugCanvasView? _preview;
     AudiencePreview? _audience;
@@ -63,12 +62,16 @@ public partial class MainWindow : Window, IControlPanelHost
     string? _projectPath;
     bool _initializing = true;
     bool _liveScoreClock = true;
+    // The desk can be locked over the top of a live game. The overlay and the remote both read this.
+    bool _operatorLocked;
+    bool _workspaceEnabled = true;
     // Set while the sport picker is being filled in for the operator, so syncing the control cannot
     // be mistaken for the operator choosing a sport (which starts a new game).
     bool _sportSync;
     // The next autosave starts a fresh recoverable point instead of updating the newest one. Set
     // when a new game starts or a game is loaded, so the previous game keeps its own autosave.
     bool _startNewAutosavePoint = true;
+    DateTime _lastAutosaveAt;
     // The game state and the design as they were the last time they went into a .spg file (or
     // started fresh), so a changed layout counts as an unsaved change too.
     string? _savedStateJson;
@@ -176,6 +179,7 @@ public partial class MainWindow : Window, IControlPanelHost
         RemoteControlServer.RosterJson = RosterSnapshotJson;
         RemoteControlServer.RosterAction = RosterAction;
         RemoteControlServer.PenaltyAction = PenaltyAction;
+        RemoteControlServer.LockState = () => _operatorLocked;
         _session.Status += message => StatusText.Text = message;
         ApplyHintVisibility();
 
@@ -243,9 +247,72 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>Locks or unlocks everything inside the window while the launch box is up.</summary>
     void SetWorkspaceEnabled(bool enabled)
     {
-        Root.IsEnabled = enabled;
+        _workspaceEnabled = enabled;
+        Root.IsEnabled = enabled && !_operatorLocked;
+        if (LockButton is not null) LockButton.IsEnabled = enabled && !_operatorLocked;
         // A locked window reads as dimmed, so nobody tries to type into a game that is not there.
-        Root.Opacity = enabled ? 1 : 0.55;
+        Root.Opacity = _operatorLocked ? 0.35 : enabled ? 1 : 0.55;
+    }
+
+    /// <summary>Locks the desk after asking for the password, so a passer-by cannot lock it by accident.</summary>
+    void Lock_Click(object sender, RoutedEventArgs e)
+    {
+        if (_operatorLocked) return;
+        if (string.IsNullOrWhiteSpace(_preferences.OperatorLockPasswordHash))
+        {
+            var created = OperatorLockWindow.Create(this, _preferences.Theme);
+            if (created is null) return;
+            _preferences.OperatorLockPasswordHash = OperatorLock.Hash(created);
+            PreferencesStore.Save(_preferences);
+            SetOperatorLocked(true);
+            return;
+        }
+        if (!OperatorLockWindow.Confirm(this, _preferences.Theme, _preferences.OperatorLockPasswordHash,
+                "LOCK SCOREPLUS", "Enter the operator lock password to lock the console, media, rosters and remote.")) return;
+        SetOperatorLocked(true);
+    }
+
+    void Unlock_Click(object sender, RoutedEventArgs e)
+    {
+        if (!OperatorLock.Matches(UnlockPasswordInput.Password, _preferences.OperatorLockPasswordHash))
+        {
+            UnlockError.Text = "That password does not match the operator lock.";
+            UnlockPasswordInput.SelectAll();
+            UnlockPasswordInput.Focus();
+            return;
+        }
+        SetOperatorLocked(false);
+    }
+
+    void UnlockPassword_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        Unlock_Click(sender, e);
+    }
+
+    /// <summary>Disables the operator surface, and every detached control panel, behind the lock.</summary>
+    void SetOperatorLocked(bool locked)
+    {
+        _operatorLocked = locked;
+        Root.IsEnabled = _workspaceEnabled && !locked;
+        LockButton.IsEnabled = _workspaceEnabled && !locked;
+        Root.Opacity = locked ? 0.35 : _workspaceEnabled ? 1 : 0.55;
+        LockOverlay.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+        LockButton.Content = locked ? "🔓" : "🔒";
+        foreach (var panel in _controlPanels) panel.IsEnabled = !locked;
+        if (locked)
+        {
+            UnlockPasswordInput.Clear();
+            UnlockError.Text = string.Empty;
+            Dispatcher.BeginInvoke(new Action(() => UnlockPasswordInput.Focus()));
+        }
+        else
+        {
+            UnlockPasswordInput.Clear();
+            UnlockError.Text = string.Empty;
+            _panel.Refresh();
+        }
     }
 
     /// <summary>The live game, exposed so the operator surface (and the checks) can drive it.</summary>
@@ -329,6 +396,9 @@ public partial class MainWindow : Window, IControlPanelHost
                     id = player.Id,
                     name = player.Name,
                     number = player.Number,
+                    position = player.Position,
+                    group = player.Group,
+                    stats = player.Stats.Select(stat => new { name = stat.Name, value = stat.Value, display = stat.Display }).ToList(),
                     selected = string.Equals(player.Id, selected, StringComparison.OrdinalIgnoreCase)
                 }).ToList()
             };
@@ -342,13 +412,26 @@ public partial class MainWindow : Window, IControlPanelHost
     }
 
     /// <summary>Assigns a roster or puts one player on the graphic, from the phone.</summary>
-    bool RosterAction(string action, string side, string id)
+    bool RosterAction(string action, string side, string id, string stat, string value)
     {
         var home = !string.Equals(side, "away", StringComparison.OrdinalIgnoreCase);
         switch (action)
         {
             case "roster": _engine.AssignRoster(home, string.IsNullOrWhiteSpace(id) ? null : id); return true;
             case "player": _engine.SelectPlayer(home, id); return true;
+            case "stat":
+            {
+                if (string.IsNullOrWhiteSpace(stat) || !int.TryParse(value, out var number)) return false;
+                var roster = RosterStore.Book.Find(home ? _engine.State.HomeRosterId : _engine.State.AwayRosterId);
+                var player = roster?.Find(id);
+                if (player is null) return false;
+                player.SetStat(stat, number);
+                RosterStore.Save();
+                // The graphic prints a snapshot of the selected player, so an edit to the player on
+                // air has to be re-resolved or the phone would change the number backstage only.
+                _engine.ReloadSelectedPlayer(home);
+                return true;
+            }
             default: return false;
         }
     }
@@ -687,12 +770,12 @@ public partial class MainWindow : Window, IControlPanelHost
         _remote = null;
         RemoteControlServer.WatchSource = null;
         RemoteControlServer.WatchImage = null;
+        RemoteControlServer.LockState = () => _operatorLocked;
         if (!_preferences.RemoteEnabled || string.IsNullOrWhiteSpace(_preferences.RemotePassword)) return;
         var server = new RemoteControlServer(_engine, this, id => { _panel.Execute(id); return true; }, Dispatcher, _preferences.RemotePort, _preferences.RemotePassword);
         // The audience feed draws the published program, on the UI thread: the program selection and
         // the published game belong to this window, and the server asks from a background thread.
-        RemoteControlServer.WatchSource = () => Dispatcher.Invoke(WatchSnapshot);
-        RemoteControlServer.WatchImage = () => Dispatcher.Invoke(WatchImageSnapshot);
+        RemoteControlServer.WatchImage = display => Dispatcher.Invoke(() => WatchImageSnapshot(display));
         server.Status += message => Dispatcher.BeginInvoke(new Action(() => StatusText.Text = message));
         server.Start();
         _remote = server;
@@ -700,38 +783,63 @@ public partial class MainWindow : Window, IControlPanelHost
 
     /// <summary>What a browser watching /watch should see: the program layout and the published game.</summary>
     (ScorebugLayout Layout, GameState State)? WatchSnapshot() =>
-        (_program.Layout, _publishedEngine.State);
+        (_scorebug.PublishedCompositeOf(_program.DisplayId), _publishedEngine.State);
 
     /// <summary>
     /// The program graphic as a PNG, drawn by the same view the audience window draws. A wall board
     /// then gets the real fonts, palette colours, logos and made icons, and the page only downloads
     /// a new frame when the artwork or the published game changed.
     /// </summary>
-    (byte[] Png, long Version)? WatchImageSnapshot()
+    (byte[] Png, long Version)? WatchImageSnapshot(string? displayKey)
     {
-        var layout = _program.Layout;
+        var display = ResolveWatchDisplay(displayKey);
+        if (display is null) return null;
+        // The wall board shows what the audience output is actually sending, not the layout that is
+        // still being staged in the studio preview.
+        var layout = _scorebug.PublishedCompositeOf(display.Id);
         var state = _publishedEngine.State;
-        var signature = $"{layout.Id}|{layout.Width}x{layout.Height}|{GameEngine.StagedSignature(state)}|" +
-                        string.Join(";", layout.Elements.Select(item =>
-                            $"{item.Id}:{item.X},{item.Y},{item.Width}x{item.Height}:{item.Content}:{item.Foreground}:{item.Visible}"));
-        if (!string.Equals(signature, _watchSignature, StringComparison.Ordinal))
+        var signature = JsonSerializer.Serialize(layout) + "|" + GameEngine.StagedSignature(state);
+        if (!_watchFrames.TryGetValue(display.Id, out var cached) || !string.Equals(cached.Signature, signature, StringComparison.Ordinal))
         {
-            _watchSignature = signature;
             _watchVersion++;
-            _watchPng = null;
+            cached = (signature, null, _watchVersion);
         }
-        _watchPng ??= RenderProgramPng(layout);
-        return _watchPng is null ? null : (_watchPng, _watchVersion);
+        cached.Png ??= RenderProgramPng(layout);
+        if (cached.Png is null) return null;
+        _watchFrames[display.Id] = cached;
+        return (cached.Png, cached.Version);
+    }
+
+    /// <summary>Resolves /watch?display=2, a display id, or a display name; no key means this window's display.</summary>
+    ScorebugDisplay? ResolveWatchDisplay(string? key)
+    {
+        if (_scorebug.Displays.Count == 0) return null;
+        var fallback = _scorebug.FindDisplay(_program.DisplayId) ?? _scorebug.Displays[0];
+        if (string.IsNullOrWhiteSpace(key)) return fallback;
+        string clean;
+        try { clean = Uri.UnescapeDataString(key).Trim(); }
+        catch { clean = key.Trim(); }
+        if (int.TryParse(clean, out var number) && number >= 1 && number <= _scorebug.Displays.Count)
+            return _scorebug.Displays[number - 1];
+        return _scorebug.FindDisplay(clean)
+            ?? _scorebug.Displays.FirstOrDefault(display => string.Equals(display.Name, clean, StringComparison.OrdinalIgnoreCase))
+            ?? fallback;
     }
 
     /// <summary>One off-screen render of the program layout, encoded as PNG for the browser.</summary>
     byte[]? RenderProgramPng(ScorebugLayout layout)
     {
+        ScorebugCanvasView? view = null;
         try
         {
-            var width = Math.Max(1, layout.Width);
-            var height = Math.Max(1, layout.Height);
-            var view = new ScorebugCanvasView(_scorebug, _engine,
+            // A 1280×720 layout rendered at 1280×720 looked soft on a wall board. Render at up to
+            // three times the design size (capped at 4K wide), so the PNG has real pixels for a
+            // large screen instead of a browser stretching the same small bitmap.
+            var scale = Math.Clamp((int)Math.Ceiling(1920.0 / Math.Max(1, layout.Width)), 1, 3);
+            if (layout.Width * scale > 3840) scale = 1;
+            var width = Math.Max(1, layout.Width) * scale;
+            var height = Math.Max(1, layout.Height) * scale;
+            view = new ScorebugCanvasView(_scorebug, _engine,
                 stateProvider: () => _publishedEngine.State, playback: null, layoutProvider: () => layout)
             {
                 Width = width,
@@ -740,10 +848,10 @@ public partial class MainWindow : Window, IControlPanelHost
             view.Measure(new Size(width, height));
             view.Arrange(new Rect(0, 0, width, height));
             view.UpdateLayout();
+            RenderOptions.SetBitmapScalingMode(view, BitmapScalingMode.HighQuality);
             var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
             bitmap.Render(view);
             bitmap.Freeze();
-            view.Dispose();
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(bitmap));
             using var buffer = new MemoryStream();
@@ -751,6 +859,7 @@ public partial class MainWindow : Window, IControlPanelHost
             return buffer.ToArray();
         }
         catch { return null; }
+        finally { view?.Dispose(); }
     }
 
     /// <summary>
@@ -762,10 +871,11 @@ public partial class MainWindow : Window, IControlPanelHost
         if (!_preferences.CheckForUpdates || !AppInfo.IsInstalled) return;
         var manifest = await UpdateChecker.CheckAsync(_preferences.UpdateFeedUrl);
         if (manifest is null) return;
-        var detail = $"Version {manifest.Version} is ready (this build is {AppInfo.Version}). " +
+        var shown = manifest.Label ?? manifest.Version;
+        var detail = $"Version {shown} is ready (this build is {AppInfo.Release}). " +
                      (string.IsNullOrWhiteSpace(manifest.Notes) ? "Download and install it now?" : $"{manifest.Notes}\n\nDownload and install it now?");
         if (!ConfirmWindow.Ask(this, _preferences.Theme, "UPDATE AVAILABLE", detail, "Download and install")) return;
-        StatusText.Text = $"UPDATING · downloading {manifest.Version}";
+        StatusText.Text = $"UPDATING · downloading {shown}";
         var (path, error) = await UpdateChecker.DownloadAsync(manifest);
         if (path is null)
         {
@@ -1147,11 +1257,25 @@ public partial class MainWindow : Window, IControlPanelHost
     // ---------- lifecycle ----------
     void AutoSave()
     {
+        var minutes = _preferences.AutosaveMinutes;
+        if (minutes <= 0)
+        {
+            AutosaveText.Text = "AUTOSAVE OFF";
+            return;
+        }
+
+        var now = DateTime.Now;
+        // A new game gets its own recovery point straight away. After that the operator's chosen
+        // interval decides when the next point is written.
+        if (!_startNewAutosavePoint && _lastAutosaveAt != default
+            && now - _lastAutosaveAt < TimeSpan.FromMinutes(minutes)) return;
+
         try
         {
             AutosaveStore.Save(_engine, _startNewAutosavePoint, _scorebug.ExportDocument());
             _startNewAutosavePoint = false;
-            AutosaveText.Text = $"AUTOSAVED {DateTime.Now:HH:mm:ss}";
+            _lastAutosaveAt = now;
+            AutosaveText.Text = $"AUTOSAVED {now:HH:mm:ss}";
         }
         catch (Exception ex) { StatusText.Text = $"AUTOSAVE WARNING · {ex.Message}"; }
     }
@@ -1159,6 +1283,13 @@ public partial class MainWindow : Window, IControlPanelHost
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        // A locked desk must not answer a keybind either: the overlay covers the console, but a
+        // window-level shortcut would still change the game behind it while nobody is watching.
+        if (_operatorLocked)
+        {
+            base.OnPreviewKeyDown(e);
+            return;
+        }
         // Enter settles whatever is being typed and leaves the window open. There is no default
         // button on this window, so without this an Enter in a field would do nothing at all.
         if (key == Key.Enter && Keyboard.FocusedElement is TextBox box && !box.AcceptsReturn)

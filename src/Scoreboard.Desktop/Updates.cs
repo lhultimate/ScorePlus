@@ -65,7 +65,11 @@ public static class AppInfo
 }
 
 /// <summary>One release as described by the update feed.</summary>
-public sealed record UpdateManifest(string Version, string Url, string? Sha256, string? Notes);
+public sealed record UpdateManifest(string Version, string Url, string? Sha256, string? Notes)
+{
+    /// <summary>The human release label from the tag (a1.7, b1.0), when the feed knows it.</summary>
+    public string? Label { get; init; }
+}
 
 /// <summary>
 /// The feed an installed copy asks by default: this project's own releases, newest first. It is the
@@ -132,7 +136,7 @@ public static class UpdateChecker
             var json = await Client.GetStringAsync(UpdateFeed.Resolve(feedUrl), token);
             var manifest = json.TrimStart().StartsWith('[') ? ParseReleases(json) : ParseManifest(json);
             if (manifest is null || string.IsNullOrWhiteSpace(manifest.Version) || string.IsNullOrWhiteSpace(manifest.Url)) return null;
-            return IsNewer(manifest.Version, AppInfo.Version) ? manifest : null;
+            return IsNewer(manifest.Version, AppInfo.Release) ? manifest : null;
         }
         catch { return null; }
     }
@@ -180,7 +184,10 @@ public static class UpdateChecker
             if (bestVersion is not null && parsed <= bestVersion) continue;
 
             bestVersion = parsed;
-            best = new UpdateManifest(version, setup.BrowserDownloadUrl, Sha256Of(setup.Digest), NotesOf(release));
+            best = new UpdateManifest(version, setup.BrowserDownloadUrl, Sha256Of(setup.Digest), NotesOf(release))
+            {
+                Label = release.TagName
+            };
         }
 
         return best;
@@ -204,14 +211,41 @@ public static class UpdateChecker
             if (!int.TryParse(parts[i], out var value) || value < 0) return null;
             numbers[i] = value;
         }
-        // The same rule the release script uses: a one-digit minor is a two-digit one, so tag a1.6
-        // reads as 1.60.0 and sorts after a1.51 (1.51.0) instead of before it.
-        if (parts.Length >= 2 && parts[1].Length == 1) numbers[1] *= 10;
-        return $"{numbers[0]}.{numbers[1]}.{numbers[2]}";
+        // Alpha and beta tags use the same two-digit minor rule as the release scripts, so a1.6
+        // reads as 1.60.0 and sorts after a1.51 (1.51.0). Plain release tags keep their own digits.
+        var alpha = Regex.IsMatch(tag, @"^\s*(?:alpha|a)(?=\d)", RegexOptions.IgnoreCase);
+        var beta = Regex.IsMatch(tag, @"^\s*(?:beta|b)(?=\d)", RegexOptions.IgnoreCase);
+        var stable = Regex.IsMatch(tag, @"^\s*(?:stable|c)(?=\d)", RegexOptions.IgnoreCase);
+        if (parts.Length >= 2 && parts[1].Length == 1 && (alpha || beta)) numbers[1] *= 10;
+        // Beta builds sit above every alpha build, and a c-tag (the eventual stable channel) sits
+        // above beta. The major number is the stage, which also lets an older alpha updater, which
+        // only understands numbers, see b1.0 as 2.0.0 and update to it.
+        var major = beta ? 2 : stable ? 3 : numbers[0];
+        return $"{major}.{numbers[1]}.{numbers[2]}";
     }
 
-    public static bool IsNewer(string remote, string current) =>
-        Version.TryParse(remote, out var newer) && Version.TryParse(current, out var mine) && newer > mine;
+    /// <summary>
+    /// Compares two release labels. Numeric versions decide first; on an exact tie the stage does,
+    /// so b1.0 is newer than a1.70 but a numeric manifest for b1.0 does not re-offer itself to b1.0.
+    /// A manifest without a stage prefix therefore compares as an alpha/base release on a tie.
+    /// </summary>
+    public static bool IsNewer(string remote, string current)
+    {
+        var remoteVersion = VersionFromTag(remote);
+        var currentVersion = VersionFromTag(current);
+        if (remoteVersion is null || currentVersion is null) return false;
+        if (!Version.TryParse(remoteVersion, out var newer) || !Version.TryParse(currentVersion, out var mine)) return false;
+        var comparison = newer.CompareTo(mine);
+        if (comparison != 0) return comparison > 0;
+        return StageRank(remote) > StageRank(current);
+    }
+
+    static int StageRank(string label)
+    {
+        if (Regex.IsMatch(label, @"^\s*(?:stable|c)(?=\d)", RegexOptions.IgnoreCase)) return 2;
+        if (Regex.IsMatch(label, @"^\s*(?:beta|b)(?=\d)", RegexOptions.IgnoreCase)) return 1;
+        return 0;
+    }
 
     /// <summary>
     /// Downloads the release to a temp file and verifies its SHA-256 when the feed carries one.

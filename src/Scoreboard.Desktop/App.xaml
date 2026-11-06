@@ -72,7 +72,7 @@
                                 TextElement.Foreground="{TemplateBinding Foreground}"/>
               <!-- Editable combos (the media tag box) type into this; without it the text is invisible. -->
               <TextBox x:Name="PART_EditableTextBox" Margin="8,2,28,2" Padding="0" VerticalAlignment="Center"
-                       Background="Transparent" BorderThickness="0" FontSize="12"
+                       Background="{TemplateBinding Background}" BorderThickness="0" FontSize="12"
                        Foreground="{TemplateBinding Foreground}" CaretBrush="{TemplateBinding Foreground}"
                        Visibility="Collapsed" IsReadOnly="{TemplateBinding IsReadOnly}"/>
               <Path HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0" IsHitTestVisible="False"

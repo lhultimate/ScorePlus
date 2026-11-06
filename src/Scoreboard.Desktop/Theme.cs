@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Scoreboard.Core;
 using System.Windows;
@@ -29,6 +31,13 @@ public sealed class UserPreferences
     public string RemotePassword { get; set; } = "";
 
     /// <summary>
+    /// A SHA-256 of the operator lock password, never the password itself. Empty means the lock
+    /// button asks the operator to create one; a value means it asks to confirm before locking and
+    /// to enter it again before the desk is released.
+    /// </summary>
+    public string OperatorLockPasswordHash { get; set; } = "";
+
+    /// <summary>
     /// An optional override for where the installed app looks for releases. Empty means the
     /// built-in GitHub feed (prereleases included); a URL here points at a manifest on another host.
     /// </summary>
@@ -49,6 +58,12 @@ public sealed class UserPreferences
     /// instant. This is a show-wide timing choice, not a property of one element.
     /// </summary>
     public double ValueSwitchDelay { get; set; }
+
+    /// <summary>
+    /// Minutes between recovery points. Five is the default, 0 turns autosave off, and every
+    /// positive value is a whole number of minutes.
+    /// </summary>
+    public int AutosaveMinutes { get; set; } = 5;
 
     /// <summary>The sport the operator last ran, so a launcher "New Game" opens the game they expect.</summary>
     public string LastSport { get; set; } = "football";
@@ -104,9 +119,11 @@ public sealed class UserPreferences
         RemoteEnabled = RemoteEnabled,
         RemotePort = RemotePort,
         RemotePassword = RemotePassword,
+        OperatorLockPasswordHash = OperatorLockPasswordHash,
         UpdateFeedUrl = UpdateFeedUrl,
         CheckForUpdates = CheckForUpdates,
         ValueSwitchDelay = ValueSwitchDelay,
+        AutosaveMinutes = AutosaveMinutes,
         NextDownPreview = NextDownPreview,
         NewSeriesLive = NewSeriesLive,
         LastSport = LastSport,
@@ -123,6 +140,19 @@ public sealed class UserPreferences
         MediaFolders = [.. MediaFolders],
         MediaFiles = [.. MediaFiles]
     };
+}
+
+/// <summary>Hashes and checks the operator lock without ever storing the password in clear text.</summary>
+public static class OperatorLock
+{
+    public static string Hash(string? password) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(password ?? string.Empty)));
+
+    public static bool Matches(string? password, string? hash) =>
+        !string.IsNullOrWhiteSpace(hash)
+        && CryptographicOperations.FixedTimeEquals(
+            Encoding.ASCII.GetBytes(Hash(password)),
+            Encoding.ASCII.GetBytes(hash.Trim()));
 }
 
 /// <summary>One of the four quick-layout buttons: a name the operator sees, and where it points.</summary>
@@ -198,6 +228,9 @@ public static class PreferencesStore
             preferences.Schema = 3;
             try { Save(preferences); } catch { }
         }
+        // A negative interval is not a setting; the shipped default is five minutes. Zero is a real
+        // choice and means never autosave.
+        if (preferences.AutosaveMinutes < 0) preferences.AutosaveMinutes = 5;
         if (preferences.Theme is not ("System" or "Dark" or "Light")) preferences.Theme = "System";
     }
 
@@ -327,20 +360,13 @@ public static class ThemeManager
                 case TextBox: control.Background = Brush(input); control.BorderBrush = Brush(border); break;
                 case Button: control.Background = Brush(surface); control.BorderBrush = Brush(border); break;
                 case ListBox: control.Background = Brush(input); control.BorderBrush = Brush(border); break;
-                case ComboBox combo:
-                {
+                case ComboBox:
                     control.Background = Brush(input);
                     control.BorderBrush = Brush(border);
-                    // Drop-down items are created when the list opens, after the theme pass, so they
-                    // kept the system's white text on a light list. The container style is what
-                    // makes a light-mode menu readable.
-                    var items = new Style(typeof(ComboBoxItem));
-                    items.Setters.Add(new Setter(Control.BackgroundProperty, Brush(surface)));
-                    items.Setters.Add(new Setter(Control.ForegroundProperty, Brush(foreground)));
-                    items.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8, 4, 8, 4)));
-                    combo.ItemContainerStyle = items;
+                    // Leave ItemContainerStyle alone. The application's ComboBox style already owns
+                    // the dark popup and item template; replacing it here discarded that template and
+                    // is what made the motion makers' drop-downs fall back to the white system list.
                     break;
-                }
                 case ToggleButton: control.Background = Brush(surface); control.BorderBrush = Brush(border); break;
             }
         }

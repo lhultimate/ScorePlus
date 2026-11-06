@@ -68,6 +68,29 @@
         <Button x:Name="ResetColorsButton" Content="Reset to the ScorePlus colors" HorizontalAlignment="Left"
                 MinHeight="30" Padding="12,4" Margin="4,2,4,2" Click="ResetColors_Click"/>
         <Separator/>
+        <TextBlock Text="OPERATOR LOCK" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
+        <TextBlock Text="The lock button beside Preferences locks the console, media, rosters and remote until this password is entered again. It is separate from the remote password, so a phone can never unlock the desk."
+                   TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,0,6,6"/>
+        <Grid Margin="4,0,4,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Margin="0,0,5,0">
+            <TextBlock Text="Lock password" Foreground="#93A0B2" FontSize="11" Margin="2,0,0,2"/>
+            <PasswordBox x:Name="OperatorLockPasswordInput" MinHeight="32" Padding="8,4" Background="#050505"
+                         Foreground="#F4F7FB" BorderBrush="#383838" PasswordChanged="Lock_Changed"
+                         ToolTip="Leave both boxes empty to keep the current lock password"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1" Margin="5,0,0,0">
+            <TextBlock Text="Repeat password" Foreground="#93A0B2" FontSize="11" Margin="2,0,0,2"/>
+            <PasswordBox x:Name="OperatorLockConfirmInput" MinHeight="32" Padding="8,4" Background="#050505"
+                         Foreground="#F4F7FB" BorderBrush="#383838" PasswordChanged="Lock_Changed"/>
+          </StackPanel>
+        </Grid>
+        <CheckBox x:Name="ClearOperatorLockInput" Content="Remove the operator lock password" Checked="Lock_Changed" Unchecked="Lock_Changed"/>
+        <TextBlock x:Name="OperatorLockStatus" Text="No lock password is set." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
+        <Separator/>
         <TextBlock Text="REMOTE CONTROL" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="RemoteEnabledInput" Content="Allow the phone remote on this network" Checked="Remote_Changed" Unchecked="Remote_Changed"/>
         <TextBlock Text="Off by default. The remote serves a copy of this control panel to a phone or tablet on the same network, protected by the password below."
@@ -105,10 +128,20 @@
         <TextBlock x:Name="UpdateStatus" Text="Updates are checked only when the app was installed." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
         <Separator/>
         <TextBlock Text="GAME SAFETY" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
+        <TextBlock Text="Autosave interval" Foreground="#93A0B2" FontSize="11" Margin="4,6,0,2"/>
+        <DockPanel Margin="4,0,4,0">
+          <TextBlock DockPanel.Dock="Right" Text="minutes · 0 = never" Foreground="#93A0B2" FontSize="11"
+                     VerticalAlignment="Center" Margin="8,0,0,0"/>
+          <TextBox x:Name="AutosaveMinutesInput" Width="92" MinHeight="32" Padding="8,4"
+                   TextChanged="Autosave_Changed"
+                   ToolTip="Minutes between recovery points. 5 is the default, 0 turns autosave off."/>
+        </DockPanel>
+        <TextBlock x:Name="AutosaveHelp" Text="Five minutes by default. Type any whole number of minutes from 1 up, or 0 for never. Saved .spg games are separate."
+                   TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
         <Button x:Name="DeleteAutosavesButton" Content="Delete all autosaves" HorizontalAlignment="Left" MinHeight="32"
                 Padding="14,6" Click="DeleteAutosaves_Click" Margin="4,4,4,2"
                 ToolTip="Remove every recoverable point from this computer. Saved .spg games are not touched."/>
-        <TextBlock x:Name="AutosaveStatus" Text="Autosave keeps a recovery point every few seconds while you work."
+        <TextBlock x:Name="AutosaveStatus" Text="A recovery point is written after the chosen interval while you work."
                    TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,4"/>
       </StackPanel>
     </ScrollViewer>

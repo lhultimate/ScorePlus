@@ -14,22 +14,22 @@ internal static class RosterPalette
     public static void Apply(string theme, ResourceDictionary resources)
     {
         var light = ThemeManager.Resolve(theme) == "Light";
-        // The page is the theme's own background — near-black in Dark, the light page in Light —
-        // not a navy panel, so the desk joins the console instead of reading as a different program.
-        Set(resources, "RosterPanelBrush", light ? "#F3F5F8" : "#080808");
-        Set(resources, "RosterSurfaceBrush", light ? "#FFFFFF" : "#141414");
-        Set(resources, "RosterSurfaceAltBrush", light ? "#E5EAF0" : "#1C1C1C");
-        Set(resources, "RosterInputBrush", light ? "#FFFFFF" : "#050505");
-        Set(resources, "RosterBorderBrush", light ? "#B9C3CE" : "#383838");
+        // The desk borrows the console's own navy page, cards and input wells in Dark, and the
+        // light theme's page, cards and wells in Light, so the tab never reads as another program.
+        Set(resources, "RosterPanelBrush", light ? "#F3F5F8" : "#0B0F14");
+        Set(resources, "RosterSurfaceBrush", light ? "#FFFFFF" : "#10161F");
+        Set(resources, "RosterSurfaceAltBrush", light ? "#E5EAF0" : "#151B23");
+        Set(resources, "RosterInputBrush", light ? "#F3F5F8" : "#0B0F14");
+        Set(resources, "RosterBorderBrush", light ? "#B9C3CE" : "#28323F");
         Set(resources, "RosterTextBrush", light ? "#18202B" : "#F4F7FB");
         Set(resources, "RosterMutedBrush", light ? "#586576" : "#93A0B2");
         // The title bar is part of the surface now, not a green band of its own, with the accent
         // kept for the desk's actions so it still reads as the same app.
-        Set(resources, "RosterHeaderBrush", light ? "#FFFFFF" : "#141414");
+        Set(resources, "RosterHeaderBrush", light ? "#FFFFFF" : "#10161F");
         Set(resources, "RosterHeaderTextBrush", light ? "#18202B" : "#F4F7FB");
-        Set(resources, "RosterPillBrush", light ? "#EEF2F7" : "#1C1C1C");
-        Set(resources, "RosterPillBorderBrush", light ? "#B9C3CE" : "#383838");
-        Set(resources, "RosterTabBrush", light ? "#F3F5F8" : "#080808");
+        Set(resources, "RosterPillBrush", light ? "#EEF2F7" : "#151B23");
+        Set(resources, "RosterPillBorderBrush", light ? "#B9C3CE" : "#28323F");
+        Set(resources, "RosterTabBrush", light ? "#F3F5F8" : "#0B0F14");
         var accent = UiPalette.Accent(PreferencesStore.Load());
         var accentText = (0.299 * accent.R + 0.587 * accent.G + 0.114 * accent.B) / 255 > 0.6 ? "#0C1814" : "#FFFFFF";
         Set(resources, "RosterAccentBrush", accent);

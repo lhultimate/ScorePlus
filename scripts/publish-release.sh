@@ -42,7 +42,15 @@ fi
 NUMERIC="$(printf '%s' "$VERSION" | sed -E 's/[^0-9.]+//g' | sed -E 's/^\.+//; s/\.+$//')"
 IFS='.' read -r -a PARTS <<< "$NUMERIC"
 while [[ ${#PARTS[@]} -lt 3 ]]; do PARTS+=("0"); done
-NUMERIC="${PARTS[0]}.${PARTS[1]}.${PARTS[2]}"
+# The major number encodes the channel: alpha 1, beta 2, stable 3. This keeps b1.0 numerically
+# above a1.70, so copies that only know numbers still update to the beta.
+STAGE="${PARTS[0]}"
+case "$VERSION" in
+  b*|B*|beta*|Beta*) STAGE=2 ;;
+  c*|C*|stable*|Stable*) STAGE=3 ;;
+esac
+if [[ ${#PARTS[1]} -eq 1 ]]; then PARTS[1]="${PARTS[1]}0"; fi
+NUMERIC="${STAGE}.${PARTS[1]}.${PARTS[2]}"
 if [[ ! "$NUMERIC" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Release must look like a1.1 (got '$VERSION')." >&2
   exit 1
@@ -73,10 +81,10 @@ HASH="$(sha256sum "$SETUP" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')"
 echo "==> checksum $HASH"
 
 # JSON is written by python so quotes and newlines in the notes cannot break the manifest.
-python - "$MANIFEST" "$NUMERIC" "$BASE/ScorePlusSetup.exe" "$HASH" "$NOTES" <<'PY'
+python - "$MANIFEST" "$NUMERIC" "$BASE/ScorePlusSetup.exe" "$HASH" "$NOTES" "$VERSION" <<'PY'
 import json, sys
-path, version, url, sha, notes = sys.argv[1:6]
-manifest = {"version": version, "url": url, "sha256": sha}
+path, version, url, sha, notes, label = sys.argv[1:7]
+manifest = {"version": version, "label": label, "url": url, "sha256": sha}
 if notes.strip():
     manifest["notes"] = notes.strip()
 with open(path, "w", encoding="utf-8", newline="\n") as handle:

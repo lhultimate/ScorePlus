@@ -210,6 +210,8 @@ public partial class ControlPanelView : UserControl
     public void SetHintVisibility(bool show)
     {
         _showHints = show;
+        if (DetailCardHint is not null)
+            DetailCardHint.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void SyncLiveState(bool live)
@@ -276,8 +278,8 @@ public partial class ControlPanelView : UserControl
 
         var football = s.SportId == "football";
         FootballDetail.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
-        // A flag belongs to football: the strip is hidden rather than left holding soccer's words.
-        PenaltyStrip.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
+        // Every sport with its own flag list gets the strip; Custom has no flags, so it stays hidden.
+        PenaltyStrip.Visibility = GameEngine.PenaltyTypesFor(s.SportId).Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         OtherDetail.Visibility = football ? Visibility.Collapsed : Visibility.Visible;
         NewSeriesButton.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
         DetailCardTitle.Text = football ? "DOWN & DISTANCE" : "SPORT CONTROLS";

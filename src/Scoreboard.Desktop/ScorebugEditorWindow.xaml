@@ -102,6 +102,9 @@
               <TextBox x:Name="TransitionSecondsInput" Width="54" FontSize="11" Margin="6,0,0,0" TextChanged="TransitionSeconds_Changed"
                        ToolTip="Seconds this layout's hand-over takes: 0 cuts, 5 is a slow dissolve"/>
               <TextBlock Text="s" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="2,0,0,0"/>
+              <CheckBox x:Name="OnlyChangesInput" Content="Only animate changes" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"
+                        Checked="OnlyChanges_Changed" Unchecked="OnlyChanges_Changed"
+                        ToolTip="Leave unchanged items still: adding one stat window animates only that window, not the whole graphic"/>
               <Button Content="Video…" FontSize="10" Padding="8,3" Margin="8,0,0,0" Click="TransitionVideo_Click"
                       ToolTip="Use a video clip as this layout's hand-over"/>
               <Button x:Name="TransitionVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0"
@@ -263,20 +266,22 @@
         <Border Grid.Row="1" x:Name="CanvasFrame" Background="#171C25" ClipToBounds="True"
                 MouseMove="Canvas_MouseMove" MouseLeftButtonUp="Canvas_MouseUp"
                 SizeChanged="CanvasFrame_SizeChanged" PreviewMouseWheel="CanvasFrame_MouseWheel">
-          <!-- The artwork keeps its real pixel size. A layout transform fits it to the panel and
-               the scroll wheel changes that zoom; the ScrollViewer gives the enlarged artwork
+          <!-- The artwork keeps its real pixel size. A Viewbox fits it to the panel and the scroll
+               wheel changes the Viewbox's size; the ScrollViewer gives the enlarged artwork
                somewhere to pan. The edge border shows exactly where the artwork ends. -->
           <ScrollViewer x:Name="CanvasScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="Transparent">
             <Border x:Name="ArtworkEdge" BorderBrush="#4A586A" BorderThickness="1" ClipToBounds="True"
                     SnapsToDevicePixels="True">
-              <Grid>
-                <Canvas x:Name="DesignCanvas" Width="1280" Height="720" Background="#091018" RenderTransformOrigin="0,0"/>
-                <!-- Guides sit above the artwork so an opaque backdrop cannot hide them, but they
-                     never hit-test or become part of the exported layout. -->
-                <Canvas x:Name="GridCanvas" Width="1280" Height="720" IsHitTestVisible="False"
-                        Visibility="Collapsed"/>
-              </Grid>
+              <Viewbox x:Name="ArtworkViewbox" Stretch="Uniform">
+                <Grid>
+                  <Canvas x:Name="DesignCanvas" Width="1280" Height="720" Background="#091018" RenderTransformOrigin="0,0"/>
+                  <!-- Guides sit above the artwork so an opaque backdrop cannot hide them, but they
+                       never hit-test or become part of the exported layout. -->
+                  <Canvas x:Name="GridCanvas" Width="1280" Height="720" IsHitTestVisible="False"
+                          Visibility="Collapsed"/>
+                </Grid>
+              </Viewbox>
             </Border>
           </ScrollViewer>
         </Border>
