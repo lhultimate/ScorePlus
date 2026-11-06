@@ -1718,7 +1718,7 @@ public sealed class MotionMakerWindow : Window
             host.BorderBrush = ScorebugRender.HostBorder(item, state);
             host.BorderThickness = new Thickness(item.BorderThickness);
         }
-        MotionPlayback.SetDesignRotation(host, item.Rotation);
+        MotionPlayback.SetDesignRotation(host, content is ScorebugTextBlock ? 0 : item.Rotation);
         Canvas.SetLeft(host, item.X);
         Canvas.SetTop(host, item.Y);
         return host;

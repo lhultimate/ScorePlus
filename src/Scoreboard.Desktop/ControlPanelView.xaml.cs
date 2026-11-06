@@ -210,6 +210,8 @@ public partial class ControlPanelView : UserControl
     public void SetHintVisibility(bool show)
     {
         _showHints = show;
+        if (DetailCardHint is not null)
+            DetailCardHint.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void SyncLiveState(bool live)
@@ -249,6 +251,11 @@ public partial class ControlPanelView : UserControl
         LayoutLabel.Text = _host.LayoutLabel;
 
         if (!ClockValue.IsKeyboardFocused) ClockValue.Text = GameEngine.FormatClock(s.ClockSeconds);
+        // Soccer's added time lives under the game clock, and only for soccer.
+        var soccer = s.SportId == "soccer";
+        StoppageRow.Visibility = soccer ? Visibility.Visible : Visibility.Collapsed;
+        StoppageValue.Text = GameEngine.FormatClock(s.StoppageSeconds);
+        StoppageToggle.Content = s.StoppageRunning ? "Stop" : "Start";
         if (!PlayClockValue.IsKeyboardFocused) PlayClockValue.Text = s.PlayClockSeconds.ToString();
         if (!ShotClockValue.IsKeyboardFocused) ShotClockValue.Text = s.ShotClockSeconds.ToString();
         if (!TimeoutClockValue.IsKeyboardFocused) TimeoutClockValue.Text = GameEngine.FormatClock(s.TimeoutClockSeconds);
@@ -271,6 +278,8 @@ public partial class ControlPanelView : UserControl
 
         var football = s.SportId == "football";
         FootballDetail.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
+        // Every sport with its own flag list gets the strip; Custom has no flags, so it stays hidden.
+        PenaltyStrip.Visibility = GameEngine.PenaltyTypesFor(s.SportId).Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         OtherDetail.Visibility = football ? Visibility.Collapsed : Visibility.Visible;
         NewSeriesButton.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
         DetailCardTitle.Text = football ? "DOWN & DISTANCE" : "SPORT CONTROLS";
@@ -321,8 +330,9 @@ public partial class ControlPanelView : UserControl
         {
             PenaltyActiveToggle.IsChecked = s.PenaltyActive;
             PenaltyActiveToggle.Content = s.PenaltyActive ? "Flag down" : "No flag";
-            if (PenaltyTypeBox.ItemsSource is null) PenaltyTypeBox.ItemsSource = GameEngine.PenaltyTypes;
-            PenaltyTypeBox.SelectedItem = GameEngine.PenaltyTypes.Contains(s.PenaltyType) ? s.PenaltyType : GameEngine.PenaltyTypes[0];
+            var types = GameEngine.PenaltyTypesFor(s.SportId);
+            if (!ReferenceEquals(PenaltyTypeBox.ItemsSource, types)) PenaltyTypeBox.ItemsSource = types;
+            if (types.Length > 0) PenaltyTypeBox.SelectedItem = types.Contains(s.PenaltyType) ? s.PenaltyType : types[0];
             var teams = new[] { $"Home · {s.HomeTeam}", $"Visitors · {s.AwayTeam}" };
             if (PenaltyTeamBox.Items.Count != 2 || !Equals(PenaltyTeamBox.Items[0], teams[0]) || !Equals(PenaltyTeamBox.Items[1], teams[1]))
                 PenaltyTeamBox.ItemsSource = teams;
@@ -853,6 +863,11 @@ public partial class ControlPanelView : UserControl
             case "timeoutclock.plus1": _engine.SetTimeoutClock(_engine.State.TimeoutClockSeconds + 1); break;
             case "timeoutclock.plus10": _engine.SetTimeoutClock(_engine.State.TimeoutClockSeconds + 10); break;
             case "timeoutclock.set": SetTimeoutClockDialog(); break;
+            case "clock.stoppage.toggle": _engine.ToggleStoppageClock(); break;
+            case "clock.stoppage.reset": _engine.ResetStoppageClock(); break;
+            case "clock.stoppage.plus30": _engine.AdjustStoppageClock(30); break;
+            case "clock.stoppage.plus60": _engine.AdjustStoppageClock(60); break;
+            case "clock.stoppage.minus30": _engine.AdjustStoppageClock(-30); break;
             case "football.down.next": NextDown(); break;
             case "football.down.previous": _engine.PreviousDown(); break;
             case "football.down.recall": _engine.RecallLastDown(); break;

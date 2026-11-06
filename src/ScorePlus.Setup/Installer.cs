@@ -22,12 +22,27 @@ public static class Installer
         ? $"{version.Major}.{Math.Max(0, version.Minor)}.{Math.Max(0, version.Build)}"
         : "1.0.0";
 
+    /// <summary>The release tag the build script wrote in (a1.7, b1.0), when there is one.</summary>
+    public static string Release { get; } = ReadRelease();
+
+    static string ReadRelease()
+    {
+        // The SDK appends the commit (+abcdef) in a development build, so compare and show only the
+        // label before it; a plain 1.0.0 is not a release tag and keeps the Alpha fallback.
+        var label = typeof(Installer).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?.Split('+')[0].Trim();
+        return string.IsNullOrEmpty(label) || string.Equals(label, Version, StringComparison.OrdinalIgnoreCase)
+            ? ""
+            : label;
+    }
+
     /// <summary>
-    /// The version as the operator knows it — Alpha 1.2.0. Display only: the registry, the install
-    /// marker and the updater keep comparing the numeric <see cref="Version"/>, so a label can
-    /// never make a build look older or newer than it is.
+    /// The version as the operator knows it — a1.7, b1.0, or Alpha 1.2.0 for an older build with no
+    /// release label. Display only: the registry, the install marker and the updater keep comparing
+    /// the numeric <see cref="Version"/>, so a label can never make a build look older or newer.
     /// </summary>
-    public static string DisplayVersion => $"Alpha {Version}";
+    public static string DisplayVersion => Release.Length > 0 ? Release : $"Alpha {Version}";
 
     static readonly string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ScorePlus";
     static readonly string AppKey = @"Software\ScorePlus";

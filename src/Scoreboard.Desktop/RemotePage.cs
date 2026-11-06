@@ -63,6 +63,7 @@ public static class RemotePage
         .flag.on{border-color:#1d6b56;background:#0f2b24}
         .flag.on .state{color:#38d7a3}
         .muted{color:#5c6b7e;font-size:11px;padding:2px}
+        .groupHead{grid-column:1/-1;color:#38d7a3;font-size:10px;font-weight:700;letter-spacing:.05em;padding:5px 2px 1px;border-bottom:1px solid #1d2632}
         .poss{display:grid;grid-template-columns:1fr 1fr;gap:6px}
         .poss button{min-height:44px}
         .poss button.on{background:#123c33;border-color:#14a67c;color:#c9f7e8}
@@ -73,6 +74,14 @@ public static class RemotePage
         .live-off{background:#2a1720;border-color:#5b2634;color:#ffd7df}
         .flash{position:fixed;left:0;right:0;bottom:0;background:#111a24;border-top:1px solid #2b394a;color:#9fb0c4;font-size:11px;padding:7px 12px;text-align:center;opacity:0;transition:opacity .2s}
         .flash.show{opacity:1}
+        .statEdit{display:flex;align-items:center;gap:6px;margin-top:6px}
+        .statEdit .l{flex:1 1 auto;font-size:11px;color:#9fb0c4;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .statEdit input{width:72px;text-align:center;font-weight:800}
+        .statEdit button{min-width:42px}
+        #lockScreen{position:fixed;inset:0;z-index:50;background:rgba(5,8,12,.94);display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
+        #lockScreen .box{max-width:340px;background:#131a24;border:1px solid #5b2634;border-radius:14px;padding:22px}
+        #lockScreen h2{font-size:15px;letter-spacing:1.4px;margin:0 0 8px;color:#ffd7df}
+        #lockScreen p{color:#9fb0c4;font-size:12px;line-height:1.5;margin:0}
         .login{max-width:360px;margin:60px auto;padding:22px;background:#131a24;border:1px solid #1f2a37;border-radius:14px}
         .login .brand{height:54px;margin:0 auto 12px;display:block}
         .login h2{font-size:15px;letter-spacing:1.4px;margin:0 0 6px}
@@ -117,6 +126,7 @@ public static class RemotePage
             body: new URLSearchParams(body)
           }).then(r => {
             if (r.status === 401) { location = '/'; return null; }
+            if (r.status === 423) { poll(); return null; }
             return r.json();
           }).then(result => {
             if (!result) return;
@@ -341,6 +351,8 @@ public static class RemotePage
         }
 
         function renderPenalty(state) {
+          const card = $('penaltyCard');
+          if (card) card.style.display = (state.penaltyTypes || []).length ? '' : 'none';
           if (!state.penalty) return;
           penaltySide = state.penalty.home ? 'home' : 'away';
           const flag = $('penaltyFlag');
@@ -413,6 +425,8 @@ public static class RemotePage
           renderControls(state);
           renderStats(state);
           renderPenalty(state);
+          var lock = $('lockScreen');
+          if (lock) lock.hidden = !state.locked;
         }
 
         async function poll() {
@@ -606,8 +620,10 @@ public static class RemotePage
           </div>
           <div class="muted" id="rosterName">—</div>
           <div class="grid" id="rosterList"></div>
+          <div id="playerStats"></div>
         </div>
 
+        <div id="lockScreen" hidden><div class="box"><h2>SCOREPLUS LOCKED</h2><p>The operator has locked the console, media, rosters and remote. Ask them to unlock ScorePlus on the desktop.</p></div></div>
         <div class="flash" id="flash"></div>
         """;
 
@@ -669,7 +685,10 @@ public static class RemotePage
         .tab.active{background:#16382f;border-color:#38d7a3;color:#eaf7f2}
         [hidden]{display:none!important}
         .mediaRow{display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #1d2632}
-        .mediaRow button{flex:1 1 auto;text-align:left}
+        /* A long clip or player name gets the room and ends in an ellipsis; the Air button keeps its
+           own width instead of squeezing the name off the row. */
+        .mediaRow button{flex:1 1 auto;text-align:left;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .mediaRow button:last-child{flex:0 0 auto}
         </style>
         <script>
         (function(){
@@ -677,6 +696,7 @@ public static class RemotePage
           var cards=[].slice.call(document.querySelectorAll('.card'));
           var consoleCards=cards.filter(function(c){return c.id!=='mediaCard'&&c.id!=='rosterCard';});
           var side='home';
+          var editPlayer='';
           function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
           function post(url,body){
             return fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},credentials:'same-origin',body:new URLSearchParams(body)});
@@ -720,13 +740,50 @@ public static class RemotePage
                 b.onclick=function(){post('/api/roster/action',{a:'roster',side:side,id:r.id}).then(loadRoster);};
                 list.appendChild(b);
               });
-              (sideData.players||[]).forEach(function(p){
-                var b=el('button','small'+(p.selected?' plus':''),(p.number?p.number+'  ':'')+p.name);
-                b.onclick=function(){post('/api/roster/action',{a:'player',side:side,id:p.id}).then(loadRoster);};
-                list.appendChild(b);
+              var players=(sideData.players||[]).slice().sort(function(a,b){
+                return String(a.group||'').localeCompare(String(b.group||''));
+              });
+              var lastGroup=null;
+              players.forEach(function(p){
+                var group=(p.group||'').trim();
+                if(group!==lastGroup){list.appendChild(el('div','groupHead',group?group.toUpperCase():'UNGROUPED'));lastGroup=group;}
+                var row=el('div','mediaRow');
+                var b=el('button','small',(p.number?p.number+'  ':'')+p.name);
+                b.onclick=function(){editPlayer=p.id;loadRoster();};
+                var air=el('button','small'+(p.selected?' plus':''),p.selected?'ON AIR':'Air');
+                air.onclick=function(){post('/api/roster/action',{a:'player',side:side,id:p.id}).then(loadRoster);};
+                row.appendChild(b);row.appendChild(air);list.appendChild(row);
               });
               if(!(sideData.players||[]).length)list.appendChild(el('div','muted','Pick a roster to list its players.'));
+              var editing=(sideData.players||[]).find(function(p){return p.id===editPlayer;})
+                ||(sideData.players||[]).find(function(p){return p.selected;})
+                ||(sideData.players||[])[0];
+              if(editing)editPlayer=editing.id;
+              renderPlayerStats(side,editing);
             });
+          }
+          function renderPlayerStats(side,player){
+            var host=document.getElementById('playerStats');
+            if(!host)return;
+            host.innerHTML='';
+            if(!player){host.appendChild(el('div','muted','Pick a player to edit their stats.'));return;}
+            host.appendChild(el('div','muted','EDIT STATS — '+((player.number?player.number+'  ':'')+player.name)));
+            (player.stats||[]).forEach(function(s){
+              var row=el('div','statEdit');
+              row.appendChild(el('span','l',s.name));
+              var minus=el('button','small minus','−');
+              var input=el('input');input.type='number';input.inputMode='numeric';input.value=s.value;
+              var plus=el('button','small plus','+');
+              function save(value){
+                post('/api/roster/action',{a:'stat',side:side,id:player.id,stat:s.name,value:value}).then(loadRoster);
+              }
+              minus.onclick=function(){save(Math.max(0,(parseInt(s.value,10)||0)-1));};
+              plus.onclick=function(){save((parseInt(s.value,10)||0)+1);};
+              input.onchange=function(){var value=parseInt(input.value,10);if(!isNaN(value))save(value);};
+              row.appendChild(minus);row.appendChild(input);row.appendChild(plus);
+              host.appendChild(row);
+            });
+            if(!(player.stats||[]).length)host.appendChild(el('div','muted','This player has no stat columns yet.'));
           }
           tabs.forEach(function(t){t.addEventListener('click',function(){show(t.dataset.tab);});});
           document.getElementById('mediaToggle').onclick=function(){post('/api/media/action',{a:'toggle'}).then(loadMedia);};

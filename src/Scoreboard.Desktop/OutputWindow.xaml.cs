@@ -39,9 +39,14 @@ public partial class OutputWindow : Window
         _displayState.ClockSeconds=source.ClockSeconds;_displayState.ClockRunning=source.ClockRunning;
         _displayState.Period=source.Period;_displayState.HomeTimeouts=source.HomeTimeouts;
         _displayState.AwayTimeouts=source.AwayTimeouts;_displayState.HomePossession=source.HomePossession;
-        _displayState.Down=source.Down;_displayState.YardsToGo=source.YardsToGo;
+        _displayState.Down=source.Down;_displayState.YardsToGo=source.YardsToGo;_displayState.DownPending=source.DownPending;
+        // Team marks are part of the live picture: without these the audience kept the old crest.
+        _displayState.HomeLogoPath=source.HomeLogoPath;_displayState.AwayLogoPath=source.AwayLogoPath;
+        _displayState.HomePrimaryColor=source.HomePrimaryColor;_displayState.AwayPrimaryColor=source.AwayPrimaryColor;
+        _displayState.HomeSecondaryColor=source.HomeSecondaryColor;_displayState.AwaySecondaryColor=source.AwaySecondaryColor;
         _displayState.YardsToGoal=source.YardsToGoal;_displayState.BallOnHomeSide=source.BallOnHomeSide;
         _displayState.ShotClockSeconds=source.ShotClockSeconds;_displayState.ShotClockRunning=source.ShotClockRunning;
+        _displayState.StoppageSeconds=source.StoppageSeconds;_displayState.StoppageRunning=source.StoppageRunning;
         _displayState.PlayClockSeconds=source.PlayClockSeconds;_displayState.PlayClockRunning=source.PlayClockRunning;
         _displayState.TimeoutClockSeconds=source.TimeoutClockSeconds;_displayState.TimeoutClockRunning=source.TimeoutClockRunning;
         _displayState.HomeFouls=source.HomeFouls;_displayState.AwayFouls=source.AwayFouls;
@@ -54,8 +59,16 @@ public partial class OutputWindow : Window
         _displayState.HomeScore=source.HomeScore;_displayState.AwayScore=source.AwayScore;
         _displayState.HomeTeam=source.HomeTeam;_displayState.AwayTeam=source.AwayTeam;
         _displayState.HomeAbbreviation=source.HomeAbbreviation;_displayState.AwayAbbreviation=source.AwayAbbreviation;
+        _displayState.HomeLogoPath=source.HomeLogoPath;_displayState.AwayLogoPath=source.AwayLogoPath;
+        _displayState.HomePrimaryColor=source.HomePrimaryColor;_displayState.AwayPrimaryColor=source.AwayPrimaryColor;
+        _displayState.HomeSecondaryColor=source.HomeSecondaryColor;_displayState.AwaySecondaryColor=source.AwaySecondaryColor;
+        // The new down goes up as soon as it changes, but the distance stays as it was until the
+        // operator publishes. Keep the pending flag on air until Publish() reloads the whole state,
+        // so typing the distance does not put a half-updated "2nd & 10" on screen.
+        if(source.DownPending){_displayState.Down=source.Down;_displayState.DownPending=true;}
         _displayState.ClockSeconds=source.ClockSeconds;_displayState.ClockRunning=source.ClockRunning;_displayState.ClockCountsUp=source.ClockCountsUp;
         _displayState.ShotClockSeconds=source.ShotClockSeconds;_displayState.ShotClockRunning=source.ShotClockRunning;
+        _displayState.StoppageSeconds=source.StoppageSeconds;_displayState.StoppageRunning=source.StoppageRunning;
         _displayState.PlayClockSeconds=source.PlayClockSeconds;_displayState.PlayClockRunning=source.PlayClockRunning;
         _displayState.TimeoutClockSeconds=source.TimeoutClockSeconds;_displayState.TimeoutClockRunning=source.TimeoutClockRunning;
         // Player data goes live with the score, so a substitution prints on air immediately.

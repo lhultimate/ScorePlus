@@ -10,8 +10,19 @@ public partial class App : Application
 {
     // Held for the life of the process; the OS releases it when ScorePlus exits.
     static Mutex? _singleInstance;
+
+#if DEBUG
+    /// <summary>Set by the UI smoke harness before its first dispatcher pump; the suite drives its own windows.</summary>
+    public static bool SuppressStartupForSmoke { get; set; }
+#endif
+
     protected override void OnStartup(StartupEventArgs e)
     {
+#if DEBUG
+        // Release builds never carry this hook: it exists only so the smoke suite can pump the real
+        // app's dispatcher without opening the launch box and blocking on an operator click.
+        if (SuppressStartupForSmoke) return;
+#endif
         // Media decoders and other native components can fail on threads the dispatcher never
         // sees. Log those too, so a window that closes on its own leaves a trace to diagnose.
         // F11 belongs to the application, not to one window: the studio, output, media panel and

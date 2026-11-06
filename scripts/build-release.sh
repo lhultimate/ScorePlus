@@ -17,10 +17,18 @@ if [[ -z "$NUMERIC" ]]; then
 fi
 IFS='.' read -r -a PARTS <<< "$NUMERIC"
 while [[ ${#PARTS[@]} -lt 3 ]]; do PARTS+=("0"); done
+# The numeric major is the release stage: alpha keeps its own major (a1.7 = 1.70.0), beta lives
+# above every alpha (b1.0 = 2.0.0), and c/stable lives above beta (c1.0 = 3.0.0). An older alpha
+# updater only understands numbers, so this is what lets it see b1.0 as newer.
+STAGE="${PARTS[0]}"
+case "$VERSION" in
+  b*|B*|beta*|Beta*) STAGE=2 ;;
+  c*|C*|stable*|Stable*) STAGE=3 ;;
+esac
 # A one-digit minor is read as a two-digit one, so a1.6 (1.60.0) sorts after a1.51 (1.51.0)
 # rather than before it. The updater applies the same rule to release tags.
 if [[ ${#PARTS[1]} -eq 1 ]]; then PARTS[1]="${PARTS[1]}0"; fi
-NUMERIC="${PARTS[0]}.${PARTS[1]}.${PARTS[2]}"
+NUMERIC="${STAGE}.${PARTS[1]}.${PARTS[2]}"
 if [[ ! "$NUMERIC" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Release must look like a1.1 or 1.0.0 (got '$VERSION')." >&2
   exit 1
@@ -63,6 +71,7 @@ PY
 dotnet publish "$ROOT/src/ScorePlus.Setup/ScorePlus.Setup.csproj" \
   -c Release -r win-x64 --self-contained true \
   -p:Version="$NUMERIC" -p:AssemblyVersion="$NUMERIC.0" -p:FileVersion="$NUMERIC.0" \
+  -p:InformationalVersion="$VERSION" \
   -o "$SETUP_BUILD" -v minimal
 
 # Releases always carry the same two assets: ScorePlusPortable (run it from anywhere) and

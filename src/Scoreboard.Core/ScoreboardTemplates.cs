@@ -60,10 +60,16 @@ public static class ScoreboardTemplates
         .Replace("{{AWAY_SCORE}}", state.AwayScore.ToString())
         .Replace("{{PERIOD}}", PeriodDisplay.Format(state, periodFormat).ToUpperInvariant())
         .Replace("{{GAME_CLOCK}}", GameEngine.FormatClock(state.ClockSeconds))
+        .Replace("{{STOPPAGE}}", GameEngine.FormatClock(state.StoppageSeconds))
         .Replace("{{PLAY_CLOCK}}", state.PlayClockSeconds.ToString())
         .Replace("{{TIMEOUT_CLOCK}}", GameEngine.FormatClock(state.TimeoutClockSeconds))
         .Replace("{{TIMEOUTS}}", $"TOL {state.HomeTimeouts}–{state.AwayTimeouts}")
         .Replace("{{POSSESSION}}", state.HomePossession ? state.HomeAbbreviation : state.AwayAbbreviation)
+        // A flag's own words: empty unless a flag is down, so an icon bound to {{PENALTY_TYPE}}
+        // arrives with the flag and leaves when it is cleared.
+        .Replace("{{PENALTY_TYPE}}", state.PenaltyActive ? state.PenaltyType : string.Empty)
+        .Replace("{{PENALTY_TEAM}}", state.PenaltyActive ? (state.PenaltyHome ? state.HomeTeam : state.AwayTeam) : string.Empty)
+        .Replace("{{PENALTY}}", state.PenaltyActive ? $"{(state.PenaltyHome ? state.HomeTeam : state.AwayTeam)} — {state.PenaltyType}" : string.Empty)
         .Replace("{{DOWN}}", $"{state.Down}{Ordinal(state.Down)}")
         .Replace("{{TO_GO}}", state.YardsToGo.ToString())
         // The ball spot is a plain yard line (0-50) with its own side, independent of possession.
@@ -71,7 +77,8 @@ public static class ScoreboardTemplates
         .Replace("{{BALL_SIDE}}", state.BallOnHomeSide ? state.HomeAbbreviation : state.AwayAbbreviation)
         .Replace("{{BALL_TEAM}}", state.BallOnHomeSide ? state.HomeTeam : state.AwayTeam)
         .Replace("{{BALL_SIDE_SPOT}}", $"{(state.BallOnHomeSide ? state.HomeAbbreviation : state.AwayAbbreviation)} {state.YardsToGoal}")
-        .Replace("{{DOWNS}}", $"{state.Down}{Ordinal(state.Down)} & {state.YardsToGo}")
+        // Next down shows the new down alone until the distance catches up, then 2nd & 4.
+        .Replace("{{DOWNS}}", state.DownPending ? $"{state.Down}{Ordinal(state.Down)} Down" : $"{state.Down}{Ordinal(state.Down)} & {state.YardsToGo}")
         .Replace("{{BALL_SPOT}}", $"BALL {state.YardsToGoal}")
         .Replace("{{SPORT}}", state.SportId.ToUpperInvariant())
         .Replace("{{YARDS_TO_GO}}", state.YardsToGo.ToString())
@@ -87,6 +94,12 @@ public static class ScoreboardTemplates
         .Replace("{{BASEBALL_COUNT}}", $"{state.Balls}-{state.Strikes} · {state.Outs} OUT")
         .Replace("{{HITS}}", $"{state.HomeHits}–{state.AwayHits}")
         .Replace("{{CARDS}}", $"Y{state.HomeYellowCards}/{state.AwayYellowCards} R{state.HomeRedCards}/{state.AwayRedCards}")
+        // Per-side card counts. Empty at zero, so an icon bound to one appears only once that
+        // team has actually been shown the card.
+        .Replace("{{HOME_YELLOW}}", state.HomeYellowCards == 0 ? string.Empty : state.HomeYellowCards.ToString())
+        .Replace("{{AWAY_YELLOW}}", state.AwayYellowCards == 0 ? string.Empty : state.AwayYellowCards.ToString())
+        .Replace("{{HOME_RED}}", state.HomeRedCards == 0 ? string.Empty : state.HomeRedCards.ToString())
+        .Replace("{{AWAY_RED}}", state.AwayRedCards == 0 ? string.Empty : state.AwayRedCards.ToString())
         .Replace("{{SHOTS}}", $"{state.HomeShots}–{state.AwayShots}")
         .Replace("{{CORNERS}}", $"{state.HomeCorners}–{state.AwayCorners}")
         // The classics by name, so a hand-typed binding works as well as the studio's picker.

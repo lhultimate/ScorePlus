@@ -15,15 +15,15 @@ public sealed record SportDefinition(string Id, string Name, string Unit, int Pe
     public static IReadOnlyList<SportDefinition> BuiltIns { get; } = new[]
     {
         new SportDefinition("football", "American Football", "Quarter", 4, 15 * 60, [1, 2, 3, 6, 7, 8], true, false, 3) { Controls = [.. SportControls.For("football")] },
-        new SportDefinition("australian-football", "Australian Football", "Quarter", 4, 20 * 60, [1, 2, 3, 6], false, false, 0) { Controls = [.. SportControls.For("australian-football")] },
-        new SportDefinition("baseball", "Baseball", "Inning", 9, 0, [1], false, true, 3) { Controls = [.. SportControls.For("baseball")] },
+        new SportDefinition("australian-football", "Australian Football", "Quarter", 4, 20 * 60, [1, 6], false, false, 0) { Controls = [.. SportControls.For("australian-football")] },
+        new SportDefinition("baseball", "Baseball", "Inning", 9, 0, [1], false, true, 0) { Controls = [.. SportControls.For("baseball")] },
         new SportDefinition("basketball", "Basketball", "Quarter", 4, 12 * 60, [1, 2, 3], true, false, 5) { Controls = [.. SportControls.For("basketball")] },
-        new SportDefinition("cricket", "Cricket", "Innings", 2, 0, [1, 2, 3, 4, 6], false, true, 0) { Controls = [.. SportControls.For("cricket")] },
-        new SportDefinition("hockey", "Hockey", "Period", 3, 20 * 60, [1], true, false, 1) { Controls = [.. SportControls.For("hockey")] },
+        new SportDefinition("cricket", "Cricket", "Innings", 2, 0, [1, 2, 3, 4, 5, 6], false, true, 0) { Controls = [.. SportControls.For("cricket")] },
+        new SportDefinition("hockey", "Hockey", "Period", 3, 20 * 60, [1], false, false, 1) { Controls = [.. SportControls.For("hockey")] },
         new SportDefinition("lacrosse", "Lacrosse", "Quarter", 4, 12 * 60, [1], true, false, 3) { Controls = [.. SportControls.For("lacrosse")] },
         new SportDefinition("rugby", "Rugby", "Half", 2, 40 * 60, [2, 3, 5, 7], false, false, 3) { Controls = [.. SportControls.For("rugby")] },
-        new SportDefinition("soccer", "Soccer", "Half", 2, 45 * 60, [1], false, false, 5) { Controls = [.. SportControls.For("soccer")] },
-        new SportDefinition("tennis", "Tennis", "Set", 3, 0, [1], false, true, 3) { Controls = [.. SportControls.For("tennis")] },
+        new SportDefinition("soccer", "Soccer", "Half", 2, 45 * 60, [1], false, true, 0) { Controls = [.. SportControls.For("soccer")] },
+        new SportDefinition("tennis", "Tennis", "Set", 3, 0, [1], false, true, 0) { Controls = [.. SportControls.For("tennis")] },
         new SportDefinition("volleyball", "Volleyball", "Set", 5, 0, [1], false, true, 2) { Controls = [.. SportControls.For("volleyball")] },
         new SportDefinition("wrestling", "Wrestling", "Period", 3, 3 * 60, [1, 2, 3], false, false, 0) { Controls = [.. SportControls.For("wrestling")] },
         // The blank starting point: everything editable in Sport Profiles.
@@ -81,6 +81,10 @@ public sealed class GameState
     public int AwayFouls { get; set; }
     public bool HomePossession { get; set; } = true;
     public int ClockSeconds { get; set; } = 720;
+
+    /// <summary>Soccer's added time, accrued by its own start/stop clock: how long the match runs past 90:00.</summary>
+    public int StoppageSeconds { get; set; }
+    public bool StoppageRunning { get; set; }
     public int PlayClockSeconds { get; set; } = 40;
     public int TimeoutClockSeconds { get; set; } = 60;
     public int PeriodSeconds { get; set; } = 720;
@@ -104,6 +108,12 @@ public sealed class GameState
     public bool PenaltyActive { get; set; }
     public string PenaltyType { get; set; } = "Holding";
     public bool PenaltyHome { get; set; } = true;
+
+    /// <summary>
+    /// True between Next down and the moment the new distance is set or published, so the graphic
+    /// can read "2nd Down" instead of printing the previous series' distance beside it.
+    /// </summary>
+    public bool DownPending { get; set; }
     public int Balls { get; set; }
     public int Strikes { get; set; }
     public int Outs { get; set; }
@@ -148,12 +158,18 @@ public sealed class GameState
     /// <summary>The colour behind a team palette slot, or null for a fixed colour.</summary>
     public string? ColorFor(ScorebugColorSource source) => source switch
     {
-        ScorebugColorSource.HomePrimary => HomePrimaryColor,
-        ScorebugColorSource.HomeSecondary => HomeSecondaryColor,
-        ScorebugColorSource.AwayPrimary => AwayPrimaryColor,
-        ScorebugColorSource.AwaySecondary => AwaySecondaryColor,
+        ScorebugColorSource.HomePrimary => Blank(HomePrimaryColor),
+        ScorebugColorSource.HomeSecondary => Blank(HomeSecondaryColor),
+        ScorebugColorSource.AwayPrimary => Blank(AwayPrimaryColor),
+        ScorebugColorSource.AwaySecondary => Blank(AwaySecondaryColor),
         _ => null
     };
+
+    /// <summary>
+    /// An unset team colour is no colour at all: returning the empty string made every resolver
+    /// treat it as a real value and paint the element transparent instead of using its own colour.
+    /// </summary>
+    static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     public string? LogoFor(ScorebugLogoSide side) => side switch
     {
@@ -171,9 +187,79 @@ public sealed class GameEngine
     /// <summary>What a flag can be for. Free text is not offered: a penalty is picked, never typed.</summary>
     public static readonly string[] PenaltyTypes =
     [
-        "Holding", "Offside", "Handball", "Foul", "Tripping", "Sliding", "Obstruction",
-        "Unsportsmanlike", "Dissent", "Yellow card", "Red card", "Other"
+        "Offside", "False start", "Encroachment", "Neutral zone infraction", "Delay of game",
+        "Illegal formation", "Illegal shift", "Illegal motion", "Ineligible receiver downfield",
+        "Illegal block", "Holding", "Illegal use of hands", "Face mask", "Horse-collar tackle",
+        "Personal foul", "Roughing the passer", "Roughing the kicker", "Running into the kicker",
+        "Pass interference", "Defensive holding", "Illegal contact", "Intentional grounding",
+        "Chop block", "Clipping", "Tripping", "Targeting", "Helmet-to-helmet",
+        "Unnecessary roughness", "Unsportsmanlike conduct", "Taunting", "Too many men on the field",
+        "Illegal substitution", "Kick catch interference", "Fair catch interference", "Leaping", "Other"
     ];
+
+    /// <summary>Flags offered for a sport, from that sport's own rulebook; empty when it has none.</summary>
+    public static string[] PenaltyTypesFor(string? sportId) =>
+        sportId is not null && PenaltyTypesBySport.TryGetValue(sportId, out var types) ? types : [];
+
+    static readonly Dictionary<string, string[]> PenaltyTypesBySport = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["football"] = PenaltyTypes,
+        ["australian-football"] =
+        [
+            "Holding the ball", "Throw", "Deliberate out of bounds", "Push in the back", "High tackle",
+            "Rough conduct", "Interference", "50-metre penalty", "Reportable offence", "Other"
+        ],
+        ["baseball"] =
+        [
+            "Balk", "Catcher's interference", "Batter interference", "Runner interference", "Obstruction",
+            "Illegal pitch", "Hit by pitch", "Unsportsmanlike conduct", "Ejection", "Other"
+        ],
+        ["basketball"] =
+        [
+            "Personal foul", "Shooting foul", "Offensive foul", "Team foul", "Technical foul",
+            "Flagrant foul", "Defensive three seconds", "Delay of game", "Unsportsmanlike conduct", "Other"
+        ],
+        ["cricket"] =
+        [
+            "No-ball", "Wide", "Bye", "Leg bye", "Dead ball", "Obstruction", "Hit wicket",
+            "Time wasting", "Dangerous play", "Unsportsmanlike conduct", "Other"
+        ],
+        ["hockey"] =
+        [
+            "Green card", "Yellow card", "Red card", "Penalty corner", "Penalty stroke", "Obstruction",
+            "Stick tackle", "Back of stick", "Foot", "Dangerous play", "Other"
+        ],
+        ["lacrosse"] =
+        [
+            "Slash", "Tripping", "Cross-check", "Illegal body check", "Holding", "Push", "Interference",
+            "Offside", "Unsportsmanlike conduct", "Ejection", "Other"
+        ],
+        ["rugby"] =
+        [
+            "High tackle", "Offside", "Not releasing", "Not rolling away", "Scrum infringement",
+            "Lineout infringement", "Dangerous play", "Foul play", "Deliberate knock-on", "Dissent", "Other"
+        ],
+        ["soccer"] =
+        [
+            "Foul", "Offside", "Handball", "Penalty kick", "Free kick", "Throw-in", "Corner", "Goal kick",
+            "Yellow card", "Red card", "Simulation", "Dissent", "Other"
+        ],
+        ["tennis"] =
+        [
+            "Code violation", "Warning", "Point penalty", "Game penalty", "Default", "Hindrance",
+            "Coaching", "Racquet abuse", "Unsportsmanlike conduct", "Other"
+        ],
+        ["volleyball"] =
+        [
+            "Double hit", "Lift", "Net touch", "Foot fault", "Rotation fault", "Delay",
+            "Unsportsmanlike conduct", "Red card", "Other"
+        ],
+        ["wrestling"] =
+        [
+            "Stalling", "Fleeing", "Illegal hold", "Caution", "Injury time", "Blood time",
+            "Unsportsmanlike conduct", "Other"
+        ]
+    };
 
     static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     readonly Stopwatch _watch = Stopwatch.StartNew();
@@ -194,7 +280,11 @@ public sealed class GameEngine
     public void NewGame(string sportId)
     {
         var sport = Sports.Find(sportId) ?? SportDefinition.BuiltIns[^1];
-        State = new GameState { SportId = sport.Id, ClockSeconds = sport.PeriodSeconds, PeriodSeconds = sport.PeriodSeconds, TotalPeriods = sport.Periods, PeriodLabel = sport.Unit, ScoringOptions = sport.ScoringOptions.ToArray(), ClockCountsUp = sport.CountUp, HomeTimeouts = sport.Timeouts, AwayTimeouts = sport.Timeouts, PlayClockSeconds = 40, TimeoutClockSeconds = 60, Controls = sport.Controls.Select(c => c with { }).ToList() };
+        State = new GameState { SportId = sport.Id, // Soccer counts up from 0:00 to the goal time (90:00 for two 45-minute halves).
+        ClockCountsUp = sport.CountUp || sport.Id == "soccer",
+        // Soccer alone opens at 0:00 (it counts to 90:00); every other sport keeps its clock preset.
+        ClockSeconds = sport.Id == "soccer" ? 0 : sport.PeriodSeconds,
+        PeriodSeconds = sport.PeriodSeconds, TotalPeriods = sport.Periods, PeriodLabel = sport.Unit, ScoringOptions = sport.ScoringOptions.ToArray(), HomeTimeouts = sport.Timeouts, AwayTimeouts = sport.Timeouts, PlayClockSeconds = 40, TimeoutClockSeconds = 60, Controls = sport.Controls.Select(c => c with { }).ToList() };
         // A profile's starting values (a full count of balls to start, a power play already on) are
         // what a new game opens with; stepping them afterwards changes only this game.
         foreach (var control in State.Controls)
@@ -310,6 +400,36 @@ public sealed class GameEngine
 
     public void AdjustClock(int seconds) => SetClock(State.ClockSeconds + seconds);
 
+    /// <summary>Starts or stops soccer's stoppage clock. Its total is how long the clock runs past 90:00.</summary>
+    public void ToggleStoppageClock()
+    {
+        if (State.SportId != "soccer") return;
+        Tick(); SaveUndo("Stoppage clock");
+        State.StoppageRunning = !State.StoppageRunning;
+        _lastTick = _watch.ElapsedTicks;
+        Log("Stoppage", State.StoppageRunning ? "Stoppage clock started" : $"Stoppage clock stopped at {FormatClock(State.StoppageSeconds)}");
+        Changed?.Invoke();
+    }
+
+    public void AdjustStoppageClock(int seconds)
+    {
+        if (State.SportId != "soccer") return;
+        Tick(); SaveUndo("Stoppage time");
+        State.StoppageSeconds = Math.Clamp(State.StoppageSeconds + seconds, 0, 59 * 60);
+        Log("Stoppage", $"Stoppage time {FormatClock(State.StoppageSeconds)}");
+        Changed?.Invoke();
+    }
+
+    public void ResetStoppageClock()
+    {
+        if (State.SportId != "soccer") return;
+        Tick(); SaveUndo("Stoppage time");
+        State.StoppageSeconds = 0;
+        State.StoppageRunning = false;
+        Log("Stoppage", "Stoppage time cleared");
+        Changed?.Invoke();
+    }
+
     public void Tick()
     {
         if (HardwareControlled) { _lastTick = _watch.ElapsedTicks; return; }
@@ -319,12 +439,26 @@ public sealed class GameEngine
         _lastTick += (long)elapsed * Stopwatch.Frequency;
         // Every clock counts: a play or timeout clock that expires on its own must still raise the
         // event, or the panel never repaints the final 0.
-        var wasRunning = State.ClockRunning || State.ShotClockRunning || State.PlayClockRunning || State.TimeoutClockRunning;
+        var wasRunning = State.ClockRunning || State.StoppageRunning || State.ShotClockRunning || State.PlayClockRunning || State.TimeoutClockRunning;
         if (State.ClockRunning)
         {
-            State.ClockSeconds = State.ClockCountsUp ? State.ClockSeconds + elapsed : Math.Max(0, State.ClockSeconds - elapsed);
-            if (State.ClockSeconds == 0 && !State.ClockCountsUp) { State.ClockRunning = false; Log("Clock", "Period ended"); }
+            if (State.ClockCountsUp)
+            {
+                State.ClockSeconds += elapsed;
+                // Soccer runs past the goal time by exactly the added time accrued on the stoppage
+                // clock, then stops: 90:00 + whatever stoppage was played.
+                var limit = State.SportId == "soccer"
+                    ? State.PeriodSeconds * Math.Max(1, State.TotalPeriods) + Math.Max(0, State.StoppageSeconds)
+                    : int.MaxValue;
+                if (State.ClockSeconds >= limit) { State.ClockSeconds = limit; State.ClockRunning = false; Log("Clock", "Full time"); }
+            }
+            else
+            {
+                State.ClockSeconds = Math.Max(0, State.ClockSeconds - elapsed);
+                if (State.ClockSeconds == 0) { State.ClockRunning = false; Log("Clock", "Period ended"); }
+            }
         }
+        if (State.StoppageRunning) State.StoppageSeconds = Math.Min(59 * 60, State.StoppageSeconds + elapsed);
         if (State.ShotClockRunning)
         {
             State.ShotClockSeconds = Math.Max(0, State.ShotClockSeconds - elapsed);
@@ -341,12 +475,15 @@ public sealed class GameEngine
             if (State.TimeoutClockSeconds == 0) { State.TimeoutClockRunning = false; Log("Timeout clock", "Timeout clock expired"); }
         }
         // Only notify the UI when a running clock actually advanced, so idle ticks cost nothing.
-        if (wasRunning || State.ClockRunning || State.ShotClockRunning || State.PlayClockRunning || State.TimeoutClockRunning) Changed?.Invoke();
+        if (wasRunning || State.ClockRunning || State.StoppageRunning || State.ShotClockRunning || State.PlayClockRunning || State.TimeoutClockRunning) Changed?.Invoke();
     }
 
     public void NextPeriod()
     {
-        SaveUndo("Period"); State.Period++; State.ClockSeconds = State.PeriodSeconds; State.ClockRunning = false;
+        SaveUndo("Period"); State.Period++;
+        // Soccer's clock runs 0–90 across both halves; it does not restart at 45:00.
+        if (State.SportId != "soccer") State.ClockSeconds = State.PeriodSeconds;
+        State.ClockRunning = false;
         Log("Period", $"{State.PeriodLabel} {State.Period}"); Changed?.Invoke();
     }
 
@@ -361,7 +498,9 @@ public sealed class GameEngine
     public void PreviousPeriod()
     {
         if (State.Period <= 1) return;
-        SaveUndo("Period"); State.Period--; State.ClockSeconds = State.PeriodSeconds; State.ClockRunning = false;
+        SaveUndo("Period"); State.Period--;
+        if (State.SportId != "soccer") State.ClockSeconds = State.PeriodSeconds;
+        State.ClockRunning = false;
         Log("Period", $"{State.PeriodLabel} {State.Period}"); Changed?.Invoke();
     }
 
@@ -369,7 +508,8 @@ public sealed class GameEngine
 
     public void SetPossession(bool home) { if (State.HomePossession == home) return; SaveUndo("Possession"); State.HomePossession = home; Log("Possession", $"{(home ? State.HomeTeam : State.AwayTeam)} possession"); Changed?.Invoke(); }
 
-    public void SetDown(int down) { if (State.SportId != "football") return; var value = Math.Clamp(down, 1, 4); if (State.Down == value) return; SaveUndo("Down"); State.Down = value; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
+    public void SetDown(int down) { if (State.SportId != "football") return; var value = Math.Clamp(down, 1, 4); if (State.Down == value) return; SaveUndo("Down"); // A typed down goes up at once too; the distance stays until it is set.
+        State.DownPending = DownPreviewEnabled; State.Down = value; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
 
     public void SetTimeoutCount(bool home, int value)
     {
@@ -431,6 +571,7 @@ public sealed class GameEngine
     /// <summary>Called when the console publishes, so the down on air is remembered for recall.</summary>
     public void MarkPublished()
     {
+        State.DownPending = false;
         var current = (State.Down, State.YardsToGo, State.YardsToGoal);
         if (_publishedDown == current) return;
         _previousPublishedDown = _publishedDown;
@@ -453,7 +594,7 @@ public sealed class GameEngine
     public void RecallLastDown()
     {
         if (!CanRecallLastDown || _previousPublishedDown is not { } last) return;
-        SaveUndo("Recall last down");
+        SaveUndo("Recall last down"); State.DownPending = false;
         State.Down = last.Down;
         State.YardsToGo = last.YardsToGo;
         State.YardsToGoal = last.YardsToGoal;
@@ -461,12 +602,22 @@ public sealed class GameEngine
         Changed?.Invoke();
     }
 
-    public void AdvanceDown() { if (State.SportId != "football") return; SaveUndo("Down"); if (State.Down >= 4) { State.Down=1; State.YardsToGo=10; State.YardsToGoal=Math.Clamp(State.YardsToGoal-State.YardsToGo,0,50); } else State.Down++; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
-    public void PreviousDown() { if (State.SportId != "football") return; SaveUndo("Previous down"); if (State.Down > 1) State.Down--; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
-    public void NewSeries() { if (State.SportId != "football") return; SaveUndo("New series"); State.Down = 1; State.YardsToGo = 10; Log("Series", "New series · 1st & 10"); Changed?.Invoke(); }
+    /// <summary>Whether Next down shows the new down alone until the distance is set.</summary>
+    public static bool DownPreviewEnabled { get; set; }
+
+    /// <summary>When on, pressing New series also publishes it without Update Output.</summary>
+    public static bool NewSeriesLiveEnabled { get; set; }
+    bool _publishNewSeries;
+
+    public void AdvanceDown() { if (State.SportId != "football") return; SaveUndo("Down"); State.DownPending = DownPreviewEnabled; if (State.Down >= 4) { State.Down=1; State.YardsToGo=10; State.YardsToGoal=Math.Clamp(State.YardsToGoal-State.YardsToGo,0,50); } else State.Down++; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
+    public void PreviousDown() { if (State.SportId != "football") return; SaveUndo("Previous down"); State.DownPending = false; if (State.Down > 1) State.Down--; Log("Down", $"Down {State.Down}, {State.YardsToGo} to go"); Changed?.Invoke(); }
+    public void NewSeries() { if (State.SportId != "football") return; SaveUndo("New series"); State.DownPending = false; State.Down = 1; State.YardsToGo = 10; _publishNewSeries = NewSeriesLiveEnabled; Log("Series", "New series · 1st & 10"); Changed?.Invoke(); }
+
+    /// <summary>True once after New series asked to go straight to air; the host publishes it.</summary>
+    public bool TakePublishRequest() { var requested = _publishNewSeries; _publishNewSeries = false; return requested; }
     public void SetPeriodFormat(string format) { if(format is not ("Full" or "Short" or "Number" or "Ordinal"))return; if(State.QuarterDisplayFormat==format)return; SaveUndo("Period format"); State.QuarterDisplayFormat=format; Log("Period", $"Period display: {PeriodDisplay.Format(State)}"); Changed?.Invoke(); }
     /// <summary>Yard line is 0–50: a ball spot never goes past midfield, whichever team has it.</summary>
-    public void SetFootballDistance(int yardsToGo,int? yardsToGoal=null) { if (State.SportId != "football") return; SaveUndo("Football distance"); State.YardsToGo=Math.Clamp(yardsToGo,1,99); if(yardsToGoal is not null)State.YardsToGoal=Math.Clamp(yardsToGoal.Value,0,50); Log("Yards", $"{State.YardsToGo} to go, ball at {State.YardsToGoal}"); Changed?.Invoke(); }
+    public void SetFootballDistance(int yardsToGo,int? yardsToGoal=null) { if (State.SportId != "football") return; SaveUndo("Football distance"); State.DownPending = false; State.YardsToGo=Math.Clamp(yardsToGo,1,99); if(yardsToGoal is not null)State.YardsToGoal=Math.Clamp(yardsToGoal.Value,0,50); Log("Yards", $"{State.YardsToGo} to go, ball at {State.YardsToGoal}"); Changed?.Invoke(); }
 
     /// <summary>Which team's half the ball spot is on. Deliberately independent of possession.</summary>
     public void SetBallSide(bool home)
@@ -482,8 +633,11 @@ public sealed class GameEngine
     /// </summary>
     public void SetPenalty(bool active, string type, bool home)
     {
+        // Each sport brings its own flag list; a sport with no flags (Custom) never raises one.
+        var types = PenaltyTypesFor(State.SportId);
+        if (types.Length == 0) return;
         type = (type ?? "").Trim();
-        if (type.Length == 0) type = PenaltyTypes[0];
+        if (type.Length == 0) type = types[0];
         if (State.PenaltyActive == active && string.Equals(State.PenaltyType, type, StringComparison.Ordinal) && State.PenaltyHome == home) return;
         SaveUndo("Penalty");
         var was = State.PenaltyActive;
@@ -738,7 +892,7 @@ public sealed class GameEngine
         s.HomeTimeouts, s.AwayTimeouts, s.HomeFouls, s.AwayFouls, s.HomePossession,
         s.Down, s.YardsToGo, s.YardsToGoal, s.BallOnHomeSide,
         s.HomeYellowCards, s.AwayYellowCards, s.HomeRedCards, s.AwayRedCards,
-        s.PenaltyActive, s.PenaltyType, s.PenaltyHome,
+        s.PenaltyActive, s.PenaltyType, s.PenaltyHome, s.DownPending,
         s.Balls, s.Strikes, s.Outs, s.HomeHits, s.AwayHits,
         s.HomeYards, s.AwayYards, s.HomeTurnovers, s.AwayTurnovers,
         s.HomeShots, s.AwayShots, s.HomeCorners, s.AwayCorners,
@@ -925,7 +1079,9 @@ public sealed class GameEngine
             // Player data is live too: a substitution on the roster desk reprints the graphic at once.
             State.HomePlayerCleared == source.HomePlayerCleared && State.AwayPlayerCleared == source.AwayPlayerCleared &&
             PlayerSignature(State.HomePlayer) == PlayerSignature(source.HomePlayer) &&
-            PlayerSignature(State.AwayPlayer) == PlayerSignature(source.AwayPlayer)) return false;
+            PlayerSignature(State.AwayPlayer) == PlayerSignature(source.AwayPlayer) &&
+            // The new down goes on air at once when the preview is on; the distance waits for publish.
+            (!source.DownPending || (State.Down == source.Down && State.DownPending))) return false;
         State.HomeScore=source.HomeScore;State.AwayScore=source.AwayScore;
         State.HomeTeam=source.HomeTeam;State.AwayTeam=source.AwayTeam;
         State.HomeAbbreviation=source.HomeAbbreviation;State.AwayAbbreviation=source.AwayAbbreviation;
@@ -937,6 +1093,8 @@ public sealed class GameEngine
         State.ShotClockSeconds=source.ShotClockSeconds;State.ShotClockRunning=source.ShotClockRunning;
         State.PlayClockSeconds=source.PlayClockSeconds;State.PlayClockRunning=source.PlayClockRunning;
         State.TimeoutClockSeconds=source.TimeoutClockSeconds;State.TimeoutClockRunning=source.TimeoutClockRunning;
+        // Live: the down changes, the distance does not; the pending flag stays until publication.
+        if (source.DownPending) { State.Down=source.Down; State.DownPending=true; }
         State.HomePlayerCleared=source.HomePlayerCleared;State.AwayPlayerCleared=source.AwayPlayerCleared;
         State.HomePlayer=CopyPlayer(source.HomePlayer);State.AwayPlayer=CopyPlayer(source.AwayPlayer);
         Changed?.Invoke();

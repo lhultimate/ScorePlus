@@ -15,7 +15,7 @@ Check(SportDefinition.BuiltIns.Last().Name=="Custom"&&SportDefinition.BuiltIns.L
 var americanPreset=SportDefinition.BuiltIns.Single(s=>s.Id=="football");
 var australianPreset=SportDefinition.BuiltIns.Single(s=>s.Id=="australian-football");
 Check(americanPreset.ScoringOptions.SequenceEqual([1,2,3,6,7,8]),"American football offers its own scoring buttons (1, 2, 3, 6, 7, 8)");
-Check(australianPreset.ScoringOptions.SequenceEqual([1,2,3,6])&&australianPreset.Timeouts==0&&australianPreset.PeriodSeconds==1200,"Australian football keeps goal and behind scoring, no timeouts and 20-minute quarters");
+Check(australianPreset.ScoringOptions.SequenceEqual([1,6])&&australianPreset.Timeouts==0&&australianPreset.PeriodSeconds==1200,"Australian football keeps goal and behind scoring, no timeouts and 20-minute quarters");
 Check(SportDefinition.BuiltIns.All(s=>s.Periods>=1&&s.ScoringOptions.Length>0&&s.Timeouts>=0),"every built-in sport has playable period and scoring settings");
 engine.NewGame("basketball"); engine.SetTeams("Eagles","Tigers");
 engine.Score(true,3); engine.Score(false,2);

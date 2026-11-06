@@ -75,6 +75,8 @@ public enum ScorebugIcon
     YellowCard,
     /// <summary>A red card: a sending-off, shown as the referee's angled red rectangle.</summary>
     RedCard,
+    /// <summary>An American-football flag: a yellow pennant on a short pole.</summary>
+    PenaltyFlag,
     /// <summary>An icon made in the icon maker: a glyph, its colour and its plate.</summary>
     Custom
 }
@@ -171,6 +173,12 @@ public sealed class ScorebugElement
 
     /// <summary>How long a value change takes, in seconds: 0 snaps, 5 is a slow dissolve.</summary>
     public double TransitionSeconds { get; set; } = 0.2;
+
+    /// <summary>A different crossing for a value that falls. Null uses <see cref="Transition"/> both ways.</summary>
+    public ScorebugTransition? TransitionDown { get; set; }
+
+    /// <summary>How long the falling crossing takes; null uses <see cref="TransitionSeconds"/>.</summary>
+    public double? TransitionDownSeconds { get; set; }
 
     /// <summary>Which team logo a logo element draws. Configured in the control panel.</summary>
     public ScorebugLogoSide LogoSide { get; set; } = ScorebugLogoSide.None;
@@ -322,6 +330,13 @@ public sealed class ScorebugLayout
 
     /// <summary>How long this layout's hand-over takes, in seconds: 0 cuts, 5 is a slow dissolve.</summary>
     public double TransitionSeconds { get; set; } = 0;
+
+    /// <summary>
+    /// When true, a hand-over only animates the items that actually changed between the outgoing
+    /// and incoming layouts. Adding one stat window leaves the rest of the graphic still instead of
+    /// sliding the whole canvas, which is what an operator expects from a small edit.
+    /// </summary>
+    public bool OnlyAnimateChanges { get; set; } = true;
 
     /// <summary>
     /// A hand-over built in the transition maker. When it is set it replaces the preset
@@ -539,6 +554,7 @@ public sealed class ScorebugCatalog
             Background = first.Background,
             Transition = first.Transition,
             TransitionSeconds = first.TransitionSeconds,
+            OnlyAnimateChanges = first.OnlyAnimateChanges,
             TransitionClip = first.TransitionClip,
             Handover = first.Handover,
             Elements = layouts.SelectMany(layout => layout.Elements).ToList()
@@ -820,6 +836,8 @@ public sealed class ScorebugCatalog
                     item.Rotation = Math.Clamp(double.IsFinite(item.Rotation) ? item.Rotation : 0, -360, 360);
                     item.BorderThickness = Math.Clamp(double.IsFinite(item.BorderThickness) ? item.BorderThickness : 0, 0, 40);
                     item.TransitionSeconds = Math.Clamp(double.IsFinite(item.TransitionSeconds) ? item.TransitionSeconds : 0.2, 0, 5);
+                    if (item.TransitionDownSeconds is { } downSeconds)
+                        item.TransitionDownSeconds = Math.Clamp(double.IsFinite(downSeconds) ? downSeconds : 0.2, 0, 5);
                     item.VideoAspect = Math.Clamp(double.IsFinite(item.VideoAspect) && item.VideoAspect > 0.05 ? item.VideoAspect : 16.0 / 9.0, 0.1, 10);
                     item.GradientAngle = Math.Clamp(double.IsFinite(item.GradientAngle) ? item.GradientAngle : 0, -360, 360);
                     item.TextOpacity = Math.Clamp(double.IsFinite(item.TextOpacity) ? item.TextOpacity : 1, 0, 1);
@@ -837,6 +855,11 @@ public sealed class ScorebugCatalog
                     if (!Enum.IsDefined(item.TextAlign)) item.TextAlign = ScorebugTextAlign.Center;
                     if (string.IsNullOrWhiteSpace(item.TextShadowColor)) item.TextShadowColor = "#CC000000";
                     if (string.IsNullOrWhiteSpace(item.BorderColor)) item.BorderColor = "#FFFFFFFF";
+                    // A colour saved as an empty string is not a colour: repairing it here is what
+                    // makes an older element show its plate again instead of a transparent box.
+                    if (!IsColor(item.Background)) item.Background = "#CC141D28";
+                    if (!IsColor(item.Foreground)) item.Foreground = "#FFFFFFFF";
+                    if (!IsColor(item.BackgroundColor2)) item.BackgroundColor2 = "#CC101820";
                     if (string.IsNullOrWhiteSpace(item.BackgroundColor2)) item.BackgroundColor2 = "#CC101820";
                     if (item.PeriodFormat is not ("Full" or "Short" or "Number" or "Ordinal")) item.PeriodFormat = null;
                     if (string.IsNullOrWhiteSpace(item.FontFamily)) item.FontFamily = "Segoe UI";

@@ -70,7 +70,7 @@ public partial class MediaDock : UserControl
 
     // A dock used as a full-width tab gets console-sized controls; the rail version stays compact.
     bool _large;
-    double _tileWidth = 108, _tileHeight = 116, _thumbHeight = 70;
+    double _tileWidth = 132, _tileHeight = 116, _thumbHeight = 70;
 
     /// <summary>A capture device in the LIVE picker; <see cref="ToString"/> is what the combo shows.</summary>
     sealed record CameraChoice(MediaEntry Entry)
@@ -330,7 +330,7 @@ public partial class MediaDock : UserControl
     public void SetLargeMode(bool large)
     {
         _large = large;
-        _tileWidth = large ? 158 : 108;
+        _tileWidth = large ? 176 : 132;
         _tileHeight = large ? 168 : 116;
         _thumbHeight = large ? 106 : 70;
         ApplyControlSize(this);

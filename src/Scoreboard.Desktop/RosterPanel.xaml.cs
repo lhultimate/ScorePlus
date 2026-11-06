@@ -12,7 +12,8 @@ namespace Scoreboard.Desktop;
 /// <summary>
 /// One side of the roster desk: the roster that team draws from, its players with a search box,
 /// and the editor for the highlighted player — number, name, position and every stat column.
-/// Selecting a player puts them on the graphic, which is what the studio's player bindings read.
+/// Clicking a row only changes who the editor and the list highlight; Select player is the explicit
+/// action that puts somebody on the graphic for the studio's player bindings.
 /// </summary>
 public partial class RosterPanel : UserControl
 {
@@ -154,6 +155,7 @@ public partial class RosterPanel : UserControl
         RenameRosterButton.IsEnabled = DeleteRosterButton.IsEnabled = hasRoster;
         RemovePlayerButton.IsEnabled = hasRoster && _player is not null;
         var hasPlayer = hasRoster && _player is not null;
+        GroupPlayerButton.IsEnabled = hasPlayer;
         NumberInput.IsEnabled = NameInput.IsEnabled = PositionInput.IsEnabled = GroupInput.IsEnabled = hasPlayer;
         AddStatButton.IsEnabled = StatPresetBox.IsEnabled = hasPlayer;
     }
@@ -200,7 +202,7 @@ public partial class RosterPanel : UserControl
 
     void BuildPlayerList(SelectedPlayer? selected)
     {
-        PlayerListHost.Children.Clear();
+        PlayerList.Items.Clear();
         _shownCount = 0;
         var (background, foreground) = RosterPalette.Highlight(
             _home ? _engine?.State.HomePrimaryColor : _engine?.State.AwayPrimaryColor, Resources);
@@ -212,14 +214,15 @@ public partial class RosterPanel : UserControl
             .OrderBy(group => group.Key.Length == 0 ? 1 : 0)
             .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var anyGroup = groups.Any(group => group.Key.Length > 0);
+        // Headers stay visible even before the first group is named: the list always has a section
+        // to put players in, and typing a Group in the editor turns that section into a real group.
         foreach (var group in groups)
         {
-            if (anyGroup) PlayerListHost.Children.Add(GroupHeader(group.Key, group.Count()));
-            if (anyGroup && group.Key.Length > 0 && _collapsed.Contains(group.Key)) continue;
+            PlayerList.Items.Add(GroupHeader(group.Key, group.Count()));
+            if (group.Key.Length > 0 && _collapsed.Contains(group.Key)) continue;
             foreach (var player in group)
             {
-                PlayerListHost.Children.Add(PlayerListRow(player, selected, background, foreground));
+                PlayerList.Items.Add(PlayerListRow(player, selected, background, foreground));
                 _shownCount++;
             }
         }
@@ -238,12 +241,17 @@ public partial class RosterPanel : UserControl
                 Margin = new Thickness(12, 14, 12, 0)
             };
             empty.SetResourceReference(ForegroundProperty, "RosterMutedBrush");
-            PlayerListHost.Children.Add(empty);
+            PlayerList.Items.Add(new ListBoxItem { Content = empty, Focusable = false, IsHitTestVisible = false });
         }
+        var chosen = _player is null
+            ? null
+            : PlayerList.Items.OfType<ListBoxItem>()
+                .FirstOrDefault(item => item.Tag is RosterPlayer player && player.Id == _player.Id);
+        PlayerList.SelectedItem = chosen;
     }
 
     /// <summary>One foldable squad header: the group, how many players it holds, and its state.</summary>
-    Border GroupHeader(string group, int count)
+    ListBoxItem GroupHeader(string group, int count)
     {
         var open = group.Length == 0 || !_collapsed.Contains(group);
         var button = new Button
@@ -264,23 +272,30 @@ public partial class RosterPanel : UserControl
                 : open ? $"Collapse {group}" : $"Open {group}"
         };
         button.SetResourceReference(ForegroundProperty, open ? "RosterTextBrush" : "RosterMutedBrush");
-        button.Click += (_, _) =>
-        {
-            if (group.Length == 0) return;
-            if (!_collapsed.Add(group)) _collapsed.Remove(group);
-            _signature = "";
-            Refresh(force: true);
-        };
+        button.IsHitTestVisible = false;
         var border = new Border { BorderThickness = new Thickness(0, 0, 0, 1), Child = button };
         border.SetResourceReference(Border.BackgroundProperty, "RosterSurfaceAltBrush");
         border.SetResourceReference(Border.BorderBrushProperty, "RosterBorderBrush");
-        return border;
+        var item = new ListBoxItem { Content = border, Tag = group, Focusable = false };
+        if (group.Length > 0)
+        {
+            item.Cursor = Cursors.Hand;
+            item.PreviewMouseLeftButtonDown += (_, e) =>
+            {
+                if (!_collapsed.Add(group)) _collapsed.Remove(group);
+                _signature = "";
+                Refresh(force: true);
+                e.Handled = true;
+            };
+        }
+        return item;
     }
 
     /// <summary>One player line: jersey, name, position and whether they are on the graphic.</summary>
-    Border PlayerListRow(RosterPlayer player, SelectedPlayer? selected, Brush highlight, Brush highlightText)
+    ListBoxItem PlayerListRow(RosterPlayer player, SelectedPlayer? selected, Brush highlight, Brush highlightText)
     {
         var onAir = selected is not null && selected.PlayerId == player.Id;
+        var editing = _player is not null && string.Equals(_player.Id, player.Id, StringComparison.OrdinalIgnoreCase);
         var text = onAir ? highlightText : (Brush)FindResource("RosterTextBrush");
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
@@ -302,6 +317,8 @@ public partial class RosterPanel : UserControl
         {
             Text = string.IsNullOrWhiteSpace(player.Name) ? "(no name)" : player.Name,
             Foreground = text,
+            FontWeight = editing ? FontWeights.SemiBold : FontWeights.Normal,
+            TextDecorations = editing ? TextDecorations.Underline : null,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -340,13 +357,29 @@ public partial class RosterPanel : UserControl
                 ? "Click to edit this player"
                 : $"{player.Group} · click to edit this player"
         };
-        row.MouseLeftButtonUp += (_, e) => { SelectRow(player); e.Handled = true; };
-        return row;
+        var item = new ListBoxItem { Content = row, Tag = player, Focusable = true, Cursor = Cursors.Hand };
+        // The row itself starts editing. This does not put the player on air; Select player is
+        // still the one explicit action for that.
+        item.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (_syncing || _engine is null) return;
+            _player = player;
+            _signature = "";
+            _syncing = true;
+            try { PlayerList.SelectedItem = item; }
+            finally { _syncing = false; }
+            Refresh();
+            e.Handled = true;
+        };
+        return item;
     }
 
-    void SelectRow(RosterPlayer player)
+    void PlayerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_player?.Id == player.Id) return;
+        if (_syncing || _engine is null) return;
+        if (PlayerList.SelectedItem is not ListBoxItem { Tag: RosterPlayer player }) return;
+        // Even a click on the already-highlighted row refreshes the editor: imported rosters can
+        // share an id, and an early return made every row look dead.
         _player = player;
         _signature = "";
         Refresh();
@@ -498,10 +531,12 @@ public partial class RosterPanel : UserControl
         if (RosterBox.SelectedItem is not Roster roster) return;
         var current = _home ? _engine.State.HomeRosterId : _engine.State.AwayRosterId;
         if (roster.Id == current) return;
-        _player = null;
+        // Assigning a roster only chooses the list this team draws from. The first player is
+        // highlighted for editing, but nobody goes on the graphic until Select player is pressed.
+        _player = roster.Players.FirstOrDefault();
         _engine.AssignRoster(_home, roster.Id);
         _signature = "";
-        Refresh();
+        Refresh(force: true);
     }
 
     /// <summary>Imports a .spr roster into the library, or a .spp player into this roster.</summary>
@@ -773,8 +808,22 @@ public partial class RosterPanel : UserControl
         var wasSelected = (_home ? _engine.State.HomePlayer : _engine.State.AwayPlayer)?.PlayerId == _player.Id;
         if (!_roster.RemovePlayer(_player.Id)) return;
         _player = _roster.Players.FirstOrDefault();
-        if (wasSelected) _engine.SelectPlayer(_home, _player?.Id);
+        // Removing the player who was on air clears the graphic; it must not quietly promote the
+        // next name in the list to on-air status.
+        if (wasSelected) _engine.ClearSelectedPlayer(_home);
         SaveAndReload();
+    }
+
+    void GroupPlayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine is null || _player is null) return;
+        var group = TextPromptWindow.Ask(Window.GetWindow(this), "Player group", "Group name", _player.Group ?? "");
+        if (group is null) return;
+        _player.Group = group.Trim();
+        RosterStore.Save();
+        _engine.ReloadSelectedPlayer(_home);
+        _signature = "";
+        Refresh(force: true);
     }
 
     void Select_Click(object sender, RoutedEventArgs e)

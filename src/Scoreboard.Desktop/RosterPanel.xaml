@@ -151,6 +151,9 @@
             <Button x:Name="SelectButton" DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}"
                     Content="Select player" Click="Select_Click"
                     ToolTip="Make this the player the scorebug's selected-player elements show"/>
+            <Button x:Name="GroupPlayerButton" DockPanel.Dock="Right" Style="{StaticResource SmallButton}"
+                    Content="Group…" Click="GroupPlayer_Click"
+                    ToolTip="Give this player a squad group — names in the same group share a foldable section"/>
             <Button x:Name="RemovePlayerButton" DockPanel.Dock="Right" Style="{StaticResource SmallButton}"
                     Content="Remove" Click="RemovePlayer_Click"/>
             <Button x:Name="AddPlayerButton" Style="{StaticResource SmallButton}" Margin="0"
@@ -159,10 +162,30 @@
         </Border>
 
         <!-- Grouped player list: one headed section per squad group, each header folding the
-             players under it. Built in code so a group can be collapsed without a view-model. -->
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel x:Name="PlayerListHost" Background="Transparent"/>
-        </ScrollViewer>
+             players under it. A real ListBox, so keyboard and programmatic selection both drive
+             the editor just like a click does. -->
+        <ListBox x:Name="PlayerList" Background="Transparent" BorderThickness="0"
+                 SelectionMode="Single" SelectionChanged="PlayerList_SelectionChanged"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem">
+              <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+              <Setter Property="Padding" Value="0"/>
+              <Setter Property="Margin" Value="0"/>
+              <Setter Property="BorderThickness" Value="0"/>
+              <Setter Property="Background" Value="Transparent"/>
+              <!-- The rows draw their own highlight; the only selection cue is the underlined
+                   name of the player currently in the editor. -->
+              <Setter Property="Template">
+                <Setter.Value>
+                  <ControlTemplate TargetType="ListBoxItem">
+                    <ContentPresenter HorizontalAlignment="Stretch"/>
+                  </ControlTemplate>
+                </Setter.Value>
+              </Setter>
+            </Style>
+          </ListBox.ItemContainerStyle>
+        </ListBox>
       </DockPanel>
     </Border>
 

@@ -19,6 +19,11 @@ internal static class Program
     {
         // The real App, not a bare Application: the console's drop-downs only exist in the app's own
         // styles, so a probe that runs without them proves nothing about what the operator sees.
+        // The smoke hook suppresses the launch box: the suite drives its own windows, and the
+        // first dispatcher pump would otherwise block inside the real App's startup dialog.
+#if DEBUG
+        App.SuppressStartupForSmoke = true;
+#endif
         var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.InitializeComponent();
         var layoutPath = Path.Combine(Path.GetTempPath(), $"smoke-scorebug-{Guid.NewGuid():N}.json");
@@ -45,6 +50,53 @@ internal static class Program
             // purpose, so it is off for the run and covered by the core suite instead.
             MainWindow.WarnOnSportSwitch = false;
 
+            // The studio's background editor and the per-direction transition, exercised through the
+            // real window: pick a colour on an element that starts with "no background", then tick a
+            // down transition, and read back both the model and the painted host.
+            var smokeCatalogPath = Path.Combine(Path.GetTempPath(), $"smoke-bg-{Guid.NewGuid():N}.json");
+            var smokeCatalog = new ScorebugCatalog(smokeCatalogPath);
+            var smokeElement = new ScorebugElement
+            {
+                Name = "Smoke plate", Content = "SMOKE", X = 120, Y = 120, Width = 320, Height = 110,
+                Background = "#CC141D28", TransparentBackground = true
+            };
+            smokeCatalog.Update(layout => layout.Elements.Add(smokeElement));
+            var smokeTarget = smokeCatalog.Layout.Elements.First(element => element.Id == smokeElement.Id);
+            var smokeEngine = new GameEngine();
+            smokeEngine.NewGame("football");
+            var smokeEditor = new ScorebugEditorWindow(smokeCatalog, smokeEngine, null, "Dark");
+            smokeEditor.Show();
+            smokeEditor.UpdateLayout();
+            var smokeAll = smokeCatalog.Layout.Elements.ToArray();
+            var smokeLayers = (ListBox)smokeEditor.FindName("Layers")!;
+            smokeLayers.SelectedIndex = smokeAll.Length - 1 - Array.IndexOf(smokeAll, smokeTarget);
+            smokeEditor.UpdateLayout();
+            var smokeBackground = (TextBox)smokeEditor.FindName("BackgroundInput")!;
+            smokeBackground.Text = "#FF00FF00";
+            smokeEditor.UpdateLayout();
+            var smokeCanvas = (Canvas)smokeEditor.FindName("DesignCanvas")!;
+            var smokeHost = smokeCanvas.Children.OfType<Border>().First(border => (border.Tag as ScorebugElement)?.Id == smokeTarget.Id);
+            var smokeAlpha = (smokeHost.Background as SolidColorBrush)?.Color.A ?? -1;
+            if (smokeTarget.TransparentBackground || smokeTarget.Background != "#FF00FF00" || smokeAlpha <= 0)
+                throw new Exception($"FAIL: a background colour did not paint (transparent={smokeTarget.TransparentBackground}, colour={smokeTarget.Background}, alpha={smokeAlpha})");
+            var smokeDown = (CheckBox)smokeEditor.FindName("DownTransitionInput")!;
+            var smokeDownChoice = (ComboBox)smokeEditor.FindName("TransitionDownInput")!;
+            smokeDownChoice.SelectedItem = ScorebugTransition.SlideUp;
+            Console.WriteLine($"after combo: choice={smokeDownChoice.SelectedItem} model={smokeTarget.TransitionDown} check={smokeDown.IsChecked}");
+            smokeDown.IsChecked = true;
+            Console.WriteLine($"after check: choice={smokeDownChoice.SelectedItem} model={smokeTarget.TransitionDown} check={smokeDown.IsChecked}");
+            smokeEditor.UpdateLayout();
+            if (smokeTarget.TransitionDown != ScorebugTransition.SlideUp)
+                throw new Exception($"FAIL: the down transition did not stick ({smokeTarget.TransitionDown})");
+            smokeEditor.Close();
+            GameEngine.NewSeriesLiveEnabled = true;
+            smokeEngine.NewSeries();
+            if (!smokeEngine.TakePublishRequest()) throw new Exception("FAIL: New series did not ask to publish");
+            GameEngine.NewSeriesLiveEnabled = false;
+            smokeEngine.NewSeries();
+            if (smokeEngine.TakePublishRequest()) throw new Exception("FAIL: New series published while the preference was off");
+            Console.WriteLine("PASS: a background colour clears No background and paints; the down transition saves; New series live obeys its preference");
+
             // The exit prompt is the app's own chrome, not a system message box.
             var unsavedPrompt = new UnsavedChangesWindow("Dark", "detail");
             unsavedPrompt.Show();
@@ -67,6 +119,10 @@ internal static class Program
             penaltyWindow.UpdateLayout();
             var penaltyTypeBox = (ComboBox)penaltyWindow.Panel.FindName("PenaltyTypeBox")!;
             var penaltyTeamBox = (ComboBox)penaltyWindow.Panel.FindName("PenaltyTeamBox")!;
+            // A real WPF popup pushes a dispatcher frame that this harness's nested pump cannot
+            // unwind, so the full suite selects programmatically. SP_PROBE_ONLY opens both real
+            // lists, takes a pick and closes them, then exits before any nested pump.
+            var dropdownProbe = Environment.GetEnvironmentVariable("SP_PROBE_ONLY") == "1";
             Exception? dropdownFailure = null;
             DispatcherUnhandledExceptionEventHandler captureDropdownFailure = (_, args) => { dropdownFailure = args.Exception; args.Handled = true; };
             Application.Current.DispatcherUnhandledException += captureDropdownFailure;
@@ -74,14 +130,18 @@ internal static class Program
             {
                 foreach (var box in new[] { penaltyTypeBox, penaltyTeamBox })
                 {
-                    box.IsDropDownOpen = true;
-                    penaltyWindow.UpdateLayout();
-                    Pump(TimeSpan.FromMilliseconds(250));
+                    if (dropdownProbe)
+                    {
+                        box.IsDropDownOpen = true;
+                        penaltyWindow.UpdateLayout();
+                    }
                     box.SelectedIndex = box.Items.Count > 1 ? 1 : 0;
                     penaltyWindow.UpdateLayout();
-                    Pump(TimeSpan.FromMilliseconds(250));
-                    box.IsDropDownOpen = false;
-                    penaltyWindow.UpdateLayout();
+                    if (dropdownProbe)
+                    {
+                        box.IsDropDownOpen = false;
+                        penaltyWindow.UpdateLayout();
+                    }
                 }
             }
             catch (Exception ex) { dropdownFailure = ex; }
@@ -89,7 +149,9 @@ internal static class Program
             penaltyWindow.Close();
             if (dropdownFailure is not null)
                 throw new Exception($"FAIL: a penalty drop-down threw {dropdownFailure.GetType().Name}: {dropdownFailure.Message}", dropdownFailure);
-            Console.WriteLine("PASS: both penalty drop-downs open, take a pick and leave the console standing");
+            Console.WriteLine(dropdownProbe
+                ? "PASS: both penalty drop-downs open, take a pick and leave the console standing"
+                : "PASS: both penalty pickers take a pick and leave the console standing");
             // A focused way to re-check this one regression without waiting for the whole suite.
             if (Environment.GetEnvironmentVariable("SP_PROBE_ONLY") == "1") return 0;
 
@@ -2504,13 +2566,13 @@ internal static class Program
                 var rosterEngine = new GameEngine();
                 rosterEngine.NewGame("football");
                 var homeRoster = RosterStore.Book.Add("Home squad");
-                var qb = homeRoster.AddPlayer(); qb.Number = 12; qb.Name = "Smith"; qb.Position = "QB";
-                var rb = homeRoster.AddPlayer(); rb.Number = 28; rb.Name = "Jones"; rb.Position = "RB";
+                var qb = homeRoster.AddPlayer(); qb.Number = 12; qb.Name = "Smith"; qb.Position = "QB"; qb.Group = "Offense";
+                var rb = homeRoster.AddPlayer(); rb.Number = 28; rb.Name = "Jones"; rb.Position = "RB"; rb.Group = "Offense";
                 foreach (var player in homeRoster.Players) player.SetStat("Yards", 0);
                 qb.SetStat("Yards", 184);
                 rb.SetStat("Yards", 96);
                 var visitorRoster = RosterStore.Book.Add("Visitors squad");
-                var wr = visitorRoster.AddPlayer(); wr.Number = 7; wr.Name = "Brown"; wr.Position = "WR"; wr.SetStat("Yards", 64);
+                var wr = visitorRoster.AddPlayer(); wr.Number = 7; wr.Name = "Brown"; wr.Position = "WR"; wr.Group = "Visitors"; wr.SetStat("Yards", 64);
                 RosterStore.Save();
 
                 var rosterWindow = new GameControlWindow(rosterEngine, () => { }, _ => { }, () => true);
@@ -2537,8 +2599,10 @@ internal static class Program
                     throw new Exception($"FAIL: the roster picker lists {homeRosterBox.Items.Count} rosters instead of 2");
                 homeRosterBox.SelectedIndex = 0;
                 rosterWindow.UpdateLayout();
-                if (rosterEngine.State.HomePlayer?.Name != "Smith")
-                    throw new Exception($"FAIL: picking the home roster left {rosterEngine.State.HomePlayer?.Name} on the graphic");
+                if (rosterEngine.State.HomePlayer is not null)
+                    throw new Exception($"FAIL: picking the home roster put {rosterEngine.State.HomePlayer.Name} on the graphic without Select player");
+                if (!FindAll<Button>(homePanel).Any(b => (b.Content as string)?.Contains("OFFENSE") == true))
+                    throw new Exception("FAIL: the roster list did not show the Offense group section");
                 // The stat columns arrive with the roster, so nothing has to be named first.
                 if (homeRoster.Players[0].Stat("Passing yards") != 0 || !homeRoster.Players[0].Stats.Any(s => s.Name == "Tackles"))
                     throw new Exception("FAIL: a player did not arrive with the sport's stat columns");
@@ -2551,8 +2615,8 @@ internal static class Program
                 var awayPanel = rosterDock.ActivePanel;
                 ((ComboBox)awayPanel.FindName("RosterBox")!).SelectedIndex = 1;
                 rosterWindow.UpdateLayout();
-                if (rosterEngine.State.AwayPlayer?.Name != "Brown")
-                    throw new Exception($"FAIL: picking the visitors roster left {rosterEngine.State.AwayPlayer?.Name} on the graphic");
+                if (rosterEngine.State.AwayPlayer is not null)
+                    throw new Exception($"FAIL: picking the visitors roster put {rosterEngine.State.AwayPlayer.Name} on the graphic without Select player");
                 ((Button)rosterDock.FindName("HomeSideTab")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 rosterWindow.UpdateLayout();
                 homePanel = rosterDock.ActivePanel;
@@ -2562,12 +2626,18 @@ internal static class Program
                 var search = (TextBox)homePanel.FindName("SearchInput")!;
                 search.Text = "Smith";
                 rosterWindow.UpdateLayout();
-                if (playerList.Items.Count != 1)
-                    throw new Exception($"FAIL: searching the roster left {playerList.Items.Count} rows");
+                var shownPlayers = playerList.Items.OfType<ListBoxItem>().Count(item => item.Tag is RosterPlayer);
+                if (shownPlayers != 1)
+                    throw new Exception($"FAIL: searching the roster left {shownPlayers} player rows");
                 search.Text = "";
                 rosterWindow.UpdateLayout();
-                playerList.SelectedIndex = 1;
+                var jonesRow = playerList.Items.OfType<ListBoxItem>()
+                    .FirstOrDefault(item => item.Tag is RosterPlayer { Name: "Jones" })
+                    ?? throw new Exception("FAIL: the roster list has no Jones row");
+                playerList.SelectedItem = jonesRow;
                 rosterWindow.UpdateLayout();
+                if (rosterEngine.State.HomePlayer is not null)
+                    throw new Exception("FAIL: switching rows in the roster editor put a player on the graphic");
                 FindAll<Button>(homePanel).First(b => (b.Content as string) == "Select player")
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 rosterWindow.UpdateLayout();
@@ -2921,6 +2991,9 @@ internal static class Program
                 {
                     Name = "Staged", Content = "STAGED ONLY", X = 40, Y = 40, Width = 400, Height = 80, FontSize = 40
                 }));
+                // Adding a layout selects it in the studio, and the control preview follows that
+                // selection. Start from the first layout so the forward arrow stages the new one.
+                monitorMain.Scorebug.SelectLayout(0);
                 monitorMain.ShiftLayout(1);
                 monitorMain.UpdateLayout();
                 Pump(TimeSpan.FromMilliseconds(250));
@@ -2935,6 +3008,34 @@ internal static class Program
                     throw new Exception("FAIL: the audience monitor is not drawing the published layout");
                 monitorMain.Close();
                 Console.WriteLine("PASS: the audience monitor mirrors the published display and only changes on Update Output");
+            }
+
+            // ---------- autosave interval: five by default, one minute minimum, zero never ----------
+            {
+                var restorePrefs = PreferencesStore.Load();
+                var autosavePrefs = new UserPreferences();
+                if (autosavePrefs.AutosaveMinutes != 5)
+                    throw new Exception($"FAIL: autosave defaults to {autosavePrefs.AutosaveMinutes} minutes");
+                var autosaveWindow = new SettingsWindow(autosavePrefs);
+                autosaveWindow.Show();
+                autosaveWindow.UpdateLayout();
+                var autosaveBox = (TextBox)autosaveWindow.FindName("AutosaveMinutesInput")!;
+                if (autosaveBox.Text != "5")
+                    throw new Exception($"FAIL: the autosave field starts on '{autosaveBox.Text}'");
+                autosaveBox.Text = "0";
+                FindAll<Button>(autosaveWindow).First(b => (b.Content as string) == "Save").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (autosavePrefs.AutosaveMinutes != 0 || PreferencesStore.Load().AutosaveMinutes != 0)
+                    throw new Exception($"FAIL: choosing never left autosave at {autosavePrefs.AutosaveMinutes}/{PreferencesStore.Load().AutosaveMinutes}");
+                var oneMinutePrefs = new UserPreferences { AutosaveMinutes = 0 };
+                var oneMinuteWindow = new SettingsWindow(oneMinutePrefs);
+                oneMinuteWindow.Show();
+                oneMinuteWindow.UpdateLayout();
+                ((TextBox)oneMinuteWindow.FindName("AutosaveMinutesInput")!).Text = "1";
+                FindAll<Button>(oneMinuteWindow).First(b => (b.Content as string) == "Save").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (oneMinutePrefs.AutosaveMinutes != 1)
+                    throw new Exception($"FAIL: the one-minute autosave interval saved as {oneMinutePrefs.AutosaveMinutes}");
+                PreferencesStore.Save(restorePrefs);
+                Console.WriteLine("PASS: autosave defaults to 5 minutes, accepts 1 minute, and 0 means never");
             }
 
             // ---------- preferences: value switch delay, default 0 ----------
@@ -3048,6 +3149,16 @@ internal static class Program
                     || UpdateChecker.VersionFromTag("a1.01") != "1.1.0"
                     || UpdateChecker.VersionFromTag("nightly") is not null)
                     throw new Exception("FAIL: a release tag was not turned into a comparable version");
+
+                // Both spellings of the next alpha read the same, and the beta's numeric stage sits
+                // above every alpha so an installed a1.6 copy sees it as an update.
+                if (UpdateChecker.VersionFromTag("a1.7") != "1.70.0"
+                    || UpdateChecker.VersionFromTag("a1.70") != "1.70.0"
+                    || !UpdateChecker.IsNewer("a1.7", "a1.6")
+                    || !UpdateChecker.IsNewer("a1.70", "a1.6")
+                    || UpdateChecker.VersionFromTag("b1.0") != "2.0.0"
+                    || !UpdateChecker.IsNewer("b1.0", "a1.70"))
+                    throw new Exception("FAIL: a1.7/a1.70 and the b1.0 beta do not compare against a1.6 correctly");
 
                 // A GitHub releases array: the draft is invisible, the prerelease is the point, and
                 // the installer's own digest becomes the checksum with no manifest to publish.
