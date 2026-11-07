@@ -1,6 +1,6 @@
 using System.IO;
 using System.Text.Json;
-using System.Windows.Input;
+using Avalonia.Input;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;

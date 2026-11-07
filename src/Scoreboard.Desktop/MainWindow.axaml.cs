@@ -1,11 +1,11 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using Microsoft.Win32;
 using Scoreboard.Core;
 
@@ -120,6 +120,40 @@ public partial class MainWindow : Window, IControlPanelHost
             // The remote and the update check belong to a live window, not to the launch sequence.
             if (!waitForLaunch) { StartRemote(); _ = CheckForUpdatesAsync(); }
         };
+
+        // Exit prompt: the world has no OnClosing override; the Closing routed event carries the
+        // CancelEventArgs-style cancel. Set cancel, prompt, then re-post Close on the UI thread.
+        Closing.Add((_, e) =>
+        {
+            if (PromptOnExit && !_closingAfterPrompt && HasUnsavedChanges())
+            {
+                e.Cancel = true;
+                var detail = "You have changes that are not in a saved game file. Autosave keeps a recovery point every few seconds, but the .spg on disk is out of date. Save it before closing?";
+                var choice = UnsavedChangesWindow.Ask(this, _preferences.Theme, detail);
+                if (choice == UnsavedChoice.Cancel) return;
+                if (choice == UnsavedChoice.Save && !SaveBeforeClosing()) return;
+                _closingAfterPrompt = true;
+                // WPF forbids Close/ShowDialog while the closing event is still running. Re-post the
+                // close once this cancellation has fully finished, so Discard really exits.
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(Close));
+                return;
+            }
+        });
+        // Keyboard preview: no OnPreviewKeyDown override in the world; register the routed preview-key
+        // event instead. The world reports the real key directly (no Key.System indirection).
+        InputElement.PreviewKeyDownEvent.Add((e, p) =>
+        {
+            var key = e.Key;
+            // Enter settles whatever is being typed and leaves the window open. There is no default
+            // button on this window, so without this an Enter in a field would do nothing at all.
+            if (key == Key.Enter && Keyboard.FocusedElement is TextBox box && !box.AcceptsReturn)
+            {
+                Keyboard.ClearFocus();
+                e.Handled = true;
+                return;
+            }
+            if (_panel.TryHandleKey(key, Keyboard.Modifiers)) { e.Handled = true; return; }
+        });
 
         _panel = new ControlPanelView(_engine, this);
         ControlHost.Content = _panel;
@@ -313,11 +347,11 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>Switches the operator surface between the console and the media desk.</summary>
     public void ShowMediaTab(bool media) => ShowTab(media ? GameControlWindow.ConsoleTab.Media : GameControlWindow.ConsoleTab.Control);
 
-    void ControlTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Control);
+    void ControlTab_Click(object sender, object e) => ShowTab(GameControlWindow.ConsoleTab.Control);
 
-    void MediaTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Media);
+    void MediaTab_Click(object sender, object e) => ShowTab(GameControlWindow.ConsoleTab.Media);
 
-    void RosterTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Rosters);
+    void RosterTab_Click(object sender, object e) => ShowTab(GameControlWindow.ConsoleTab.Rosters);
 
     /// <summary>Switches the operator surface between the console, the media desk and the roster desk.</summary>
     void ShowTab(GameControlWindow.ConsoleTab tab)
@@ -354,9 +388,9 @@ public partial class MainWindow : Window, IControlPanelHost
         }
     }
 
-    void LayoutPrev_Click(object sender, RoutedEventArgs e) => ShiftLayout(-1);
+    void LayoutPrev_Click(object sender, object e) => ShiftLayout(-1);
 
-    void LayoutNext_Click(object sender, RoutedEventArgs e) => ShiftLayout(1);
+    void LayoutNext_Click(object sender, object e) => ShiftLayout(1);
 
     // ---------- window chrome ----------
     void Refresh()
@@ -437,7 +471,7 @@ public partial class MainWindow : Window, IControlPanelHost
         _log?.SetHintVisibility(_preferences.ShowHeadingHints);
     }
 
-    void EventLog_Click(object sender, RoutedEventArgs e)
+    void EventLog_Click(object sender, object e)
     {
         if (_log is { IsVisible: true }) { _log.Activate(); return; }
         _log = new EventLogWindow(_engine, _preferences.Theme, _preferences.ShowHeadingHints) { Owner = this };
@@ -445,7 +479,7 @@ public partial class MainWindow : Window, IControlPanelHost
         _log.Show();
     }
 
-    void ScorebugStudio_Click(object sender, RoutedEventArgs e)
+    void ScorebugStudio_Click(object sender, object e)
     {
         // The studio edits exactly the display and layout this window is previewing.
         var displayIndex = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
@@ -480,11 +514,11 @@ public partial class MainWindow : Window, IControlPanelHost
         _quickLayouts?.Refresh();
     }
 
-    void TransitionMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Transition);
+    void TransitionMaker_Click(object sender, object e) => OpenMotionMaker(MotionKind.Transition);
 
-    void AnimationMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Animation);
+    void AnimationMaker_Click(object sender, object e) => OpenMotionMaker(MotionKind.Animation);
 
-    void Preferences_Click(object sender, RoutedEventArgs e)
+    void Preferences_Click(object sender, object e)
     {
         var dialog = new SettingsWindow(_preferences) { Owner = this };
         ThemeManager.Apply(dialog, _preferences.Theme);
@@ -555,9 +589,9 @@ public partial class MainWindow : Window, IControlPanelHost
         Close();
     }
 
-    void NewPanel_Click(object sender, RoutedEventArgs e) => OpenControlPanel();
+    void NewPanel_Click(object sender, object e) => OpenControlPanel();
 
-    void Keybinds_Click(object sender, RoutedEventArgs e) => _panel.ShowKeybindsDialog();
+    void Keybinds_Click(object sender, object e) => _panel.ShowKeybindsDialog();
 
     public void OpenControlPanel()
     {
@@ -575,7 +609,7 @@ public partial class MainWindow : Window, IControlPanelHost
     public bool HasStagedGameState() =>
         GameEngine.StagedSignature(_engine.State) != GameEngine.StagedSignature(_publishedEngine.State);
 
-    void SportProfiles_Click(object sender, RoutedEventArgs e)
+    void SportProfiles_Click(object sender, object e)
     {
         var dialog = new SportProfileWindow(_engine.Sports) { Owner = this };
         ThemeManager.Apply(dialog, _preferences.Theme);
@@ -618,7 +652,7 @@ public partial class MainWindow : Window, IControlPanelHost
         StatusText.Text = $"NEW {_engine.Sport.Name.ToUpperInvariant()} GAME";
     }
 
-    void NewGame_Click(object sender, RoutedEventArgs e)
+    void NewGame_Click(object sender, object e)
     {
         // The sport is part of starting a game; the chooser also states what a new game resets.
         var picker = new SportPickerWindow(_engine.Sports, _engine.State.SportId, _preferences.Theme) { Owner = this };
@@ -709,7 +743,7 @@ public partial class MainWindow : Window, IControlPanelHost
     }
 
     // ---------- output ----------
-    void Output_Click(object sender, RoutedEventArgs e) => OpenOutputWindow();
+    void Output_Click(object sender, object e) => OpenOutputWindow();
 
     /// <summary>
     /// Asks which display this audience window is for, then opens a brand-new window for it. With
@@ -765,7 +799,7 @@ public partial class MainWindow : Window, IControlPanelHost
         foreach (var output in _outputs.Where(o => o.IsVisible)) output.UpdateLiveScoreClock(_engine.State);
     }
 
-    void GameReport_Click(object sender, RoutedEventArgs e)
+    void GameReport_Click(object sender, object e)
     {
         var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "HTML game report (*.html)|*.html", DefaultExt = "html", FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}-report" };
         if (dialog.ShowDialog() != true) return;
@@ -776,7 +810,7 @@ public partial class MainWindow : Window, IControlPanelHost
         StatusText.Text = "GAME REPORT EXPORTED";
     }
 
-    void Save_Click(object sender, RoutedEventArgs e)
+    void Save_Click(object sender, object e)
     {
         var dialog = new SaveFileDialog { Filter = "ScorePlus Game (*.spg)|*.spg|JSON (*.json)|*.json", DefaultExt = "spg", FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}" };
         if (dialog.ShowDialog() != true) return;
@@ -824,25 +858,7 @@ public partial class MainWindow : Window, IControlPanelHost
         return dialog.ShowDialog() == true && SaveGameTo(dialog.FileName);
     }
 
-    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
-    {
-        if (PromptOnExit && !_closingAfterPrompt && HasUnsavedChanges())
-        {
-            e.Cancel = true;
-            var detail = "You have changes that are not in a saved game file. Autosave keeps a recovery point every few seconds, but the .spg on disk is out of date. Save it before closing?";
-            var choice = UnsavedChangesWindow.Ask(this, _preferences.Theme, detail);
-            if (choice == UnsavedChoice.Cancel) return;
-            if (choice == UnsavedChoice.Save && !SaveBeforeClosing()) return;
-            _closingAfterPrompt = true;
-            // WPF forbids Close/ShowDialog while the closing event is still running. Re-post the
-            // close once this cancellation has fully finished, so Discard really exits.
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(Close));
-            return;
-        }
-        base.OnClosing(e);
-    }
-
-    void Open_Click(object sender, RoutedEventArgs e)
+    void Open_Click(object sender, object e)
     {
         var dialog = new OpenFileDialog { DefaultExt = "spg", Filter = "ScorePlus Game (*.spg)|*.spg|Scoreboard Game (*.scoreboard;*.json)|*.scoreboard;*.json|All files (*.*)|*.*" };
         if (dialog.ShowDialog() != true) return;
@@ -859,21 +875,6 @@ public partial class MainWindow : Window, IControlPanelHost
             AutosaveText.Text = $"AUTOSAVED {DateTime.Now:HH:mm:ss}";
         }
         catch (Exception ex) { StatusText.Text = $"AUTOSAVE WARNING · {ex.Message}"; }
-    }
-
-    protected override void OnPreviewKeyDown(KeyEventArgs e)
-    {
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
-        // Enter settles whatever is being typed and leaves the window open. There is no default
-        // button on this window, so without this an Enter in a field would do nothing at all.
-        if (key == Key.Enter && Keyboard.FocusedElement is TextBox box && !box.AcceptsReturn)
-        {
-            Keyboard.ClearFocus();
-            e.Handled = true;
-            return;
-        }
-        if (_panel.TryHandleKey(key, Keyboard.Modifiers)) { e.Handled = true; return; }
-        base.OnPreviewKeyDown(e);
     }
 
     protected override void OnClosed(EventArgs e)

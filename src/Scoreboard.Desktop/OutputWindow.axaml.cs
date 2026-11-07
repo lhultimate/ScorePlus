@@ -1,7 +1,7 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Interop;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+
+using Avalonia.Media;
 using System.Runtime.InteropServices;
 using Scoreboard.Core;
 namespace Scoreboard.Desktop;
@@ -54,7 +54,7 @@ public partial class OutputWindow : Window
     public void RefreshGraphic(){Update();_scorebugView.ApplyNow();}
     // The audience window is intentionally never restyled by ThemeManager: a theme change must not recolor on-air graphics.
     public void SetBroadcastTheme(string theme){_broadcastTheme=theme;Update();}
-    void Window_Loaded(object sender,RoutedEventArgs e){Update();_scorebugView.Refresh();}
+    void Window_Loaded(object sender, object e){Update();_scorebugView.Refresh();}
     void Update()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(Update); return; }
@@ -94,7 +94,7 @@ public partial class OutputWindow : Window
             HomeExtraLabel.Text=AwayExtraLabel.Text="YARDS · TURNOVERS";HomeTimeouts.Text=$"{s.HomeYards} yards   ·   {s.HomeTurnovers} turnovers";AwayTimeouts.Text=$"{s.AwayYards} yards   ·   {s.AwayTurnovers} turnovers";
         }
     }
-    static System.Windows.Media.Brush ColorBrush(string value)=>(System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(value)!;
+    static Avalonia.Media.Brush ColorBrush(string value)=>(Avalonia.Media.Brush)new Avalonia.Media.BrushConverter().ConvertFromString(value)!;
     static string Dots(int count) => string.Join(" ", Enumerable.Repeat("●", count));
     static string OrdinalSuffix(int value)=>value switch{1=>"st",2=>"nd",3=>"rd",_=>"th"};
     /// <summary>True while this window is filling its screen.</summary>
@@ -186,15 +186,15 @@ public partial class OutputWindow : Window
     /// F11 on the audience window is the same as Broadcast Fullscreen from the main menu: the
     /// graphic fills the screen. Escape gives the window back.
     /// </summary>
-    protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+    protected override void OnPreviewKeyDown(Avalonia.Input.KeyEventArgs e)
     {
-        if (e.Key == System.Windows.Input.Key.F11)
+        if (e.Key == Avalonia.Input.Key.F11)
         {
             ToggleFullscreen();
             e.Handled = true;
             return;
         }
-        if (e.Key == System.Windows.Input.Key.Escape && _full)
+        if (e.Key == Avalonia.Input.Key.Escape && _full)
         {
             ToggleFullscreen();
             e.Handled = true;

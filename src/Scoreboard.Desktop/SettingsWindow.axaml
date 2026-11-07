@@ -1,4 +1,4 @@
-<Window x:Class="Scoreboard.Desktop.SettingsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Scoreboard.Desktop" Title="ScorePlus — Preferences" PreviewKeyDown="Window_PreviewKeyDown" Width="560" SizeToContent="Height" MaxHeight="940" MinHeight="380" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" Background="#171C25" Foreground="#F4F7FB" FontFamily="Segoe UI">
+<Window x:Class="Scoreboard.Desktop.SettingsWindow" xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Scoreboard.Desktop" Title="ScorePlus — Preferences" PreviewKeyDown="Window_PreviewKeyDown" Width="560" SizeToContent="Height" MaxHeight="940" MinHeight="380" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" Background="#171C25" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <DockPanel Margin="22">
     <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0">
       <TextBlock Text="Preferences are stored locally." VerticalAlignment="Center" Foreground="#93A0B2" FontSize="11"/>
@@ -13,7 +13,7 @@
         <TextBlock Text="APPEARANCE" Foreground="#93A0B2" FontSize="11" Margin="4,0,0,2"/>
         <ComboBox x:Name="ThemeSelector" SelectionChanged="Theme_Changed"/>
         <TextBlock Text="System follows the Windows app theme (Settings → Personalisation → Colors), so the panels match your desktop. Dark and Light pin one. Applies to operator windows only: scorebug and audience graphics keep their designed colors." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,14"/>
-        <Separator/>
+        <Border Height="1" Background="#F4F7FB" Margin="0,9"/>
         <TextBlock Text="OPERATOR WORKFLOW" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="ShowHints" Content="Show tips next to headings (for example 'scoring, timing, actions')" Checked="Controls_Changed" Unchecked="Controls_Changed"/>
         <TextBlock Text="Off by default. Turning it on adds the small explanatory labels in the header, the media dock and the console cards." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
@@ -27,7 +27,7 @@
         <TextBlock Text="How long every graphic holds an old value before it switches to the new one. Type any value from 0 to 5; 0 prints instantly and is the default." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
         <CheckBox x:Name="QuickPublishInput" Content="Quick layout buttons also update output" Checked="QuickLayout_Changed" Unchecked="QuickLayout_Changed"/>
         <TextBlock Text="Off by default: the four buttons above the sound meter only stage a layout, and Update Output sends it as usual. On, the same press puts the layout on air — faster, but it changes the audience picture without a second confirmation." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
-        <Separator/>
+        <Border Height="1" Background="#F4F7FB" Margin="0,9"/>
         <TextBlock Text="INTERFACE COLOURS" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <TextBlock Text="The accent draws selected tabs, live badges and outlines; the secondary fills the main actions such as Update Output. Type a hex value or pick one."
                    TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,0,6,6"/>
@@ -57,7 +57,7 @@
         </Grid>
         <Button x:Name="ResetColorsButton" Content="Reset to the ScorePlus colors" HorizontalAlignment="Left"
                 MinHeight="30" Padding="12,4" Margin="4,2,4,2" Click="ResetColors_Click"/>
-        <Separator/>
+        <Border Height="1" Background="#F4F7FB" Margin="0,9"/>
         <TextBlock Text="REMOTE CONTROL" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="RemoteEnabledInput" Content="Allow the phone remote on this network" Checked="Remote_Changed" Unchecked="Remote_Changed"/>
         <TextBlock Text="Off by default. The remote serves a copy of this control panel to a phone or tablet on the same network, protected by the password below."
@@ -82,7 +82,7 @@
         <TextBlock x:Name="RemoteStatus" Text="Remote is off." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,6,6,4"/>
         <Button x:Name="OpenRemoteButton" Content="Open remote in browser" HorizontalAlignment="Left" MinHeight="30"
                 Padding="12,4" Margin="4,2,4,2" Click="OpenRemote_Click" ToolTip="Open the phone console on this computer"/>
-        <Separator/>
+        <Border Height="1" Background="#F4F7FB" Margin="0,9"/>
         <TextBlock Text="UPDATES" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="CheckUpdatesInput" Content="Check for a newer version when ScorePlus starts" Checked="Update_Changed" Unchecked="Update_Changed"/>
         <TextBlock Text="Only an installed copy checks. The built-in feed reads this project's GitHub releases, prereleases included, so publishing a release is all it takes — leave the address empty for that. Paste your own manifest URL (JSON: version, url, sha256, notes) to use another host."
@@ -93,7 +93,7 @@
                    ToolTip="Empty uses the built-in GitHub feed. Or paste https://example.com/scoreplus/win.json"/>
         </DockPanel>
         <TextBlock x:Name="UpdateStatus" Text="Updates are checked only when the app was installed." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
-        <Separator/>
+        <Border Height="1" Background="#F4F7FB" Margin="0,9"/>
         <TextBlock Text="GAME SAFETY" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <Button x:Name="DeleteAutosavesButton" Content="Delete all autosaves" HorizontalAlignment="Left" MinHeight="32"
                 Padding="14,6" Click="DeleteAutosaves_Click" Margin="4,4,4,2"

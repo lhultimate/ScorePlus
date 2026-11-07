@@ -1,10 +1,10 @@
 using System.IO;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -302,8 +302,8 @@ public partial class ControlPanelView : UserControl
     }
 
 
-    void AwayDetails_Click(object sender, RoutedEventArgs e) => EditTeam(false);
-    void HomeDetails_Click(object sender, RoutedEventArgs e) => EditTeam(true);
+    void AwayDetails_Click(object sender, object e) => EditTeam(false);
+    void HomeDetails_Click(object sender, object e) => EditTeam(true);
 
     void EditTeam(bool home)
     {
@@ -311,8 +311,8 @@ public partial class ControlPanelView : UserControl
         if (dialog.ShowDialog() == true) Refresh();
     }
 
-    void LayoutPrev_Click(object sender, RoutedEventArgs e) => ShiftLayout(-1);
-    void LayoutNext_Click(object sender, RoutedEventArgs e) => ShiftLayout(1);
+    void LayoutPrev_Click(object sender, object e) => ShiftLayout(-1);
+    void LayoutNext_Click(object sender, object e) => ShiftLayout(1);
 
     void ShiftLayout(int delta)
     {
@@ -320,7 +320,7 @@ public partial class ControlPanelView : UserControl
         Refresh();
     }
 
-    void ShotClock14_Click(object sender, RoutedEventArgs e) => _engine.SetShotClock(14);
+    void ShotClock14_Click(object sender, object e) => _engine.SetShotClock(14);
 
     // Shot clock and timeout clock are typed over exactly like the game clock: the timing section
     // should not have second-class values that can only be nudged with buttons.
@@ -340,7 +340,7 @@ public partial class ControlPanelView : UserControl
         }
     }
 
-    void ShotClock_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CommitShotClock();
+    void ShotClock_LostFocus(object sender, FocusChangedEventArgs e) => CommitShotClock();
 
     void CommitShotClock()
     {
@@ -364,7 +364,7 @@ public partial class ControlPanelView : UserControl
         }
     }
 
-    void TimeoutClock_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CommitTimeoutClock();
+    void TimeoutClock_LostFocus(object sender, FocusChangedEventArgs e) => CommitTimeoutClock();
 
     void CommitTimeoutClock()
     {
@@ -633,7 +633,7 @@ public partial class ControlPanelView : UserControl
         Keyboard.ClearFocus();
     }
 
-    void Name_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CommitNames();
+    void Name_LostFocus(object sender, FocusChangedEventArgs e) => CommitNames();
 
     void CommitNames()
     {
@@ -660,7 +660,7 @@ public partial class ControlPanelView : UserControl
         else if (e.Key == Key.Escape) { ClockValue.Text = GameEngine.FormatClock(_engine.State.ClockSeconds); Keyboard.ClearFocus(); e.Handled = true; }
     }
 
-    void ClockValue_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    void ClockValue_LostFocus(object sender, FocusChangedEventArgs e)
     {
         if (ClockFormat.TryParse(ClockValue.Text, out var seconds)) _engine.SetClock(seconds);
         else ClockValue.Text = GameEngine.FormatClock(_engine.State.ClockSeconds);
@@ -679,7 +679,7 @@ public partial class ControlPanelView : UserControl
         else if (e.Key == Key.Escape) { PlayClockValue.Text = _engine.State.PlayClockSeconds.ToString(); Keyboard.ClearFocus(); e.Handled = true; }
     }
 
-    void PlayClock_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CommitPlayClock();
+    void PlayClock_LostFocus(object sender, FocusChangedEventArgs e) => CommitPlayClock();
 
     void CommitPlayClock()
     {
@@ -687,17 +687,17 @@ public partial class ControlPanelView : UserControl
         else PlayClockValue.Text = _engine.State.PlayClockSeconds.ToString();
     }
 
-    void PlayClock40_Click(object sender, RoutedEventArgs e) => _engine.ResetPlayClock(40);
-    void PlayClock25_Click(object sender, RoutedEventArgs e) => _engine.ResetPlayClock(25);
+    void PlayClock40_Click(object sender, object e) => _engine.ResetPlayClock(40);
+    void PlayClock25_Click(object sender, object e) => _engine.ResetPlayClock(25);
 
-    void AddStat_Click(object sender, RoutedEventArgs e)
+    void AddStat_Click(object sender, object e)
     {
         var dialog = new AddStatDialog(_engine.State.Stats.Select(s => s.Name).ToArray()) { Owner = Window.GetWindow(this) };
         ThemeManager.Apply(dialog, PreferencesStore.Load().Theme);
         if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.StatName)) _engine.AddStat(dialog.StatName);
     }
 
-    void LiveOutput_Changed(object sender, RoutedEventArgs e)
+    void LiveOutput_Changed(object sender, object e)
     {
         if (_syncingLive || LiveOutputToggle is null || _host is null) return;
         var enabled = LiveOutputToggle.IsChecked == true;
@@ -705,7 +705,7 @@ public partial class ControlPanelView : UserControl
         _host.LiveScoreClock = enabled;
     }
 
-    void Action_Click(object sender, RoutedEventArgs e)
+    void Action_Click(object sender, object e)
     {
         if (sender is FrameworkElement { Tag: string actionId }) Execute(actionId);
     }

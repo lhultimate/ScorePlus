@@ -1,7 +1,7 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -76,7 +76,7 @@ public partial class SportProfileWindow : Window
         DeleteButton.IsEnabled = !builtIn;
     }
 
-    void Save_Click(object sender, RoutedEventArgs e)
+    void Save_Click(object sender, object e)
     {
         if (_selected is null) return;
         try
@@ -201,7 +201,7 @@ public partial class SportProfileWindow : Window
     }
 
     /// <summary>Adds a sport value of the operator's own: a number to step, or an on/off switch.</summary>
-    void AddValue_Click(object sender, RoutedEventArgs e)
+    void AddValue_Click(object sender, object e)
     {
         if (_selected is null) return;
         var dialog = new Window
@@ -283,7 +283,7 @@ public partial class SportProfileWindow : Window
     /// Starts a custom sport with blank settings rather than a copy of an existing one, selects it,
     /// and leaves the cursor in the name so the operator can just type over it.
     /// </summary>
-    void NewProfile_Click(object sender, RoutedEventArgs e)
+    void NewProfile_Click(object sender, object e)
     {
         try
         {
@@ -302,7 +302,7 @@ public partial class SportProfileWindow : Window
         catch (Exception ex) { ErrorText.Text = ex.Message; }
     }
 
-    void Duplicate_Click(object sender, RoutedEventArgs e)
+    void Duplicate_Click(object sender, object e)
     {
         if (_selected is null) return;
         try
@@ -320,7 +320,7 @@ public partial class SportProfileWindow : Window
         catch (Exception ex) { ErrorText.Text = ex.Message; }
     }
 
-    void Reset_Click(object sender, RoutedEventArgs e)
+    void Reset_Click(object sender, object e)
     {
         if (_selected is null || !_catalog.IsOverridden(_selected.Id)) return;
         if (!ConfirmWindow.Ask(this, PreferencesStore.Load().Theme, "RESET TO PRESET",
@@ -332,7 +332,7 @@ public partial class SportProfileWindow : Window
         ErrorText.Text = "Restored the original preset.";
     }
 
-    void Delete_Click(object sender, RoutedEventArgs e)
+    void Delete_Click(object sender, object e)
     {
         if (_selected is null || _catalog.IsBuiltIn(_selected.Id)) return;
         if (!ConfirmWindow.Ask(this, PreferencesStore.Load().Theme, "DELETE CUSTOM SPORT",
@@ -343,7 +343,7 @@ public partial class SportProfileWindow : Window
         RefreshList();
     }
 
-    void Done_Click(object sender, RoutedEventArgs e) => Close();
+    void Done_Click(object sender, object e) => Close();
 
     sealed record ProfileItem(SportDefinition Profile, string Text) { public override string ToString() => Text; }
 }

@@ -1,9 +1,9 @@
 using System.IO;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Threading;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Microsoft.Win32;
 using Scoreboard.Core;
 
@@ -367,12 +367,12 @@ public partial class RosterPanel : UserControl
 
     /// <summary>Imports a .spr roster into the library, or a .spp player into this roster.</summary>
     /// <summary>The tab header's Import… button, which belongs to whichever side is on the desk.</summary>
-    public void ImportFromDialog() => Import_Click(this, new RoutedEventArgs());
+    public void ImportFromDialog() => Import_Click(this, null);
 
     /// <summary>The tab header's Export… button, for this side's roster or highlighted player.</summary>
-    public void ExportToDialog() => Export_Click(this, new RoutedEventArgs());
+    public void ExportToDialog() => Export_Click(this, null);
 
-    void Import_Click(object sender, RoutedEventArgs e)
+    void Import_Click(object sender, object e)
     {
         if (_engine is null) return;
         var dialog = new OpenFileDialog
@@ -445,7 +445,7 @@ public partial class RosterPanel : UserControl
     /// question up front: the save dialog's "file type" list used to be the only way to reach a
     /// player, which read as though players could not be exported at all.
     /// </summary>
-    void Export_Click(object sender, RoutedEventArgs e)
+    void Export_Click(object sender, object e)
     {
         if (_engine is null || _roster is null)
         {
@@ -543,7 +543,7 @@ public partial class RosterPanel : UserControl
         void Finish(ExportTarget? target)
         {
             if (target is { } value) choose(value);
-            if (System.Windows.Interop.ComponentDispatcher.IsThreadModal) window.DialogResult = true;
+            if (false) window.DialogResult = true;
             else window.Close();
         }
         rosterButton.Click += (_, _) => Finish(ExportTarget.Roster);
@@ -580,7 +580,7 @@ public partial class RosterPanel : UserControl
         Refresh(force: true);
     }
 
-    void RenameRoster_Click(object sender, RoutedEventArgs e)
+    void RenameRoster_Click(object sender, object e)
     {
         if (_engine is null || _roster is null) return;
         var name = TextPromptWindow.Ask(Window.GetWindow(this), "Rename roster", "Roster name", _roster.Name);
@@ -589,7 +589,7 @@ public partial class RosterPanel : UserControl
         SaveAndReload();
     }
 
-    void DeleteRoster_Click(object sender, RoutedEventArgs e)
+    void DeleteRoster_Click(object sender, object e)
     {
         if (_engine is null || _roster is null) return;
         var owner = Window.GetWindow(this);
@@ -628,7 +628,7 @@ public partial class RosterPanel : UserControl
         Refresh();
     }
 
-    void AddPlayer_Click(object sender, RoutedEventArgs e)
+    void AddPlayer_Click(object sender, object e)
     {
         if (_engine is null || _roster is null) return;
         _player = _roster.AddPlayer();
@@ -638,7 +638,7 @@ public partial class RosterPanel : UserControl
         NameInput.SelectAll();
     }
 
-    void RemovePlayer_Click(object sender, RoutedEventArgs e)
+    void RemovePlayer_Click(object sender, object e)
     {
         if (_engine is null || _roster is null || _player is null) return;
         var wasSelected = (_home ? _engine.State.HomePlayer : _engine.State.AwayPlayer)?.PlayerId == _player.Id;
@@ -648,7 +648,7 @@ public partial class RosterPanel : UserControl
         SaveAndReload();
     }
 
-    void Select_Click(object sender, RoutedEventArgs e)
+    void Select_Click(object sender, object e)
     {
         if (_engine is null || _player is null) return;
         _engine.SelectPlayer(_home, _player.Id);
@@ -656,7 +656,7 @@ public partial class RosterPanel : UserControl
     }
 
     /// <summary>Takes this side's player off the graphic, leaving the row highlighted for editing.</summary>
-    void ClearPlayer_Click(object sender, RoutedEventArgs e)
+    void ClearPlayer_Click(object sender, object e)
     {
         if (_engine is null) return;
         _engine.ClearSelectedPlayer(_home);
@@ -672,7 +672,7 @@ public partial class RosterPanel : UserControl
         e.Handled = true;
     }
 
-    void Player_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CommitPlayer();
+    void Player_LostFocus(object sender, FocusChangedEventArgs e) => CommitPlayer();
 
     void CommitPlayer()
     {
@@ -695,7 +695,7 @@ public partial class RosterPanel : UserControl
 
     // ---------- stats ----------
 
-    void AddStat_Click(object sender, RoutedEventArgs e)
+    void AddStat_Click(object sender, object e)
     {
         if (_engine is null || _roster is null || _player is null) return;
         var name = (StatPresetBox.Text ?? "").Trim();
@@ -709,7 +709,7 @@ public partial class RosterPanel : UserControl
         StatPresetBox.Text = "";
     }
 
-    void RemoveStat_Click(object sender, RoutedEventArgs e)
+    void RemoveStat_Click(object sender, object e)
     {
         if (_roster is null || sender is not Button { Tag: string name }) return;
         foreach (var player in _roster.Players)
@@ -725,7 +725,7 @@ public partial class RosterPanel : UserControl
         e.Handled = true;
     }
 
-    void StatValue_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CommitStat(sender);
+    void StatValue_LostFocus(object sender, FocusChangedEventArgs e) => CommitStat(sender);
 
     void CommitStat(object sender)
     {

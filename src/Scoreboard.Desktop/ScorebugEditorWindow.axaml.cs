@@ -1,13 +1,13 @@
-﻿using System.Windows;
+﻿using Avalonia;
 using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media.Animation;
+using Avalonia.Media.Imaging;
+using Avalonia.Media;
 using Microsoft.Win32;
 using Scoreboard.Core;
 
@@ -23,7 +23,7 @@ public partial class ScorebugEditorWindow : Window
     // Property edits save through the catalog; the resulting Changed event must not rebuild the
     // whole canvas (and the video surfaces with it). RefreshAllVisuals repaints in place instead.
     bool _skipRebuild;
-    readonly System.Windows.Threading.DispatcherTimer _wallClock = new() { Interval=TimeSpan.FromSeconds(1) };
+    readonly Avalonia.Threading.DispatcherTimer _wallClock = new() { Interval=TimeSpan.FromSeconds(1) };
     bool _canvasLoading;
     bool _layoutLoading;
     // Layout pictures for the strip above the canvas, keyed by layout: the signature is the
@@ -45,7 +45,7 @@ public partial class ScorebugEditorWindow : Window
     const string BasesMarker = "!bases";
     // Speakers are listed once per studio window; asking WASAPI per keystroke would be wasteful.
     readonly IReadOnlyList<AudioOption> _audioOptions;
-    readonly System.Windows.Threading.DispatcherTimer _propertySave = new() { Interval=TimeSpan.FromMilliseconds(350) };
+    readonly Avalonia.Threading.DispatcherTimer _propertySave = new() { Interval=TimeSpan.FromMilliseconds(350) };
     readonly Dictionary<string,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind)> _visuals = [];
     readonly Dictionary<string,(ScorebugElementKind Kind, ScorebugShape Shape, string? Image, ScorebugAnimation Animation, double Opacity)> _applied = [];
     string _motionSignature = "";
@@ -514,7 +514,7 @@ public partial class ScorebugEditorWindow : Window
             &&string.Equals(counterpart.LinkLayoutId,layout.Id,StringComparison.OrdinalIgnoreCase);
     }
 
-    void LinkBothWays_Changed(object sender,RoutedEventArgs e)
+    void LinkBothWays_Changed(object sender, object e)
     {
         if(_linkLoading)return;
         ApplyReciprocal(LinkBothWaysInput.IsChecked==true);
@@ -671,7 +671,7 @@ public partial class ScorebugEditorWindow : Window
                 block.ApplyStyle(item,_engine.State);
                 block.UpdateText(ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat),item.Transition,item.TransitionSeconds);
             }
-            else if(visual.Content is Image or ScorebugLogoView or System.Windows.Shapes.Shape)
+            else if(visual.Content is Image or ScorebugLogoView or Avalonia.Controls.Shape)
                 ScorebugRender.ApplyToContent(visual.Content,item,_engine.State);
         }
         RefreshColorSwatches();
@@ -950,16 +950,16 @@ public partial class ScorebugEditorWindow : Window
         RefreshAllVisuals();
     }
 
-    void PaintTexture_Click(object sender,RoutedEventArgs e)
+    void PaintTexture_Click(object sender, object e)
     {
         if(Selected is not { } item) return;
         PaintTextureWindow.Edit(this,_catalog,_engine,item,PreferencesStore.Load().Theme);
         Render(); LoadProperties();
     }
 
-    void MotionMakerTransition_Click(object sender,RoutedEventArgs e)=>OpenMotionMaker(MotionKind.Transition);
+    void MotionMakerTransition_Click(object sender, object e)=>OpenMotionMaker(MotionKind.Transition);
 
-    void MotionMakerAnimation_Click(object sender,RoutedEventArgs e)=>OpenMotionMaker(MotionKind.Animation);
+    void MotionMakerAnimation_Click(object sender, object e)=>OpenMotionMaker(MotionKind.Animation);
 
     /// <summary>
     /// The value-change and motion pickers offer the built-in presets and every clip in the show's
@@ -1031,7 +1031,7 @@ public partial class ScorebugEditorWindow : Window
     /// </summary>
     static void ReleaseFocus() => Keyboard.ClearFocus();
 
-    void Property_Changed(object sender,RoutedEventArgs e)=>ApplyProperties(sender);
+    void Property_Changed(object sender, object e)=>ApplyProperties(sender);
     void Property_Changed(object sender,TextChangedEventArgs e)=>ApplyProperties(sender);
     void Property_Changed(object sender,SelectionChangedEventArgs e)=>ApplyProperties(sender);
 
@@ -1209,7 +1209,7 @@ public partial class ScorebugEditorWindow : Window
 
     // ---------- fonts ----------
 
-    void ImportFont_Click(object sender,RoutedEventArgs e)
+    void ImportFont_Click(object sender, object e)
     {
         var dialog=new OpenFileDialog{Title="Import a font",Filter="Fonts (*.ttf;*.otf;*.ttc)|*.ttf;*.otf;*.ttc|All files (*.*)|*.*"};
         if(dialog.ShowDialog(this)!=true)return;
@@ -1239,7 +1239,7 @@ public partial class ScorebugEditorWindow : Window
         _catalog.SelectDisplay(index);
     }
 
-    void DisplayNew_Click(object sender,RoutedEventArgs e)
+    void DisplayNew_Click(object sender, object e)
     {
         var name=PromptText("New display","Name this display. It starts with one blank layout and gets its own audience window.",$"Display {_catalog.Displays.Count+1}");
         if(string.IsNullOrWhiteSpace(name))return;
@@ -1248,7 +1248,7 @@ public partial class ScorebugEditorWindow : Window
         Render();
     }
 
-    void DisplayRename_Click(object sender,RoutedEventArgs e)
+    void DisplayRename_Click(object sender, object e)
     {
         var name=PromptText("Rename display","Display name",_catalog.ActiveDisplay.Name);
         if(string.IsNullOrWhiteSpace(name))return;
@@ -1256,7 +1256,7 @@ public partial class ScorebugEditorWindow : Window
         Render();
     }
 
-    void DisplayDelete_Click(object sender,RoutedEventArgs e)
+    void DisplayDelete_Click(object sender, object e)
     {
         if(_catalog.Displays.Count<=1)
         {
@@ -1299,7 +1299,7 @@ public partial class ScorebugEditorWindow : Window
         if(bothWays)ApplyReciprocal(true);
     }
 
-    void LinkClear_Click(object sender,RoutedEventArgs e)
+    void LinkClear_Click(object sender, object e)
     {
         ApplyReciprocal(false);
         _catalog.SetLink(_catalog.ActiveDisplay.Id,_catalog.ActiveIndex,null,null);
@@ -1326,14 +1326,14 @@ public partial class ScorebugEditorWindow : Window
 
     // ---------- layouts ----------
 
-    void LayoutNew_Click(object sender,RoutedEventArgs e)
+    void LayoutNew_Click(object sender, object e)
     {
         _catalog.AddLayout($"Layout {_catalog.Layouts.Count+1}");
         ClearSelection();
         Render();
     }
 
-    void LayoutDuplicate_Click(object sender,RoutedEventArgs e)
+    void LayoutDuplicate_Click(object sender, object e)
     {
         _catalog.AddLayout($"{_catalog.Layout.Name} copy",copyActive:true);
         ClearSelection();
@@ -1341,13 +1341,13 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>Sends the layout being edited to another display it should live on instead.</summary>
-    void LayoutMove_Click(object sender,RoutedEventArgs e)
+    void LayoutMove_Click(object sender, object e)
     {
         if(!PickLayoutTarget(copy:false)) return;
     }
 
     /// <summary>Puts a copy of the layout being edited on another display.</summary>
-    void LayoutCopy_Click(object sender,RoutedEventArgs e)
+    void LayoutCopy_Click(object sender, object e)
     {
         if(!PickLayoutTarget(copy:true)) return;
     }
@@ -1375,7 +1375,7 @@ public partial class ScorebugEditorWindow : Window
         return done;
     }
 
-    void LayoutDelete_Click(object sender,RoutedEventArgs e)
+    void LayoutDelete_Click(object sender, object e)
     {
         if(_catalog.Layouts.Count<=1)
         {
@@ -1388,7 +1388,7 @@ public partial class ScorebugEditorWindow : Window
         Render();
     }
 
-    void LayoutRename_Click(object sender,RoutedEventArgs e)
+    void LayoutRename_Click(object sender, object e)
     {
         var dialog=new Window{Title="Rename layout",Width=380,SizeToContent=SizeToContent.Height,ResizeMode=ResizeMode.NoResize,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner};
         var panel=new StackPanel{Margin=new Thickness(16)};
@@ -1413,7 +1413,7 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>Writes the layout being designed to a ScorePlus Layout file, artwork and all.</summary>
-    void LayoutExport_Click(object sender,RoutedEventArgs e)
+    void LayoutExport_Click(object sender, object e)
     {
         var snapshot=_catalog.SnapshotLayout(_catalog.ActiveIndex);
         if(snapshot is null)return;
@@ -1434,7 +1434,7 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>Adds a ScorePlus Layout file to the display being edited, as its own independent layout.</summary>
-    void LayoutImport_Click(object sender,RoutedEventArgs e)
+    void LayoutImport_Click(object sender, object e)
     {
         var dialog=new OpenFileDialog{Title="Import layout",Filter=ScorebugFiles.LayoutFilter,DefaultExt=ScorebugFiles.LayoutExtension};
         if(dialog.ShowDialog(this)!=true)return;
@@ -1449,7 +1449,7 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>Writes this display — every layout it holds — to a ScorePlus Display file.</summary>
-    void DisplayExport_Click(object sender,RoutedEventArgs e)
+    void DisplayExport_Click(object sender, object e)
     {
         var snapshot=_catalog.SnapshotDisplay(_catalog.ActiveDisplayIndex);
         if(snapshot is null)return;
@@ -1470,7 +1470,7 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>Adds every layout of a ScorePlus Display file as a new display, and edits it.</summary>
-    void DisplayImport_Click(object sender,RoutedEventArgs e)
+    void DisplayImport_Click(object sender, object e)
     {
         var dialog=new OpenFileDialog{Title="Import display",Filter=ScorebugFiles.DisplayFilter,DefaultExt=ScorebugFiles.DisplayExtension};
         if(dialog.ShowDialog(this)!=true)return;
@@ -1484,17 +1484,17 @@ public partial class ScorebugEditorWindow : Window
         NoticeWindow.Tell(this,"DISPLAY IMPORTED",$"\u201c{_catalog.Displays[index].Name}\u201d now has {_catalog.Displays[index].Layouts.Count} layout{(_catalog.Displays[index].Layouts.Count==1?"":"s")}.");
     }
 
-    void AddText_Click(object sender,RoutedEventArgs e)=>Add(new ScorebugElement{Name="New text",Content="EDIT TEXT",X=480,Y=470,TransparentBackground=true});
+    void AddText_Click(object sender, object e)=>Add(new ScorebugElement{Name="New text",Content="EDIT TEXT",X=480,Y=470,TransparentBackground=true});
 
     /// <summary>The baseball diamond as one element: three bases that light up with a runner on.</summary>
-    void AddLogo_Click(object sender,RoutedEventArgs e)=>Add(new ScorebugElement{Name="New logo",Kind=ScorebugElementKind.Logo,LogoSide=ScorebugLogoSide.Home,Content="HOME LOGO",X=520,Y=470,Width=140,Height=90,TransparentBackground=true});
+    void AddLogo_Click(object sender, object e)=>Add(new ScorebugElement{Name="New logo",Kind=ScorebugElementKind.Logo,LogoSide=ScorebugLogoSide.Home,Content="HOME LOGO",X=520,Y=470,Width=140,Height=90,TransparentBackground=true});
 
     /// <summary>
     /// Imports a still picture onto the graphic. The file is copied into the app's Images folder so
     /// the design keeps working after the original is moved, and the element starts at the picture's
     /// own shape instead of a guessed box.
     /// </summary>
-    void AddImage_Click(object sender,RoutedEventArgs e)
+    void AddImage_Click(object sender, object e)
     {
         var dialog=new OpenFileDialog
         {
@@ -1542,7 +1542,7 @@ public partial class ScorebugEditorWindow : Window
             TransparentBackground=true
         });
     }
-    void AddShape_Click(object sender,RoutedEventArgs e)
+    void AddShape_Click(object sender, object e)
     {
         var picker=new Window{Title="Add shape",Width=340,Height=190,ResizeMode=ResizeMode.NoResize,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner};
         var panel=new StackPanel{Margin=new Thickness(14)};
@@ -1557,7 +1557,7 @@ public partial class ScorebugEditorWindow : Window
         panel.Children.Add(shape); panel.Children.Add(add); picker.Content=panel; ThemeManager.Apply(picker,_theme); picker.ShowDialog();
     }
 
-    void AddData_Click(object sender,RoutedEventArgs e)
+    void AddData_Click(object sender, object e)
     {
         // Every token the binder understands, so no data is missing from the studio.
         var choices=new List<(string,string)>
@@ -1622,7 +1622,7 @@ public partial class ScorebugEditorWindow : Window
     /// Player data: a value read from whoever is selected for a side in the Rosters tab. Every
     /// element added here follows the selection, so switching players reprints them all.
     /// </summary>
-    void AddPlayerData_Click(object sender,RoutedEventArgs e)
+    void AddPlayerData_Click(object sender, object e)
     {
         var choices=new List<(string Label,string Token)>();
         void Side(bool home,string label)
@@ -1677,7 +1677,7 @@ public partial class ScorebugEditorWindow : Window
 
     /// <summary>A video box that only shows clips carrying its tag.</summary>
     /// <summary>A box the operator fills with HTML/CSS; a browser engine draws it on every screen.</summary>
-    void AddHtml_Click(object sender,RoutedEventArgs e)=>Add(new ScorebugElement
+    void AddHtml_Click(object sender, object e)=>Add(new ScorebugElement
     {
         Name="HTML widget",
         Kind=ScorebugElementKind.Html,
@@ -1685,7 +1685,7 @@ public partial class ScorebugEditorWindow : Window
         X=420,Y=520,Width=440,Height=150,TransparentBackground=true
     });
 
-    void AddVideo_Click(object sender,RoutedEventArgs e)
+    void AddVideo_Click(object sender, object e)
     {
         var picker=new Window{Title="Add video element",Width=380,SizeToContent=SizeToContent.Height,ResizeMode=ResizeMode.NoResize,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=new SolidColorBrush(Color.FromRgb(23,28,37)),Foreground=Brushes.White};
         var panel=new StackPanel{Margin=new Thickness(14)};
@@ -1719,7 +1719,7 @@ public partial class ScorebugEditorWindow : Window
         ApplyCanvasSize(preset.Width,preset.Height);
     }
 
-    void CanvasResize_Click(object sender,RoutedEventArgs e)
+    void CanvasResize_Click(object sender, object e)
     {
         var width=int.TryParse(CanvasWidthInput.Text,out var w)?w:_catalog.Layout.Width;
         var height=int.TryParse(CanvasHeightInput.Text,out var h)?h:_catalog.Layout.Height;
@@ -1781,7 +1781,7 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>Pick another layout, tick the parts worth reusing, and they land on this canvas.</summary>
-    void ImportParts_Click(object sender,RoutedEventArgs e)
+    void ImportParts_Click(object sender, object e)
     {
         var current=_catalog.Layout;
         var sources=_catalog.Displays
@@ -1865,10 +1865,10 @@ public partial class ScorebugEditorWindow : Window
         Render();
     }
 
-    void Remove_Click(object sender,RoutedEventArgs e) => RemoveSelected();
+    void Remove_Click(object sender, object e) => RemoveSelected();
 
     /// <summary>Leaves this copy alone from now on; its linked siblings keep following each other.</summary>
-    void BreakLink_Click(object sender,RoutedEventArgs e)
+    void BreakLink_Click(object sender, object e)
     {
         var item=Selected;
         if(item is null||string.IsNullOrWhiteSpace(item.LinkId))return;
@@ -1881,7 +1881,7 @@ public partial class ScorebugEditorWindow : Window
         LoadProperties();
     }
 
-    void Element_MouseDown(object sender,MouseButtonEventArgs e)
+    void Element_MouseDown(object sender,PointerEventArgs e)
     {
         if(_resizing||sender is not Border host||host.Tag is not ScorebugElement item)return;
         var id=item.Id;
@@ -1925,7 +1925,7 @@ public partial class ScorebugEditorWindow : Window
         e.Handled=true;
     }
 
-    void Element_MouseMove(object sender,MouseEventArgs e)
+    void Element_MouseMove(object sender,PointerEventArgs e)
     {
         if(_resizing||_dragElement is null||e.LeftButton!=MouseButtonState.Pressed)return;
         var p=e.GetPosition(DesignCanvas);
@@ -1948,7 +1948,7 @@ public partial class ScorebugEditorWindow : Window
         }
     }
 
-    void Element_MouseUp(object sender,MouseButtonEventArgs e)
+    void Element_MouseUp(object sender,PointerEventArgs e)
     {
         if(_resizing)return;
         if(sender is Border host)host.ReleaseMouseCapture();
@@ -1976,15 +1976,15 @@ public partial class ScorebugEditorWindow : Window
         });
     }
 
-    void Canvas_MouseMove(object sender,MouseEventArgs e) { }
+    void Canvas_MouseMove(object sender,PointerEventArgs e) { }
 
-    void Canvas_MouseUp(object sender,MouseButtonEventArgs e)
+    void Canvas_MouseUp(object sender,PointerEventArgs e)
     {
         if(_resizing)return;
         SaveDrag();
     }
 
-    void Resize_MouseDown(object sender,MouseButtonEventArgs e)
+    void Resize_MouseDown(object sender,PointerEventArgs e)
     {
         if(sender is not Border handle||handle.Tag is not ScorebugElement item)return;
         _dragElement=item; _resizing=true;
@@ -2000,7 +2000,7 @@ public partial class ScorebugEditorWindow : Window
         e.Handled=true;
     }
 
-    void Resize_MouseMove(object sender,MouseEventArgs e)
+    void Resize_MouseMove(object sender,PointerEventArgs e)
     {
         if(_dragElement is null||!_resizing||e.LeftButton!=MouseButtonState.Pressed)return;
         var p=e.GetPosition(DesignCanvas);
@@ -2044,7 +2044,7 @@ public partial class ScorebugEditorWindow : Window
         e.Handled=true;
     }
 
-    void Resize_MouseUp(object sender,MouseButtonEventArgs e)
+    void Resize_MouseUp(object sender,PointerEventArgs e)
     {
         if(sender is Border handle)handle.ReleaseMouseCapture();
         if(_dragElement is { } item)
@@ -2057,9 +2057,9 @@ public partial class ScorebugEditorWindow : Window
         e.Handled=true;
     }
 
-    void Layers_MouseDown(object sender,MouseButtonEventArgs e)=>_listStart=e.GetPosition(null);
+    void Layers_MouseDown(object sender,PointerEventArgs e)=>_listStart=e.GetPosition(null);
 
-    void Layers_MouseMove(object sender,MouseEventArgs e)
+    void Layers_MouseMove(object sender,PointerEventArgs e)
     {
         if(e.LeftButton!=MouseButtonState.Pressed||Layers.SelectedItem is not LayerItem item)return;
         var p=e.GetPosition(null);
@@ -2104,9 +2104,9 @@ public partial class ScorebugEditorWindow : Window
     // ---------- the artwork backdrop ----------
 
     /// <summary>Puts the backdrop back to the ScorePlus navy a layout starts with.</summary>
-    void CanvasBackgroundNavy_Click(object sender,RoutedEventArgs e)=>SetCanvasBackground("#FF091018");
-    void CanvasBackgroundBlack_Click(object sender,RoutedEventArgs e)=>SetCanvasBackground("#FF000000");
-    void CanvasBackground_Click(object sender,RoutedEventArgs e)
+    void CanvasBackgroundNavy_Click(object sender, object e)=>SetCanvasBackground("#FF091018");
+    void CanvasBackgroundBlack_Click(object sender, object e)=>SetCanvasBackground("#FF000000");
+    void CanvasBackground_Click(object sender, object e)
     {
         var picked=ColorPickerWindow.Pick(this,_catalog.Layout.Background);
         if(picked is not null)SetCanvasBackground(picked);
@@ -2128,12 +2128,12 @@ public partial class ScorebugEditorWindow : Window
         _catalog.Update(layout=>layout.Background=color);
     }
 
-    void TextColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(ColorInput);
-    void BackgroundColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(BackgroundInput);
-    void BorderColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(BorderColorInput);
-    void GradientColor2_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(GradientColorInput);
-    void IconFillColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(IconFillInput);
-    void Done_Click(object sender,RoutedEventArgs e)=>Close();
+    void TextColor_Click(object sender, object e)=>ChoosePresetColor(ColorInput);
+    void BackgroundColor_Click(object sender, object e)=>ChoosePresetColor(BackgroundInput);
+    void BorderColor_Click(object sender, object e)=>ChoosePresetColor(BorderColorInput);
+    void GradientColor2_Click(object sender, object e)=>ChoosePresetColor(GradientColorInput);
+    void IconFillColor_Click(object sender, object e)=>ChoosePresetColor(IconFillInput);
+    void Done_Click(object sender, object e)=>Close();
 
     // Enter inside a property field commits that value. It must never close the studio.
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -2195,8 +2195,8 @@ public partial class ScorebugEditorWindow : Window
         _catalog.Update(layout=>{var moved=layout.Elements[from];layout.Elements.RemoveAt(from);layout.Elements.Insert(to,moved);});
     }
 
-    void LayerFront_Click(object sender,RoutedEventArgs e)=>MoveSelectedLayer(1);
-    void LayerBack_Click(object sender,RoutedEventArgs e)=>MoveSelectedLayer(-1);
+    void LayerFront_Click(object sender, object e)=>MoveSelectedLayer(1);
+    void LayerBack_Click(object sender, object e)=>MoveSelectedLayer(-1);
 
     sealed class LayerItem
     {

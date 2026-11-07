@@ -1,7 +1,7 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -205,9 +205,9 @@ public partial class GameControlWindow : Window
         Program.SelectDisplay(display.Id);
     }
 
-    void LayoutPrev_Click(object sender, RoutedEventArgs e) => Program?.Shift(-1);
+    void LayoutPrev_Click(object sender, object e) => Program?.Shift(-1);
 
-    void LayoutNext_Click(object sender, RoutedEventArgs e) => Program?.Shift(1);
+    void LayoutNext_Click(object sender, object e) => Program?.Shift(1);
 
     // ---------- tabs ----------
 
@@ -219,11 +219,11 @@ public partial class GameControlWindow : Window
     /// <summary>Which desk this window is showing, for the checks and for restoring a view.</summary>
     public ConsoleTab Tab => _tab;
 
-    void ControlTab_Click(object sender, RoutedEventArgs e) => ShowTab(ConsoleTab.Control);
+    void ControlTab_Click(object sender, object e) => ShowTab(ConsoleTab.Control);
 
-    void MediaTab_Click(object sender, RoutedEventArgs e) => ShowTab(ConsoleTab.Media);
+    void MediaTab_Click(object sender, object e) => ShowTab(ConsoleTab.Media);
 
-    void RosterTab_Click(object sender, RoutedEventArgs e) => ShowTab(ConsoleTab.Rosters);
+    void RosterTab_Click(object sender, object e) => ShowTab(ConsoleTab.Rosters);
 
     /// <summary>Switches between the console, the media desk and the roster desk; all fill one pane.</summary>
     void ShowTab(ConsoleTab tab)
@@ -260,11 +260,11 @@ public partial class GameControlWindow : Window
         }
     }
 
-    void Undo_Click(object sender, RoutedEventArgs e) => Panel.Execute("global.undo");
+    void Undo_Click(object sender, object e) => Panel.Execute("global.undo");
 
-    void Keybinds_Click(object sender, RoutedEventArgs e) => Panel.ShowKeybindsDialog();
+    void Keybinds_Click(object sender, object e) => Panel.ShowKeybindsDialog();
 
-    void NewPanel_Click(object sender, RoutedEventArgs e) => NewPanelRequested?.Invoke();
+    void NewPanel_Click(object sender, object e) => NewPanelRequested?.Invoke();
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {

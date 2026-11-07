@@ -1,8 +1,8 @@
 using System.IO;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
 using Microsoft.Win32;
 
 namespace Scoreboard.Desktop;
@@ -406,7 +406,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void ClearSearch_Click(object sender, RoutedEventArgs e)
+    void ClearSearch_Click(object sender, object e)
     {
         ClearSearch();
         SearchBox.Focus();
@@ -743,7 +743,7 @@ public partial class MediaDock : UserControl
         return _session.Library.FirstOrDefault(entry => string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase));
     }
 
-    static FrameworkElement FolderGlyph(Brush fill, double width, double height) => new System.Windows.Shapes.Path
+    static FrameworkElement FolderGlyph(Brush fill, double width, double height) => new Avalonia.Controls.Path
     {
         Data = Geometry.Parse("M 1,4 L 8,4 L 10,7 L 23,7 L 23,19 L 1,19 Z"),
         Fill = fill,
@@ -1000,22 +1000,22 @@ public partial class MediaDock : UserControl
 
     // ---------- handlers ----------
 
-    void BackToLibrary_Click(object sender, RoutedEventArgs e)
+    void BackToLibrary_Click(object sender, object e)
     {
         _view = MediaView.Library;
         _openPlaylistName = null;
         Refresh();
     }
 
-    void Up_Click(object sender, RoutedEventArgs e)
+    void Up_Click(object sender, object e)
     {
         if (_session?.FolderFilter is not { } folder) return;
         OpenFolder(folder.Length == 0 ? null : ParentOf(folder));
     }
 
-    void NewFolder_Click(object sender, RoutedEventArgs e) => NewFolder();
+    void NewFolder_Click(object sender, object e) => NewFolder();
 
-    void NewPlaylist_Click(object sender, RoutedEventArgs e) => NewPlaylist();
+    void NewPlaylist_Click(object sender, object e) => NewPlaylist();
 
     void NewFolder()
     {
@@ -1046,7 +1046,7 @@ public partial class MediaDock : UserControl
         OpenPlaylist(playlist);
     }
 
-    void Import_Click(object sender, RoutedEventArgs e)
+    void Import_Click(object sender, object e)
     {
         if (_session is null) return;
         var dialog = new OpenFileDialog
@@ -1061,7 +1061,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>Brings a whole folder back in from a ScorePlus Folder (.spf).</summary>
-    void ImportFolder_Click(object sender, RoutedEventArgs e)
+    void ImportFolder_Click(object sender, object e)
     {
         if (_session is null) return;
         var dialog = new OpenFileDialog
@@ -1076,7 +1076,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>Saves the selected (or open) folder, everything under it, as one .spf file.</summary>
-    void ExportFolder_Click(object sender, RoutedEventArgs e)
+    void ExportFolder_Click(object sender, object e)
     {
         if (_session is null) return;
         var folder = _selectedFolderPath ?? _session.FolderFilter;
@@ -1097,7 +1097,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void Remove_Click(object sender, RoutedEventArgs e)
+    void Remove_Click(object sender, object e)
     {
         if (_session?.Selected is not { } selected) return;
         if (_view == MediaView.Playlist && OpenPlaylist() is { } playlist)
@@ -1106,19 +1106,19 @@ public partial class MediaDock : UserControl
             _session.Remove(selected);
     }
 
-    void TagApply_Click(object sender, RoutedEventArgs e)
+    void TagApply_Click(object sender, object e)
     {
         if (_session?.Selected is not { } selected) return;
         _session.Retag(selected, TagBox.Text);
     }
 
-    void ClipLoop_Changed(object sender, RoutedEventArgs e)
+    void ClipLoop_Changed(object sender, object e)
     {
         if (_syncing || _session?.Selected is not { } selected) return;
         _session.SetClipLoop(selected, ClipLoopBox.IsChecked == true);
     }
 
-    void PlaylistAdd_Click(object sender, RoutedEventArgs e)
+    void PlaylistAdd_Click(object sender, object e)
     {
         if (_session is null || OpenPlaylist() is not { } playlist) return;
         if (_session.Selected is not { } selected) { _session.Report("SELECT A CLIP FIRST"); return; }
@@ -1126,16 +1126,16 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void PlaylistRun_Click(object sender, RoutedEventArgs e)
+    void PlaylistRun_Click(object sender, object e)
     {
         if (_session is null || OpenPlaylist() is not { } playlist) return;
         _session.PlayPlaylist(playlist);
         Refresh();
     }
 
-    void PlaylistStop_Click(object sender, RoutedEventArgs e) => _session?.Stop();
+    void PlaylistStop_Click(object sender, object e) => _session?.Stop();
 
-    void PlaylistDelete_Click(object sender, RoutedEventArgs e)
+    void PlaylistDelete_Click(object sender, object e)
     {
         if (_session is null || OpenPlaylist() is not { } playlist) return;
         _session.DeletePlaylist(playlist);
@@ -1144,14 +1144,14 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void PlaylistLoop_Changed(object sender, RoutedEventArgs e)
+    void PlaylistLoop_Changed(object sender, object e)
     {
         if (_syncing || _session is null || OpenPlaylist() is not { } playlist) return;
         _session.SetPlaylistLoop(playlist, PlaylistLoopBox.IsChecked == true);
         Refresh();
     }
 
-    void PlayPause_Click(object sender, RoutedEventArgs e) => _session?.TogglePlayPause();
+    void PlayPause_Click(object sender, object e) => _session?.TogglePlayPause();
 
     void Volume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
@@ -1183,7 +1183,7 @@ public partial class MediaDock : UserControl
     /// The panic button: stop everything, release the camera (so its last frame cannot stay on the
     /// scorebug) and blank every video box. Clearing the library is the operator's choice.
     /// </summary>
-    void Clear_Click(object sender, RoutedEventArgs e)
+    void Clear_Click(object sender, object e)
     {
         if (_session is null) return;
         if (_session.Library.Count > 0 && !ConfirmClear()) return;
@@ -1243,7 +1243,7 @@ public partial class MediaDock : UserControl
     /// item is a slot, and the Route button on the item picks which Windows device it listens to.
     /// That keeps adding several microphones quick — each one starts on the next free device number.
     /// </summary>
-    void Microphone_Click(object sender, RoutedEventArgs e)
+    void Microphone_Click(object sender, object e)
     {
         if (_session is null) return;
         var index = 0;
@@ -1252,7 +1252,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void Camera_Click(object sender, RoutedEventArgs e)
+    void Camera_Click(object sender, object e)
     {
         if (_session is null) return;
         // Add the next camera item id that is not already in the library. The device it shows can
@@ -1263,7 +1263,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void Replay_Click(object sender, RoutedEventArgs e)
+    void Replay_Click(object sender, object e)
     {
         if (_session is null) return;
         if (_session.IsReplaying) _session.ReturnToLive();
@@ -1271,19 +1271,19 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void StartReplay_Click(object sender, RoutedEventArgs e)
+    void StartReplay_Click(object sender, object e)
     {
         _session?.PlayReplay();
         Refresh();
     }
 
-    void Live_Click(object sender, RoutedEventArgs e)
+    void Live_Click(object sender, object e)
     {
         _session?.ReturnToLive();
         Refresh();
     }
 
-    void SaveReplay_Click(object sender, RoutedEventArgs e)
+    void SaveReplay_Click(object sender, object e)
     {
         if (_session is null || !_session.IsReplaying) return;
         var behind = Math.Max(1, (int)Math.Round(_session.ReplayBack));
@@ -1301,7 +1301,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>Renames the selected camera item and points it at another camera.</summary>
-    void Route_Click(object sender, RoutedEventArgs e)
+    void Route_Click(object sender, object e)
     {
         if (_session is null) return;
         var entry = _session.Current?.IsCamera == true ? _session.Current
@@ -1316,7 +1316,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>Renames the selected microphone item and points it at another microphone.</summary>
-    void MicrophoneRoute_Click(object sender, RoutedEventArgs e)
+    void MicrophoneRoute_Click(object sender, object e)
     {
         if (_session is null) return;
         var entry = _session.Current?.IsMicrophone == true ? _session.Current
@@ -1330,15 +1330,15 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void Stop_Click(object sender, RoutedEventArgs e) => _session?.Stop();
+    void Stop_Click(object sender, object e) => _session?.Stop();
 
-    void Scrub_Start(object sender, MouseButtonEventArgs e)
+    void Scrub_Start(object sender, PointerEventArgs e)
     {
         _scrubbing = true;
         _session?.BeginScrub();
     }
 
-    void Scrub_End(object sender, MouseButtonEventArgs e)
+    void Scrub_End(object sender, PointerEventArgs e)
     {
         if (_session is null) { _scrubbing = false; return; }
         if (_session.IsReplaying) _session.SeekReplay(Math.Max(0, ScrubBar.Maximum - ScrubBar.Value));

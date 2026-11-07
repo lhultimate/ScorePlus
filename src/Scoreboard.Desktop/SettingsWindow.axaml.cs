@@ -1,7 +1,7 @@
 using System.Globalization;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
 using Scoreboard.Core;
 namespace Scoreboard.Desktop;
 public partial class SettingsWindow : Window
@@ -45,8 +45,8 @@ public partial class SettingsWindow : Window
 
     void PaintSwatches()
     {
-        AccentSwatch.Background = new System.Windows.Media.SolidColorBrush(UiPalette.Parse(_draft.AccentColor, System.Windows.Media.Color.FromRgb(0x38, 0xD7, 0xA3)));
-        Accent2Swatch.Background = new System.Windows.Media.SolidColorBrush(UiPalette.Parse(_draft.AccentColor2, System.Windows.Media.Color.FromRgb(0x0B, 0x6B, 0x50)));
+        AccentSwatch.Background = new Avalonia.Media.SolidColorBrush(UiPalette.Parse(_draft.AccentColor, Avalonia.Media.Color.FromRgb(0x38, 0xD7, 0xA3)));
+        Accent2Swatch.Background = new Avalonia.Media.SolidColorBrush(UiPalette.Parse(_draft.AccentColor2, Avalonia.Media.Color.FromRgb(0x0B, 0x6B, 0x50)));
     }
 
     /// <summary>A typed hex value is used as soon as it is a real colour; half-typed text waits.</summary>
@@ -66,7 +66,7 @@ public partial class SettingsWindow : Window
         return digits.Length is 3 or 4 or 6 or 8 && digits.All(Uri.IsHexDigit);
     }
 
-    void AccentPick_Click(object sender, RoutedEventArgs e)
+    void AccentPick_Click(object sender, object e)
     {
         if (ColorPickerWindow.Pick(this, _draft.AccentColor) is not string picked) return;
         _draft.AccentColor = picked;
@@ -75,7 +75,7 @@ public partial class SettingsWindow : Window
         ThemeManager.Apply(this, _draft.Theme);
     }
 
-    void Accent2Pick_Click(object sender, RoutedEventArgs e)
+    void Accent2Pick_Click(object sender, object e)
     {
         if (ColorPickerWindow.Pick(this, _draft.AccentColor2) is not string picked) return;
         _draft.AccentColor2 = picked;
@@ -84,7 +84,7 @@ public partial class SettingsWindow : Window
         ThemeManager.Apply(this, _draft.Theme);
     }
 
-    void ResetColors_Click(object sender, RoutedEventArgs e)
+    void ResetColors_Click(object sender, object e)
     {
         _draft.AccentColor = "#FF38D7A3";
         _draft.AccentColor2 = "#FF0B6B50";
@@ -96,7 +96,7 @@ public partial class SettingsWindow : Window
 
     // ---------- remote control ----------
 
-    void Remote_Changed(object sender, RoutedEventArgs e)
+    void Remote_Changed(object sender, object e)
     {
         if (_loading || RemoteEnabledInput is null) return;
         _draft.RemoteEnabled = RemoteEnabledInput.IsChecked == true;
@@ -104,8 +104,6 @@ public partial class SettingsWindow : Window
         if (int.TryParse(RemotePortInput.Text.Trim(), out var port) && port is >= 1024 and <= 65535) _draft.RemotePort = port;
         UpdateRemoteStatus();
     }
-
-    void Remote_Changed(object sender, TextChangedEventArgs e) => Remote_Changed(sender, (RoutedEventArgs)e);
 
     void UpdateRemoteStatus()
     {
@@ -125,7 +123,7 @@ public partial class SettingsWindow : Window
         RemoteStatus.Text = $"Ready on port {_draft.RemotePort}. On this computer http://localhost:{_draft.RemotePort} · on a phone on the same Wi-Fi {lan}";
     }
 
-    void OpenRemote_Click(object sender, RoutedEventArgs e)
+    void OpenRemote_Click(object sender, object e)
     {
         // The address on the network, not localhost: the operator usually copies it from the URL
         // bar onto a phone, and a localhost URL is useless there.
@@ -137,16 +135,14 @@ public partial class SettingsWindow : Window
 
     // ---------- updates ----------
 
-    void Update_Changed(object sender, RoutedEventArgs e)
+    void Update_Changed(object sender, IsCheckedChangedEvent e)
     {
         if (_loading || CheckUpdatesInput is null || UpdateFeedInput is null) return;
         _draft.CheckForUpdates = CheckUpdatesInput.IsChecked == true;
         _draft.UpdateFeedUrl = UpdateFeedInput.Text.Trim();
     }
 
-    void Update_Changed(object sender, TextChangedEventArgs e) => Update_Changed(sender, (RoutedEventArgs)e);
-
-    async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    async void CheckUpdates_Click(object sender, object e)
     {
         if (!AppInfo.IsInstalled)
         {
@@ -168,14 +164,14 @@ public partial class SettingsWindow : Window
         if (!_loading && ThemeSelector.SelectedItem is string theme) _draft.Theme = theme;
     }
 
-    void Controls_Changed(object sender, RoutedEventArgs e)
+    void Controls_Changed(object sender, object e)
     {
         if (_loading || ShowHints is null) return;
         _draft.ShowHeadingHints = ShowHints.IsChecked == true;
     }
 
     /// <summary>A quick button either stages or publishes; the choice is saved with everything else.</summary>
-    void QuickLayout_Changed(object sender, RoutedEventArgs e)
+    void QuickLayout_Changed(object sender, object e)
     {
         if (_loading || QuickPublishInput is null) return;
         _draft.QuickLayoutsPublish = QuickPublishInput.IsChecked == true;
@@ -193,7 +189,7 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>Clears every recovery point; a second click confirms, so one tap cannot wipe them.</summary>
-    void DeleteAutosaves_Click(object sender, RoutedEventArgs e)
+    void DeleteAutosaves_Click(object sender, object e)
     {
         var remaining = AutosaveStore.List().Count;
         if (remaining == 0)
@@ -255,11 +251,11 @@ public partial class SettingsWindow : Window
         DisplayTiming.Apply(_original);
     }
 
-    void Save_Click(object sender, RoutedEventArgs e)
+    void Save_Click(object sender, object e)
     {
         Commit();
         // DialogResult is only valid for a modal dialog; the window may also be shown modelessly.
-        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal) DialogResult = true;
+        if (false) DialogResult = true;
         Close();
     }
 
@@ -267,9 +263,9 @@ public partial class SettingsWindow : Window
     /// Without an Enter save, Cancel reports false and MainWindow leaves the live theme untouched.
     /// After one, the values are already stored, so closing reports true and the owner repaints.
     /// </summary>
-    void Done_Click(object sender, RoutedEventArgs e)
+    void Done_Click(object sender, object e)
     {
-        if (_committed && System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+        if (_committed && false)
         {
             DialogResult = true; // this closes the dialog itself
             return;

@@ -1,4 +1,4 @@
-using System.Windows;
+using Avalonia;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -34,7 +34,7 @@ public partial class EventLogWindow : Window
             .Select(x => $"{x.At:HH:mm:ss}  {x.Type,-12} {x.Description}").ToArray();
     }
 
-    void Clear_Click(object sender, RoutedEventArgs e)
+    void Clear_Click(object sender, object e)
     {
         _frozen = true;
         LogList.ItemsSource = null;
