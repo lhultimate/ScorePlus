@@ -98,9 +98,11 @@ public partial class ControlPanelView : UserControl
             Tag = "football.ball.side",
             Style = (Style)FindResource("Tiny"),
             Margin = new Thickness(0),
+            // A full-size target with its own line above the step arrows: a button that touched the
+            // Ball On buttons read as if it were clipped into them.
             Height = 30,
             MinHeight = 30,
-            Padding = new Thickness(6, 1, 6, 1),
+            Padding = new Thickness(4, 0, 4, 0),
             FontSize = 10,
             ToolTip = "Which team's half of the field the ball is on — independent of possession"
         };

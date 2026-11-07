@@ -35,6 +35,8 @@ public sealed class ScorebugCanvasView : Grid
     // arrival. Both belong to the swap, not to the layout, so FinishSwap takes them down together.
     Canvas? _swapPieces;
     DispatcherTimer? _swapTimer;
+    // Hosts whose position is travelling from an outgoing layout's spot to the incoming spot.
+    readonly List<(ScorebugElement Item,FrameworkElement Host,Transform Original)> _swapMoves = [];
     readonly MediaPlayback? _playback;
     readonly bool _muteVideo;
     // A silent monitor of the audience picture (not a preview), so it follows the on-air cue.
@@ -193,6 +195,14 @@ public sealed class ScorebugCanvasView : Grid
         if(incoming.TransitionClip is { Kind:MotionKind.Transition } clip && !clip.IsEmpty)
         {
             PlayClipSwap(outgoing,outgoingLayout,incoming,clip);
+            return;
+        }
+        // Position-morph: an item that exists on both layouts (a duplicate keeps its element names)
+        // travels from its old spot to its new spot instead of every changed piece entering from
+        // the edge. This is the hand-over for moving artwork between two similar layouts.
+        if(incoming.Transition==LayoutTransition.Move&&outgoingLayout is not null)
+        {
+            PlayMoveSwap(outgoingLayout,incoming);
             return;
         }
         // The smart mode keeps every unchanged item exactly where it is and animates only the
@@ -369,6 +379,67 @@ public sealed class ScorebugCanvasView : Grid
                 ApplyAnimation(item,host);
             }
         });
+    }
+
+    /// <summary>
+    /// Slides every item that exists on both layouts from its old position to its new one. Items
+    /// are paired by id, then by link, then by name: a duplicated layout gets fresh element ids but
+    /// keeps the names, so moving a plate on the copy reads as that plate travelling.
+    /// </summary>
+    void PlayMoveSwap(ScorebugLayout outgoingLayout,ScorebugLayout incoming)
+    {
+        FinishSwap();
+        var seconds=Math.Clamp(incoming.TransitionSeconds,0,5);
+        if(seconds<=0)return;
+        var matches=MatchElements(outgoingLayout,incoming);
+        if(matches.Count==0)return;
+        var duration=TimeSpan.FromSeconds(seconds);
+        var easing=new CubicEase{EasingMode=EasingMode.EaseInOut};
+        foreach(var item in incoming.Elements)
+        {
+            if(!item.Visible||!_visuals.TryGetValue(item.Id,out var visual))continue;
+            if(!matches.TryGetValue(item.Id,out var previous)||!previous.Visible)continue;
+            var dx=previous.X-item.X; var dy=previous.Y-item.Y;
+            if(Math.Abs(dx)<0.5&&Math.Abs(dy)<0.5)continue;
+            var original=visual.Host.RenderTransform??Transform.Identity;
+            AttachTranslate(visual.Host,original,dx,dy,0,0,duration,easing);
+            _swapMoves.Add((item,visual.Host,original));
+        }
+        if(_swapMoves.Count==0)return;
+        StartSwapTimer(seconds,RestoreMovePieces);
+    }
+
+    /// <summary>
+    /// Pairs the items of two layouts one-for-one. Id is the direct match; LinkId survives copies
+    /// that keep a linked part; the element name is what a normal layout duplicate retains.
+    /// </summary>
+    static Dictionary<string,ScorebugElement> MatchElements(ScorebugLayout outgoing,ScorebugLayout incoming)
+    {
+        var used=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var matches=new Dictionary<string,ScorebugElement>(StringComparer.OrdinalIgnoreCase);
+        void Pair(ScorebugElement item,Func<ScorebugElement,bool> match)
+        {
+            if(matches.ContainsKey(item.Id))return;
+            var previous=outgoing.Elements.FirstOrDefault(candidate=>!used.Contains(candidate.Id)&&match(candidate));
+            if(previous is null)return;
+            used.Add(previous.Id);
+            matches[item.Id]=previous;
+        }
+        foreach(var item in incoming.Elements)
+            Pair(item,candidate=>string.Equals(candidate.Id,item.Id,StringComparison.OrdinalIgnoreCase));
+        foreach(var item in incoming.Elements.Where(item=>!string.IsNullOrWhiteSpace(item.LinkId)))
+            Pair(item,candidate=>!string.IsNullOrWhiteSpace(candidate.LinkId)
+                &&string.Equals(candidate.LinkId,item.LinkId,StringComparison.OrdinalIgnoreCase));
+        foreach(var item in incoming.Elements.Where(item=>!string.IsNullOrWhiteSpace(item.Name)))
+            Pair(item,candidate=>!string.IsNullOrWhiteSpace(candidate.Name)
+                &&string.Equals(candidate.Name,item.Name,StringComparison.OrdinalIgnoreCase));
+        return matches;
+    }
+
+    void RestoreMovePieces()
+    {
+        foreach(var (_,host,original) in _swapMoves)host.RenderTransform=original;
+        _swapMoves.Clear();
     }
 
     /// <summary>Wraps an element's own transform with a translation that settles at zero.</summary>
@@ -689,6 +760,7 @@ public sealed class ScorebugCanvasView : Grid
     {
         _swapTimer?.Stop();
         _swapTimer=null;
+        RestoreMovePieces();
         if(_swapOverlay is Panel panel)
             foreach(var media in panel.Children.OfType<MediaElement>())
             {
@@ -845,7 +917,12 @@ public sealed class ScorebugCanvasView : Grid
             {
                 icon.Update();
             }
-            else if(visual.Content is not VideoSurface)
+            else if(visual.Content is VideoSurface videoSurface)
+            {
+                // A video keeps its decoder and playhead; only its box, tag and chroma key change.
+                videoSurface.SetElement(item);
+            }
+            else
             {
                 ScorebugRender.ApplyToContent(visual.Content,item,state);
             }

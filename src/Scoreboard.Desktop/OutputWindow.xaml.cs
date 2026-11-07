@@ -75,7 +75,8 @@ public partial class OutputWindow : Window
         // operator publishes. Keep the pending flag on air until Publish() reloads the whole state,
         // so typing the distance does not put a half-updated "2nd & 10" on screen.
         if(source.DownPending){_displayState.Down=source.Down;_displayState.DownPending=true;}
-        _displayState.FootballDownMode=source.FootballDownMode;_displayState.ClockMessage=source.ClockMessage;
+        // The Yards/Goal/PAT choice belongs to the staged down-and-distance line, not the live down.
+        _displayState.ClockMessage=source.ClockMessage;
         _displayState.ClockSeconds=source.ClockSeconds;_displayState.ClockRunning=source.ClockRunning;_displayState.ClockCountsUp=source.ClockCountsUp;
         _displayState.ShotClockSeconds=source.ShotClockSeconds;_displayState.ShotClockRunning=source.ShotClockRunning;
         _displayState.StoppageSeconds=source.StoppageSeconds;_displayState.StoppageRunning=source.StoppageRunning;

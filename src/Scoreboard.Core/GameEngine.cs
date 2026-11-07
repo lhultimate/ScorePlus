@@ -1277,7 +1277,9 @@ public sealed class GameEngine
         s.Period, s.TotalPeriods, s.PeriodLabel, s.QuarterDisplayFormat,
         s.HomeMascot, s.AwayMascot,
         s.HomeTimeouts, s.AwayTimeouts, s.HomeFouls, s.AwayFouls, s.HomePossession,
-        s.Down, s.YardsToGo, s.YardsToGoal, s.BallOnHomeSide,
+        // The down number may go live ahead of the rest, but the Yards/Goal/PAT choice is part of
+        // the staged down-and-distance line and must wait for Update Output.
+        s.Down, s.FootballDownMode, s.YardsToGo, s.YardsToGoal, s.BallOnHomeSide,
         s.HomeYellowCards, s.AwayYellowCards, s.HomeRedCards, s.AwayRedCards,
         s.PenaltyActive, s.PenaltyType, s.PenaltyHome, s.DownPending,
         s.Balls, s.Strikes, s.Outs, s.HomeHits, s.AwayHits,
@@ -1467,7 +1469,8 @@ public sealed class GameEngine
             State.HomeRecord == source.HomeRecord && State.AwayRecord == source.AwayRecord &&
             State.HomeDivisionRecord == source.HomeDivisionRecord && State.AwayDivisionRecord == source.AwayDivisionRecord &&
             State.HomeRanking == source.HomeRanking && State.AwayRanking == source.AwayRanking &&
-            State.FootballDownMode == source.FootballDownMode && State.ClockMessage == source.ClockMessage &&
+            // Yards/Goal/PAT is staged with the distance, so a live publish leaves it alone.
+            State.ClockMessage == source.ClockMessage &&
             State.HomePrimaryColor == source.HomePrimaryColor && State.HomeSecondaryColor == source.HomeSecondaryColor &&
             State.AwayPrimaryColor == source.AwayPrimaryColor && State.AwaySecondaryColor == source.AwaySecondaryColor &&
             State.ClockSeconds == source.ClockSeconds && State.ClockRunning == source.ClockRunning &&
@@ -1489,7 +1492,8 @@ public sealed class GameEngine
         State.HomeRecord=source.HomeRecord;State.AwayRecord=source.AwayRecord;
         State.HomeDivisionRecord=source.HomeDivisionRecord;State.AwayDivisionRecord=source.AwayDivisionRecord;
         State.HomeRanking=source.HomeRanking;State.AwayRanking=source.AwayRanking;
-        State.FootballDownMode=source.FootballDownMode;State.ClockMessage=source.ClockMessage;
+        // Down may go live on its own; the down display mode waits for Update Output.
+        State.ClockMessage=source.ClockMessage;
         State.HomePrimaryColor=source.HomePrimaryColor;State.HomeSecondaryColor=source.HomeSecondaryColor;
         State.AwayPrimaryColor=source.AwayPrimaryColor;State.AwaySecondaryColor=source.AwaySecondaryColor;
         State.ClockSeconds=source.ClockSeconds;State.ClockRunning=source.ClockRunning;State.ClockCountsUp=source.ClockCountsUp;

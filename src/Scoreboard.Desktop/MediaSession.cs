@@ -1085,11 +1085,23 @@ public sealed class MediaSession
             _audioDevice = null;
         }
         _replay.Close();
+        var previous = _liveCameras.ToArray();
+        var next = MediaLibrary.CueCamera(previous, entry);
+        // Start the incoming feed before releasing the outgoing one. Surfaces keep the previous
+        // frame in their image while the new camera opens, so a same-tag cut never shows an empty
+        // box; stopping the old feed after the list swap gives the new picture somewhere to land.
         _camera = CameraFeed.Get(entry.CameraIndex);
         _camera.Start();
-        // A camera already on air is not added twice; a second entry on another device joins it.
-        if (!IsCameraOnAir(entry)) _liveCameras.Add(entry);
+        _liveCameras.Clear();
+        _liveCameras.AddRange(next);
         Playback.SetLiveCameras(_liveCameras);
+        var liveDevices = _liveCameras.Select(camera => camera.CameraIndex).ToHashSet();
+        foreach (var replaced in previous)
+        {
+            if (_liveCameras.Any(camera => string.Equals(camera.Path, replaced.Path, StringComparison.OrdinalIgnoreCase))) continue;
+            if (liveDevices.Contains(replaced.CameraIndex)) continue;
+            try { CameraFeed.Get(replaced.CameraIndex).Stop(); } catch { }
+        }
         SetTransportPlaying(true);
         Playback.Start(entry);
         StateChanged?.Invoke();

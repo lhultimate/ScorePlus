@@ -24,6 +24,7 @@ public sealed class VideoSurface : Grid
     // Decoded replay frames are drawn here for the same reason: no media player is involved, so a
     // recorded clip can never come out black or stuck on its first frame.
     readonly Image _replay = new() { Stretch = Stretch.UniformToFill, Visibility = Visibility.Collapsed };
+    ChromaKeyEffect? _chromaKey;
     ReplayFeed? _replayFeed;
     readonly bool _mute;
     // True for a surface that is showing what the audience gets, even when it is muted. The
@@ -152,6 +153,7 @@ public sealed class VideoSurface : Grid
             Children.Add(_placeholder);
         }
 
+        UpdateChromaKey();
         if (_playback is not null) _playback.Changed += Apply;
         Apply();
     }
@@ -171,7 +173,41 @@ public sealed class VideoSurface : Grid
         _replay.Stretch = stretch;
         if (_placeholder is not null)
             _placeholder.Text = string.IsNullOrWhiteSpace(item.MediaTag) ? "VIDEO" : $"VIDEO · {item.MediaTag.ToUpperInvariant()}";
+        UpdateChromaKey();
         Apply();
+    }
+
+    /// <summary>
+    /// Points the three picture layers at the element's chroma key, or clears the effect when the
+    /// key is off. Applying it per layer leaves the studio's placeholder and the element's plate
+    /// untouched; only camera, replay and file pictures are keyed.
+    /// </summary>
+    void UpdateChromaKey()
+    {
+        Color? colour = null;
+        var text = _item.ChromaKeyColor?.Trim();
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            try
+            {
+                if (ColorConverter.ConvertFromString(text) is Color parsed) colour = parsed;
+            }
+            catch { }
+        }
+        if (colour is null)
+        {
+            _chromaKey = null;
+            _element.Effect = null;
+            _live.Effect = null;
+            _replay.Effect = null;
+            return;
+        }
+        _chromaKey ??= new ChromaKeyEffect();
+        _chromaKey.KeyColor = colour.Value;
+        _chromaKey.Tolerance = _item.ChromaKeyTolerance;
+        _element.Effect = _chromaKey;
+        _live.Effect = _chromaKey;
+        _replay.Effect = _chromaKey;
     }
 
     void SyncClip() => _clip.Rect = new Rect(0, 0, Math.Max(0, ActualWidth), Math.Max(0, ActualHeight));
@@ -396,7 +432,10 @@ public sealed class VideoSurface : Grid
     {
         if (_cameraIndex != index)
         {
-            UnsubscribeLive();
+            // Keep the outgoing camera's last picture visible while the new feed opens. The
+            // default unsubscribe hides it, which is right when leaving camera for a file, but
+            // wrong for a cut between two cameras: that briefly showed an empty video box.
+            UnsubscribeLive(keepPicture: true);
             _cameraIndex = index;
             if (_loadedPath is not null)
             {
@@ -409,18 +448,19 @@ public sealed class VideoSurface : Grid
             _feed.FrameReady += OnCameraFrame;
             _feed.Start();
         }
-        // The last frame stays in the image: cutting back from a replay shows the camera instantly
-        // instead of a blank box until the next frame arrives a fraction of a second later.
+        // The last frame stays in the image: cutting between cameras, or back from a replay, shows
+        // a picture instantly instead of a blank box until the next frame arrives.
         _live.Visibility = Visibility.Visible;
         _element.Visibility = Visibility.Collapsed;
     }
 
-    /// <summary>Stops listening to the feed but keeps its last frame on screen.</summary>
-    void UnsubscribeLive()
+    /// <summary>Stops listening to the feed; by default also hides its last frame.</summary>
+    void UnsubscribeLive(bool keepPicture = false)
     {
         if (_feed is not null) _feed.FrameReady -= OnCameraFrame;
         _feed = null;
         _cameraIndex = -1;
+        if (keepPicture) return;
         _live.Visibility = Visibility.Collapsed;
         _element.Visibility = Visibility.Visible;
     }

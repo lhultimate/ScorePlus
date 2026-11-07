@@ -66,9 +66,10 @@ public sealed class Stepper : Grid
 
         _captionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _captionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        // A compact caption with an accessory has to reserve the accessory's height, so every
-        // compact stepper reserves it: otherwise the Ball On value starts lower than Down and To Go.
-        if (compact) _captionRow.MinHeight = 30;
+        // A compact caption with an accessory reserves its height plus a little breathing room.
+        // Every compact stepper reserves the same line, so the Down, To Go and Ball On values stay
+        // level, and the Ball On side switch never touches the step arrows below it.
+        if (compact) _captionRow.MinHeight = 34;
         if (!string.IsNullOrWhiteSpace(caption))
         {
             var label = new TextBlock
@@ -102,11 +103,13 @@ public sealed class Stepper : Grid
 
         if (compact)
         {
-            _plusRow.Width = 36;
-            _plusRow.Margin = new Thickness(0, 0, 3, 0);
-            SetRow(_plusRow, 1);
-            SetColumn(_plusRow, 0);
-            Children.Add(_plusRow);
+            // The compact row reads left to right: subtract, value, add. This matches the
+            // direction operators expect on a numeric keypad and keeps every step arrow in place.
+            _minusRow.Width = 36;
+            _minusRow.Margin = new Thickness(0, 0, 3, 0);
+            SetRow(_minusRow, 1);
+            SetColumn(_minusRow, 0);
+            Children.Add(_minusRow);
 
             _value.Margin = new Thickness(0);
             _value.MinHeight = 34;
@@ -114,11 +117,11 @@ public sealed class Stepper : Grid
             SetColumn(_value, 1);
             Children.Add(_value);
 
-            _minusRow.Width = 36;
-            _minusRow.Margin = new Thickness(3, 0, 0, 0);
-            SetRow(_minusRow, 1);
-            SetColumn(_minusRow, 2);
-            Children.Add(_minusRow);
+            _plusRow.Width = 36;
+            _plusRow.Margin = new Thickness(3, 0, 0, 0);
+            SetRow(_plusRow, 1);
+            SetColumn(_plusRow, 2);
+            Children.Add(_plusRow);
         }
         else
         {

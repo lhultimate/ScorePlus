@@ -122,6 +122,22 @@ public static class MediaLibrary
         return trimmed.Length == 0 ? DefaultTag : trimmed;
     }
 
+    /// <summary>
+    /// The live camera list after cueing another camera. A camera replaces the one already on air
+    /// with the same tag; cameras carrying other tags stay live, so a wide and a tight shot can
+    /// share the screen. Re-cueing the same path refreshes its record instead of adding it twice.
+    /// </summary>
+    public static IReadOnlyList<MediaEntry> CueCamera(IEnumerable<MediaEntry> onAir, MediaEntry incoming)
+    {
+        var tag = NormalizeTag(incoming.Tag);
+        var next = onAir.Where(camera => camera.IsCamera
+                && !string.Equals(camera.Path, incoming.Path, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(NormalizeTag(camera.Tag), tag, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        next.Add(incoming);
+        return next;
+    }
+
     /// <summary>An empty folder means "unfiled"; anything else is a path like Ads/2026.</summary>
     public static string NormalizeFolder(string? folder) => (folder ?? "").Trim().Replace('\\', '/').Trim('/');
 
@@ -261,8 +277,13 @@ public sealed class MediaPlayback
     /// <summary>The live cameras on air, so a video element tagged for one still finds it.</summary>
     public void SetLiveCameras(IEnumerable<MediaEntry> cameras)
     {
+        // Normalise here too, not only in MediaSession: a camera list arriving from any caller
+        // must never contain two cameras fighting over the same tag.
+        var next = new List<MediaEntry>();
+        foreach (var camera in cameras.Where(candidate => candidate.IsCamera))
+            next = MediaLibrary.CueCamera(next, camera).ToList();
         _liveCameras.Clear();
-        _liveCameras.AddRange(cameras.Where(camera => camera.IsCamera));
+        _liveCameras.AddRange(next);
         Changed?.Invoke();
     }
 

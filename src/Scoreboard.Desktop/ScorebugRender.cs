@@ -272,6 +272,11 @@ public sealed class ScorebugTextBlock : TextBlock
     readonly TransformGroup _rest = new();
     string _shown = "";
     bool _animating;
+    // A value that arrives while a crossing is running waits for that crossing to finish, then
+    // crosses from there. Replacing the running one made the printed value jump mid-animation.
+    string? _queuedText;
+    ScorebugTransition _queuedTransition = ScorebugTransition.Cut;
+    double _queuedSeconds = 0.2;
     // A transition is two phases with callbacks; a newer value (or a snap) bumps the generation,
     // so a stale out-phase can never put its old text back on the graphic.
     int _generation;
@@ -357,7 +362,19 @@ public sealed class ScorebugTextBlock : TextBlock
             transition = down;
             total = Math.Clamp(_style.TransitionDownSeconds ?? total, 0, 5);
         }
-        if (_shown == text && !_animating) return;
+        // The target is already recorded when a transition starts. A refresh that prints the same
+        // value must leave that transition alone, and it also cancels a value queued behind it:
+        // the latest state is the value already crossing in, not an older detour.
+        if (_shown == text) { _queuedText = null; return; }
+        // A different value that arrives mid-crossing waits its turn. A cut still snaps, because
+        // a cut is supposed to land immediately.
+        if (_animating && transition != ScorebugTransition.Cut && total >= 0.02)
+        {
+            _queuedText = text;
+            _queuedTransition = transition;
+            _queuedSeconds = total;
+            return;
+        }
         // A hand-over built in the transition maker wins over the preset: the old value leaves on
         // the clip's exit keys and the new one arrives on its enter keys, colour keys and all.
         if (_style?.MotionTransition is { } clip && IsLoaded && clip.Phases.Any(phase => phase.Enabled && !phase.IsEmpty))
@@ -366,7 +383,7 @@ public sealed class ScorebugTextBlock : TextBlock
             return;
         }
         var valueMotion = _style?.MotionAnimation is { UseOnValueChange: true, IsEmpty: false } motion ? motion : null;
-        if (transition == ScorebugTransition.Cut || total < 0.02 || !IsLoaded || _animating)
+        if (transition == ScorebugTransition.Cut || total < 0.02 || !IsLoaded)
         {
             Snap(text);
             if (valueMotion is not null) MotionPlayback.PlayClip(this, valueMotion, Opacity, ambient: false);
@@ -387,14 +404,28 @@ public sealed class ScorebugTextBlock : TextBlock
             {
                 if (generation != _generation) return;
                 _animating = false;
+                // A value that arrived while the crossing ran starts its own crossing now, from
+                // the value that just landed. Nothing snaps into place between the two.
+                if (_queuedText is not null) { PlayQueued(); return; }
                 if (valueMotion is not null) MotionPlayback.PlayClip(this, valueMotion, Opacity, ambient: false);
             });
         });
     }
 
+    void PlayQueued()
+    {
+        if (_queuedText is not { } next) return;
+        var transition = _queuedTransition;
+        var seconds = _queuedSeconds;
+        _queuedText = null;
+        if (string.Equals(next, Text, StringComparison.Ordinal)) return;
+        UpdateText(next, transition, seconds);
+    }
+
     void Snap(string text)
     {
         _generation++;
+        _queuedText = null;
         ClearPhase();
         Text = text;
         _shown = text;
@@ -408,6 +439,7 @@ public sealed class ScorebugTextBlock : TextBlock
     void PlayMotionTransition(string text, MotionClip clip)
     {
         _generation++;
+        _queuedText = null;
         var generation = _generation;
         ClearPhase();
         _animating = true;
@@ -423,6 +455,7 @@ public sealed class ScorebugTextBlock : TextBlock
             {
                 ClearPhase();
                 _animating = false;
+                if (_queuedText is not null) PlayQueued();
                 return;
             }
             MotionPlayback.PlayPhase(this, enter, level, () =>
@@ -430,6 +463,7 @@ public sealed class ScorebugTextBlock : TextBlock
                 if (generation != _generation) return;
                 ClearPhase();
                 _animating = false;
+                if (_queuedText is not null) PlayQueued();
             });
         }
         if (exit is not null && !exit.IsEmpty) MotionPlayback.PlayPhase(this, exit, level, Arrive);
@@ -975,6 +1009,9 @@ public sealed class ScorebugIconView : Grid
             var pointsEast = homeSide;
             // The turn plays whenever the ball changes hands: the mark slides and fades in from the
             // side it is leaving, so possession never blinks from one edge to the other.
+            // The first paint is a still: rebuilding a feed for another layout must not replay the
+            // mark's arrival when possession has not changed.
+            if (_arrowShown is null) _arrowShown = pointsEast;
             if (_arrowShown != pointsEast)
             {
                 _arrowShown = pointsEast;
@@ -1058,6 +1095,8 @@ public sealed class ScorebugIconView : Grid
             // Possession changing moves the mark to the other side of the plate. It slides across
             // the plate, from the side the ball left, so a viewer sees the ball change hands rather
             // than a dot teleport — and the slide happens inside the box, never past its clip.
+            // Like the arrow, the dot's first paint lands where it belongs without an entrance.
+            if (_dotRight is null) _dotRight = right;
             if (_dotRight != right)
             {
                 _dotRight = right;

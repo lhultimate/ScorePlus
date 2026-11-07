@@ -9,7 +9,7 @@ public enum ScorebugElementKind { Text, Logo, Shape, Video, Html, Image }
 /// How one layout hands over to the next on the audience output when a display switches. The
 /// duration lives beside it on the display, so a slow dissolve and a hard cut are one setting apart.
 /// </summary>
-public enum LayoutTransition { Cut, Fade, SlideLeft, SlideRight, SlideUp, SlideDown, Zoom }
+public enum LayoutTransition { Cut, Fade, SlideLeft, SlideRight, SlideUp, SlideDown, Zoom, Move }
 
 /// <summary>Where a value sits inside its box: its own text lines, and the block inside the plate.</summary>
 public enum ScorebugTextAlign { Left, Center, Right }
@@ -116,6 +116,18 @@ public sealed class ScorebugElement
 
     /// <summary>The picture's width ÷ height while <see cref="PreserveVideoAspect"/> is on. 16:9 by default.</summary>
     public double VideoAspect { get; set; } = 16.0 / 9.0;
+
+    /// <summary>
+    /// For video elements: a colour made transparent in the picture, so a green or blue screen
+    /// can sit over the scorebug. Empty turns the key off.
+    /// </summary>
+    public string ChromaKeyColor { get; set; } = "";
+
+    /// <summary>
+    /// How far a pixel may be from <see cref="ChromaKeyColor"/> and still be keyed, 0–1. A little
+    /// tolerance covers uneven studio lighting and video compression; zero keys only an exact match.
+    /// </summary>
+    public double ChromaKeyTolerance { get; set; } = 0.16;
 
     /// <summary>
     /// For video elements: which speaker this element's clip plays through (a WASAPI render device
@@ -848,6 +860,8 @@ public sealed class ScorebugCatalog
                     if (item.TransitionDownSeconds is { } downSeconds)
                         item.TransitionDownSeconds = Math.Clamp(double.IsFinite(downSeconds) ? downSeconds : 0.2, 0, 5);
                     item.VideoAspect = Math.Clamp(double.IsFinite(item.VideoAspect) && item.VideoAspect > 0.05 ? item.VideoAspect : 16.0 / 9.0, 0.1, 10);
+                    item.ChromaKeyColor = (item.ChromaKeyColor ?? "").Trim();
+                    item.ChromaKeyTolerance = Math.Clamp(double.IsFinite(item.ChromaKeyTolerance) ? item.ChromaKeyTolerance : 0.16, 0, 1);
                     item.GradientAngle = Math.Clamp(double.IsFinite(item.GradientAngle) ? item.GradientAngle : 0, -360, 360);
                     item.TextOpacity = Math.Clamp(double.IsFinite(item.TextOpacity) ? item.TextOpacity : 1, 0, 1);
                     item.BackgroundOpacity = Math.Clamp(double.IsFinite(item.BackgroundOpacity) ? item.BackgroundOpacity : 1, 0, 1);

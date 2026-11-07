@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -367,6 +368,8 @@ internal static class Program
                     var groupHandle = (Border)multiEditor.FindName("GroupResizeHandle")!;
                     if (groupBox.Visibility != Visibility.Visible || groupHandle.Visibility != Visibility.Visible)
                         throw new Exception("FAIL: a multi-selection has no group resize box and handle");
+                    if (groupBox.Background is SolidColorBrush groupFill && groupFill.Color.A != 0)
+                        throw new Exception("FAIL: the group resize box tints the artwork instead of only outlining it");
                     var groupElements = multiCatalog.Layout.Elements.Where(element => selectedIds.Contains(element.Id)).ToArray();
                     var expectedGroupWidth = groupElements.Max(element => element.X + element.Width) - groupElements.Min(element => element.X);
                     var expectedGroupHeight = groupElements.Max(element => element.Y + element.Height) - groupElements.Min(element => element.Y);
@@ -389,6 +392,24 @@ internal static class Program
                         || Math.Abs(groupItems[1].Width - 120) > 0.01 || Math.Abs(groupItems[1].Height - 20) > 0.01
                         || Math.Abs(groupItems[0].FontSize - 10) > 0.01)
                         throw new Exception("FAIL: group resize did not scale every selected item around the group box");
+                    // A panel save that was queued before the drag must not write one rounded width
+                    // onto the whole selection while the resize is still finishing.
+                    var widthField = (TextBox)multiEditor.FindName("WidthInput")!;
+                    var widthsBeforeStaleSave = groupElements.ToDictionary(element => element.Id, element => element.Width);
+                    var resizingField = typeof(ScorebugEditorWindow).GetField("_resizing", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    var settlingField = typeof(ScorebugEditorWindow).GetField("_resizeSettling", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    var saveProperties = typeof(ScorebugEditorWindow).GetMethod("SaveProperties", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    resizingField.SetValue(multiEditor, true);
+                    widthField.Text = "999";
+                    saveProperties.Invoke(multiEditor, null);
+                    resizingField.SetValue(multiEditor, false);
+                    settlingField.SetValue(multiEditor, true);
+                    widthField.Text = "998";
+                    saveProperties.Invoke(multiEditor, null);
+                    settlingField.SetValue(multiEditor, false);
+                    if (groupElements.Any(element => Math.Abs(element.Width - widthsBeforeStaleSave[element.Id]) > 0.001))
+                        throw new Exception("FAIL: a delayed property save overwrote the group's finished sizes");
+                    widthField.Text = groupElements[0].Width.ToString("0.##");
                     Console.WriteLine("PASS: a multi-selection has one group box whose handle scales every item together");
                     RaiseKey(multiEditor, PresentationSource.FromVisual(multiEditor), Key.Delete);
                     multiEditor.UpdateLayout();
@@ -398,6 +419,74 @@ internal static class Program
                 }
                 finally { if (File.Exists(multiPath)) File.Delete(multiPath); }
                 Console.WriteLine("PASS: the studio keeps a multi-selection and Delete removes every selected object");
+            }
+
+            // ---------- layout hand-over that slides matching items between their old and new spots ----------
+            {
+                var movePath = Path.Combine(Path.GetTempPath(), $"smoke-move-{Guid.NewGuid():N}.json");
+                ScorebugCanvasView? moveView = null;
+                Window? moveWindow = null;
+                try
+                {
+                    var moveCatalog = new ScorebugCatalog(movePath);
+                    moveCatalog.Update(layout =>
+                    {
+                        layout.Elements.Clear();
+                        layout.Elements.Add(new ScorebugElement
+                        {
+                            Name = "Mover", Content = "MOVE", Kind = ScorebugElementKind.Text,
+                            X = 120, Y = 100, Width = 240, Height = 90, FontSize = 36
+                        });
+                        layout.Transition = LayoutTransition.Cut;
+                        layout.TransitionSeconds = 0;
+                    });
+                    var originalId = moveCatalog.Layout.Elements[0].Id;
+                    var movedIndex = moveCatalog.AddLayout("Moved", copyActive: true);
+                    var movedId = moveCatalog.Layouts[movedIndex].Elements[0].Id;
+                    if (movedId == originalId)
+                        throw new Exception("FAIL: the duplicate layout did not get independent element identity");
+                    moveCatalog.SelectLayout(movedIndex);
+                    moveCatalog.Update(layout =>
+                    {
+                        layout.Elements[0].X = 620;
+                        layout.Elements[0].Y = 340;
+                        layout.Transition = LayoutTransition.Move;
+                        layout.TransitionSeconds = 0.5;
+                    });
+                    moveCatalog.SelectLayout(0);
+                    moveView = new ScorebugCanvasView(moveCatalog, engine, stateProvider: () => engine.State,
+                        layoutProvider: () => moveCatalog.Layout);
+                    moveWindow = new Window
+                    {
+                        Width = 800, Height = 450, Content = moveView, ShowInTaskbar = false,
+                        WindowStyle = WindowStyle.None, Left = -32000, Top = -32000
+                    };
+                    moveWindow.Show();
+                    moveWindow.UpdateLayout();
+                    Pump(TimeSpan.FromMilliseconds(60));
+                    moveCatalog.SelectLayout(movedIndex);
+                    var canvasField = typeof(ScorebugCanvasView).GetField("_canvas", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    var moveCanvas = (Canvas)canvasField.GetValue(moveView)!;
+                    var movingHost = moveCanvas.Children.OfType<Border>().Single();
+                    var movingGroup = movingHost.RenderTransform as TransformGroup;
+                    var movingSlide = movingGroup?.Children.OfType<TranslateTransform>().LastOrDefault();
+                    if (movingSlide is null || movingSlide.X > -490 || movingSlide.X < -510)
+                        throw new Exception($"FAIL: the moved duplicate did not start at its old position ({movingSlide?.X})");
+                    Pump(TimeSpan.FromMilliseconds(120));
+                    if (movingSlide.X <= -489)
+                        throw new Exception("FAIL: the moved duplicate did not travel toward its new position");
+                    Pump(TimeSpan.FromMilliseconds(520));
+                    if (movingHost.RenderTransform is TransformGroup leftover
+                        && leftover.Children.OfType<TranslateTransform>().Any(slide => Math.Abs(slide.X) > 0.5))
+                        throw new Exception("FAIL: the move hand-over left the item offset after it finished");
+                    Console.WriteLine("PASS: a duplicate's moved item slides from its old position to its new one");
+                }
+                finally
+                {
+                    moveView?.Dispose();
+                    moveWindow?.Close();
+                    if (File.Exists(movePath)) File.Delete(movePath);
+                }
             }
 
             var keybinds = new KeybindsWindow(new KeybindSettings());
@@ -928,6 +1017,26 @@ internal static class Program
                 var ballSide = FindAll<Button>(view).FirstOrDefault(b => (b.Tag as string) == "football.ball.side")
                     ?? throw new Exception("FAIL: the ball-side switch is missing from the console");
                 AssertInsideCard(ballSide, "the ball-side switch");
+                // The compact step row runs minus / value / plus, and the ball-side switch has its
+                // own clear line above those arrows instead of touching the Ball On controls.
+                Button StepButton(string hostName, string content)
+                {
+                    var host = view.FindName(hostName) as ContentControl
+                        ?? throw new Exception($"FAIL: {hostName} is missing from the console");
+                    return FindAll<Button>(host).FirstOrDefault(button => Equals(button.Content, content))
+                        ?? throw new Exception($"FAIL: {hostName} has no {content} step button");
+                }
+                foreach (var hostName in new[] { "DownHost", "ToGoHost", "BallOnHost" })
+                {
+                    if (Left(StepButton(hostName, "−")) >= Left(StepButton(hostName, "+")))
+                        throw new Exception($"FAIL: {hostName} puts + before − instead of − on the left and + on the right");
+                }
+                var ballMinus = StepButton("BallOnHost", "−");
+                var ballPlus = StepButton("BallOnHost", "+");
+                var ballSideBounds = Bounds(ballSide);
+                var ballStepTop = Math.Min(Bounds(ballMinus).Top, Bounds(ballPlus).Top);
+                if (ballSideBounds.Bottom > ballStepTop - 0.5)
+                    throw new Exception($"FAIL: the ball-side switch clips into the Ball On step arrows ({ballSideBounds.Bottom:0.#} vs {ballStepTop:0.#})");
                 var clockValue = (FrameworkElement)view.FindName("ClockValue")!;
                 var clockMessage = (FrameworkElement)view.FindName("ClockMessageBox")!;
                 AssertInsideCard(clockValue, "ClockValue");
@@ -1122,7 +1231,27 @@ internal static class Program
             dotView.Update();
             if (dot.HorizontalAlignment != HorizontalAlignment.Right)
                 throw new Exception("FAIL: flipping the possession dot had no effect");
+            // A layout rebuild creates a fresh arrow view. Its first paint must be a still so the
+            // mark does not replay its entrance just because the operator changed layouts.
+            var arrowEngine = new GameEngine();
+            arrowEngine.NewGame("football");
+            arrowEngine.SetPossession(true);
+            var arrowItem = new ScorebugElement
+            {
+                Name = "Possession arrow", Kind = ScorebugElementKind.Text, Width = 80, Height = 40,
+                Icon = ScorebugIcon.PossessionArrow, FontSize = 26,
+                Transition = ScorebugTransition.WheelUp, TransitionSeconds = 0.6
+            };
+            var arrowView = new ScorebugIconView(arrowItem, () => arrowEngine.State);
+            var arrowMark = FindAll<System.Windows.Shapes.Polygon>(arrowView).Single();
+            if (arrowMark.Opacity < 0.999 || arrowMark.RenderTransform is TranslateTransform)
+                throw new Exception("FAIL: the possession arrow plays an entrance on its first paint");
+            arrowEngine.SetPossession(false);
+            arrowView.Update();
+            if (arrowMark.RenderTransform is not TranslateTransform)
+                throw new Exception("FAIL: the possession arrow stopped animating when possession actually changed");
             Console.WriteLine("PASS: timeout bars and the possession dot follow live data, and the dot can be flipped");
+            Console.WriteLine("PASS: the possession arrow paints its first frame still and only animates a real possession change");
 
             // The same icons render on a real scorebug canvas, and the studio offers the property.
             var iconCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"icons-{Guid.NewGuid():N}.json"));
@@ -1344,6 +1473,33 @@ internal static class Program
                     throw new Exception("FAIL: a live camera did not route into an ANY video box");
                 playback.Start(ad);
                 Console.WriteLine("PASS: ANY plays whatever is cued, and a live camera routes like a clip");
+
+                // Cameras route by tag: a new camera replaces the one already on air under the same
+                // tag, while cameras carrying other tags remain live. This is what lets a wide and
+                // a tight camera feed separate scorebug boxes, without two cameras fighting over
+                // one box.
+                var cameraCue = new MediaPlayback();
+                var wideCamera = new MediaEntry(MediaLibrary.CameraPath(0), "Camera");
+                var benchCamera = new MediaEntry(MediaLibrary.CameraPath(1), "Bench");
+                var tightCamera = new MediaEntry(MediaLibrary.CameraPath(2), "camera");
+                var afterCameraCue = MediaLibrary.CueCamera([wideCamera, benchCamera], tightCamera);
+                if (afterCameraCue.Count != 2
+                    || afterCameraCue.Any(camera => camera.Path == wideCamera.Path)
+                    || !afterCameraCue.Any(camera => camera.Path == benchCamera.Path)
+                    || !afterCameraCue.Any(camera => camera.Path == tightCamera.Path))
+                    throw new Exception("FAIL: a same-tag camera did not replace the previous camera while keeping another tag live");
+                cameraCue.SetLiveCameras(afterCameraCue);
+                if (cameraCue.ActiveFor("Camera")?.Path != tightCamera.Path
+                    || cameraCue.ActiveFor("Bench")?.Path != benchCamera.Path)
+                    throw new Exception("FAIL: the tag-matched cameras did not route to their own boxes");
+                // A caller handing in a flat list must get the same replacement, not two cameras
+                // fighting over the first matching tag.
+                cameraCue.SetLiveCameras([wideCamera, benchCamera, tightCamera]);
+                if (cameraCue.LiveCameras.Count != 2
+                    || cameraCue.LiveCameras.Count(camera => camera.Tag.Equals("Camera", StringComparison.OrdinalIgnoreCase)) != 1
+                    || cameraCue.ActiveFor("Camera")?.Path != tightCamera.Path)
+                    throw new Exception("FAIL: the playback list kept two cameras on the same tag");
+                Console.WriteLine("PASS: a camera replaces only its own tag; different tags stay on air together");
 
                 // A microphone is a live source like a camera: its own library item, audio only.
                 var micPath = MediaLibrary.MicrophonePath(1);
@@ -2038,6 +2194,49 @@ internal static class Program
             Console.WriteLine($"PASS: the studio offers {FontCatalog.All.Count} font families and imports your own");
             if (Enum.GetValues<ScorebugTransition>().Length < 10)
                 throw new Exception($"FAIL: only {Enum.GetValues<ScorebugTransition>().Length} text-change animations exist");
+            // The output refreshes all values while a clock runs. Repeating the value that is
+            // already crossing must not snap the transition to its end.
+            {
+                var transitionItem = new ScorebugElement
+                {
+                    Name = "Transition probe", Content = "0", Kind = ScorebugElementKind.Text,
+                    Width = 120, Height = 80, FontSize = 48,
+                    Transition = ScorebugTransition.Fade, TransitionSeconds = 0.8
+                };
+                var transitionBlock = new ScorebugTextBlock(transitionItem);
+                transitionBlock.UpdateText("0", ScorebugTransition.Cut);
+                var transitionHost = new Window
+                {
+                    Width = 220, Height = 140, Content = transitionBlock,
+                    ShowInTaskbar = false, WindowStyle = WindowStyle.None, Left = -32000, Top = -32000
+                };
+                transitionHost.Show();
+                Pump(TimeSpan.FromMilliseconds(80));
+                transitionBlock.UpdateText("1", ScorebugTransition.Fade, 0.8);
+                transitionBlock.ApplyStyle(transitionItem, null);
+                transitionBlock.UpdateText("1", ScorebugTransition.Fade, 0.8);
+                Pump(TimeSpan.FromMilliseconds(80));
+                if (transitionBlock.Text != "0")
+                    throw new Exception("FAIL: refreshing the same value cut its text transition short");
+                // A genuinely newer value must also wait its turn instead of snapping the running
+                // crossing to its final frame.
+                transitionBlock.UpdateText("2", ScorebugTransition.Fade, 0.8);
+                if (transitionBlock.Text != "0")
+                    throw new Exception("FAIL: a newer value snapped the running text transition");
+                Pump(TimeSpan.FromMilliseconds(1700));
+                if (transitionBlock.Text != "2")
+                    throw new Exception($"FAIL: the newest queued value did not arrive ({transitionBlock.Text})");
+                // Returning to the value already crossing in cancels the detour queued behind it.
+                transitionBlock.UpdateText("3", ScorebugTransition.Fade, 0.8);
+                Pump(TimeSpan.FromMilliseconds(40));
+                transitionBlock.UpdateText("4", ScorebugTransition.Fade, 0.8);
+                transitionBlock.UpdateText("3", ScorebugTransition.Fade, 0.8);
+                Pump(TimeSpan.FromMilliseconds(1700));
+                if (transitionBlock.Text != "3")
+                    throw new Exception($"FAIL: a stale queued value won after the state returned ({transitionBlock.Text})");
+                transitionHost.Close();
+                Console.WriteLine("PASS: a repeated or newer value refresh leaves a running text transition alone");
+            }
 
             var stylePath = Path.Combine(Path.GetTempPath(), $"smoke-style-{Guid.NewGuid():N}.json");
             try
@@ -2350,8 +2549,40 @@ internal static class Program
                     throw new Exception($"FAIL: a free video box should fill its frame, not {picture.Stretch}");
                 if (Math.Abs(video.Width / video.Height - video.VideoAspect) > 0.001)
                     throw new Exception("FAIL: the preserved-aspect box does not match its picture");
+                // Chroma key: the selected green disappears, while another colour survives. Rendering
+                // the shader here catches a missing or uncompiled .ps before a show depends on it.
+                var keyed = new Border
+                {
+                    Width = 8, Height = 8, Background = Brushes.Lime,
+                    Effect = new ChromaKeyEffect { KeyColor = Colors.Lime, Tolerance = 0.1 }
+                };
+                // Render it over magenta: checking alpha alone missed the original bug, where the
+                // shader left green in RGB and compositing added the green back over the scorebug.
+                var keyedStage = new Grid
+                {
+                    Width = 8, Height = 8, Background = Brushes.Magenta,
+                    Children = { keyed }
+                };
+                keyedStage.Measure(new Size(8, 8));
+                keyedStage.Arrange(new Rect(0, 0, 8, 8));
+                var keyedBitmap = new RenderTargetBitmap(8, 8, 96, 96, PixelFormats.Pbgra32);
+                keyedBitmap.Render(keyedStage);
+                var keyedPixels = new byte[8 * 8 * 4];
+                keyedBitmap.CopyPixels(keyedPixels, 8 * 4, 0);
+                var center = (4 * 8 + 4) * 4;
+                if (keyedPixels[center] < 240 || keyedPixels[center + 1] > 15 || keyedPixels[center + 2] < 240)
+                    throw new Exception($"FAIL: the chroma-key shader did not leave the background showing through ({keyedPixels[center]},{keyedPixels[center + 1]},{keyedPixels[center + 2]})");
+                video.ChromaKeyColor = "#FF00FF00";
+                video.ChromaKeyTolerance = 0.1;
+                surface.SetElement(video);
+                if (picture.Effect is not ChromaKeyEffect)
+                    throw new Exception("FAIL: a keyed video box did not receive the chroma-key effect");
+                video.ChromaKeyColor = "";
+                surface.SetElement(video);
+                if (picture.Effect is not null)
+                    throw new Exception("FAIL: clearing the chroma key left the effect on the video");
                 surface.Dispose();
-                Console.WriteLine("PASS: video boxes honour the preserved aspect ratio, and each element carries its own audio output");
+                Console.WriteLine("PASS: video boxes honour the preserved aspect ratio and chroma key, and each element carries its own audio output");
             }
 
             // ---------- team pop-up: name, abbreviation, logo and colours from the console ----------
@@ -2450,11 +2681,14 @@ internal static class Program
                     Pump(TimeSpan.FromMilliseconds(40));
                     block.UpdateText("24", transition);
                     Pump(TimeSpan.FromMilliseconds(80));
+                    if (block.Text == "24")
+                        throw new Exception("FAIL: a newer value cut the running value animation short");
+                    Pump(TimeSpan.FromMilliseconds(600));
                     if (block.Text != "24")
-                        throw new Exception($"FAIL: a value changed mid-animation showed '{block.Text}' instead of the newest value");
+                        throw new Exception($"FAIL: a value changed mid-animation settled on '{block.Text}' instead of the newest value");
                     transitionHost.Close();
                 }
-                Console.WriteLine("PASS: any colour can point at a team's primary or secondary colour, team logos reach the graphic, and value animations land on the newest value");
+                Console.WriteLine("PASS: any colour can point at a team's primary or secondary colour, team logos reach the graphic, and the newest value lands without cutting the crossing");
             }
             finally { if (File.Exists(colorPath)) File.Delete(colorPath); }
 

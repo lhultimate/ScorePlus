@@ -80,6 +80,9 @@ public partial class ScorebugEditorWindow : Window
     readonly Dictionary<string,(double X,double Y,double Width,double Height,double FontSize)> _resizeOrigins = [];
     Point _dragStartPoint;
     bool _resizing;
+    // A property-panel save must not land inside a resize gesture (or the instant after it), or a
+    // rounded panel value can be written back over every selected element's finished geometry.
+    bool _resizeSettling;
     bool _groupResize;
     Rect _resizeGroupBounds;
     double _resizeStartX, _resizeStartY, _resizeStartWidth, _resizeStartHeight;
@@ -159,7 +162,8 @@ public partial class ScorebugEditorWindow : Window
         new(LayoutTransition.SlideRight, "Swing right"),
         new(LayoutTransition.SlideUp, "Slide up"),
         new(LayoutTransition.SlideDown, "Slide down"),
-        new(LayoutTransition.Zoom, "Zoom")
+        new(LayoutTransition.Zoom, "Zoom"),
+        new(LayoutTransition.Move, "Move items")
     ];
 
     // Per-element quarter style. "Follow game default" keeps the old behaviour for layouts that
@@ -304,7 +308,7 @@ public partial class ScorebugEditorWindow : Window
         PlayerSideInput.SelectedIndex=0;
         PlayerPickInput.ItemsSource=new[]{new PlayerChoice(null,"Selected player — whoever is on the graphic")};
         PlayerFieldInput.ItemsSource=PlayerFields.All(null).Select(field=>new PlayerFieldOption(field,field)).ToArray();
-        _propertySave.Tick+=(_,_)=>{_propertySave.Stop();SaveProperties();RefreshAllVisuals();};
+        _propertySave.Tick+=(_,_)=>{_propertySave.Stop();if(_resizing||_resizeSettling)return;SaveProperties();RefreshAllVisuals();};
         _catalog.Changed += Render;
         _catalog.Changed += CaptureLayoutHistory;
         _engine.Changed += RefreshBoundText;
@@ -844,7 +848,12 @@ public partial class ScorebugEditorWindow : Window
                 ScorebugRender.ApplyToContent(block,item,_engine.State,ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat));
             else if(visual.Content is ScorebugIconView iconView)
                 iconView.Update();
-            else if(visual.Content is not VideoSurface)
+            else if(visual.Content is VideoSurface videoSurface)
+            {
+                // Apply a chroma-key or tag edit in place, without rebuilding the decoder.
+                videoSurface.SetElement(item);
+            }
+            else
                 ScorebugRender.ApplyToContent(visual.Content,item,_engine.State);
             visual.Host.Width=item.Width; visual.Host.Height=item.Height;
             visual.Host.Background=ScorebugRender.HostBackground(item,_engine.State);
@@ -1001,13 +1010,13 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput})
             control.IsEnabled=has;
         if(has)
         {
-            NameInput.Text=e!.Name; ContentInput.Text=e.Content; XInput.Text=e.X.ToString("0"); YInput.Text=e.Y.ToString("0");
-            WidthInput.Text=e.Width.ToString("0"); HeightInput.Text=e.Height.ToString("0");
-            FontInputSize.Text=e.FontSize.ToString("0");
+            NameInput.Text=e!.Name; ContentInput.Text=e.Content; XInput.Text=e.X.ToString("0.##"); YInput.Text=e.Y.ToString("0.##");
+            WidthInput.Text=e.Width.ToString("0.##"); HeightInput.Text=e.Height.ToString("0.##");
+            FontInputSize.Text=e.FontSize.ToString("0.##");
             RotationInput.Text=e.Rotation.ToString("0");
             var font=FontCatalog.ChoiceFor(e.FontFamily);
             FontInput.SelectedItem=FontCatalog.All.FirstOrDefault(c=>string.Equals(c.Source,font.Source,StringComparison.OrdinalIgnoreCase))??font;
@@ -1050,6 +1059,8 @@ public partial class ScorebugEditorWindow : Window
             MediaTagInput.Text=e.MediaTag;
             PreserveAspectInput.IsChecked=e.PreserveVideoAspect;
             AspectInput.Text=e.VideoAspect.ToString("0.###");
+            ChromaKeyInput.Text=e.ChromaKeyColor;
+            ChromaKeyToleranceInput.Text=e.ChromaKeyTolerance.ToString("0.00");
             AudioDeviceInput.SelectedItem=_audioOptions.FirstOrDefault(option=>string.Equals(option.Id??"",e.AudioDevice??"",StringComparison.OrdinalIgnoreCase))??_audioOptions[0];
             LogoInput.SelectedItem=Logos.FirstOrDefault(l=>l.Side==e.LogoSide)??Logos[0];
             PlayerPhotoSideInput.SelectedItem=PlayerPhotoSides.FirstOrDefault(o=>o.Side==e.PlayerPhotoSide)??PlayerPhotoSides[0];
@@ -1092,11 +1103,13 @@ public partial class ScorebugEditorWindow : Window
         // and a hidden swatch made a just-chosen colour look like it had not taken.
         BorderColorSwatch.Background=item is null?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveBorder(item,_engine.State));
         IconFillSwatch.Background=item is null||item.Icon!=ScorebugIcon.Bases?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveIconFill(item,_engine.State));
+        ChromaKeySwatch.Background=item is null||!TryColor(item.ChromaKeyColor,out var chromaColour)?Brushes.Transparent:new SolidColorBrush(chromaColour);
         TextColorSwatch.ToolTip=item is null?null:$"Text colour: {ScorebugRender.ResolveForeground(item,_engine.State)}";
         BackgroundColorSwatch.ToolTip=item is null?null:item.TransparentBackground?"No background box":$"Background colour: {ScorebugRender.ResolveBackground(item,_engine.State)}";
         GradientColorSwatch.ToolTip=item is null||!item.BackgroundGradient?"No gradient":$"Second gradient colour: {_engine.State.ColorFor(item.BackgroundSource2)??item.BackgroundColor2}";
         BorderColorSwatch.ToolTip=item is null||item.BorderThickness<=0?"No border":$"Border colour: {ScorebugRender.ResolveBorder(item,_engine.State)}";
         IconFillSwatch.ToolTip=item is null||item.Icon!=ScorebugIcon.Bases?"No bases":$"Base fill: {ScorebugRender.ResolveIconFill(item,_engine.State)}";
+        ChromaKeySwatch.ToolTip=item is null||string.IsNullOrWhiteSpace(item.ChromaKeyColor)?"No chroma key":$"Chroma key: {item.ChromaKeyColor}";
     }
 
     /// <summary>A colour box only takes typing when the element uses a fixed colour.</summary>
@@ -1290,7 +1303,7 @@ public partial class ScorebugEditorWindow : Window
 
     void ApplyProperties(object sender)
     {
-        if(_loading||Selected is null)return;
+        if(_loading||_resizing||_resizeSettling||Selected is null)return;
         // Every Add button creates an element with no background box. The moment a background
         // colour, palette slot or gradient is chosen, that flag has to come off — otherwise the
         // new paint is discarded at the last step and the swatch stays blank.
@@ -1306,7 +1319,7 @@ public partial class ScorebugEditorWindow : Window
         else if(sender==GradientColorInput&&(GradientSourceInput.SelectedItem as ColorSourceOption)?.Source!=ScorebugColorSource.Custom)GradientSourceInput.SelectedItem=ColorSources[0];
         if(sender==ForegroundSourceInput||sender==BackgroundSourceInput||sender==GradientSourceInput||sender==IconFillSourceInput){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();RefreshColorSwatches();return;}
         // The swatch has to follow the hex box, or a colour that did land reads as unchanged.
-        if(sender==ColorInput||sender==BackgroundInput||sender==BorderColorInput||sender==GradientColorInput)RefreshColorSwatches();
+        if(sender==ColorInput||sender==BackgroundInput||sender==BorderColorInput||sender==GradientColorInput||sender==ChromaKeyInput)RefreshColorSwatches();
         // The down transition is only a stored property: rebuilding the studio here would reload the
         // property panel from the model and snap the just-picked choice back to its old value.
         if(sender==TransitionDownInput){SaveProperties();RefreshAllVisuals();return;}
@@ -1320,7 +1333,7 @@ public partial class ScorebugEditorWindow : Window
             Render(); return;
         }
         if(sender is CheckBox){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();return;}
-        if(sender==ColorInput||sender==BackgroundInput||sender==GradientColorInput){SaveProperties();RefreshAllVisuals();return;}
+        if(sender==ColorInput||sender==BackgroundInput||sender==GradientColorInput||sender==ChromaKeyInput){SaveProperties();RefreshAllVisuals();return;}
         if(sender==ContentInput) UpdatePropertyVisibility();
         _propertySave.Stop(); _propertySave.Start();
     }
@@ -1368,7 +1381,7 @@ public partial class ScorebugEditorWindow : Window
 
     void SaveProperties()
     {
-        if(_loading)return;
+        if(_loading||_resizing||_resizeSettling)return;
         var item=Selected; if(item is null)return;
         var ids=_selectedIds.Count>0?_selectedIds.ToArray():[item.Id];
         var name=NameInput.Text; var content=ContentInput.Text;
@@ -1403,6 +1416,10 @@ public partial class ScorebugEditorWindow : Window
         var mediaTag=MediaTagInput.Text.Trim();
         var preserveAspect=PreserveAspectInput.IsChecked==true;
         var aspectOk=double.TryParse(AspectInput.Text,out var aspect)&&aspect>0.05;
+        var chromaKey=ChromaKeyInput.Text.Trim();
+        var chromaKeyOk=chromaKey.Length==0||TryColor(chromaKey,out _);
+        var chromaToleranceOk=double.TryParse(ChromaKeyToleranceInput.Text,out var chromaTolerance);
+        chromaTolerance=Math.Clamp(chromaToleranceOk?chromaTolerance:0.16,0,1);
         var audioDevice=(AudioDeviceInput.SelectedItem as AudioOption)?.Id;
         var periodFormat=PeriodFormatInput.SelectedItem is PeriodOption period?(string?)period.Key:null;
         var icon=IconInput.SelectedItem is ScorebugIcon chosenIcon?(ScorebugIcon?)chosenIcon:null;
@@ -1435,6 +1452,8 @@ public partial class ScorebugEditorWindow : Window
         // With a group selected every field is written, because the group is allowed to differ.
         if(ids.Length==1&&item.Name==name&&item.Content==content&&(!xOk||item.X==x)&&(!yOk||item.Y==y)&&(!wOk||item.Width==w)&&(!hOk||item.Height==h)
             &&item.PreserveVideoAspect==preserveAspect&&(!aspectOk||Math.Abs(item.VideoAspect-aspect)<0.001)
+            &&(!chromaKeyOk||string.Equals(item.ChromaKeyColor,chromaKey,StringComparison.OrdinalIgnoreCase))
+            &&(!chromaToleranceOk||Math.Abs(item.ChromaKeyTolerance-chromaTolerance)<0.001)
             &&string.Equals(item.AudioDevice,audioDevice,StringComparison.Ordinal)
             &&(!fOk||item.FontSize==f)&&(!foregroundOk||item.Foreground==ColorInput.Text)&&(!backgroundOk||item.Background==BackgroundInput.Text)
             &&(animation is null||item.Animation==animation)&&(transition is null||item.Transition==transition)
@@ -1508,6 +1527,10 @@ public partial class ScorebugEditorWindow : Window
         if(periodFormat is not null&&item.PeriodFormat!=periodFormat)Group(t=>t.PeriodFormat=periodFormat);
         if(item.PreserveVideoAspect!=preserveAspect)Group(t=>t.PreserveVideoAspect=preserveAspect);
         if(aspectOk&&Math.Abs(item.VideoAspect-aspect)>0.001)Group(t=>t.VideoAspect=Math.Clamp(aspect,0.1,10));
+        if(chromaKeyOk&&!string.Equals(item.ChromaKeyColor,chromaKey,StringComparison.OrdinalIgnoreCase))
+            Group(t=>{if(t.Kind==ScorebugElementKind.Video)t.ChromaKeyColor=chromaKey;});
+        if(chromaToleranceOk&&Math.Abs(item.ChromaKeyTolerance-chromaTolerance)>0.001)
+            Group(t=>{if(t.Kind==ScorebugElementKind.Video)t.ChromaKeyTolerance=chromaTolerance;});
         if(!string.Equals(item.AudioDevice,audioDevice,StringComparison.Ordinal))Group(t=>t.AudioDevice=string.IsNullOrWhiteSpace(audioDevice)?null:audioDevice);
         if(icon is not null&&item.Icon!=icon)Group(t=>t.Icon=icon.Value);
         if(item.IconVisitors!=iconVisitors)Group(t=>t.IconVisitors=iconVisitors);
@@ -1603,6 +1626,8 @@ public partial class ScorebugEditorWindow : Window
                 if(periodFormat is not null||target.PeriodFormat is not null)target.PeriodFormat=periodFormat;
                 target.PreserveVideoAspect=preserveAspect;
                 if(aspectOk)target.VideoAspect=Math.Clamp(aspect,0.1,10);
+                if(chromaKeyOk&&target.Kind==ScorebugElementKind.Video)target.ChromaKeyColor=chromaKey;
+                if(chromaToleranceOk&&target.Kind==ScorebugElementKind.Video)target.ChromaKeyTolerance=chromaTolerance;
                 target.AudioDevice=string.IsNullOrWhiteSpace(audioDevice)?null:audioDevice;
                 if(icon is not null&&target.Icon!=icon.Value){target.Icon=icon.Value;artworkChanged=true;}
                 target.IconVisitors=iconVisitors; target.IconFlipped=iconFlipped;
@@ -2623,6 +2648,8 @@ public partial class ScorebugEditorWindow : Window
     void Resize_MouseDown(object sender,MouseButtonEventArgs e)
     {
         if(sender is not Border handle||handle.Tag is not ScorebugElement item)return;
+        // Nothing queued in the property panel may land while a corner is under the mouse.
+        _propertySave.Stop(); _resizeSettling=false;
         // The handle belongs to the primary item or to the group frame. Either way the gesture
         // uses the whole selection, but only a group scales every item around the outer box.
         if(!_selectedIds.Contains(item.Id))
@@ -2742,9 +2769,9 @@ public partial class ScorebugEditorWindow : Window
         if(!_loading)
         {
             _loading=true;
-            XInput.Text=_dragElement.X.ToString("0"); YInput.Text=_dragElement.Y.ToString("0");
-            WidthInput.Text=_dragElement.Width.ToString("0"); HeightInput.Text=_dragElement.Height.ToString("0");
-            FontInputSize.Text=_dragElement.FontSize.ToString("0.#");
+            XInput.Text=_dragElement.X.ToString("0.##"); YInput.Text=_dragElement.Y.ToString("0.##");
+            WidthInput.Text=_dragElement.Width.ToString("0.##"); HeightInput.Text=_dragElement.Height.ToString("0.##");
+            FontInputSize.Text=_dragElement.FontSize.ToString("0.##");
             _loading=false;
         }
         e.Handled=true;
@@ -2766,6 +2793,7 @@ public partial class ScorebugEditorWindow : Window
     void Resize_MouseUp(object sender,MouseButtonEventArgs e)
     {
         if(sender is Border handle)handle.ReleaseMouseCapture();
+        _propertySave.Stop(); _resizeSettling=true;
         var resized=_catalog.Layout.Elements
             .Where(x=>_resizeOrigins.ContainsKey(x.Id))
             .ToDictionary(x=>x.Id,x=>(x.X,x.Y,x.Width,x.Height,x.FontSize));
@@ -2790,6 +2818,10 @@ public partial class ScorebugEditorWindow : Window
             });
         }
         UpdateGroupSelectionAdorners();
+        // Keep the panel quiet until after the catalog's rebuild and LoadProperties have run, so a
+        // late save from before the drag cannot rewrite the just-scaled widths and heights.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+            new Action(()=>_resizeSettling=false));
         e.Handled=true;
     }
 
@@ -2816,6 +2848,7 @@ public partial class ScorebugEditorWindow : Window
     }
 
     void IconColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(IconColorInput);
+    void ChromaKeyColor_Click(object sender,RoutedEventArgs e)=>ChoosePresetColor(ChromaKeyInput);
 
     void ChoosePresetColor(TextBox target)
     {
@@ -2840,7 +2873,7 @@ public partial class ScorebugEditorWindow : Window
         FrameworkElement[] tips=
         [
             HeaderHint,DisplayHintText,TransitionCaption,LinkTipText,LayersHintText,
-            CanvasBackgroundHintText,PlayerDataHintText,LogoHintText,VideoTagHintText,AudioHintText,
+            CanvasBackgroundHintText,PlayerDataHintText,LogoHintText,VideoTagHintText,ChromaKeyHintText,AudioHintText,
             CanvasFitTipText,ResizeTipText,AllValuesHintText
         ];
         foreach(var tip in tips)if(tip is not null)tip.Visibility=visibility;

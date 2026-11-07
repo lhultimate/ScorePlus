@@ -291,7 +291,7 @@
                        individual elements keep their own handle only when selected alone. -->
                   <Canvas x:Name="SelectionCanvas" Width="1280" Height="720">
                     <Border x:Name="GroupSelectionBox" BorderBrush="#FF00BFFF" BorderThickness="2"
-                            Background="#1600BFFF" CornerRadius="2" IsHitTestVisible="False"
+                            CornerRadius="2" IsHitTestVisible="False"
                             Visibility="Collapsed"/>
                     <Border x:Name="GroupResizeHandle" Width="18" Height="18" Background="#FF00BFFF"
                             BorderBrush="White" BorderThickness="1" Cursor="SizeNWSE" Focusable="False"
@@ -582,6 +582,21 @@
           <TextBlock Text="Aspect (width ÷ height)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="AspectInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="16:9 is 1.7778 · 4:3 is 1.3333 · vertical 9:16 is 0.5625"/>
+          <TextBlock Text="Chroma key color" Style="{StaticResource FieldLabel}"/>
+          <DockPanel Margin="0,0,10,2">
+            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="ChromaKeyColor_Click"
+                    ToolTip="Pick the green or blue backdrop color to make transparent"/>
+            <Border x:Name="ChromaKeySwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                    BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                    local:ThemeManager.SkipTheme="True" ToolTip="Pixels of this color become transparent in this video box"/>
+            <TextBox x:Name="ChromaKeyInput" Margin="0" TextChanged="Property_Changed"
+                     ToolTip="Leave empty to turn chroma key off"/>
+          </DockPanel>
+          <TextBlock Text="Key tolerance (0–1)" Style="{StaticResource FieldLabel}"/>
+          <TextBox x:Name="ChromaKeyToleranceInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                   ToolTip="0 keys only the exact color; 0.15–0.25 tolerates uneven lighting and compression"/>
+          <TextBlock x:Name="ChromaKeyHintText" Text="Tolerance is how different a pixel can be from the key color and still disappear: 0 keys only the exact color. Raise it if green edges remain; lower it if the subject starts disappearing."
+                     Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
           <TextBlock Text="Audio output for this element" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="AudioDeviceInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
                     ToolTip="Each video element can play through its own speaker, so two clips never share one output"/>
