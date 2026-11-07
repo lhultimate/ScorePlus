@@ -191,6 +191,29 @@ public sealed class ColorPickerWindow : Window
         var dialog = new ColorPickerWindow(initial) { Owner = owner };
         return dialog.ShowDialog() == true ? dialog.SelectedHex : null;
     }
+
+    /// <summary>
+    /// Shows the picker beside its owner rather than over it, so the window whose colour is being
+    /// chosen — team details, with its logo and palette — stays visible while the shade is picked.
+    /// </summary>
+    public static string? PickBeside(Window owner, string initial)
+    {
+        var dialog = new ColorPickerWindow(initial)
+        {
+            Owner = owner,
+            WindowStartupLocation = WindowStartupLocation.Manual
+        };
+        var area = SystemParameters.WorkArea;
+        var left = owner.Left + owner.ActualWidth + 10;
+        // No room on the right: sit on the other side, still beside rather than on top.
+        if (left + dialog.Width > area.Right) left = owner.Left - dialog.Width - 10;
+        left = Math.Clamp(left, area.Left + 8, Math.Max(area.Left + 8, area.Right - dialog.Width - 8));
+        // Height follows its content, so only the top edge can be placed; leave room for the body.
+        var top = Math.Clamp(owner.Top, area.Top + 8, Math.Max(area.Top + 8, area.Bottom - 540));
+        dialog.Left = left;
+        dialog.Top = top;
+        return dialog.ShowDialog() == true ? dialog.SelectedHex : null;
+    }
 }
 
 /// <summary>A transparent full-screen overlay that turns one click into a desktop color sample.</summary>

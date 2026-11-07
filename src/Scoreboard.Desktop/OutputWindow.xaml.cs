@@ -42,6 +42,8 @@ public partial class OutputWindow : Window
         _displayState.Down=source.Down;_displayState.YardsToGo=source.YardsToGo;_displayState.DownPending=source.DownPending;
         // Team marks are part of the live picture: without these the audience kept the old crest.
         _displayState.HomeLogoPath=source.HomeLogoPath;_displayState.AwayLogoPath=source.AwayLogoPath;
+        _displayState.HomeMascot=source.HomeMascot;_displayState.AwayMascot=source.AwayMascot;
+        _displayState.HomeRecord=source.HomeRecord;_displayState.AwayRecord=source.AwayRecord;
         _displayState.HomePrimaryColor=source.HomePrimaryColor;_displayState.AwayPrimaryColor=source.AwayPrimaryColor;
         _displayState.HomeSecondaryColor=source.HomeSecondaryColor;_displayState.AwaySecondaryColor=source.AwaySecondaryColor;
         _displayState.YardsToGoal=source.YardsToGoal;_displayState.BallOnHomeSide=source.BallOnHomeSide;
@@ -60,6 +62,8 @@ public partial class OutputWindow : Window
         _displayState.HomeTeam=source.HomeTeam;_displayState.AwayTeam=source.AwayTeam;
         _displayState.HomeAbbreviation=source.HomeAbbreviation;_displayState.AwayAbbreviation=source.AwayAbbreviation;
         _displayState.HomeLogoPath=source.HomeLogoPath;_displayState.AwayLogoPath=source.AwayLogoPath;
+        _displayState.HomeMascot=source.HomeMascot;_displayState.AwayMascot=source.AwayMascot;
+        _displayState.HomeRecord=source.HomeRecord;_displayState.AwayRecord=source.AwayRecord;
         _displayState.HomePrimaryColor=source.HomePrimaryColor;_displayState.AwayPrimaryColor=source.AwayPrimaryColor;
         _displayState.HomeSecondaryColor=source.HomeSecondaryColor;_displayState.AwaySecondaryColor=source.AwaySecondaryColor;
         // The new down goes up as soon as it changes, but the distance stays as it was until the

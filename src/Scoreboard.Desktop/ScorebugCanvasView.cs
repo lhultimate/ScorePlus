@@ -27,6 +27,9 @@ public sealed class ScorebugCanvasView : Grid
     readonly string? _displayId;
     string? _drawnLayoutId;
     ScorebugLayout? _drawnLayout;
+    // What the last audience build drew, so a studio-only change cannot replay its entrance
+    // animations (the possession arrow slide in particular) on air.
+    string? _drawnSignature;
     FrameworkElement? _swapOverlay;
     // Pieces that exist only while a hand-over runs, and the timer that ends an exit or a scoped
     // arrival. Both belong to the swap, not to the layout, so FinishSwap takes them down together.
@@ -87,6 +90,16 @@ public sealed class ScorebugCanvasView : Grid
         // still, so the new layout can be revealed through it rather than snapping into place. Any
         // other rebuild (an edit, a palette change) must never trigger the animation.
         var incoming = Layout;
+        // Staging another layout or opening the studio raises catalog.Changed even when the artwork
+        // this view draws has not moved. The audience views compare what they would draw and skip
+        // the rebuild, so a preview-only change never replays an entrance animation on air.
+        if (_displayId is not null)
+        {
+            var signature = JsonSerializer.Serialize(incoming);
+            if (_drawnLayout is not null && string.Equals(_drawnSignature, signature, StringComparison.Ordinal))
+                return;
+            _drawnSignature = signature;
+        }
         var swapping = _drawnLayoutId is not null && !string.Equals(_drawnLayoutId, incoming.Id, StringComparison.OrdinalIgnoreCase);
         var outgoing = swapping ? CaptureCanvas() : null;
         // The layout the still was taken from, so a per-piece exit can be cropped out of it.

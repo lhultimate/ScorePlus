@@ -91,7 +91,7 @@ public sealed class AudiencePreview : Grid
         _sync = true;
         try
         {
-            var names = _catalog.Displays.Select(display => display.Name).ToArray();
+            var names = _catalog.Displays.Select((display, index) => $"{index + 1} · {display.Name}").ToArray();
             if (_displayPicker.ItemsSource is not IEnumerable<string> existing || !existing.SequenceEqual(names))
                 _displayPicker.ItemsSource = names;
             var resolved = _catalog.FindDisplay(wanted) ?? _catalog.Displays.FirstOrDefault();

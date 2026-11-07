@@ -54,6 +54,21 @@ public static class CommonStats
     ];
 }
 
+/// <summary>A quick-layout button captured with a saved game: its label and the layout it points at.</summary>
+public sealed class SavedQuickLayout
+{
+    public string Label { get; set; } = "";
+    public string DisplayId { get; set; } = "";
+    public string LayoutId { get; set; } = "";
+}
+
+/// <summary>A quick-media button captured with a saved game: its label and library path.</summary>
+public sealed class SavedQuickMedia
+{
+    public string Label { get; set; } = "";
+    public string Path { get; set; } = "";
+}
+
 public sealed class GameState
 {
     public string SportId { get; set; } = "basketball";
@@ -64,6 +79,14 @@ public sealed class GameState
     /// <summary>The team's mascot, printed through the {{HOME_MASCOT}} / {{AWAY_MASCOT}} bindings.</summary>
     public string HomeMascot { get; set; } = "";
     public string AwayMascot { get; set; } = "";
+    /// <summary>Season record typed in team details, e.g. "8-2" or "12-4-1". Printed by {{HOME_RECORD}}.</summary>
+    public string HomeRecord { get; set; } = "";
+    public string AwayRecord { get; set; } = "";
+    /// <summary>The quick layout and media buttons in use when the game was saved, so opening it brings them back.</summary>
+    public List<SavedQuickLayout> QuickLayouts { get; set; } = [];
+    public List<SavedQuickMedia> QuickMedia { get; set; } = [];
+    /// <summary>True when this file carries the quick-button lists, including deliberately empty ones.</summary>
+    public bool QuickButtonsSaved { get; set; }
     /// <summary>Team logo imported from the control panel. Graphics draw it, the studio never edits it.</summary>
     public string? HomeLogoPath { get; set; }
     public string? AwayLogoPath { get; set; }
@@ -77,6 +100,9 @@ public sealed class GameState
     public int Period { get; set; } = 1;
     public int HomeTimeouts { get; set; } = 5;
     public int AwayTimeouts { get; set; } = 5;
+    /// <summary>How many timeouts each team started with, so used ones can still be drawn.</summary>
+    public int HomeTimeoutLimit { get; set; } = 5;
+    public int AwayTimeoutLimit { get; set; } = 5;
     public int HomeFouls { get; set; }
     public int AwayFouls { get; set; }
     public bool HomePossession { get; set; } = true;
@@ -153,6 +179,10 @@ public sealed class GameState
     public bool TimeoutClockRunning { get; set; }
     public bool ClockCountsUp { get; set; }
     public DateTimeOffset SavedAt { get; set; } = DateTimeOffset.Now;
+    /// <summary>True once the operator explicitly ends the game; a new game clears it.</summary>
+    public bool GameEnded { get; set; }
+    /// <summary>True once this game's result has been added to the team records, so it is never counted twice.</summary>
+    public bool RecordSettled { get; set; }
     public List<GameEvent> Events { get; set; } = [];
 
     /// <summary>The colour behind a team palette slot, or null for a fixed colour.</summary>
@@ -181,6 +211,9 @@ public sealed class GameState
 
 public sealed record GameEvent(DateTimeOffset At, string Type, string Description, int? HomeScore = null, int? AwayScore = null);
 public sealed record GameSnapshot(GameState State, string Label);
+
+/// <summary>The two shapes a clock can print in: 09:59 (padded) or 9:59 / :59 (compact).</summary>
+public enum ClockStyle { Padded, Compact }
 
 public sealed class GameEngine
 {
@@ -273,22 +306,46 @@ public sealed class GameEngine
     /// so the local timer must not also tick the same clock down between snapshots.
     /// </summary>
     public bool HardwareControlled { get; set; }
+
+    /// <summary>
+    /// When on, the end of the final period (or full time in soccer) adds the result to each team's
+    /// record. Off by default; a side with no record is left alone.
+    /// </summary>
+    public static bool AutoUpdateRecordEnabled { get; set; }
+
     public SportDefinition Sport => Sports.Find(State.SportId) ?? SportDefinition.BuiltIns[^1];
 
     public GameEngine(SportCatalog? sports = null) => Sports = sports ?? new SportCatalog();
 
-    public void NewGame(string sportId)
+    /// <param name="keepTeamIdentity">Keeps the teams from the game being replaced: names,
+    /// abbreviations, mascots, records, logos, colours and the selected rosters and players. A sport
+    /// switch is still a new game, but the teams do not change sports with it.</param>
+    public void NewGame(string sportId, bool keepTeamIdentity = false)
     {
         var sport = Sports.Find(sportId) ?? SportDefinition.BuiltIns[^1];
+        var previous = keepTeamIdentity ? State : null;
         State = new GameState { SportId = sport.Id, // Soccer counts up from 0:00 to the goal time (90:00 for two 45-minute halves).
         ClockCountsUp = sport.CountUp || sport.Id == "soccer",
         // Soccer alone opens at 0:00 (it counts to 90:00); every other sport keeps its clock preset.
         ClockSeconds = sport.Id == "soccer" ? 0 : sport.PeriodSeconds,
-        PeriodSeconds = sport.PeriodSeconds, TotalPeriods = sport.Periods, PeriodLabel = sport.Unit, ScoringOptions = sport.ScoringOptions.ToArray(), HomeTimeouts = sport.Timeouts, AwayTimeouts = sport.Timeouts, PlayClockSeconds = 40, TimeoutClockSeconds = 60, Controls = sport.Controls.Select(c => c with { }).ToList() };
+        PeriodSeconds = sport.PeriodSeconds, TotalPeriods = sport.Periods, PeriodLabel = sport.Unit, ScoringOptions = sport.ScoringOptions.ToArray(), HomeTimeouts = sport.Timeouts, AwayTimeouts = sport.Timeouts, HomeTimeoutLimit = sport.Timeouts, AwayTimeoutLimit = sport.Timeouts, PlayClockSeconds = 40, TimeoutClockSeconds = 60, Controls = sport.Controls.Select(c => c with { }).ToList() };
         // A profile's starting values (a full count of balls to start, a power play already on) are
         // what a new game opens with; stepping them afterwards changes only this game.
         foreach (var control in State.Controls)
             SportValues.Write(State, control.Id, Math.Clamp(control.Default, control.Min, control.Max));
+        if (previous is not null)
+        {
+            State.HomeTeam = previous.HomeTeam; State.AwayTeam = previous.AwayTeam;
+            State.HomeAbbreviation = previous.HomeAbbreviation; State.AwayAbbreviation = previous.AwayAbbreviation;
+            State.HomeMascot = previous.HomeMascot; State.AwayMascot = previous.AwayMascot;
+            State.HomeRecord = previous.HomeRecord; State.AwayRecord = previous.AwayRecord;
+            State.HomeLogoPath = previous.HomeLogoPath; State.AwayLogoPath = previous.AwayLogoPath;
+            State.HomePrimaryColor = previous.HomePrimaryColor; State.HomeSecondaryColor = previous.HomeSecondaryColor;
+            State.AwayPrimaryColor = previous.AwayPrimaryColor; State.AwaySecondaryColor = previous.AwaySecondaryColor;
+            State.HomeRosterId = previous.HomeRosterId; State.AwayRosterId = previous.AwayRosterId;
+            State.HomePlayer = CopyPlayer(previous.HomePlayer); State.AwayPlayer = CopyPlayer(previous.AwayPlayer);
+            State.HomePlayerCleared = previous.HomePlayerCleared; State.AwayPlayerCleared = previous.AwayPlayerCleared;
+        }
         _undo.Clear(); _lastTick = _watch.ElapsedTicks; Changed?.Invoke();
     }
 
@@ -332,31 +389,34 @@ public sealed class GameEngine
     /// Saves everything the control panel's team pop-up edits: name, abbreviation, logo and both
     /// palette colours. Team identity publishes live like the score, so the graphic never waits.
     /// </summary>
-    public void SetTeamIdentity(bool home, string name, string abbreviation, string? logoPath, string primary, string secondary, string? mascot = null)
+    public void SetTeamIdentity(bool home, string name, string abbreviation, string? logoPath, string primary, string secondary, string? mascot = null, string? record = null)
     {
         name = name.Trim();
         if (name.Length == 0) name = home ? State.HomeTeam : State.AwayTeam;
         abbreviation = abbreviation.Trim().ToUpperInvariant();
         if (abbreviation.Length == 0) abbreviation = Abbreviate(name);
         mascot = (mascot ?? "").Trim();
+        record = (record ?? "").Trim();
         primary = NormalizeColor(primary, home ? "#FF38D7A3" : "#FF4EA8FF");
         secondary = NormalizeColor(secondary, "#FF101820");
         if (home)
         {
             if (State.HomeTeam == name && State.HomeAbbreviation == abbreviation && State.HomeLogoPath == logoPath
-                && State.HomeMascot == mascot && State.HomePrimaryColor == primary && State.HomeSecondaryColor == secondary) return;
+                && State.HomeMascot == mascot && State.HomeRecord == record
+                && State.HomePrimaryColor == primary && State.HomeSecondaryColor == secondary) return;
             SaveUndo("Home team details");
             State.HomeTeam = name; State.HomeAbbreviation = abbreviation; State.HomeLogoPath = logoPath;
-            State.HomeMascot = mascot;
+            State.HomeMascot = mascot; State.HomeRecord = record;
             State.HomePrimaryColor = primary; State.HomeSecondaryColor = secondary;
         }
         else
         {
             if (State.AwayTeam == name && State.AwayAbbreviation == abbreviation && State.AwayLogoPath == logoPath
-                && State.AwayMascot == mascot && State.AwayPrimaryColor == primary && State.AwaySecondaryColor == secondary) return;
+                && State.AwayMascot == mascot && State.AwayRecord == record
+                && State.AwayPrimaryColor == primary && State.AwaySecondaryColor == secondary) return;
             SaveUndo("Visitors team details");
             State.AwayTeam = name; State.AwayAbbreviation = abbreviation; State.AwayLogoPath = logoPath;
-            State.AwayMascot = mascot;
+            State.AwayMascot = mascot; State.AwayRecord = record;
             State.AwayPrimaryColor = primary; State.AwaySecondaryColor = secondary;
         }
         Log("Teams", $"{State.HomeTeam} ({State.HomeAbbreviation}) vs {State.AwayTeam} ({State.AwayAbbreviation})");
@@ -440,6 +500,7 @@ public sealed class GameEngine
         // Every clock counts: a play or timeout clock that expires on its own must still raise the
         // event, or the panel never repaints the final 0.
         var wasRunning = State.ClockRunning || State.StoppageRunning || State.ShotClockRunning || State.PlayClockRunning || State.TimeoutClockRunning;
+        var periodEnded = false;
         if (State.ClockRunning)
         {
             if (State.ClockCountsUp)
@@ -450,12 +511,12 @@ public sealed class GameEngine
                 var limit = State.SportId == "soccer"
                     ? State.PeriodSeconds * Math.Max(1, State.TotalPeriods) + Math.Max(0, State.StoppageSeconds)
                     : int.MaxValue;
-                if (State.ClockSeconds >= limit) { State.ClockSeconds = limit; State.ClockRunning = false; Log("Clock", "Full time"); }
+                if (State.ClockSeconds >= limit) { State.ClockSeconds = limit; State.ClockRunning = false; periodEnded = true; Log("Clock", "Full time"); }
             }
             else
             {
                 State.ClockSeconds = Math.Max(0, State.ClockSeconds - elapsed);
-                if (State.ClockSeconds == 0) { State.ClockRunning = false; Log("Clock", "Period ended"); }
+                if (State.ClockSeconds == 0) { State.ClockRunning = false; periodEnded = true; Log("Clock", "Period ended"); }
             }
         }
         if (State.StoppageRunning) State.StoppageSeconds = Math.Min(59 * 60, State.StoppageSeconds + elapsed);
@@ -474,8 +535,102 @@ public sealed class GameEngine
             State.TimeoutClockSeconds = Math.Max(0, State.TimeoutClockSeconds - elapsed);
             if (State.TimeoutClockSeconds == 0) { State.TimeoutClockRunning = false; Log("Timeout clock", "Timeout clock expired"); }
         }
+        if (periodEnded) SettleRecord();
         // Only notify the UI when a running clock actually advanced, so idle ticks cost nothing.
         if (wasRunning || State.ClockRunning || State.StoppageRunning || State.ShotClockRunning || State.PlayClockRunning || State.TimeoutClockRunning) Changed?.Invoke();
+    }
+
+    /// <summary>The clock value that means full time, or 0 when the sport has no automatic finish.</summary>
+    int FullTimeLimit => State.SportId == "soccer"
+        ? State.PeriodSeconds * Math.Max(1, State.TotalPeriods) + Math.Max(0, State.StoppageSeconds)
+        : 0;
+
+    /// <summary>True when the clock has reached the end of the last period (or full time in soccer).</summary>
+    bool GameIsComplete()
+    {
+        if (State.PeriodSeconds <= 0) return false;
+        if (State.ClockCountsUp)
+        {
+            var limit = FullTimeLimit;
+            return limit > 0 && State.ClockSeconds >= limit;
+        }
+        return State.Period >= State.TotalPeriods && State.ClockSeconds == 0;
+    }
+
+    /// <summary>
+    /// Adds the final result to each team's record once. Empty or malformed records are left alone,
+    /// and the saved flag keeps a game from being counted twice. Undo restores the flag with the
+    /// records, so an undone result can be applied again if the operator ends the game once more.
+    /// </summary>
+    void ApplyFinalRecord(bool recordUndo = true)
+    {
+        if (State.RecordSettled) return;
+        var result = Math.Sign(State.HomeScore - State.AwayScore);
+        var home = ApplyResult(State.HomeRecord, result);
+        var away = ApplyResult(State.AwayRecord, -result);
+        if (home == State.HomeRecord && away == State.AwayRecord) { State.RecordSettled = true; return; }
+        if (recordUndo) SaveUndo("Final record");
+        State.RecordSettled = true;
+        State.HomeRecord = home;
+        State.AwayRecord = away;
+        Log("Record", $"{State.HomeTeam} {home} · {State.AwayTeam} {away}");
+    }
+
+    /// <summary>
+    /// The clock reaching the end marks the game final. Automatic record updates still depend on
+    /// the preference; if it is off, End Game can apply the result later without counting it twice.
+    /// </summary>
+    void SettleRecord()
+    {
+        if (!GameIsComplete()) return;
+        State.GameEnded = true;
+        if (!AutoUpdateRecordEnabled) return;
+        ApplyFinalRecord();
+    }
+
+    /// <summary>
+    /// Adds one result to a win-loss or win-loss-tie record. "4-0" plus a win is "5-0"; a tie on a
+    /// two-part record becomes "4-0-1". Empty or malformed text is returned untouched, which is how
+    /// a team with no record stays that way.
+    /// </summary>
+    public static string ApplyResult(string? record, int result)
+    {
+        var original = record ?? "";
+        var text = original.Replace('–', '-').Replace('—', '-').Trim();
+        if (text.Length == 0) return original;
+        var parts = text.Split('-', StringSplitOptions.TrimEntries);
+        if (parts.Length is < 2 or > 3) return original;
+        var numbers = new int[parts.Length];
+        for (var index = 0; index < parts.Length; index++)
+            if (!int.TryParse(parts[index], out numbers[index]) || numbers[index] < 0) return original;
+        var wins = numbers[0];
+        var losses = numbers[1];
+        var ties = parts.Length == 3 ? numbers[2] : 0;
+        if (result > 0) wins++;
+        else if (result < 0) losses++;
+        else ties++;
+        return parts.Length == 2 && ties == 0 ? $"{wins}-{losses}" : $"{wins}-{losses}-{ties}";
+    }
+
+    /// <summary>
+    /// Ends the game on the operator's command: stops every clock, marks the game final and adds
+    /// the result to the team records. This is explicit, so it applies even when automatic record
+    /// updates are off. A side with no record is left alone.
+    /// </summary>
+    public bool EndGame()
+    {
+        if (State.GameEnded && State.RecordSettled) return false;
+        SaveUndo("End game");
+        State.ClockRunning = false;
+        State.StoppageRunning = false;
+        State.ShotClockRunning = false;
+        State.PlayClockRunning = false;
+        State.TimeoutClockRunning = false;
+        State.GameEnded = true;
+        ApplyFinalRecord(recordUndo: false);
+        Log("Game", "Game ended");
+        Changed?.Invoke();
+        return true;
     }
 
     public void NextPeriod()
@@ -1069,6 +1224,7 @@ public sealed class GameEngine
             State.HomeAbbreviation == source.HomeAbbreviation && State.AwayAbbreviation == source.AwayAbbreviation &&
             State.HomeLogoPath == source.HomeLogoPath && State.AwayLogoPath == source.AwayLogoPath &&
             State.HomeMascot == source.HomeMascot && State.AwayMascot == source.AwayMascot &&
+            State.HomeRecord == source.HomeRecord && State.AwayRecord == source.AwayRecord &&
             State.HomePrimaryColor == source.HomePrimaryColor && State.HomeSecondaryColor == source.HomeSecondaryColor &&
             State.AwayPrimaryColor == source.AwayPrimaryColor && State.AwaySecondaryColor == source.AwaySecondaryColor &&
             State.ClockSeconds == source.ClockSeconds && State.ClockRunning == source.ClockRunning &&
@@ -1087,6 +1243,7 @@ public sealed class GameEngine
         State.HomeAbbreviation=source.HomeAbbreviation;State.AwayAbbreviation=source.AwayAbbreviation;
         State.HomeLogoPath=source.HomeLogoPath;State.AwayLogoPath=source.AwayLogoPath;
         State.HomeMascot=source.HomeMascot;State.AwayMascot=source.AwayMascot;
+        State.HomeRecord=source.HomeRecord;State.AwayRecord=source.AwayRecord;
         State.HomePrimaryColor=source.HomePrimaryColor;State.HomeSecondaryColor=source.HomeSecondaryColor;
         State.AwayPrimaryColor=source.AwayPrimaryColor;State.AwaySecondaryColor=source.AwaySecondaryColor;
         State.ClockSeconds=source.ClockSeconds;State.ClockRunning=source.ClockRunning;State.ClockCountsUp=source.ClockCountsUp;
@@ -1109,5 +1266,23 @@ public sealed class GameEngine
     void SaveUndo(string label) { _undo.Push(new GameSnapshot(JsonSerializer.Deserialize<GameState>(JsonSerializer.Serialize(State, JsonOptions), JsonOptions)!, label)); if (_undo.Count > 100) { var keep = _undo.Reverse().TakeLast(100).ToArray(); _undo.Clear(); foreach (var x in keep) _undo.Push(x); } }
     void Log(string type, string description) => State.Events.Add(new GameEvent(DateTimeOffset.Now, type, description, State.HomeScore, State.AwayScore));
     static string Abbreviate(string value) => string.Concat(value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(3).Select(s => char.ToUpperInvariant(s[0])));
-    public static string FormatClock(int seconds) => $"{seconds / 60:00}:{seconds % 60:00}";
+    /// <summary>
+    /// How a clock prints. Padded is 10:00, 09:59 and 0:59; compact drops the minutes' leading
+    /// zero and leaves only :59 under a minute. A show-wide preference, so every clock agrees.
+    /// </summary>
+    public static ClockStyle ClockDisplay { get; set; } = ClockStyle.Padded;
+
+    public static string FormatClock(int seconds) => FormatClock(seconds, ClockDisplay);
+
+    public static string FormatClock(int seconds, ClockStyle style)
+    {
+        seconds = Math.Max(0, seconds);
+        var minutes = seconds / 60;
+        var remainder = seconds % 60;
+        return style == ClockStyle.Compact
+            ? minutes == 0 ? $":{remainder:00}" : $"{minutes}:{remainder:00}"
+            // Padded keeps the familiar two-digit minutes (09:59) but a zero minute is just
+            // "0:59", not "00:59" — that is the shape the operator asked for.
+            : minutes == 0 ? $"0:{remainder:00}" : $"{minutes:00}:{remainder:00}";
+    }
 }

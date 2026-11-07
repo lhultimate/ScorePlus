@@ -207,6 +207,9 @@ public sealed class ScorebugElement
     /// <summary>For timeout bars: scale the bars and their gaps. 1 is the box's natural size.</summary>
     public double IconScale { get; set; } = 1;
 
+    /// <summary>For timeout bars: stack the bars downward instead of in one row.</summary>
+    public bool IconVertical { get; set; }
+
     /// <summary>
     /// A value the icon follows, written as a token — <c>{{PENALTY_TYPE}}</c>, <c>{{STAT:Turnovers}}</c>.
     /// The icon is on the graphic only while that value is set, so a flag icon appears when a flag is

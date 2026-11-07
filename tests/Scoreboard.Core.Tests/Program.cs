@@ -627,6 +627,61 @@ try
     playTrack.Track(25,0);playTrack.Track(25,3000);
     Check(shotTrack.Track(22,1000)==true&&playTrack.Track(25,3500)==false,
         "the shot clock and the play clock are tracked separately");
+
+    // ---------- b1.0: clock shapes, team records and a sport switch that keeps the teams ----------
+    Check(GameEngine.FormatClock(600,ClockStyle.Padded)=="10:00"
+        &&GameEngine.FormatClock(599,ClockStyle.Padded)=="09:59"
+        &&GameEngine.FormatClock(59,ClockStyle.Padded)=="0:59",
+        "the padded clock prints 10:00, 09:59 and 0:59");
+    Check(GameEngine.FormatClock(600,ClockStyle.Compact)=="10:00"
+        &&GameEngine.FormatClock(599,ClockStyle.Compact)=="9:59"
+        &&GameEngine.FormatClock(59,ClockStyle.Compact)==":59",
+        "the compact clock drops the leading zero and prints :59 under a minute");
+    var identityGame=new GameEngine();identityGame.NewGame("football");
+    identityGame.SetTeamIdentity(true,"Eagles","EAG",null,"#FF112233","#FF445566","Birds","8-2");
+    Check(ScoreboardTemplates.Bind("{{HOME_RECORD}}",identityGame.State)=="8-2",
+        "a team record is saved in team details and prints through its binding");
+    identityGame.NewGame("soccer",keepTeamIdentity:true);
+    Check(identityGame.State.HomeTeam=="Eagles"&&identityGame.State.HomeRecord=="8-2"&&identityGame.State.SportId=="soccer",
+        "switching sport keeps the teams and their records");
+    var identityReloaded=new GameEngine();identityReloaded.LoadFromState(identityGame.State);
+    Check(identityReloaded.State.HomeRecord=="8-2","a team record survives a state reload");
+
+    // ---------- b1.0: automatic results and quick buttons in the game save ----------
+    Check(GameEngine.ApplyResult("4-0",1)=="5-0"&&GameEngine.ApplyResult("4-0",-1)=="4-1",
+        "a win or loss adds to a two-part record without inventing a tie column");
+    Check(GameEngine.ApplyResult("4-0",0)=="4-0-1"&&GameEngine.ApplyResult("5-7-1",1)=="6-7-1",
+        "a tie becomes win-loss-tie and an existing tie column is kept");
+    Check(GameEngine.ApplyResult("",1)==""&&GameEngine.ApplyResult("not a record",1)=="not a record",
+        "an empty or malformed record is never changed by a result");
+    var autoRecord=new GameEngine();autoRecord.NewGame("basketball");
+    autoRecord.State.Period=autoRecord.State.TotalPeriods;autoRecord.State.ClockSeconds=1;
+    autoRecord.State.HomeRecord="4-0";autoRecord.State.AwayRecord="5-7-1";autoRecord.Score(true,2);
+    GameEngine.AutoUpdateRecordEnabled=true;autoRecord.State.ClockRunning=true;Thread.Sleep(1100);autoRecord.Tick();
+    GameEngine.AutoUpdateRecordEnabled=false;
+    Check(autoRecord.State.HomeRecord=="5-0"&&autoRecord.State.AwayRecord=="5-8-1"
+        &&autoRecord.State.GameEnded&&autoRecord.State.RecordSettled,
+        "the final whistle marks the game final and adds a win and a loss to both team records");
+    var endedGame=new GameEngine();endedGame.NewGame("baseball");
+    endedGame.State.HomeRecord="4-0";endedGame.State.AwayRecord="";endedGame.Score(true,1);
+    Check(endedGame.EndGame()&&endedGame.State.GameEnded&&endedGame.State.RecordSettled
+        &&endedGame.State.HomeRecord=="5-0"&&endedGame.State.AwayRecord=="",
+        "End Game stops the game and records the result even when automatic updates are off");
+    Check(!endedGame.EndGame()&&endedGame.State.HomeRecord=="5-0",
+        "an already ended game is not counted twice");
+    Check(endedGame.Undo()&&!endedGame.State.GameEnded&&!endedGame.State.RecordSettled
+        &&endedGame.State.HomeRecord=="4-0",
+        "End Game and its record update can be undone");
+    var quickSave=Path.Combine(Path.GetTempPath(),$"quick-buttons-{Guid.NewGuid():N}.spg");
+    engine.NewGame("basketball");
+    engine.State.QuickLayouts=[new SavedQuickLayout{Label="Flag Layout",DisplayId="main",LayoutId="flag"}];
+    engine.State.QuickMedia=[new SavedQuickMedia{Label="Replay",Path="C:\\clips\\replay.mp4"}];
+    engine.State.QuickButtonsSaved=true;engine.Save(quickSave);
+    var quickReload=new GameEngine();quickReload.Load(quickSave);
+    Check(quickReload.State.QuickButtonsSaved&&quickReload.State.QuickLayouts.Single().Label=="Flag Layout"
+        &&quickReload.State.QuickMedia.Single().Path=="C:\\clips\\replay.mp4",
+        "quick layout and media buttons travel inside the game save");
+    File.Delete(quickSave);
 }
 finally
 {

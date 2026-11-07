@@ -25,6 +25,7 @@ public static class RemotePage
         .title{font-size:10px;letter-spacing:1.4px;color:#8fa0b5;font-weight:800;margin:0 0 8px;display:flex;align-items:center;gap:6px}
         .title:before{content:"";width:3px;height:11px;border-radius:2px;background:#38d7a3}
         .title .right{margin-left:auto;font-weight:700;letter-spacing:.4px;color:#5c6b7e}
+        #mediaNow{max-width:68%;text-align:right;white-space:normal;overflow-wrap:anywhere;line-height:1.35}
         .score{display:grid;grid-template-columns:1fr 132px 1fr;gap:8px;align-items:stretch}
         .team{background:#101720;border:1px solid #1f2a37;border-radius:10px;padding:8px;min-width:0}
         .team .row{flex-wrap:wrap}
@@ -63,6 +64,7 @@ public static class RemotePage
         .flag.on{border-color:#1d6b56;background:#0f2b24}
         .flag.on .state{color:#38d7a3}
         .muted{color:#5c6b7e;font-size:11px;padding:2px}
+        .warn{background:#2c2410;border:1px solid #6b5620;color:#ffd166;font-size:10px;line-height:1.45;border-radius:8px;padding:7px 9px;margin:0 0 8px}
         .groupHead{grid-column:1/-1;color:#38d7a3;font-size:10px;font-weight:700;letter-spacing:.05em;padding:5px 2px 1px;border-bottom:1px solid #1d2632}
         .poss{display:grid;grid-template-columns:1fr 1fr;gap:6px}
         .poss button{min-height:44px}
@@ -605,6 +607,8 @@ public static class RemotePage
 
         <div class="card" id="mediaCard" hidden>
           <div class="title">MEDIA <span class="right" id="mediaNow">—</span></div>
+          <div class="warn">Experimental: remote media controls are still being refined. Paused clips and speaker buses are shown separately from playing media; check the desktop before going live.</div>
+          <div class="muted" id="speakerNow"></div>
           <div class="row">
             <button class="small" id="mediaToggle">Play / Pause</button>
             <button class="small" id="mediaRefresh">Refresh</button>
@@ -619,6 +623,7 @@ public static class RemotePage
             <button class="small" id="rosterHome" data-rside="home">Home ▶</button>
           </div>
           <div class="muted" id="rosterName">—</div>
+          <button class="small" id="rosterOffAir" style="margin:6px 0 8px">TAKE PLAYER OFF AIR</button>
           <div class="grid" id="rosterList"></div>
           <div id="playerStats"></div>
         </div>
@@ -689,6 +694,7 @@ public static class RemotePage
            own width instead of squeezing the name off the row. */
         .mediaRow button{flex:1 1 auto;text-align:left;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .mediaRow button:last-child{flex:0 0 auto}
+        .mediaRow button.editing{color:#ffd766;border-color:#ffd766;font-weight:800}
         </style>
         <script>
         (function(){
@@ -713,12 +719,18 @@ public static class RemotePage
           function loadMedia(){
             getJson('/api/media').then(function(d){
               if(!d)return;
-              document.getElementById('mediaNow').textContent=d.current||'nothing on air';
+              var live=(d.live||[]).filter(function(x){return x;});
+              var paused=(d.paused||[]).filter(function(x){return x;});
+              var speakers=(d.speakers||[]).filter(function(x){return x;});
+              var status=live.length?live.join(' + '):(paused.length?'PAUSED · '+paused.join(' + '):'nothing playing');
+              document.getElementById('mediaNow').textContent=status;
+              document.getElementById('speakerNow').textContent=speakers.length?'Speaker bus on air: '+speakers.join(' + '):'';
+              document.getElementById('mediaToggle').textContent=paused.length?'Resume':'Pause';
               var list=document.getElementById('mediaList');
               list.innerHTML='';
               (d.clips||[]).slice(0,80).forEach(function(c){
                 var row=el('div','mediaRow');
-                var play=el('button','small',c.label+(c.length?'  ·  '+c.length.toFixed(1)+'s':''));
+                var play=el('button','small',(c.kind?c.kind+' · ':'')+c.label+(c.length?'  ·  '+c.length.toFixed(1)+'s':''));
                 play.onclick=function(){post('/api/media/action',{a:'play',id:c.id}).then(loadMedia);};
                 var onair=el('button','small'+(c.onAir?' plus':''),c.onAir?'ON AIR':'Air');
                 onair.onclick=function(){post('/api/media/action',{a:'onair',id:c.id}).then(loadMedia);};
@@ -743,15 +755,22 @@ public static class RemotePage
               var players=(sideData.players||[]).slice().sort(function(a,b){
                 return String(a.group||'').localeCompare(String(b.group||''));
               });
+              // The player whose stats are on screen is lit up from the first paint, not only after
+              // a row is tapped; with nothing chosen the on-air player is the one being edited.
+              if(!editPlayer||!players.some(function(p){return p.id===editPlayer;})){
+                var initial=players.find(function(p){return p.selected;})||players[0];
+                editPlayer=initial?initial.id:'';
+              }
               var lastGroup=null;
               players.forEach(function(p){
                 var group=(p.group||'').trim();
                 if(group!==lastGroup){list.appendChild(el('div','groupHead',group?group.toUpperCase():'UNGROUPED'));lastGroup=group;}
                 var row=el('div','mediaRow');
-                var b=el('button','small',(p.number?p.number+'  ':'')+p.name);
+                var b=el('button','small'+(p.id===editPlayer?' editing':''),(p.number?p.number+'  ':'')+p.name);
                 b.onclick=function(){editPlayer=p.id;loadRoster();};
                 var air=el('button','small'+(p.selected?' plus':''),p.selected?'ON AIR':'Air');
-                air.onclick=function(){post('/api/roster/action',{a:'player',side:side,id:p.id}).then(loadRoster);};
+                air.title=p.selected?'Take this player off air':'Put this player on air';
+                air.onclick=function(){post('/api/roster/action',p.selected?{a:'clear',side:side,id:p.id}:{a:'player',side:side,id:p.id}).then(loadRoster);};
                 row.appendChild(b);row.appendChild(air);list.appendChild(row);
               });
               if(!(sideData.players||[]).length)list.appendChild(el('div','muted','Pick a roster to list its players.'));
@@ -790,6 +809,7 @@ public static class RemotePage
           document.getElementById('mediaRefresh').onclick=loadMedia;
           document.getElementById('rosterHome').onclick=function(){side='home';loadRoster();};
           document.getElementById('rosterAway').onclick=function(){side='away';loadRoster();};
+          document.getElementById('rosterOffAir').onclick=function(){post('/api/roster/action',{a:'clear',side:side,id:''}).then(loadRoster);};
           show('console');
         })();
         </script>

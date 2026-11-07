@@ -193,7 +193,7 @@ public partial class GameControlWindow : Window
         _displaySync = true;
         try
         {
-            var names = _catalog.Displays.Select(display => display.Name).ToArray();
+            var names = _catalog.Displays.Select((display, index) => $"{index + 1} · {display.Name}").ToArray();
             if (DisplaySelector.ItemsSource is not IEnumerable<string> existing || !existing.SequenceEqual(names))
                 DisplaySelector.ItemsSource = names;
             var index = _catalog.Displays.FindIndex(display => string.Equals(display.Id, Program.DisplayId, StringComparison.OrdinalIgnoreCase));

@@ -250,6 +250,12 @@ public sealed class MediaPlayback
     // element picks the one whose tag it watches. Files still travel through NowPlaying.
     readonly List<MediaEntry> _liveCameras = [];
 
+    // Files stay live by tag. A new clip only replaces the clip with the same tag, so an ad,
+    // a highlight reel and a lower-third can be on air together.
+    readonly List<MediaEntry> _activeFiles = [];
+
+    public IReadOnlyList<MediaEntry> ActiveFiles => _activeFiles;
+
     public IReadOnlyList<MediaEntry> LiveCameras => _liveCameras;
 
     /// <summary>The live cameras on air, so a video element tagged for one still finds it.</summary>
@@ -332,7 +338,24 @@ public sealed class MediaPlayback
     {
         // Any new cue replaces whatever replay was waiting in the preview.
         _staged = null;
-        NowPlaying = entry;
+        if (entry is null)
+        {
+            _activeFiles.Clear();
+            NowPlaying = null;
+        }
+        else
+        {
+            // A camera is carried in its own live list; files are keyed by tag. Only the same tag
+            // is replaced, so two different video boxes can play at the same time. The same file
+            // under another tag is a separate cue, not a replacement.
+            if (entry is { IsVideo: true, IsCamera: false })
+            {
+                var tag = MediaLibrary.NormalizeTag(entry.Tag);
+                _activeFiles.RemoveAll(active => string.Equals(MediaLibrary.NormalizeTag(active.Tag), tag, StringComparison.OrdinalIgnoreCase));
+                _activeFiles.Add(entry);
+            }
+            NowPlaying = entry;
+        }
         ReplayOnAir = false;
         IsPlaying = entry is not null;
         // A cue starts on its own speaker until the session says a tagged bus carries it.
@@ -408,6 +431,23 @@ public sealed class MediaPlayback
 
     public void Stop() => Start(null);
 
+    /// <summary>Takes one file off air without touching the other tags still playing.</summary>
+    public void Stop(MediaEntry? entry)
+    {
+        if (entry is null) { Stop(); return; }
+        _activeFiles.RemoveAll(active => SameCue(active, entry));
+        if (NowPlaying is not null && SameCue(NowPlaying, entry))
+            NowPlaying = _activeFiles.LastOrDefault();
+        if (_activeFiles.Count == 0) IsPlaying = false;
+        Changed?.Invoke();
+    }
+
+    public bool IsActive(MediaEntry entry) => _activeFiles.Any(active => SameCue(active, entry));
+
+    static bool SameCue(MediaEntry left, MediaEntry right) =>
+        string.Equals(left.Path, right.Path, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(MediaLibrary.NormalizeTag(left.Tag), MediaLibrary.NormalizeTag(right.Tag), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Pauses or resumes every scorebug video element showing the cued clip.</summary>
     public void SetPlaying(bool playing)
     {
@@ -426,10 +466,14 @@ public sealed class MediaPlayback
     public MediaEntry? ActiveFor(string? elementTag)
     {
         // A promoted replay must outrank the camera it was cut from, or Start replay leaves the live
-        // picture on screen. Ordinary files keep the old order so several camera boxes can coexist.
-        if (ReplayOnAir && NowPlaying is { IsVideo: true, IsCamera: false } replay && Matches(replay, elementTag))
-            return replay;
-        return Resolve(_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) ?? NowPlaying, elementTag);
+        // picture on screen. Ordinary files are selected by tag, with the newest cue first.
+        if (ReplayOnAir && _activeFiles.LastOrDefault(clip => Matches(clip, elementTag)) is { } replay)
+            return Resolve(replay, elementTag);
+        if (_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) is { } camera)
+            return Resolve(camera, elementTag);
+        var file = _activeFiles.LastOrDefault(clip => Matches(clip, elementTag));
+        if (file is not null) return Resolve(file, elementTag);
+        return NowPlaying is { IsVideo: true } ? Resolve(NowPlaying, elementTag) : null;
     }
 
     /// <summary>
@@ -441,9 +485,13 @@ public sealed class MediaPlayback
         if (_staged is not null) return Resolve(_staged, elementTag);
         // Once Start replay promotes the file, the preview must show it too; otherwise the operator
         // starts a replay and the thumbnail still shows the live camera, which reads as a dead button.
-        if (ReplayOnAir && NowPlaying is { IsVideo: true, IsCamera: false } replay && Matches(replay, elementTag))
-            return replay;
-        return Resolve(_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) ?? NowPlaying, elementTag);
+        if (ReplayOnAir && _activeFiles.LastOrDefault(clip => Matches(clip, elementTag)) is { } replay)
+            return Resolve(replay, elementTag);
+        if (_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) is { } camera)
+            return Resolve(camera, elementTag);
+        var file = _activeFiles.LastOrDefault(clip => Matches(clip, elementTag));
+        if (file is not null) return Resolve(file, elementTag);
+        return NowPlaying is { IsVideo: true } ? Resolve(NowPlaying, elementTag) : null;
     }
 
     MediaEntry? Resolve(MediaEntry? entry, string? elementTag)

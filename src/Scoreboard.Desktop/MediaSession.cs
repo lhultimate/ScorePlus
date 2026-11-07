@@ -24,6 +24,13 @@ public sealed class MediaSession
     // ScrubbingEnabled is what makes Position stick while the clip is paused; without it the
     // transport can only be watched from the beginning.
     readonly MediaPlayer _player = new() { ScrubbingEnabled = true };
+    // A second player for audio that stays on air while the picture moves to a video or live source.
+    readonly MediaPlayer _background = new() { ScrubbingEnabled = true };
+    MediaEntry? _backgroundAudio;
+    bool _backgroundPlaying;
+    bool _backgroundRouted;
+    double _backgroundDuration;
+    double? _backgroundPendingSeek;
     readonly DispatcherTimer _transport = new() { Interval = TimeSpan.FromMilliseconds(200) };
     // Scrub bursts are coalesced into a single seek: pause/seek/play on every pixel of a drag is
     // what made seeking feel laggy.
@@ -118,6 +125,30 @@ public sealed class MediaSession
             SetTransportPlaying(false);
             Status?.Invoke($"MEDIA ERROR · {e.ErrorException?.Message ?? "this machine cannot decode that file"}");
         };
+        _background.MediaOpened += (_, _) =>
+        {
+            _backgroundDuration = _background.NaturalDuration.HasTimeSpan
+                ? Math.Max(0, _background.NaturalDuration.TimeSpan.TotalSeconds) : 0;
+            if (_backgroundPendingSeek is double pending)
+            {
+                _backgroundPendingSeek = null;
+                try { _background.Position = TimeSpan.FromSeconds(Math.Clamp(pending, 0, Math.Max(0, _backgroundDuration))); } catch { }
+            }
+            TransportChanged?.Invoke();
+        };
+        _background.MediaEnded += (_, _) =>
+        {
+            if (_backgroundAudio is { Loop: true })
+            {
+                try { _background.Position = TimeSpan.Zero; _background.Play(); return; } catch { }
+            }
+            StopBackgroundAudio(silent: true);
+        };
+        _background.MediaFailed += (_, e) =>
+        {
+            StopBackgroundAudio(silent: true);
+            Status?.Invoke($"AUDIO ERROR · {e.ErrorException?.Message ?? "this machine cannot decode that file"}");
+        };
         _transport.Tick += (_, _) =>
         {
             // Keep the shared playhead current so a rebuilt scorebug surface picks the clip up
@@ -169,6 +200,16 @@ public sealed class MediaSession
     /// <summary>Every microphone currently on air.</summary>
     public IReadOnlyList<MediaEntry> LiveMicrophones => _liveMicrophones;
 
+    /// <summary>The audio bed that keeps playing while a video or live source is on air.</summary>
+    public MediaEntry? BackgroundAudio => _backgroundAudio;
+
+    public bool IsCurrentPlaying => _playing;
+
+    public bool IsBackgroundPlaying => _backgroundPlaying;
+
+    /// <summary>Every speaker bus that is switched on, so the remote can list it as on air.</summary>
+    public IReadOnlyList<MediaEntry> LiveSpeakers => Library.Where(entry => entry.IsSpeakerOnAir).ToArray();
+
     public bool IsCameraOnAir(MediaEntry entry) =>
         _liveCameras.Any(camera => string.Equals(camera.Path, entry.Path, StringComparison.OrdinalIgnoreCase));
 
@@ -202,7 +243,7 @@ public sealed class MediaSession
     public IReadOnlyList<string> Folders => _folders.Concat(MediaLibrary.Folders(Library))
         .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray();
 
-    public bool IsPlaying => _playing;
+    public bool IsPlaying => _playing || _backgroundPlaying;
 
     public double Position
     {
@@ -210,11 +251,17 @@ public sealed class MediaSession
         {
             // A replay has no transport player: its playhead is the decoder's frame count.
             if (IsReplaying) return _replay.Position;
+            if (Current is null && _backgroundAudio is not null)
+            {
+                if (_backgroundRouted) return _audio.Position;
+                try { return Math.Max(0, _background.Position.TotalSeconds); } catch { return 0; }
+            }
             try { return Math.Max(0, _player.Position.TotalSeconds); } catch { return 0; }
         }
     }
 
-    public double Duration => IsReplaying && _replay.Duration > 0 ? _replay.Duration : _duration;
+    public double Duration => IsReplaying && _replay.Duration > 0 ? _replay.Duration
+        : Current is null && _backgroundAudio is not null ? _backgroundDuration : _duration;
 
     /// <summary>Raised when the library or the selection changes.</summary>
     public event Action? StateChanged;
@@ -375,6 +422,32 @@ public sealed class MediaSession
         Save();
         StateChanged?.Invoke();
         Status?.Invoke("MEDIA CLEARED · library, folders, playlists and the screen are empty");
+    }
+
+    /// <summary>
+    /// The Clear button's job: take the media side off air without touching the library. Every
+    /// video overlay stops, the live cameras are released and every microphone is muted, so a
+    /// camera holding its last frame cannot stay on the scorebug. Clips, folders and playlists stay.
+    /// </summary>
+    public void ClearOnAir()
+    {
+        Stop(keepStatus: true);
+        StopLiveSources();
+        Playback.Stop();
+        IsReplaying = false;
+        _replayOnAir = false;
+        _replay.Close();
+        _replayBuffer.Clear();
+        _replayIndex = -1;
+        ReplayBack = 0;
+        ReplayDepth = 0;
+        Current = null;
+        Selected = null;
+        CameraEntry = null;
+        MicrophoneEntry = null;
+        Save();
+        StateChanged?.Invoke();
+        Status?.Invoke("MEDIA CLEARED OFF AIR · library, folders and playlists kept");
     }
 
     public void Remove(MediaEntry entry)
@@ -615,6 +688,11 @@ public sealed class MediaSession
     static bool SameClip(MediaEntry? a, MediaEntry b) =>
         a is not null && string.Equals(a.Path, b.Path, StringComparison.OrdinalIgnoreCase);
 
+    // A cue is on air by tag as well as path: the same file can appear in two video boxes under two
+    // tags, and toggling one box must not stop the other.
+    static bool SameAiringCue(MediaEntry? a, MediaEntry b) =>
+        SameClip(a, b) && string.Equals(MediaLibrary.NormalizeTag(a!.Tag), MediaLibrary.NormalizeTag(b.Tag), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Turns this clip's own output level, in place, without restarting the picture.</summary>
     public void SetClipVolume(MediaEntry entry, double volume)
     {
@@ -847,7 +925,18 @@ public sealed class MediaSession
     /// </summary>
     void ApplySpeakerGains()
     {
-        if (Current is { IsSpeaker: false } current)
+        // While the audio bed owns the router, speaker changes must follow the bed rather than
+        // re-routing the video that is merely sharing the screen with it.
+        if (_backgroundRouted && _backgroundAudio is { } bed)
+        {
+            var (device, gain) = OutputFor(bed);
+            Playback.ReportAudio(device, gain);
+            if (string.IsNullOrWhiteSpace(device)) _audio.SetVolume(0);
+            else if (_audioDevice is not null && string.Equals(_audioDevice, device, StringComparison.OrdinalIgnoreCase))
+                _audio.SetVolume(bed.Volume * gain);
+            else RouteAudio(bed, device, bed.Volume * gain, _audio.Position);
+        }
+        else if (Current is { IsSpeaker: false } current)
         {
             var (device, gain) = OutputFor(current);
             Playback.ReportAudio(device, gain);
@@ -972,6 +1061,7 @@ public sealed class MediaSession
     {
         // Other live sources stay on air. A camera cue adds this feed rather than replacing the
         // others, so several cameras and microphones can run together.
+        var keepRoutedAudio = PreserveCurrentAudio();
         try { _player.Stop(); _player.Close(); } catch { }
         _seekApply.Stop();
         _seekTarget = 0;
@@ -989,8 +1079,11 @@ public sealed class MediaSession
         ReplayDepth = 0;
         _duration = 0;
         _pendingSeek = null;
-        _audio.Stop();
-        _audioDevice = null;
+        if (!keepRoutedAudio)
+        {
+            _audio.Stop();
+            _audioDevice = null;
+        }
         _replay.Close();
         _camera = CameraFeed.Get(entry.CameraIndex);
         _camera.Start();
@@ -1094,8 +1187,11 @@ public sealed class MediaSession
         // and taking the selection over reset the tag, loop and speaker shown in the dock.
         _duration = segment.Seconds;
         _seekApply.Stop();
-        _audio.Stop();
-        _audioDevice = null;
+        if (!_backgroundRouted)
+        {
+            _audio.Stop();
+            _audioDevice = null;
+        }
         _pendingSeek = null;
         // The clip is decoded to frames rather than handed to a media player — a camera clip is
         // recorded without sound, so there is no audio to open either.
@@ -1206,7 +1302,7 @@ public sealed class MediaSession
             _camera.Start();
         }
         Playback.SetLiveCameras(_liveCameras);
-        if (_liveCameras.Count == 0 && Current is null) Playback.Stop();
+        if (_liveCameras.Count == 0 && Current is null && Playback.ActiveFiles.Count == 0) Playback.Stop();
         StateChanged?.Invoke();
         Status?.Invoke($"OFF AIR · {entry.Label}");
     }
@@ -1234,7 +1330,7 @@ public sealed class MediaSession
             _microphone.Start(micOutput);
         }
         Playback.SetLiveCameras(_liveCameras);
-        if (_liveCameras.Count == 0 && Current is null) Playback.Stop();
+        if (_liveCameras.Count == 0 && Current is null && Playback.ActiveFiles.Count == 0) Playback.Stop();
         StateChanged?.Invoke();
         Status?.Invoke($"OFF AIR · {entry.Label}");
     }
@@ -1273,6 +1369,7 @@ public sealed class MediaSession
     /// </summary>
     void PlayMicrophone(MediaEntry entry)
     {
+        var keepRoutedAudio = PreserveCurrentAudio();
         try { _player.Stop(); _player.Close(); } catch { }
         _seekApply.Stop();
         _seekTarget = 0;
@@ -1286,8 +1383,11 @@ public sealed class MediaSession
         ReplayDepth = 0;
         _duration = 0;
         _pendingSeek = null;
-        _audio.Stop();
-        _audioDevice = null;
+        if (!keepRoutedAudio)
+        {
+            _audio.Stop();
+            _audioDevice = null;
+        }
         _replay.Close();
         Current = entry;
         MicrophoneEntry = entry;
@@ -1301,7 +1401,7 @@ public sealed class MediaSession
         if (!IsMicrophoneOnAir(entry)) _liveMicrophones.Add(entry);
         // A microphone sends no picture; live cameras keep rendering, and the transport clears only
         // when there is no camera to show.
-        if (_liveCameras.Count == 0) Playback.Stop(); else Playback.SetLiveCameras(_liveCameras);
+        Playback.SetLiveCameras(_liveCameras);
         SetTransportPlaying(true);
         StateChanged?.Invoke();
         Status?.Invoke(_microphone.Error is { } failure
@@ -1329,6 +1429,9 @@ public sealed class MediaSession
         // Retagging or re-filing the clip that is on air must not restart it from frame one.
         var wasPlaying = Playback.IsPlaying;
         var position = Playback.Position;
+        // The old tag is a separate cue: remove that one before adding the edited entry under its
+        // new tag, so retagging does not leave the same file playing in both boxes.
+        Playback.Stop(before);
         Playback.Start(after);
         if (position > 0) Playback.Seek(position);
         if (!wasPlaying) Playback.SetPlaying(false);
@@ -1348,7 +1451,7 @@ public sealed class MediaSession
         if (entry.IsCamera) return IsCameraOnAir(entry);
         if (entry.IsMicrophone) return IsMicrophoneOnAir(entry);
         if (entry.IsSpeaker) return entry.IsSpeakerOnAir;
-        return SameClip(Current, entry);
+        return Playback.IsActive(entry) || SameAiringCue(Current, entry) || SameClip(_backgroundAudio, entry);
     }
 
     /// <summary>
@@ -1372,7 +1475,14 @@ public sealed class MediaSession
             PlayMicrophone(entry);
             return true;
         }
-        if (SameClip(Current, entry)) { StopFileOnly(); return false; }
+        if (SameClip(_backgroundAudio, entry)) { StopBackgroundAudio(); return false; }
+        if (!SameAiringCue(Current, entry) && Playback.IsActive(entry))
+        {
+            Playback.Stop(entry);
+            StateChanged?.Invoke();
+            return false;
+        }
+        if (SameAiringCue(Current, entry)) { StopFileOnly(); return false; }
         Play(entry);
         return true;
     }
@@ -1391,12 +1501,82 @@ public sealed class MediaSession
         return !updated.SpeakerMuted;
     }
 
+    /// <summary>
+    /// Keeps an audio clip on air when the picture moves to a video, camera or microphone. Audio
+    /// already routed to a speaker bus stays on that router; otherwise it moves to the background
+    /// player at the same point in the clip.
+    /// </summary>
+    bool PreserveCurrentAudio()
+    {
+        if (Current is not { IsVideo: false, IsCamera: false, IsMicrophone: false, IsSpeaker: false } audio) return false;
+        if (!_playing) return false;
+        if (_audio.IsPlaying)
+        {
+            _backgroundAudio = audio;
+            _backgroundRouted = true;
+            _backgroundPlaying = true;
+            _backgroundDuration = 0;
+            return true;
+        }
+        StartBackgroundAudio(audio, Position);
+        return false;
+    }
+
+    void StartBackgroundAudio(MediaEntry entry, double startSeconds = 0)
+    {
+        StopBackgroundAudio(silent: true);
+        entry = Resolve(entry);
+        _backgroundAudio = entry;
+        _backgroundRouted = false;
+        _backgroundPlaying = true;
+        _backgroundDuration = 0;
+        _backgroundPendingSeek = startSeconds > 0.05 ? startSeconds : null;
+        _background.Volume = (float)Math.Clamp(entry.Volume, 0, 1);
+        try
+        {
+            _background.Open(new Uri(entry.Path));
+            _background.Play();
+        }
+        catch (Exception ex)
+        {
+            _backgroundAudio = null;
+            _backgroundPlaying = false;
+            Status?.Invoke($"AUDIO ERROR · {ex.Message}");
+        }
+        StateChanged?.Invoke();
+    }
+
+    void StopBackgroundAudio(bool silent = false)
+    {
+        var label = _backgroundAudio?.Label;
+        if (_backgroundRouted)
+        {
+            _audio.Stop();
+            _audioDevice = null;
+        }
+        else
+        {
+            try { _background.Stop(); _background.Close(); } catch { }
+        }
+        _backgroundAudio = null;
+        _backgroundRouted = false;
+        _backgroundPlaying = false;
+        _backgroundDuration = 0;
+        _backgroundPendingSeek = null;
+        StateChanged?.Invoke();
+        TransportChanged?.Invoke();
+        if (!silent) Status?.Invoke(label is null ? "AUDIO OFF" : $"AUDIO OFF · {label}");
+    }
+
     /// <summary>Stops the transport file but leaves every live camera and microphone alone.</summary>
     void StopFileOnly(string? status = null)
     {
         try { _player.Stop(); _player.Close(); } catch { }
-        _audio.Stop();
-        _audioDevice = null;
+        if (!_backgroundRouted)
+        {
+            _audio.Stop();
+            _audioDevice = null;
+        }
         _seekApply.Stop();
         _seekTarget = 0;
         _duration = 0;
@@ -1409,10 +1589,11 @@ public sealed class MediaSession
         _replayIndex = -1;
         ReplayBack = 0;
         ReplayDepth = 0;
+        var stopped = Current;
         Current = null;
         _playing = false;
         _replay.Close();
-        Playback.Stop();
+        if (stopped is not null) Playback.Stop(stopped);
         StateChanged?.Invoke();
         TransportChanged?.Invoke();
         Status?.Invoke(status ?? "FILE OFF AIR · live cameras and microphones stay on");
@@ -1435,21 +1616,38 @@ public sealed class MediaSession
         if (entry.IsCamera) { PlayCamera(entry, playlist, index); return; }
         if (entry.IsMicrophone) { PlayMicrophone(entry); return; }
         entry = Resolve(entry);
-        IsReplaying = false;
-        _replayBuffer.Clear();
-        _replayIndex = -1;
-        ReplayBack = 0;
-        ReplayDepth = 0;
         if (!File.Exists(entry.Path))
         {
             Status?.Invoke("MEDIA FILE IS MISSING");
             return;
         }
+        // Audio is a bed, not a replacement: while a video, camera or microphone is on air the
+        // audio keeps playing underneath it instead of cutting off when the picture changes.
+        var liveSourceOnAir = Current is { IsVideo: true } or { IsCamera: true } or { IsMicrophone: true };
+        if (!entry.IsVideo && liveSourceOnAir)
+        {
+            Selected = entry;
+            Scoreboard.Core.AdLogStore.Count(entry.Path, entry.Label);
+            StartBackgroundAudio(entry);
+            Status?.Invoke($"PLAYING · AUDIO · {entry.Label} · alongside {Current!.Label}");
+            return;
+        }
+        // A video takes the picture; audio already on air moves to the background player.
+        var keepRoutedAudio = entry.IsVideo && PreserveCurrentAudio();
+        if (!entry.IsVideo) StopBackgroundAudio(silent: true);
+        IsReplaying = false;
+        _replayBuffer.Clear();
+        _replayIndex = -1;
+        ReplayBack = 0;
+        ReplayDepth = 0;
         IsReplaying = false;
         _replayOnAir = false;
         // A clip sent to a speaker must not keep playing after the next clip is cued.
-        _audio.Stop();
-        _audioDevice = null;
+        if (!keepRoutedAudio)
+        {
+            _audio.Stop();
+            _audioDevice = null;
+        }
         _replay.Close();
         _playlist = playlist;
         _playlistIndex = index;
@@ -1473,11 +1671,12 @@ public sealed class MediaSession
         _player.Open(new Uri(entry.Path));
         _player.Play();
         SetTransportPlaying(true);
-        // Audio-only clips must not fill a video overlay; videos cue the matching scorebug elements.
-        if (entry.IsVideo) Playback.Start(entry); else Playback.Stop();
+        // Audio-only clips must not fill a video overlay. They also must not clear a video that is
+        // already on air under a different tag.
+        if (entry.IsVideo) Playback.Start(entry);
         // Routing comes after Start() so its success/failure is not reset by the new cue.
         Playback.ReportAudio(output, gain);
-        if (!string.IsNullOrWhiteSpace(output))
+        if (!string.IsNullOrWhiteSpace(output) && !_backgroundRouted)
         {
             RouteAudio(entry, output, entry.Volume * gain);
             if (entry.IsVideo) Playback.ReportRouting(_audio.LastError is not null);
@@ -1545,6 +1744,20 @@ public sealed class MediaSession
             return;
         }
         if (Selected is not null && !ReferenceEquals(Selected, Current)) { Play(Selected); return; }
+        if (Current is null && _backgroundAudio is not null)
+        {
+            if (_backgroundRouted)
+            {
+                Status?.Invoke("AUDIO BED · routed to a speaker output · use its quick button to stop it");
+                return;
+            }
+            if (_backgroundPlaying) { _background.Pause(); _backgroundPlaying = false; }
+            else { _background.Play(); _backgroundPlaying = true; }
+            StateChanged?.Invoke();
+            TransportChanged?.Invoke();
+            Status?.Invoke(_backgroundPlaying ? $"PLAYING · AUDIO · {_backgroundAudio.Label}" : $"PAUSED · AUDIO · {_backgroundAudio.Label}");
+            return;
+        }
         if (Current is null) { Status?.Invoke("SELECT A CLIP FIRST"); return; }
         // A video's sound comes from the scorebug element, never from this muted transport player;
         // an audio clip whose bus carries it is played by the router instead.
@@ -1738,6 +1951,7 @@ public sealed class MediaSession
     public    void Stop(bool keepStatus = false)
     {
         try { _player.Stop(); _player.Close(); } catch { }
+        StopBackgroundAudio(silent: true);
         StopLiveSources();
         _audio.Stop();
         _audioDevice = null;
@@ -1877,7 +2091,9 @@ public sealed class MediaSession
         StopCamera();
         StopMicrophone();
         StopLiveSources();
+        StopBackgroundAudio(silent: true);
         _audio.Dispose();
         try { _player.Close(); } catch { }
+        try { _background.Close(); } catch { }
     }
 }

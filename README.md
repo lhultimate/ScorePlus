@@ -349,7 +349,7 @@ The camera keeps rolling a two-minute buffer while it is live. Replay is staged,
 
 If you never press **Start replay**, nothing on air changes. The audience screen and the audience view thumbnail both keep feeding live until you do.
 
-**Clear** empties the media side and blanks the screen — the way out of a camera that is holding on its last frame.
+**Clear** takes every video, camera and microphone off air and blanks the screen — the way out of a camera that is holding on its last frame. The library, its folders and its playlists are kept.
 
 > **Why replay is staged.** A live camera has no "rewind" that the audience can see. Staging the replay means you can find the start of the play, confirm the frame, and only then make the cut — and if the moment passes, you just press **Live** and nothing ever went out.
 

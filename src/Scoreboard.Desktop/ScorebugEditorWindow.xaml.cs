@@ -1,8 +1,10 @@
-﻿using System.Windows;
+﻿using System.Globalization;
+using System.Windows;
 using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -550,7 +552,7 @@ public partial class ScorebugEditorWindow : Window
         _displayLoading=true;
         try
         {
-            var options=_catalog.Displays.Select((display,index)=>new DisplayOption(display.Id,$"{index+1}. {display.Name}")).ToArray();
+            var options=_catalog.Displays.Select((display,index)=>new DisplayOption(display.Id,$"{index+1} · {display.Name}")).ToArray();
             if(DisplayBox.ItemsSource is not IEnumerable<DisplayOption> existing||!existing.Select(x=>x.Label).SequenceEqual(options.Select(x=>x.Label)))
                 DisplayBox.ItemsSource=options;
             DisplayBox.SelectedIndex=_catalog.ActiveDisplayIndex;
@@ -602,7 +604,8 @@ public partial class ScorebugEditorWindow : Window
             foreach(var display in _catalog.Displays)
             {
                 if(string.Equals(display.Id,_catalog.ActiveDisplay.Id,StringComparison.OrdinalIgnoreCase))continue;
-                targets.Add(new LinkDisplayOption(display.Id,display.Name));
+                var number=_catalog.Displays.IndexOf(display)+1;
+                targets.Add(new LinkDisplayOption(display.Id,$"{number} · {display.Name}"));
             }
             LinkDisplayBox.ItemsSource=targets;
             var selected=targets.FirstOrDefault(option=>string.Equals(option.Id,layout.LinkDisplayId,StringComparison.OrdinalIgnoreCase))??targets[0];
@@ -714,7 +717,11 @@ public partial class ScorebugEditorWindow : Window
             BorderBrush=IsSelected(item.Id)?Brushes.DeepSkyBlue:ScorebugRender.HostBorder(item,_engine.State),
             BorderThickness=new Thickness(IsSelected(item.Id)?2:Math.Max(1,item.BorderThickness))
         };
-        Canvas.SetLeft(host,item.X); Canvas.SetTop(host,item.Y); Panel.SetZIndex(host,_catalog.Layout.Elements.IndexOf(item));
+        Canvas.SetLeft(host,item.X); Canvas.SetTop(host,item.Y);
+        var layer=_catalog.Layout.Elements.IndexOf(item);
+        // The selected element is lifted over its neighbours so its resize handle is never buried
+        // under a larger plate that happens to sit later in the layer list.
+        Panel.SetZIndex(host,IsSelected(item.Id)?10000+layer:layer);
         host.MouseLeftButtonDown+=Element_MouseDown; host.MouseMove+=Element_MouseMove; host.MouseLeftButtonUp+=Element_MouseUp;
         MotionPlayback.SetDesignRotation(host,content is ScorebugTextBlock?0:item.Rotation);
         _visuals[item.Id]=(host,content,handle,item.Kind);
@@ -770,6 +777,8 @@ public partial class ScorebugEditorWindow : Window
             visual.Host.Background=ScorebugRender.HostBackground(item,_engine.State);
             if(item.Animation!=ScorebugAnimation.Pulse)visual.Host.Opacity=item.Opacity;
             Canvas.SetLeft(visual.Host,item.X); Canvas.SetTop(visual.Host,item.Y);
+            var layer=_catalog.Layout.Elements.IndexOf(item);
+            Panel.SetZIndex(visual.Host,IsSelected(item.Id)?10000+layer:layer);
             visual.Handle.Visibility=item.Id==_selectedId&&IsSelected(item.Id)?Visibility.Visible:Visibility.Collapsed;
             visual.Host.BorderBrush=IsSelected(item.Id)?Brushes.DeepSkyBlue:ScorebugRender.HostBorder(item,_engine.State);
             visual.Host.BorderThickness=new Thickness(IsSelected(item.Id)?2:Math.Max(1,item.BorderThickness));
@@ -918,7 +927,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -971,6 +980,7 @@ public partial class ScorebugEditorWindow : Window
             LogoInput.SelectedItem=Logos.FirstOrDefault(l=>l.Side==e.LogoSide)??Logos[0];
             PeriodFormatInput.SelectedItem=PeriodOptions.FirstOrDefault(o=>o.Key==e.PeriodFormat)??PeriodOptions[0];
             IconInput.SelectedItem=e.Icon; IconVisitorsInput.IsChecked=e.IconVisitors; IconFlipInput.IsChecked=e.IconFlipped;
+            IconVerticalInput.IsChecked=e.IconVertical;
             IconCustomInput.SelectedItem=(IconCustomInput.ItemsSource as List<CustomIconChoice>)
                 ?.FirstOrDefault(choice=>string.Equals(choice.Icon.Id,e.CustomIconId,StringComparison.OrdinalIgnoreCase));
             IconTokenInput.Text=e.IconToken;
@@ -1071,17 +1081,24 @@ public partial class ScorebugEditorWindow : Window
         // The Made icon row and its Icon maker button stay visible for every text element: the
         // maker is where icons are created, so hiding it until one already exists hid the feature.
         IconCustomPanel.Visibility=text?Visibility.Visible:Visibility.Collapsed;
+        var icon=text?(e?.Icon??ScorebugIcon.None):ScorebugIcon.None;
+        // The made-icon picker only means something while a made icon is chosen. The maker button
+        // beside it stays available so a timeout or possession element can still open the maker.
+        var customIcon=text&&icon==ScorebugIcon.Custom;
+        IconCustomLabel.Visibility=customIcon?Visibility.Visible:Visibility.Collapsed;
+        IconCustomInput.Visibility=customIcon?Visibility.Visible:Visibility.Collapsed;
         // Which value the icon follows and where it sits only means something once one is chosen.
         IconValuePanel.Visibility=text&&IconInput.SelectedItem is ScorebugIcon chosen&&chosen!=ScorebugIcon.None
             ?Visibility.Visible:Visibility.Collapsed;
         // A value transition needs a printed value to cross to.
         TransitionSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         ShadowSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
-        var icon=e?.Icon??ScorebugIcon.None;
         var countedIcon=icon is ScorebugIcon.TimeoutBars or ScorebugIcon.TimeoutDots;
-        IconVisitorsInput.Visibility=countedIcon||icon==ScorebugIcon.PossessionArrow?Visibility.Visible:Visibility.Collapsed;
-        IconScalePanel.Visibility=countedIcon?Visibility.Visible:Visibility.Collapsed;
-        IconFlipInput.Visibility=icon is ScorebugIcon.PossessionDot or ScorebugIcon.PossessionArrow?Visibility.Visible:Visibility.Collapsed;
+        IconVisitorsInput.Visibility=text&&(countedIcon||icon==ScorebugIcon.PossessionArrow)?Visibility.Visible:Visibility.Collapsed;
+        IconVisitorsInput.Content=countedIcon?"Count the visitors' timeouts":"Mark the visitors' plate";
+        IconScalePanel.Visibility=text&&countedIcon?Visibility.Visible:Visibility.Collapsed;
+        IconVerticalInput.Visibility=text&&icon==ScorebugIcon.TimeoutBars?Visibility.Visible:Visibility.Collapsed;
+        IconFlipInput.Visibility=text&&icon is ScorebugIcon.PossessionDot or ScorebugIcon.PossessionArrow?Visibility.Visible:Visibility.Collapsed;
     }
 
     /// <summary>
@@ -1319,6 +1336,7 @@ public partial class ScorebugEditorWindow : Window
         var iconOffsetXOk=double.TryParse(IconOffsetXInput.Text,out var iconOffsetX);
         var iconOffsetYOk=double.TryParse(IconOffsetYInput.Text,out var iconOffsetY);
         var iconVisitors=IconVisitorsInput.IsChecked==true; var iconFlipped=IconFlipInput.IsChecked==true;
+        var iconVertical=IconVerticalInput.IsChecked==true;
         var iconScaleOk=double.TryParse(IconScaleInput.Text,out var iconScale);
         iconScale=Math.Clamp(iconScaleOk?iconScale:1,0.25,3);
         var iconFillText=IconFillInput.Text.Trim();
@@ -1353,7 +1371,7 @@ public partial class ScorebugEditorWindow : Window
                 : (transition is null||item.MotionTransition is null))
             &&(shape is null||item.Shape==shape)&&item.Visible==visible&&item.TransparentBackground==transparent
             &&item.MediaTag==mediaTag&&(periodFormat is null||item.PeriodFormat==periodFormat)
-            &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped
+            &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped&&item.IconVertical==iconVertical
             &&(icon!=ScorebugIcon.Custom||string.Equals(item.CustomIconId,(IconCustomInput.SelectedItem as CustomIconChoice)?.Icon.Id,StringComparison.OrdinalIgnoreCase))
             &&(!iconScaleOk||Math.Abs(item.IconScale-iconScale)<0.001)
             &&string.Equals(item.IconToken,iconToken,StringComparison.Ordinal)
@@ -1416,6 +1434,7 @@ public partial class ScorebugEditorWindow : Window
         if(icon is not null&&item.Icon!=icon)Group(t=>t.Icon=icon.Value);
         if(item.IconVisitors!=iconVisitors)Group(t=>t.IconVisitors=iconVisitors);
         if(item.IconFlipped!=iconFlipped)Group(t=>t.IconFlipped=iconFlipped);
+        if(item.IconVertical!=iconVertical&&item.Kind==ScorebugElementKind.Text)Group(t=>t.IconVertical=iconVertical);
         if(!string.Equals(item.IconToken,iconToken,StringComparison.Ordinal))Group(t=>t.IconToken=iconToken);
         if(iconColorOk&&!string.Equals(item.IconColor,iconColor,StringComparison.OrdinalIgnoreCase))Group(t=>t.IconColor=iconColor);
         if(iconOffsetXOk&&Math.Abs(item.IconOffsetX-iconOffsetX)>0.001)Group(t=>t.IconOffsetX=iconOffsetX);
@@ -1927,9 +1946,11 @@ public partial class ScorebugEditorWindow : Window
             ("Team · home name","{{HOME_TEAM}}"),("Team · visitors name","{{AWAY_TEAM}}"),
             ("Team · home abbreviation","{{HOME_ABBR}}"),("Team · visitors abbreviation","{{AWAY_ABBR}}"),
             ("Team · home mascot","{{HOME_MASCOT}}"),("Team · visitors mascot","{{AWAY_MASCOT}}"),
+            ("Team · home record","{{HOME_RECORD}}"),("Team · visitors record","{{AWAY_RECORD}}"),
             ("Score · home","{{HOME_SCORE}}"),("Score · visitors","{{AWAY_SCORE}}"),
             ("Period (quarter)","{{PERIOD}}"),("Game clock","{{GAME_CLOCK}}"),("Play clock","{{PLAY_CLOCK}}"),
             ("Timeout clock","{{TIMEOUT_CLOCK}}"),("Timeouts left","{{TIMEOUTS}}"),("Possession","{{POSSESSION}}"),
+            ("Flag · type","{{PENALTY_TYPE}}"),("Flag · team","{{PENALTY_TEAM}}"),("Flag · team and type","{{PENALTY}}"),
             ("Sport name","{{SPORT}}"),("Date","{{DATE}}"),("Time of day","{{TIME}}")
         };
         // Only the sport being played puts its own words in this menu: a hockey game should never
@@ -2249,14 +2270,18 @@ public partial class ScorebugEditorWindow : Window
         if(_resizing||sender is not Border host||host.Tag is not ScorebugElement item)return;
         var ctrl=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
         var shift=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
-        // A click that lands on a larger element behind the selected one must keep the selection:
-        // otherwise grabbing a selected label inside a plate silently switches to the plate.
-        if(!ctrl&&!shift&&Selected is { } selectedItem&&selectedItem.Id!=item.Id
-            &&Encloses(item,selectedItem)&&Encloses(selectedItem,e.GetPosition(DesignCanvas))
-            &&_visuals.TryGetValue(selectedItem.Id,out var selectedVisual))
+        // A click anywhere inside an already-selected box belongs to that box, even when a larger
+        // element sits behind it: grabbing a selected label must never switch to the plate around
+        // it. The slack covers the selection border and the resize handle sitting on the edge.
+        var point=e.GetPosition(DesignCanvas);
+        if(!ctrl&&!shift&&!_selectedIds.Contains(item.Id)&&_selectedIds.Count>0)
         {
-            item=selectedItem;
-            host=selectedVisual.Host;
+            var hit=_catalog.Layout.Elements.FirstOrDefault(x=>_selectedIds.Contains(x.Id)&&Encloses(x,point,6));
+            if(hit is not null&&_visuals.TryGetValue(hit.Id,out var selectedVisual))
+            {
+                item=hit;
+                host=selectedVisual.Host;
+            }
         }
         var id=item.Id;
         if(ctrl||shift)
@@ -2297,14 +2322,9 @@ public partial class ScorebugEditorWindow : Window
         e.Handled=true;
     }
 
-    static bool Encloses(ScorebugElement outer,ScorebugElement inner) =>
-        inner.X>=outer.X-0.5&&inner.Y>=outer.Y-0.5
-        &&inner.X+inner.Width<=outer.X+outer.Width+0.5
-        &&inner.Y+inner.Height<=outer.Y+outer.Height+0.5;
-
-    static bool Encloses(ScorebugElement element,Point point) =>
-        point.X>=element.X&&point.X<=element.X+element.Width
-        &&point.Y>=element.Y&&point.Y<=element.Y+element.Height;
+    static bool Encloses(ScorebugElement element,Point point,double slack=0) =>
+        point.X>=element.X-slack&&point.X<=element.X+element.Width+slack
+        &&point.Y>=element.Y-slack&&point.Y<=element.Y+element.Height+slack;
 
     void Element_MouseMove(object sender,MouseEventArgs e)
     {

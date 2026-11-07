@@ -56,6 +56,9 @@ public static class ScoreboardTemplates
         .Replace("{{AWAY_ABBR}}", state.AwayAbbreviation)
         .Replace("{{HOME_MASCOT}}", state.HomeMascot)
         .Replace("{{AWAY_MASCOT}}", state.AwayMascot)
+        // Season record from team details, e.g. 8-2. Free text, printed exactly as typed.
+        .Replace("{{HOME_RECORD}}", state.HomeRecord)
+        .Replace("{{AWAY_RECORD}}", state.AwayRecord)
         .Replace("{{HOME_SCORE}}", state.HomeScore.ToString())
         .Replace("{{AWAY_SCORE}}", state.AwayScore.ToString())
         .Replace("{{PERIOD}}", PeriodDisplay.Format(state, periodFormat).ToUpperInvariant())

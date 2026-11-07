@@ -31,6 +31,8 @@ public partial class SettingsWindow : Window
         PlayClockHornInput.IsChecked = _draft.HornOnPlayClockZero;
         DelayInput.Text = _draft.ValueSwitchDelay.ToString("0.##", CultureInfo.CurrentCulture);
         AutosaveMinutesInput.Text = _draft.AutosaveMinutes.ToString(CultureInfo.InvariantCulture);
+        ClockFormatInput.SelectedIndex = string.Equals(_draft.ClockFormat, "Compact", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        AutoRecordInput.IsChecked = _draft.AutoUpdateRecord;
         AccentInput.Text = _draft.AccentColor;
         Accent2Input.Text = _draft.AccentColor2;
         PaintSwatches();
@@ -272,6 +274,18 @@ public partial class SettingsWindow : Window
         _draft.ValueSwitchDelay = Math.Clamp(seconds, 0, MaxDelay);
     }
 
+    void ClockFormat_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || ClockFormatInput is null) return;
+        _draft.ClockFormat = ClockFormatInput.SelectedIndex == 1 ? "Compact" : "Padded";
+    }
+
+    void AutoRecord_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || AutoRecordInput is null) return;
+        _draft.AutoUpdateRecord = AutoRecordInput.IsChecked == true;
+    }
+
     void Autosave_Changed(object sender, TextChangedEventArgs e)
     {
         if (_loading || AutosaveMinutesInput is null) return;
@@ -350,7 +364,8 @@ public partial class SettingsWindow : Window
         _original.HornOnPlayClockZero = _draft.HornOnPlayClockZero;
         _original.ValueSwitchDelay = Math.Clamp(_draft.ValueSwitchDelay, 0, MaxDelay);
         _original.AutosaveMinutes = Math.Max(0, _draft.AutosaveMinutes);
-        _original.AutosaveMinutes = Math.Max(0, _draft.AutosaveMinutes);
+        _original.ClockFormat = _draft.ClockFormat;
+        _original.AutoUpdateRecord = _draft.AutoUpdateRecord;
         _original.AccentColor = _draft.AccentColor;
         _original.AccentColor2 = _draft.AccentColor2;
         _original.RemotePort = _draft.RemotePort;

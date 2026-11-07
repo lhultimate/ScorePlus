@@ -608,6 +608,7 @@ public sealed class ScorebugTextBlock : TextBlock
 /// </summary>
 public sealed class ScorebugIconView : Grid
 {
+    static readonly Brush TimeoutUsedBrush = new SolidColorBrush(Color.FromRgb(0x9A, 0xA5, 0xB2));
     readonly ScorebugElement _item;
     readonly Func<GameState>? _state;
     readonly Ellipse? _dot;
@@ -706,7 +707,8 @@ public sealed class ScorebugIconView : Grid
             // One short horizontal line per timeout, in a row from left to right.
             _bars = new StackPanel
             {
-                Orientation = Orientation.Horizontal,
+                Orientation = item.IconVertical && Icon == ScorebugIcon.TimeoutBars
+                    ? Orientation.Vertical : Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -873,50 +875,72 @@ public sealed class ScorebugIconView : Grid
         }
         if (_bars is not null)
         {
-            var count = 0;
-            if (state is not null) count = Math.Clamp(_item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 10);
+            var remaining = 0;
+            var limit = 0;
+            if (state is not null)
+            {
+                remaining = Math.Clamp(_item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 12);
+                limit = _item.IconVisitors ? state.AwayTimeoutLimit : state.HomeTimeoutLimit;
+            }
+            var count = Math.Clamp(Math.Max(remaining, limit), 0, 12);
+            var vertical = Icon == ScorebugIcon.TimeoutBars && _item.IconVertical;
+            _bars.Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
+            if (count == 0)
+            {
+                _bars.Children.Clear();
+                _appliedForeground = foreground;
+                return;
+            }
             var scale = Math.Clamp(_item.IconScale, 0.25, 3);
-            var slot = _item.Width / Math.Max(1, count);
-            var width = Math.Max(3, Math.Min(_item.Width * 0.22, slot * 0.62) * scale);
+            var slot = (vertical ? _item.Height : _item.Width) / Math.Max(1, count);
+            var width = vertical
+                ? Math.Max(4, Math.Min(_item.Width * 0.62, slot * 1.4) * scale)
+                : Math.Max(3, Math.Min(_item.Width * 0.22, slot * 0.62) * scale);
             var thickness = Math.Clamp(_item.Height / 8 * scale, 1.5, 18);
-            var gap = Math.Max(1, width * 0.22);
+            var gap = vertical ? Math.Max(1, slot * 0.22) : Math.Max(1, width * 0.22);
             if (_bars.Children.Count != count)
             {
                 _bars.Children.Clear();
                 var animate = Animates;
                 for (var i = 0; i < count; i++)
                 {
+                    var fill = i < remaining ? ScorebugRender.ParseBrush(foreground) : TimeoutUsedBrush;
                     // Bars are rounded lines; the dots variant is the same row of round pips.
                     Shape bar = Icon == ScorebugIcon.TimeoutDots
-                        ? new Ellipse { Width = width, Height = width, Fill = ScorebugRender.ParseBrush(foreground) }
+                        ? new Ellipse { Width = width, Height = width, Fill = fill }
                         : new Rectangle
                         {
                             Width = width,
                             Height = thickness,
                             RadiusX = thickness / 2,
                             RadiusY = thickness / 2,
-                            Fill = ScorebugRender.ParseBrush(foreground)
+                            Fill = fill
                         };
-                    bar.Margin = new Thickness(gap / 2, 0, gap / 2, 0);
+                    bar.Margin = vertical
+                        ? new Thickness(0, gap / 2, 0, gap / 2)
+                        : new Thickness(gap / 2, 0, gap / 2, 0);
                     _bars.Children.Add(bar);
-                    // A timeout being used changes how many bars the icon shows; the new row arrives
-                    // with the element's own value-change motion instead of appearing all at once.
+                    // A timeout being used keeps its place but turns grey, so the row still reads as
+                    // the full allotment instead of shrinking every time a timeout is taken.
                     if (animate) AnimateIn(bar);
                 }
                 _appliedForeground = foreground;
             }
             else
             {
-                // A size or team-colour change updates the existing bars in place instead of
+                // A size, colour or used-timeout change updates the existing bars in place instead of
                 // rebuilding them, so the row never flickers while the slider moves.
                 var brush = ScorebugRender.ParseBrush(foreground);
+                var index = 0;
                 foreach (var child in _bars.Children.OfType<Shape>())
                 {
                     child.Width = width;
                     child.Height = Icon == ScorebugIcon.TimeoutDots ? width : thickness;
                     if (child is Rectangle rounded) { rounded.RadiusX = thickness / 2; rounded.RadiusY = thickness / 2; }
-                    child.Margin = new Thickness(gap / 2, 0, gap / 2, 0);
-                    child.Fill = brush;
+                    child.Margin = vertical
+                        ? new Thickness(0, gap / 2, 0, gap / 2)
+                        : new Thickness(gap / 2, 0, gap / 2, 0);
+                    child.Fill = index++ < remaining ? brush : TimeoutUsedBrush;
                 }
                 _appliedForeground = foreground;
             }

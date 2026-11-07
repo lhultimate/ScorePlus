@@ -96,7 +96,7 @@ public sealed class QuickMediaBar : Border
             button.BorderThickness = new Thickness(1);
             if (entry is null)
             {
-                button.Content = binding is { IsSet: true } ? $"{index + 1} · missing" : $"{index + 1}";
+                button.Content = binding is { IsSet: true } ? "missing" : $"{index + 1}";
                 button.ToolTip = binding is { IsSet: true }
                     ? "That media is no longer in the library — right-click to reassign"
                     : "Unassigned — click to choose media";
@@ -106,9 +106,10 @@ public sealed class QuickMediaBar : Border
                 button.Opacity = 1;
                 continue;
             }
-            var label = string.IsNullOrWhiteSpace(binding!.Label) ? entry.Label : binding.Label;
+            var label = QuickLabels.Clean(binding!.Label);
+            if (label.Length == 0) label = entry.Label;
             var onAir = _session.IsOnAir(entry);
-            button.Content = $"{(onAir ? "● " : "")}{index + 1} · {Trim(label, 13)}";
+            button.Content = $"{(onAir ? "● " : "")}{Trim(label, 13)}";
             button.ToolTip = onAir
                 ? $"{entry.KindLabel} · {entry.Label} · ON AIR — click to take it off air"
                 : $"{entry.KindLabel} · {entry.Label} · tag {entry.Tag} — click to put it on air";
@@ -240,7 +241,7 @@ internal sealed class QuickMediaPickerWindow : Window
         root.Children.Add(_items);
 
         root.Children.Add(new TextBlock { Text = "BUTTON LABEL (OPTIONAL)", FontSize = 10, FontWeight = FontWeights.Bold, Opacity = 0.7, Margin = new Thickness(0, 0, 0, 4) });
-        _label.Text = current.Label;
+        _label.Text = QuickLabels.Clean(current.Label);
         _label.ToolTip = "Shown on the button; leave empty to use the media name";
         root.Children.Add(_label);
 

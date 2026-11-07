@@ -86,6 +86,7 @@
           <Button Style="{StaticResource HeaderButton}" Content="Multiview" Click="Multiview_Click" ToolTip="Every camera at once, with the replay preview beside the live picture"/>
           <Button Style="{StaticResource HeaderButton}" Content="Scorebug Studio" Click="ScorebugStudio_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Sport Profiles" Click="SportProfiles_Click"/>
+          <Button Style="{StaticResource HeaderButton}" Content="End Game" Click="EndGame_Click" ToolTip="Stop every clock, mark the game final and add the result to each team's record"/>
           <Button Style="{StaticResource HeaderButton}" Content="New Game" Click="NewGame_Click"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

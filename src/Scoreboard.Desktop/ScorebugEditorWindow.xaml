@@ -5,6 +5,7 @@
         Title="ScorePlus — Scorebug Studio" Width="1360" Height="900" MinWidth="1120" MinHeight="720"
         WindowStartupLocation="CenterOwner" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <Window.Resources>
+    <local:IconNameConverter x:Key="IconNameConverter"/>
     <Style x:Key="ToolButton" TargetType="Button">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Padding" Value="12,8"/>
@@ -476,10 +477,16 @@
           <TextBlock Text="ICON" Style="{StaticResource SectionTitle}"/>
           <TextBlock Text="Live artwork instead of (or beside) typed text" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="IconInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="Timeout bars, a dot on the side of the team with the ball, or an icon you made"/>
+                    ToolTip="Timeout bars, a dot on the side of the team with the ball, or an icon you made">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Converter={StaticResource IconNameConverter}}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
           <!-- Icons made in the icon maker: pick one, or open the maker to draw a new one. -->
           <StackPanel x:Name="IconCustomPanel">
-            <TextBlock Text="Made icon" Style="{StaticResource FieldLabel}"/>
+            <TextBlock x:Name="IconCustomLabel" Text="Made icon" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,0,10,8">
               <Button DockPanel.Dock="Right" Content="Icon maker…" Margin="4,0,0,0" Click="IconMaker_Click"
                       ToolTip="Make an icon: a glyph, its colour and its plate, saved to the icon library"/>
@@ -517,6 +524,9 @@
             <TextBlock Text="Timeout bar size (0.25–3)" Style="{StaticResource FieldLabel}"/>
             <TextBox x:Name="IconScaleInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                      ToolTip="Make the timeout bars smaller or larger; 1 is the natural size"/>
+            <CheckBox x:Name="IconVerticalInput" Content="Stack the timeout bars vertically" Margin="10,2,10,8"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="Keep each bar horizontal but stack them down the box instead of across it"/>
           </StackPanel>
           <!-- Baseball's bases: the inside can be its own color, separate from the outline. -->
           <StackPanel x:Name="BaseFillPanel">

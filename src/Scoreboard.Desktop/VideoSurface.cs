@@ -302,7 +302,9 @@ public sealed class VideoSurface : Grid
         // Same clip already loaded: follow the transport instead of restarting the picture.
         // ScrubbingEnabled draws the frame at the new position even while paused, so the element
         // needs no Play/Pause nudge here — which also keeps scrubbing smooth.
-        if (_playback is not null && _playback.SeekVersion != _appliedSeek)
+        var isTransportClip = _playback?.NowPlaying is { } transport
+            && string.Equals(transport.Path, entry.Path, StringComparison.OrdinalIgnoreCase);
+        if (isTransportClip && _playback is not null && _playback.SeekVersion != _appliedSeek)
         {
             _appliedSeek = _playback.SeekVersion;
             _router?.Seek(_playback.Position);

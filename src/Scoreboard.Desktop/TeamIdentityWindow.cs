@@ -20,6 +20,7 @@ public sealed class TeamIdentityWindow : Window
     readonly TextBox _name = new();
     readonly TextBox _abbreviation = new();
     readonly TextBox _mascot = new();
+    readonly TextBox _record = new();
     readonly TextBox _primaryHex = new();
     readonly TextBox _secondaryHex = new();
     readonly Border _primarySwatch = new() { Width = 46, Height = 30, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), BorderBrush = Brushes.Gray };
@@ -44,6 +45,7 @@ public sealed class TeamIdentityWindow : Window
         _name.Text = home ? state.HomeTeam : state.AwayTeam;
         _abbreviation.Text = home ? state.HomeAbbreviation : state.AwayAbbreviation;
         _mascot.Text = home ? state.HomeMascot : state.AwayMascot;
+        _record.Text = home ? state.HomeRecord : state.AwayRecord;
         _primaryHex.Text = home ? state.HomePrimaryColor : state.AwayPrimaryColor;
         _secondaryHex.Text = home ? state.HomeSecondaryColor : state.AwaySecondaryColor;
         _logoPath = home ? state.HomeLogoPath : state.AwayLogoPath;
@@ -111,6 +113,10 @@ public sealed class TeamIdentityWindow : Window
         fields.Children.Add(Label("Mascot name"));
         _mascot.MaxLength = 80;
         fields.Children.Add(_mascot);
+        fields.Children.Add(Label("Record"));
+        _record.MaxLength = 24;
+        _record.ToolTip = "Season record, for example 8-2 or 12-4-1. Add it to the scorebug with {{HOME_RECORD}} / {{AWAY_RECORD}}.";
+        fields.Children.Add(_record);
         fields.Children.Add(Label("Primary color"));
         fields.Children.Add(ColorRow(_primarySwatch, _primaryHex, () => PickColor(_primaryHex, _primarySwatch)));
         fields.Children.Add(Label("Secondary color"));
@@ -172,7 +178,7 @@ public sealed class TeamIdentityWindow : Window
 
     void PickColor(TextBox hex, Border swatch)
     {
-        var picked = ColorPickerWindow.Pick(this, hex.Text);
+        var picked = ColorPickerWindow.PickBeside(this, hex.Text);
         if (picked is null) return;
         hex.Text = picked;
         try { swatch.Background = (Brush)new BrushConverter().ConvertFromString(picked)!; } catch { }
@@ -241,7 +247,7 @@ public sealed class TeamIdentityWindow : Window
                 return false;
             }
         }
-        _engine.SetTeamIdentity(_home, _name.Text, _abbreviation.Text, logo, _primaryHex.Text, _secondaryHex.Text, _mascot.Text);
+        _engine.SetTeamIdentity(_home, _name.Text, _abbreviation.Text, logo, _primaryHex.Text, _secondaryHex.Text, _mascot.Text, _record.Text);
         return true;
     }
 

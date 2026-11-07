@@ -7,6 +7,32 @@ using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
 
+/// <summary>Removes an old slot prefix such as "1 - " or "2 · " from a saved quick-button label.</summary>
+internal static class QuickLabels
+{
+    public static string Clean(string? text)
+    {
+        var value = (text ?? "").Trim();
+        if (value.Length == 0) return "";
+        var digits = 0;
+        while (digits < value.Length && char.IsDigit(value[digits])) digits++;
+        if (digits == 0) return value;
+        var index = digits;
+        while (index < value.Length && char.IsWhiteSpace(value[index])) index++;
+        var spaced = index > digits;
+        // A hyphen is only a slot separator when it is padded, so a name such as "2026-27" is kept.
+        var separator = index < value.Length && value[index] is '·' or '.'
+            || index < value.Length && spaced && value[index] is '-' or '–' or '—';
+        if (separator)
+        {
+            var rest = value[(index + 1)..].TrimStart();
+            return rest.All(char.IsDigit) ? "" : rest;
+        }
+        // A label that is only a slot number is not a label at all.
+        return value.All(char.IsDigit) ? "" : value;
+    }
+}
+
 /// <summary>
 /// Twelve buttons that put a chosen layout on any display in one press. The assignment lives in
 /// preferences, so each window — the main rail and every detached panel — offers the same twelve.
@@ -121,8 +147,9 @@ public sealed class QuickLayoutBar : Border
                 continue;
             }
             var display = _catalog.FindDisplay(binding!.DisplayId);
-            var label = string.IsNullOrWhiteSpace(binding.Label) ? layout.Name : binding.Label;
-            button.Content = $"{index + 1} · {Trim(label, 14)}";
+            var label = QuickLabels.Clean(binding.Label);
+            if (label.Length == 0) label = layout.Name;
+            button.Content = Trim(label, 14);
             button.ToolTip = $"{layout.Name} on {display?.Name ?? "display"}" +
                 (preferences.QuickLayoutsPublish ? " — press updates output" : " — press stages it; Update Output sends it") +
                 " · right-click to reassign or clear";
@@ -256,13 +283,13 @@ internal sealed class QuickLayoutPickerWindow : Window
             Margin = new Thickness(0, 0, 0, 10)
         });
         root.Children.Add(new TextBlock { Text = "DISPLAY", FontSize = 10, FontWeight = FontWeights.Bold, Opacity = 0.7 });
-        _displays.ItemsSource = catalog.Displays.Select(display => new DisplayChoice(display.Id, display.Name)).ToArray();
+        _displays.ItemsSource = catalog.Displays.Select((display, index) => new DisplayChoice(display.Id, $"{index + 1} · {display.Name}")).ToArray();
         _displays.SelectionChanged += (_, _) => FillLayouts();
         root.Children.Add(_displays);
         root.Children.Add(new TextBlock { Text = "LAYOUT", FontSize = 10, FontWeight = FontWeights.Bold, Opacity = 0.7 });
         root.Children.Add(_layouts);
         root.Children.Add(new TextBlock { Text = "BUTTON LABEL (optional)", FontSize = 10, FontWeight = FontWeights.Bold, Opacity = 0.7 });
-        _label.Text = current?.Label ?? "";
+        _label.Text = QuickLabels.Clean(current?.Label);
         root.Children.Add(_label);
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };

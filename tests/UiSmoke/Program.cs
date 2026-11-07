@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -235,6 +236,34 @@ internal static class Program
             // The top row is icon-only now; the name lives in the tooltip.
             if (!FindAll<Button>(shell).Any(b => (b.ToolTip as string ?? string.Empty).StartsWith("Event log", StringComparison.OrdinalIgnoreCase)))
                 throw new Exception("FAIL: the event log button is missing from the top row");
+            // The phone's media card must separate a paused clip from playing media, and speakers
+            // are their own on-air row rather than being reported as playing clips.
+            Directory.CreateDirectory(appDataPath);
+            var remoteMediaPath = Path.Combine(appDataPath, $"remote-paused-{Guid.NewGuid():N}.wav");
+            WriteSilentWav(remoteMediaPath, 1);
+            var mediaSession = (MediaSession?)typeof(MainWindow)
+                .GetField("_session", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(shell);
+            if (mediaSession is null) throw new Exception("FAIL: the shell has no media session");
+            var pausedClip = new MediaEntry(remoteMediaPath, "Ads", Name: "Paused test clip");
+            mediaSession.Library.Add(pausedClip);
+            mediaSession.Play(pausedClip);
+            mediaSession.TogglePlayPause();
+            mediaSession.Library.Add(new MediaEntry(MediaLibrary.SpeakerPath(0), Name: "Test speaker"));
+            var snapshotMethod = typeof(MainWindow).GetMethod("MediaSnapshotJson", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var snapshotJson = (string?)snapshotMethod?.Invoke(shell, null);
+            using var snapshot = System.Text.Json.JsonDocument.Parse(snapshotJson!);
+            bool SnapshotHas(string property, string? value) => snapshot.RootElement.GetProperty(property)
+                .EnumerateArray().Any(item => item.GetString() == value);
+            if (SnapshotHas("live", "Paused test clip"))
+                throw new Exception("FAIL: the remote calls a paused clip live");
+            if (!SnapshotHas("paused", "Paused test clip"))
+                throw new Exception("FAIL: the remote lost the paused clip");
+            if (!SnapshotHas("speakers", "Test speaker"))
+                throw new Exception("FAIL: the remote lost the speaker on-air row");
+            if (!snapshot.RootElement.GetProperty("clips").EnumerateArray().Any(item =>
+                    item.GetProperty("label").GetString() == "Test speaker" && item.GetProperty("onAir").GetBoolean()))
+                throw new Exception("FAIL: the remote speaker row does not say ON AIR");
             shell.Close();
             Console.WriteLine("PASS: dock holds one media library with tiles, transport and tags; event log moved to the top row");
 
@@ -928,8 +957,8 @@ internal static class Program
             var barsItem = new ScorebugElement { Name = "Timeouts", Content = "", Kind = ScorebugElementKind.Text, Icon = ScorebugIcon.TimeoutBars, Width = 160, Height = 60 };
             var iconsView = new ScorebugIconView(barsItem, () => iconEngine.State);
             var barCount = FindAll<System.Windows.Shapes.Rectangle>(iconsView).Count();
-            if (barCount != iconEngine.State.HomeTimeouts)
-                throw new Exception($"FAIL: timeout icon drew {barCount} bars for {iconEngine.State.HomeTimeouts} timeouts");
+            if (barCount != iconEngine.State.HomeTimeoutLimit)
+                throw new Exception($"FAIL: timeout icon drew {barCount} bars for {iconEngine.State.HomeTimeoutLimit} timeouts");
             foreach (var line in FindAll<System.Windows.Shapes.Rectangle>(iconsView))
                 if (line.Width <= line.Height * 2)
                     throw new Exception($"FAIL: timeout bar is not a horizontal line ({line.Width:0}x{line.Height:0})");
@@ -939,8 +968,20 @@ internal static class Program
                 throw new Exception("FAIL: timeout lines are not in a row");
             iconEngine.Timeout(true);
             iconsView.Update();
-            if (FindAll<System.Windows.Shapes.Rectangle>(iconsView).Count() != iconEngine.State.HomeTimeouts)
-                throw new Exception("FAIL: the timeout icon did not follow a used timeout");
+            if (FindAll<System.Windows.Shapes.Rectangle>(iconsView).Count() != iconEngine.State.HomeTimeoutLimit)
+                throw new Exception("FAIL: a used timeout should keep its bar, greyed out, for the full allotment");
+            var usedBar = FindAll<System.Windows.Shapes.Rectangle>(iconsView).Last();
+            if (usedBar.Fill is not SolidColorBrush usedBrush || usedBrush.Color != Color.FromRgb(0x9A, 0xA5, 0xB2))
+                throw new Exception("FAIL: a used timeout bar did not switch to the light-grey out colour");
+            barsItem.IconVertical = true;
+            iconsView.Update();
+            var verticalStack = FindAll<StackPanel>(iconsView).FirstOrDefault();
+            if (verticalStack?.Orientation != Orientation.Vertical)
+                throw new Exception("FAIL: the vertical timeout option did not stack the bars");
+            barsItem.IconVertical = false;
+            var iconName = new IconNameConverter().Convert(ScorebugIcon.PossessionDot, typeof(string), null, CultureInfo.InvariantCulture) as string;
+            if (iconName != "Possession Dot")
+                throw new Exception($"FAIL: the icon picker still shows compact enum names ('{iconName}')");
             var dotItem = new ScorebugElement { Name = "Possession", Content = "{{POSSESSION}}", Kind = ScorebugElementKind.Text, Icon = ScorebugIcon.PossessionDot, Width = 200, Height = 60 };
             var dotView = new ScorebugIconView(dotItem, () => iconEngine.State);
             var dot = FindAll<System.Windows.Shapes.Ellipse>(dotView).Single();
@@ -981,8 +1022,15 @@ internal static class Program
             iconStudio.UpdateLayout();
             if (((FrameworkElement)iconStudio.FindName("IconSection")!).Visibility != Visibility.Visible)
                 throw new Exception("FAIL: the studio hides the icon properties for a text element");
-            if (((ComboBox)iconStudio.FindName("IconInput")!).SelectedItem is not (ScorebugIcon.TimeoutBars or ScorebugIcon.PossessionDot))
+            var studioIcon = ((ComboBox)iconStudio.FindName("IconInput")!).SelectedItem;
+            if (studioIcon is not (ScorebugIcon.TimeoutBars or ScorebugIcon.PossessionDot))
                 throw new Exception("FAIL: the studio did not show the selected element's icon");
+            if (((FrameworkElement)iconStudio.FindName("IconCustomInput")!).Visibility != Visibility.Collapsed)
+                throw new Exception("FAIL: the made-icon picker appears on a built-in icon");
+            var verticalVisibility = ((FrameworkElement)iconStudio.FindName("IconVerticalInput")!).Visibility;
+            var expectedVerticalVisibility = studioIcon is ScorebugIcon.TimeoutBars ? Visibility.Visible : Visibility.Collapsed;
+            if (verticalVisibility != expectedVerticalVisibility)
+                throw new Exception($"FAIL: the vertical-bar property visibility is {verticalVisibility} for {studioIcon}");
             iconStudio.Close();
             Console.WriteLine("PASS: icon elements draw on the scorebug canvas and edit from the studio");
 
@@ -1145,9 +1193,17 @@ internal static class Program
                 if (playback.ActiveFor("Highlights") is not null) throw new Exception("FAIL: the wrong tag reached a video element");
                 if (playback.ActiveFor("")?.Path != ad.Path) throw new Exception("FAIL: an element with no tag should accept any playing video");
                 playback.Start(anthem);
-                if (playback.ActiveFor("") is not null) throw new Exception("FAIL: an audio cue filled a video element");
+                if (playback.ActiveFor("")?.Path != ad.Path) throw new Exception("FAIL: an audio cue cleared the video element");
                 playback.Start(highlight);
-                if (playback.ActiveFor("Ads") is not null) throw new Exception("FAIL: a highlight reel played in the ad box");
+                if (playback.ActiveFor("Ads")?.Path != ad.Path) throw new Exception("FAIL: a different tag replaced the ad box");
+                if (playback.ActiveFor("Highlights")?.Path != highlight.Path) throw new Exception("FAIL: the new tag did not reach its own video element");
+                var sameFileNewTag = new MediaEntry(ad.Path, "Highlights");
+                playback.Start(sameFileNewTag);
+                if (playback.ActiveFor("Ads")?.Path != ad.Path || playback.ActiveFor("Highlights")?.Path != ad.Path)
+                    throw new Exception("FAIL: the same file under another tag replaced its other tag");
+                playback.Stop(sameFileNewTag);
+                if (playback.ActiveFor("Ads")?.Path != ad.Path)
+                    throw new Exception("FAIL: stopping one tag stopped the same file under another tag");
                 playback.Stop();
                 if (playback.ActiveFor("Ads") is not null) throw new Exception("FAIL: stopping media left the overlay cued");
                 videoView.Dispose();
@@ -1411,21 +1467,24 @@ internal static class Program
             }
             Console.WriteLine("PASS: the dock's speaker picker sticks to the chosen device");
 
-            // Clear empties the media side and blanks whatever was on air.
+            // Clear takes the media side off air without deleting the library.
             var clearSession = new MediaSession(new UserPreferences());
             try
             {
-                clearSession.Library.Add(new MediaEntry(Path.Combine(Path.GetTempPath(), "smoke-clear.mp4"), "Ads"));
-                clearSession.Playback.Start(new MediaEntry(Path.Combine(Path.GetTempPath(), "smoke-clear.mp4"), "Ads"));
-                clearSession.ClearAll();
-                if (clearSession.Library.Count != 0 || clearSession.Playlists.Count != 0 || clearSession.Playback.NowPlaying is not null)
-                    throw new Exception("FAIL: Clear left media or a cued clip behind");
+                var clearEntry = new MediaEntry(Path.Combine(Path.GetTempPath(), "smoke-clear.mp4"), "Ads");
+                clearSession.Library.Add(clearEntry);
+                clearSession.Playlists.Add(new MediaPlaylist { Name = "Clear test", Paths = [clearEntry.Path] });
+                clearSession.Playback.Start(clearEntry);
+                clearSession.ClearOnAir();
+                if (clearSession.Library.Count != 1 || clearSession.Playlists.Count != 1
+                    || clearSession.Playback.NowPlaying is not null || clearSession.Current is not null)
+                    throw new Exception("FAIL: Clear deleted library media or left something on air");
                 // Replay opens frozen at the live edge and waits for Start replay.
                 if (clearSession.IsReplaying || clearSession.PlayReplay())
                     throw new Exception("FAIL: Start replay ran without an open replay");
             }
             finally { clearSession.Dispose(); }
-            Console.WriteLine("PASS: Clear blanks the media side, and Start replay refuses with nothing open");
+            Console.WriteLine("PASS: Clear takes media off air but keeps the library, and Start replay refuses with nothing open");
 
             // F11 on an audience window is Broadcast Fullscreen; Escape gives it back.
             var fsEngine = new GameEngine();
@@ -3384,15 +3443,19 @@ internal static class Program
                     var barsView = FindAll<ScorebugIconView>(artCanvas).FirstOrDefault();
                     if (barsView is null)
                         throw new Exception("FAIL: switching an element to timeout bars draws no live artwork in the studio");
-                    if (FindAll<System.Windows.Shapes.Rectangle>(barsView).Count() != 2)
-                        throw new Exception($"FAIL: timeout bars show {FindAll<System.Windows.Shapes.Rectangle>(barsView).Count()} bars for two timeouts");
+                    if (FindAll<System.Windows.Shapes.Rectangle>(barsView).Count() != artEngine.State.HomeTimeoutLimit)
+                        throw new Exception($"FAIL: timeout bars show {FindAll<System.Windows.Shapes.Rectangle>(barsView).Count()} bars for {artEngine.State.HomeTimeoutLimit} timeouts");
                     if (FindAll<ScorebugTextBlock>(artCanvas).Any(t => t.Text.Contains("POSSESSION", StringComparison.Ordinal)))
                         throw new Exception("FAIL: the old text is still drawn under the artwork");
-                    // Live: another timeout removes a bar without any studio edit.
+                    // Live: taking another timeout greys more bars without shrinking the allotment.
                     artEngine.SetTimeoutCount(true, 1);
                     Pump(TimeSpan.FromMilliseconds(200));
-                    if (FindAll<System.Windows.Shapes.Rectangle>(barsView).Count() != 1)
-                        throw new Exception("FAIL: the timeout bars did not follow the game");
+                    var artBars = FindAll<System.Windows.Shapes.Rectangle>(barsView);
+                    if (artBars.Count() != artEngine.State.HomeTimeoutLimit)
+                        throw new Exception("FAIL: a used timeout removed a bar from the allotment");
+                    var expectedUsed = Math.Max(0, artEngine.State.HomeTimeoutLimit - artEngine.State.HomeTimeouts);
+                    if (artBars.Count(bar => bar.Fill is SolidColorBrush brush && brush.Color == Color.FromRgb(0x9A, 0xA5, 0xB2)) != expectedUsed)
+                        throw new Exception($"FAIL: expected {expectedUsed} greyed timeout bars, got {artBars.Count(bar => bar.Fill is SolidColorBrush brush && brush.Color == Color.FromRgb(0x9A, 0xA5, 0xB2))}");
                     // Switching to a different icon builds that artwork instead of keeping the bars.
                     ((ComboBox)artStudio.FindName("IconInput")!).SelectedItem = ScorebugIcon.PossessionDot;
                     Pump(TimeSpan.FromMilliseconds(250));
@@ -3462,6 +3525,10 @@ internal static class Program
                     var panelHtml = WaitWithPump(http.GetStringAsync(baseUrl + "/"));
                     if (!panelHtml.Contains("src=\"/logo.png\"", StringComparison.Ordinal))
                         throw new Exception("FAIL: the remote page does not show the brand mark");
+                    if (!panelHtml.Contains("Experimental:", StringComparison.Ordinal)
+                        || !panelHtml.Contains("speakerNow", StringComparison.Ordinal)
+                        || !panelHtml.Contains("PAUSED ·", StringComparison.Ordinal))
+                        throw new Exception("FAIL: the remote media card is missing its paused state, speaker row or experimental warning");
                     var action = WaitWithPump(http.PostAsync(baseUrl + "/api/action", new System.Net.Http.StringContent("a=away.score.plus2", System.Text.Encoding.UTF8, "application/x-www-form-urlencoded")));
                     if ((int)action.StatusCode != 200 || remoteEngine.State.AwayScore != 2)
                         throw new Exception($"FAIL: a remote score button did not reach the game ({(int)action.StatusCode}, {remoteEngine.State.AwayScore})");

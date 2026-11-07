@@ -351,18 +351,47 @@ public partial class MainWindow : Window, IControlPanelHost
     /// touches no layout, so a detached panel can publish its own display right after it.
     /// </summary>
     /// <summary>The library as the phone's Media tab lists it.</summary>
-    string MediaSnapshotJson() => JsonSerializer.Serialize(new
+    string MediaSnapshotJson()
     {
-        current = _session.Current?.Label ?? string.Empty,
-        clips = _session.Library.Select(entry => new
+        // Every independent source can be live at once — clips, cameras and microphones — so the
+        // phone lists them all. A paused clip is reported as paused, not as live; speakers are a
+        // separate on-air row because a speaker bus is a route, not a playing clip.
+        var live = new List<string>();
+        var paused = new List<string>();
+        void Add(List<string> list, string? label)
         {
-            id = entry.Path,
-            label = entry.Label,
-            onAir = ReferenceEquals(_session.Current, entry)
-                || _session.IsCameraOnAir(entry)
-                || _session.IsMicrophoneOnAir(entry)
-        }).ToList()
-    });
+            if (!string.IsNullOrWhiteSpace(label) && !live.Contains(label) && !paused.Contains(label)) list.Add(label);
+        }
+        if (_session.IsCurrentPlaying) Add(live, _session.Current?.Label);
+        else Add(paused, _session.Current?.Label);
+        if (_session.IsBackgroundPlaying) Add(live, _session.BackgroundAudio?.Label);
+        else Add(paused, _session.BackgroundAudio?.Label);
+        if (_session.Playback.IsPlaying)
+            foreach (var file in _session.Playback.ActiveFiles) Add(live, file.Label);
+        else
+            foreach (var file in _session.Playback.ActiveFiles) Add(paused, file.Label);
+        foreach (var camera in _session.LiveCameras)
+            if (!Same(_session.Current, camera)) Add(live, camera.Label);
+        foreach (var microphone in _session.LiveMicrophones)
+            if (!Same(_session.Current, microphone)) Add(live, microphone.Label);
+        var speakers = _session.LiveSpeakers.Select(speaker => speaker.Label).ToList();
+        static bool Same(MediaEntry? left, MediaEntry right) =>
+            left is not null && string.Equals(left.Path, right.Path, StringComparison.OrdinalIgnoreCase);
+        return JsonSerializer.Serialize(new
+        {
+            current = string.Join(" + ", live.Count > 0 ? live : paused),
+            live,
+            paused,
+            speakers,
+            clips = _session.Library.Select(entry => new
+            {
+                id = entry.Path,
+                label = entry.Label,
+                kind = entry.KindLabel,
+                onAir = _session.IsOnAir(entry)
+            }).ToList()
+        });
+    }
 
     /// <summary>The three media buttons a phone can reach: on air, play/pause, and back off air.</summary>
     bool MediaAction(string action, string id)
@@ -418,7 +447,12 @@ public partial class MainWindow : Window, IControlPanelHost
         switch (action)
         {
             case "roster": _engine.AssignRoster(home, string.IsNullOrWhiteSpace(id) ? null : id); return true;
-            case "player": _engine.SelectPlayer(home, id); return true;
+            case "player":
+                // No player id is the phone's off-air button: nobody on the graphic for that side.
+                if (string.IsNullOrWhiteSpace(id)) _engine.ClearSelectedPlayer(home);
+                else _engine.SelectPlayer(home, id);
+                return true;
+            case "clear": _engine.ClearSelectedPlayer(home); return true;
             case "stat":
             {
                 if (string.IsNullOrWhiteSpace(stat) || !int.TryParse(value, out var number)) return false;
@@ -502,7 +536,7 @@ public partial class MainWindow : Window, IControlPanelHost
         _displaySync = true;
         try
         {
-            var names = _scorebug.Displays.Select(display => display.Name).ToArray();
+            var names = _scorebug.Displays.Select((display, index) => $"{index + 1} · {display.Name}").ToArray();
             if (DisplaySelector.ItemsSource is not IEnumerable<string> existing || !existing.SequenceEqual(names))
                 DisplaySelector.ItemsSource = names;
             var index = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
@@ -952,7 +986,8 @@ public partial class MainWindow : Window, IControlPanelHost
                 return;
             }
         }
-        StartNewGame(id, announce: false);
+        // A sport switch changes the sport, not the show: the artwork and the teams carry over.
+        StartNewGame(id, announce: false, keepDesign: true);
         StatusText.Text = $"NEW {_engine.Sport.Name.ToUpperInvariant()} GAME";
     }
 
@@ -965,14 +1000,41 @@ public partial class MainWindow : Window, IControlPanelHost
     }
 
     /// <summary>
+    /// Ends the game on command, for a game called before the clock expires. It stops every clock
+    /// and adds the result to the records that are set; the confirmation says that plainly.
+    /// </summary>
+    void EndGame_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine.State.GameEnded && _engine.State.RecordSettled)
+        {
+            StatusText.Text = "GAME ENDED · start a New Game to play again";
+            return;
+        }
+        var detail = "This stops every clock and marks the game final. The result is added to each team's record that is already set — a win, loss or tie. A team with no record is left alone.";
+        if (!ConfirmWindow.Ask(this, _preferences.Theme, "END GAME", detail, "End game")) return;
+        var homeRecord = _engine.State.HomeRecord;
+        var awayRecord = _engine.State.AwayRecord;
+        var wasSettled = _engine.State.RecordSettled;
+        if (!_engine.EndGame())
+        {
+            StatusText.Text = "GAME ENDED · start a New Game to play again";
+            return;
+        }
+        StatusText.Text = homeRecord != _engine.State.HomeRecord || awayRecord != _engine.State.AwayRecord
+            ? "GAME ENDED · team records updated"
+            : wasSettled ? "GAME ENDED · records were already updated" : "GAME ENDED · no team records were set";
+    }
+
+    /// <summary>
     /// A new game resets every piece of game state and takes the audience output with it, so nothing
     /// from the previous game survives on air. Operator settings that are not part of a game — sport
     /// profiles, keybinds, preferences, the media library and the scorebug design — are untouched.
     /// </summary>
-    public void StartNewGame(string sportId, bool announce = true)
+    public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false)
     {
         _autoHornReady = false;
-        _engine.NewGame(sportId);
+        // keepDesign is the sport switch: the teams, their rosters and the scorebug layout stay.
+        _engine.NewGame(sportId, keepTeamIdentity: keepDesign);
         _projectPath = null;
         _startNewAutosavePoint = true;
         _savedStateJson = _engine.ExportJson();
@@ -980,7 +1042,7 @@ public partial class MainWindow : Window, IControlPanelHost
         try { PreferencesStore.Save(_preferences); } catch { }
         // A new game really starts over: one factory layout and no folder/playlist organisation.
         // Imported media files stay in the library; the game's design and shelves begin blank.
-        _scorebug.ResetToDefault();
+        if (!keepDesign) _scorebug.ResetToDefault();
         _savedDesignJson = DesignJson();
         _program.Sync();
         SyncDisplayPicker();
@@ -1018,6 +1080,7 @@ public partial class MainWindow : Window, IControlPanelHost
             // A file written by an older build has no design; the current scorebug then stays as it
             // is rather than being replaced by a factory layout.
             if (design is not null) _scorebug.ApplyDocument(design);
+            ApplySavedQuickButtons();
             _projectPath = path;
             _startNewAutosavePoint = true;
             // Point the picker at the loaded sport without letting that look like a sport change,
@@ -1181,6 +1244,50 @@ public partial class MainWindow : Window, IControlPanelHost
         SaveGameTo(dialog.FileName);
     }
 
+    /// <summary>Copies the live quick buttons into the game state so they travel with the save.</summary>
+    void CaptureQuickButtons()
+    {
+        var preferences = PreferencesStore.Load();
+        _engine.State.QuickLayouts = (preferences.QuickLayouts ?? []).Select(binding => new SavedQuickLayout
+        {
+            Label = binding.Label,
+            DisplayId = binding.DisplayId,
+            LayoutId = binding.LayoutId
+        }).ToList();
+        _engine.State.QuickMedia = (preferences.QuickMedia ?? []).Select(binding => new SavedQuickMedia
+        {
+            Label = binding.Label,
+            Path = binding.Path
+        }).ToList();
+        _engine.State.QuickButtonsSaved = true;
+    }
+
+    /// <summary>Restores the quick buttons a loaded game carried, and refreshes both bars.</summary>
+    void ApplySavedQuickButtons()
+    {
+        var layouts = _engine.State.QuickLayouts ?? [];
+        var media = _engine.State.QuickMedia ?? [];
+        // A save from before this feature carries neither list; keep the operator's current buttons.
+        if (!_engine.State.QuickButtonsSaved && layouts.Count == 0 && media.Count == 0) return;
+        var preferences = PreferencesStore.Load();
+        preferences.QuickLayouts = layouts.Select(binding => new QuickLayoutBinding
+        {
+            Label = binding.Label,
+            DisplayId = binding.DisplayId,
+            LayoutId = binding.LayoutId
+        }).ToList();
+        preferences.QuickMedia = media.Select(binding => new QuickMediaBinding
+        {
+            Label = binding.Label,
+            Path = binding.Path
+        }).ToList();
+        PreferencesStore.Save(preferences);
+        _preferences.QuickLayouts = preferences.QuickLayouts;
+        _preferences.QuickMedia = preferences.QuickMedia;
+        _quickLayouts?.Refresh();
+        _quickMedia?.Refresh();
+    }
+
     /// <summary>Writes the game and remembers that this is now the saved state.</summary>
     bool SaveGameTo(string path)
     {
@@ -1188,6 +1295,7 @@ public partial class MainWindow : Window, IControlPanelHost
         {
             // The game travels with its screens: every display, every layout and what each one has
             // on air, so opening the file puts the show back exactly where it was left.
+            CaptureQuickButtons();
             _engine.Save(path, _scorebug.ExportDocument());
             _projectPath = path;
             _savedStateJson = _engine.ExportJson();
@@ -1272,6 +1380,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
         try
         {
+            CaptureQuickButtons();
             AutosaveStore.Save(_engine, _startNewAutosavePoint, _scorebug.ExportDocument());
             _startNewAutosavePoint = false;
             _lastAutosaveAt = now;

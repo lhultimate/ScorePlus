@@ -65,6 +65,17 @@ public sealed class UserPreferences
     /// </summary>
     public int AutosaveMinutes { get; set; } = 5;
 
+    /// <summary>
+    /// How clocks print. "Padded" is 10:00, 09:59 and 0:59; "Compact" is 10:00, 9:59 and :59.
+    /// </summary>
+    public string ClockFormat { get; set; } = "Padded";
+
+    /// <summary>
+    /// Off by default: when the final period or full time expires, add the result to each team's
+    /// win-loss-tie record. A side with no record is left alone.
+    /// </summary>
+    public bool AutoUpdateRecord { get; set; }
+
     /// <summary>The sport the operator last ran, so a launcher "New Game" opens the game they expect.</summary>
     public string LastSport { get; set; } = "football";
 
@@ -124,6 +135,8 @@ public sealed class UserPreferences
         CheckForUpdates = CheckForUpdates,
         ValueSwitchDelay = ValueSwitchDelay,
         AutosaveMinutes = AutosaveMinutes,
+        ClockFormat = ClockFormat,
+        AutoUpdateRecord = AutoUpdateRecord,
         NextDownPreview = NextDownPreview,
         NewSeriesLive = NewSeriesLive,
         LastSport = LastSport,
@@ -190,6 +203,7 @@ public static class PreferencesStore
             if (!File.Exists(FilePath)) return new();
             var loaded = JsonSerializer.Deserialize<UserPreferences>(File.ReadAllText(FilePath)) ?? new();
             Migrate(loaded);
+            ApplyClockFormat(loaded);
             return loaded;
         }
         catch { return new(); }
@@ -231,11 +245,22 @@ public static class PreferencesStore
         // A negative interval is not a setting; the shipped default is five minutes. Zero is a real
         // choice and means never autosave.
         if (preferences.AutosaveMinutes < 0) preferences.AutosaveMinutes = 5;
+        if (preferences.ClockFormat is not ("Padded" or "Compact")) preferences.ClockFormat = "Padded";
         if (preferences.Theme is not ("System" or "Dark" or "Light")) preferences.Theme = "System";
+    }
+
+    /// <summary>Pushes the saved clock shape into the binder every graphic, panel and remote reads.</summary>
+    public static void ApplyClockFormat(UserPreferences preferences)
+    {
+        GameEngine.ClockDisplay = string.Equals(preferences.ClockFormat, "Compact", StringComparison.OrdinalIgnoreCase)
+            ? ClockStyle.Compact
+            : ClockStyle.Padded;
+        GameEngine.AutoUpdateRecordEnabled = preferences.AutoUpdateRecord;
     }
 
     public static void Save(UserPreferences preferences)
     {
+        ApplyClockFormat(preferences);
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
         var temp = FilePath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(preferences, new JsonSerializerOptions { WriteIndented = true }));
