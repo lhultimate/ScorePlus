@@ -145,6 +145,9 @@ public static class ScorebugHtml
             case ScorebugElementKind.Logo:
                 inner.Append(LogoHtml(item, state));
                 break;
+            case ScorebugElementKind.Image:
+                inner.Append(ImageHtml(item, state, colour));
+                break;
             case ScorebugElementKind.Video:
                 inner.Append($"<div class=\"sp-media\" style=\"color:{colour};background:rgba(255,255,255,.06);\">{WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(item.MediaTag) ? "VIDEO" : $"VIDEO · {item.MediaTag}")}</div>");
                 break;
@@ -155,6 +158,21 @@ public static class ScorebugHtml
         inner.Append(IconHtml(item, state, colour));
 
         return $"<div class=\"{classes}\" style=\"{style}\"{token}>{inner}</div>";
+    }
+
+    /// <summary>A still image or a player's uploaded portrait, embedded in the page.</summary>
+    static string ImageHtml(ScorebugElement item, GameState? state, string colour)
+    {
+        var path = item.ImagePath;
+        if (item.PlayerPhotoSide != ScorebugPlayerPhotoSide.None)
+        {
+            var player = item.PlayerPhotoSide == ScorebugPlayerPhotoSide.Home ? state?.HomePlayer : state?.AwayPlayer;
+            if (!string.IsNullOrWhiteSpace(player?.PhotoPath)) path = player.PhotoPath;
+        }
+        var data = DataUri(path);
+        if (data is not null) return $"<img class=\"sp-logo\" alt=\"\" src=\"{data}\">";
+        if (item.PlayerPhotoSide == ScorebugPlayerPhotoSide.None) return string.Empty;
+        return $"<div class=\"sp-text\" style=\"color:{colour};font-family:{FontFamily(item.FontFamily)};font-size:{Num(item.FontSize)}px;\">PLAYER PHOTO</div>";
     }
 
     static string TextHtml(ScorebugElement item, GameState? state, string colour)
@@ -241,13 +259,13 @@ public static class ScorebugHtml
                 var homePlate = !item.IconVisitors;
                 if (state.HomePossession != homePlate) return string.Empty;
                 var flip = (!homePlate) ^ item.IconFlipped;
-                return $"<span class=\"sp-arrow {(homePlate ? "in" : "out")}{(flip ? " flip" : string.Empty)}\" style=\"color:{colour};\"></span>";            case ScorebugIcon.TimeoutDots:
-                var remainingPips = Math.Clamp(item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 12);
-                var totalPips = Math.Clamp(Math.Max(remainingPips, item.IconVisitors ? state.AwayTimeoutLimit : state.HomeTimeoutLimit), 0, 12);
-                if (totalPips == 0) return string.Empty;
-                var dots = new StringBuilder($"<div class=\"sp-dots\" style=\"color:{colour};\">");
-                for (var i = 0; i < totalPips; i++) dots.Append(i < remainingPips ? "<span class=\"sp-pip\"></span>" : "<span class=\"sp-pip used\"></span>");
-                dots.Append("</div>");
+                return $"<span class=\"sp-arrow {(homePlate ? "in" : "out")}{(flip ? " flip" : string.Empty)}\" style=\"color:{colour};\"></span>";            case ScorebugIcon.TimeoutDots:
+                var remainingPips = Math.Clamp(item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 12);
+                var totalPips = Math.Clamp(Math.Max(remainingPips, item.IconVisitors ? state.AwayTimeoutLimit : state.HomeTimeoutLimit), 0, 12);
+                if (totalPips == 0) return string.Empty;
+                var dots = new StringBuilder($"<div class=\"sp-dots\" style=\"color:{colour};\">");
+                for (var i = 0; i < totalPips; i++) dots.Append(i < remainingPips ? "<span class=\"sp-pip\"></span>" : "<span class=\"sp-pip used\"></span>");
+                dots.Append("</div>");
                 return dots.ToString();
             case ScorebugIcon.YellowCard:
             case ScorebugIcon.RedCard:

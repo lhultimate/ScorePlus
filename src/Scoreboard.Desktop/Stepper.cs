@@ -18,6 +18,9 @@ public sealed class Stepper : Grid
     readonly TextBox _value = new();
     readonly UniformGrid _plusRow = new();
     readonly UniformGrid _minusRow = new();
+    readonly Grid _captionRow = new();
+    readonly bool _compact;
+    FrameworkElement? _captionAccessory;
     bool _typing;
 
     /// <summary>Raised when a +/− button is pressed, carrying that button's definition.</summary>
@@ -38,13 +41,34 @@ public sealed class Stepper : Grid
     // The last value written from the game, so Escape can put a typed-over text box back.
     string? _text;
 
-    public Stepper(string? caption = null, double fontSize = 40)
+    /// <summary>
+    /// A compact stepper puts −, the value and + on one line and can carry a small accessory
+    /// in its caption. The tall stack remains the default for scores and stats.
+    /// </summary>
+    public Stepper(string? caption = null, double fontSize = 40, bool compact = false)
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _compact = compact;
+        if (compact)
+        {
+            RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        }
+        else
+        {
+            RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
 
+        _captionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _captionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        // A compact caption with an accessory has to reserve the accessory's height, so every
+        // compact stepper reserves it: otherwise the Ball On value starts lower than Down and To Go.
+        if (compact) _captionRow.MinHeight = 30;
         if (!string.IsNullOrWhiteSpace(caption))
         {
             var label = new TextBlock
@@ -53,22 +77,20 @@ public sealed class Stepper : Grid
                 Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)),
                 FontSize = 10,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 4)
+                VerticalAlignment = compact ? VerticalAlignment.Center : VerticalAlignment.Stretch,
+                Margin = compact ? new Thickness(0) : new Thickness(0, 0, 0, 4)
             };
-            SetRow(label, 0);
-            Children.Add(label);
+            _captionRow.Children.Add(label);
+            SetRow(_captionRow, 0);
+            if (compact) SetColumnSpan(_captionRow, 3);
+            Children.Add(_captionRow);
         }
-
-        _plusRow.Margin = new Thickness(0, 0, 0, 3);
-        SetRow(_plusRow, 1);
-        Children.Add(_plusRow);
 
         _value.Text = "0";
         _value.FontSize = fontSize;
         _value.FontWeight = FontWeights.Bold;
         _value.TextAlignment = TextAlignment.Center;
         _value.Padding = new Thickness(2, 0, 2, 0);
-        _value.Margin = new Thickness(0, 1, 0, 1);
         _value.VerticalContentAlignment = VerticalAlignment.Center;
         _value.Cursor = Cursors.IBeam;
         _value.BorderBrush = new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
@@ -77,12 +99,52 @@ public sealed class Stepper : Grid
         _value.GotKeyboardFocus += (_, _) => { _typing = true; _value.SelectAll(); };
         _value.LostKeyboardFocus += (_, _) => { CommitTyped(); _typing = false; ShowValue(); };
         _value.KeyDown += Value_KeyDown;
-        SetRow(_value, 2);
-        Children.Add(_value);
 
-        _minusRow.Margin = new Thickness(0, 3, 0, 0);
-        SetRow(_minusRow, 3);
-        Children.Add(_minusRow);
+        if (compact)
+        {
+            _plusRow.Width = 36;
+            _plusRow.Margin = new Thickness(0, 0, 3, 0);
+            SetRow(_plusRow, 1);
+            SetColumn(_plusRow, 0);
+            Children.Add(_plusRow);
+
+            _value.Margin = new Thickness(0);
+            _value.MinHeight = 34;
+            SetRow(_value, 1);
+            SetColumn(_value, 1);
+            Children.Add(_value);
+
+            _minusRow.Width = 36;
+            _minusRow.Margin = new Thickness(3, 0, 0, 0);
+            SetRow(_minusRow, 1);
+            SetColumn(_minusRow, 2);
+            Children.Add(_minusRow);
+        }
+        else
+        {
+            _plusRow.Margin = new Thickness(0, 0, 0, 3);
+            SetRow(_plusRow, 1);
+            Children.Add(_plusRow);
+
+            _value.Margin = new Thickness(0, 1, 0, 1);
+            SetRow(_value, 2);
+            Children.Add(_value);
+
+            _minusRow.Margin = new Thickness(0, 3, 0, 0);
+            SetRow(_minusRow, 3);
+            Children.Add(_minusRow);
+        }
+    }
+
+    /// <summary>Put a small control (such as the ball-side switch) beside a compact caption.</summary>
+    public void SetCaptionAccessory(FrameworkElement accessory)
+    {
+        if (_captionAccessory is not null) _captionRow.Children.Remove(_captionAccessory);
+        _captionAccessory = accessory;
+        SetColumn(accessory, 1);
+        accessory.HorizontalAlignment = HorizontalAlignment.Right;
+        accessory.VerticalAlignment = VerticalAlignment.Center;
+        _captionRow.Children.Add(accessory);
     }
 
     public int Value

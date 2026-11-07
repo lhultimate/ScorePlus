@@ -21,6 +21,9 @@ public sealed class TeamIdentityWindow : Window
     readonly TextBox _abbreviation = new();
     readonly TextBox _mascot = new();
     readonly TextBox _record = new();
+    readonly TextBox _divisionRecord = new();
+    readonly TextBox _ranking = new();
+    readonly CheckBox _divisionGame = new();
     readonly TextBox _primaryHex = new();
     readonly TextBox _secondaryHex = new();
     readonly Border _primarySwatch = new() { Width = 46, Height = 30, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), BorderBrush = Brushes.Gray };
@@ -46,6 +49,9 @@ public sealed class TeamIdentityWindow : Window
         _abbreviation.Text = home ? state.HomeAbbreviation : state.AwayAbbreviation;
         _mascot.Text = home ? state.HomeMascot : state.AwayMascot;
         _record.Text = home ? state.HomeRecord : state.AwayRecord;
+        _divisionRecord.Text = home ? state.HomeDivisionRecord : state.AwayDivisionRecord;
+        _ranking.Text = home ? state.HomeRanking : state.AwayRanking;
+        _divisionGame.IsChecked = state.DivisionGame;
         _primaryHex.Text = home ? state.HomePrimaryColor : state.AwayPrimaryColor;
         _secondaryHex.Text = home ? state.HomeSecondaryColor : state.AwaySecondaryColor;
         _logoPath = home ? state.HomeLogoPath : state.AwayLogoPath;
@@ -115,8 +121,23 @@ public sealed class TeamIdentityWindow : Window
         fields.Children.Add(_mascot);
         fields.Children.Add(Label("Record"));
         _record.MaxLength = 24;
-        _record.ToolTip = "Season record, for example 8-2 or 12-4-1. Add it to the scorebug with {{HOME_RECORD}} / {{AWAY_RECORD}}.";
+        _record.ToolTip = "Overall record, for example 8-2 or 12-4-1. Add it to the scorebug with {{HOME_RECORD}} / {{AWAY_RECORD}}; a division record prints after it in brackets.";
         fields.Children.Add(_record);
+        fields.Children.Add(Label("Division record"));
+        _divisionRecord.MaxLength = 24;
+        _divisionRecord.ToolTip = "Division wins-losses, for example 2-2. The record prints as 4-2 (2-2) when this is set.";
+        fields.Children.Add(_divisionRecord);
+        fields.Children.Add(Label("Ranking"));
+        _ranking.MaxLength = 12;
+        _ranking.ToolTip = "Ranking shown on the team, for example #21. Printed by {{HOME_RANKING}} / {{AWAY_RANKING}}.";
+        fields.Children.Add(_ranking);
+        fields.Children.Add(Label("Game type"));
+        _divisionGame.Content = "This is a division game — update division records at the final";
+        _divisionGame.FontSize = 11;
+        _divisionGame.Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178));
+        _divisionGame.Margin = new Thickness(4, 2, 4, 2);
+        _divisionGame.ToolTip = "When the game ends, the result is added to both teams' division records as well as their overall records.";
+        fields.Children.Add(_divisionGame);
         fields.Children.Add(Label("Primary color"));
         fields.Children.Add(ColorRow(_primarySwatch, _primaryHex, () => PickColor(_primaryHex, _primarySwatch)));
         fields.Children.Add(Label("Secondary color"));
@@ -247,7 +268,8 @@ public sealed class TeamIdentityWindow : Window
                 return false;
             }
         }
-        _engine.SetTeamIdentity(_home, _name.Text, _abbreviation.Text, logo, _primaryHex.Text, _secondaryHex.Text, _mascot.Text, _record.Text);
+        _engine.SetTeamIdentity(_home, _name.Text, _abbreviation.Text, logo, _primaryHex.Text, _secondaryHex.Text, _mascot.Text, _record.Text, _ranking.Text, _divisionRecord.Text);
+        _engine.SetDivisionGame(_divisionGame.IsChecked == true);
         return true;
     }
 

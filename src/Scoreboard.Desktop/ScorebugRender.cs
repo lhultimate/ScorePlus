@@ -80,6 +80,17 @@ internal static class ScorebugRender
         return string.IsNullOrWhiteSpace(path) ? item.ImagePath : path;
     }
 
+    /// <summary>An image element's file, including a portrait that follows the selected player.</summary>
+    public static string? ResolveImagePath(ScorebugElement item, GameState? state)
+    {
+        if (item.PlayerPhotoSide != ScorebugPlayerPhotoSide.None)
+        {
+            var player = item.PlayerPhotoSide == ScorebugPlayerPhotoSide.Home ? state?.HomePlayer : state?.AwayPlayer;
+            if (!string.IsNullOrWhiteSpace(player?.PhotoPath)) return player.PhotoPath;
+        }
+        return item.ImagePath;
+    }
+
     public static FrameworkElement CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false)
     {
         if (item.Kind == ScorebugElementKind.Video) return new VideoSurface(item, playback, muteVideo, showVideoPlaceholder, onAirVideo);
@@ -89,7 +100,11 @@ internal static class ScorebugRender
         // A still image imported into the studio. It keeps its picture slot while the file is there,
         // and goes blank (rather than stale) if the file is moved away.
         if (item.Kind == ScorebugElementKind.Image)
-            return new Image { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+        {
+            var picture = new Image { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+            ApplyToContent(picture, item, state?.Invoke());
+            return picture;
+        }
         // Icons are drawn from live data rather than typed text: small bars per timeout, or a dot
         // showing which team has the ball.
         if (item.Kind == ScorebugElementKind.Text && item.Icon != ScorebugIcon.None) return new ScorebugIconView(item, state);
@@ -171,7 +186,7 @@ internal static class ScorebugRender
                 htmlPage.Update(item);
                 break;
             case Image image:
-                var path = ResolveLogoPath(item, state);
+                var path = ResolveImagePath(item, state);
                 if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
                 {
                     try { image.Source = LoadLogo(path); } catch { }

@@ -209,6 +209,34 @@
         </StackPanel>
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <StackPanel>
+            <!-- A portrait uploaded here travels with the selected player into the studio. -->
+            <Grid Margin="0,0,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="112"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Border Width="104" Height="124" CornerRadius="7" BorderThickness="1"
+                      Background="{DynamicResource RosterSurfaceAltBrush}"
+                      BorderBrush="{DynamicResource RosterBorderBrush}" Padding="4">
+                <Grid>
+                  <Image x:Name="PlayerPhotoImage" Stretch="Uniform"/>
+                  <TextBlock x:Name="PlayerPhotoEmpty" Text="NO PHOTO" FontSize="10" FontWeight="Bold"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Foreground="{DynamicResource RosterMutedBrush}"/>
+                </Grid>
+              </Border>
+              <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                <TextBlock Text="PLAYER PHOTO" FontSize="10" FontWeight="Bold"
+                           Foreground="{DynamicResource RosterMutedBrush}"/>
+                <Button x:Name="ChoosePhotoButton" Style="{StaticResource SmallButton}" Content="Upload photo…"
+                        Margin="0,6,0,0" Click="ChoosePhoto_Click"
+                        ToolTip="Choose a portrait for this player; it is copied into ScorePlus"/>
+                <Button x:Name="RemovePhotoButton" Style="{StaticResource SmallButton}" Content="Remove photo"
+                        Margin="0,4,0,0" Click="RemovePhoto_Click"/>
+                <TextBlock x:Name="PlayerPhotoNameText" FontSize="10" TextTrimming="CharacterEllipsis"
+                           Margin="0,5,0,0" Foreground="{DynamicResource RosterMutedBrush}"/>
+              </StackPanel>
+            </Grid>
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="92"/>

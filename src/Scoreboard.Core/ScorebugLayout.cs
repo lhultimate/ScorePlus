@@ -53,6 +53,9 @@ public enum ScorebugColorSource
 /// <summary>Which team's logo a logo element shows; set in the control panel, not the studio.</summary>
 public enum ScorebugLogoSide { None, Home, Away }
 
+/// <summary>Which selected player's uploaded portrait an image element follows.</summary>
+public enum ScorebugPlayerPhotoSide { None, Home, Away }
+
 /// <summary>Artwork drawn by an element in addition to (or instead of) its bound text.</summary>
 public enum ScorebugIcon
 {
@@ -89,6 +92,9 @@ public sealed class ScorebugElement
     public ScorebugShape Shape { get; set; } = ScorebugShape.Rectangle;
     public string Content { get; set; } = "TEXT";
     public string? ImagePath { get; set; }
+
+    /// <summary>For image elements: follow the selected home or visitors player's uploaded photo.</summary>
+    public ScorebugPlayerPhotoSide PlayerPhotoSide { get; set; }
 
     /// <summary>Which icon from the icon library a <see cref="ScorebugIcon.Custom"/> element draws.</summary>
     public string? CustomIconId { get; set; }

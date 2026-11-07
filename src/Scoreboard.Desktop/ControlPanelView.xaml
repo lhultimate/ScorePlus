@@ -192,16 +192,36 @@
           </DockPanel>
 
           <!-- Football -->
-          <Grid x:Name="FootballDetail" Grid.Row="1" Margin="0,4,0,0" VerticalAlignment="Top">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <ContentControl x:Name="DownHost" Grid.Column="0"/>
-            <ContentControl x:Name="ToGoHost" Grid.Column="1"/>
-            <ContentControl x:Name="BallOnHost" Grid.Column="2"/>
-          </Grid>
+          <StackPanel x:Name="FootballDetail" Grid.Row="1" Margin="0,4,0,0" VerticalAlignment="Top">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <ContentControl x:Name="DownHost" Grid.Column="0"/>
+              <ContentControl x:Name="ToGoHost" Grid.Column="1"/>
+              <ContentControl x:Name="BallOnHost" Grid.Column="2"/>
+            </Grid>
+            <!-- The down line can be goal-to-go, a PAT, a two-point try, or deliberately blank. -->
+            <UniformGrid x:Name="FootballModeButtons" Columns="5" Margin="0,3,0,0">
+              <Button x:Name="FootballNormalButton" Style="{StaticResource CardButton}" Content="Yards"
+                      Tag="football.distance.normal" Click="Action_Click"
+                      ToolTip="Show the normal down and yards to go"/>
+              <Button x:Name="FootballGoalButton" Style="{StaticResource CardButton}" Content="Goal"
+                      Tag="football.distance.goal" Click="Action_Click"
+                      ToolTip="Show this down as &amp; Goal"/>
+              <Button x:Name="FootballPatButton" Style="{StaticResource CardButton}" Content="PAT"
+                      Tag="football.distance.pat" Click="Action_Click"
+                      ToolTip="Show PAT instead of a down and distance"/>
+              <Button x:Name="FootballTwoPointButton" Style="{StaticResource CardButton}" Content="2 PT"
+                      Tag="football.distance.twopt" Click="Action_Click"
+                      ToolTip="Show 2 PT ATT instead of a down and distance"/>
+              <Button x:Name="FootballNoneButton" Style="{StaticResource CardButton}" Content="No line"
+                      Tag="football.distance.none" Click="Action_Click"
+                      ToolTip="Print no down and distance at all"/>
+            </UniformGrid>
+          </StackPanel>
 
           <!-- Every sport's own values — balls, bases, power play, overs, sets — as compact
                steppers and switches. Built in code from the game's sport controls. -->
@@ -239,6 +259,17 @@
                it no longer costs a whole row of its own. -->
           <DockPanel>
             <ContentControl x:Name="QuarterHost" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+            <!-- The audience-clock message lives in the header, not over the clock value. -->
+            <ComboBox x:Name="ClockMessageBox" DockPanel.Dock="Right" Width="132" Height="28"
+                      Margin="8,0,24,0" FontSize="11"
+                      SelectionChanged="ClockMessage_Changed"
+                      ToolTip="What the game clock prints on the graphic">
+              <ComboBoxItem Content="Game clock" Tag="Clock"/>
+              <ComboBoxItem Content="Final" Tag="Final"/>
+              <ComboBoxItem Content="End of Reg." Tag="EndOfRegulation"/>
+            </ComboBox>
+            <TextBlock Text="CLOCK SHOWS" DockPanel.Dock="Right" Style="{StaticResource Caption}"
+                       Margin="10,0,6,0"/>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
               <Border Style="{StaticResource AccentBar}"/>
               <TextBlock Text="TIMING" Style="{StaticResource CardTitle}"/>

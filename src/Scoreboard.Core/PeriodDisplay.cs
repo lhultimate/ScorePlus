@@ -17,6 +17,12 @@ public static class PeriodDisplay
     /// or null to use the game-wide choice in <see cref="GameState.QuarterDisplayFormat"/>.</param>
     public static string Format(GameState state, string? formatOverride = null)
     {
+        // Overtime is its own label: the fifth quarter is OT, the sixth 2OT, and so on.
+        if (state.TotalPeriods > 0 && state.Period > state.TotalPeriods)
+        {
+            var overtime = state.Period - state.TotalPeriods;
+            return overtime == 1 ? "OT" : $"{overtime}OT";
+        }
         var format = formatOverride is "Full" or "Short" or "Number" or "Ordinal" ? formatOverride : state.QuarterDisplayFormat;
         if (!state.PeriodLabel.Equals("Quarter", StringComparison.OrdinalIgnoreCase)) format = "Full";
         var label = format switch

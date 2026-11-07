@@ -65,8 +65,14 @@
           <Button Content="VIDEO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddVideo_Click"/>
           <Button Content="HTML +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddHtml_Click"
                   ToolTip="A live HTML/CSS widget, drawn by a browser engine on every screen"/>
+          <Button Content="PLAYER PHOTO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddPlayerPhoto_Click"
+                  ToolTip="A picture element that follows the selected player's uploaded portrait"/>
           <Button Content="PARTS +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="ImportParts_Click"
                   ToolTip="Copy elements from another layout instead of rebuilding them"/>
+          <Button x:Name="UndoButton" Content="UNDO" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Undo_Click"
+                  IsEnabled="False" ToolTip="Undo the last studio edit (Ctrl+Z)"/>
+          <Button x:Name="RedoButton" Content="REDO" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Redo_Click"
+                  IsEnabled="False" ToolTip="Redo the last undone edit (Ctrl+Y or Ctrl+Shift+Z)"/>
           <Button Content="REMOVE" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Remove_Click" ToolTip="Delete the selected element"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal">
@@ -281,6 +287,16 @@
                        never hit-test or become part of the exported layout. -->
                   <Canvas x:Name="GridCanvas" Width="1280" Height="720" IsHitTestVisible="False"
                           Visibility="Collapsed"/>
+                  <!-- One frame around a multi-selection. Its corner handle scales the whole group;
+                       individual elements keep their own handle only when selected alone. -->
+                  <Canvas x:Name="SelectionCanvas" Width="1280" Height="720">
+                    <Border x:Name="GroupSelectionBox" BorderBrush="#FF00BFFF" BorderThickness="2"
+                            Background="#1600BFFF" CornerRadius="2" IsHitTestVisible="False"
+                            Visibility="Collapsed"/>
+                    <Border x:Name="GroupResizeHandle" Width="18" Height="18" Background="#FF00BFFF"
+                            BorderBrush="White" BorderThickness="1" Cursor="SizeNWSE" Focusable="False"
+                            Visibility="Collapsed" ToolTip="Drag to resize the whole selection"/>
+                  </Canvas>
                 </Grid>
               </Viewbox>
             </Border>
@@ -465,6 +481,14 @@
                     ToolTip="Team logos are imported in the control panel, beside the team name"/>
           <TextBlock x:Name="LogoHintText" Text="Logos are configured in the control panel: the … button beside each team name. This element just chooses which team it shows."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
+        </StackPanel>
+
+        <StackPanel x:Name="PlayerPhotoSection">
+          <TextBlock Text="PLAYER PHOTO" Style="{StaticResource SectionTitle}"/>
+          <TextBlock Text="Follow the selected player on one side. Upload the portrait on the Rosters tab; switching the selected player changes the picture without a rebuild."
+                     Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,4"/>
+          <ComboBox x:Name="PlayerPhotoSideInput" Margin="10,0,10,6" SelectionChanged="Property_Changed"
+                    ToolTip="Follow the selected home player, the selected visitors player, or use a fixed image instead"/>
         </StackPanel>
 
         <StackPanel x:Name="ShapePanel">
@@ -680,7 +704,7 @@
 
         <TextBlock x:Name="CanvasFitTipText" Text="Scroll over the canvas to zoom in and out; the framed edge is the artwork. The optional grid snaps moved and resized items to 20 px."
                    Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,10,10,2"/>
-        <TextBlock x:Name="ResizeTipText" Text="Resize: select an element, then drag the blue corner handle on the canvas. Hold Ctrl to scale the text with the box, Shift to keep its shape."
+        <TextBlock x:Name="ResizeTipText" Text="Resize: select one element and drag its corner, or select several to get one blue group box and drag its corner. The group scales as a whole. Hold Ctrl to scale the text with the box, Shift to keep its shape."
                    Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,4,10,12"/>
       </StackPanel>
     </ScrollViewer>

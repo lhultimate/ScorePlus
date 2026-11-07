@@ -56,13 +56,18 @@ public static class ScoreboardTemplates
         .Replace("{{AWAY_ABBR}}", state.AwayAbbreviation)
         .Replace("{{HOME_MASCOT}}", state.HomeMascot)
         .Replace("{{AWAY_MASCOT}}", state.AwayMascot)
-        // Season record from team details, e.g. 8-2. Free text, printed exactly as typed.
-        .Replace("{{HOME_RECORD}}", state.HomeRecord)
-        .Replace("{{AWAY_RECORD}}", state.AwayRecord)
+        // Season record from team details, e.g. 8-2. A division record prints in brackets after it.
+        .Replace("{{HOME_RECORD}}", state.HomeRecordDisplay)
+        .Replace("{{AWAY_RECORD}}", state.AwayRecordDisplay)
+        .Replace("{{HOME_DIVISION_RECORD}}", state.HomeDivisionRecord)
+        .Replace("{{AWAY_DIVISION_RECORD}}", state.AwayDivisionRecord)
+        .Replace("{{HOME_RANKING}}", state.HomeRanking)
+        .Replace("{{AWAY_RANKING}}", state.AwayRanking)
         .Replace("{{HOME_SCORE}}", state.HomeScore.ToString())
         .Replace("{{AWAY_SCORE}}", state.AwayScore.ToString())
         .Replace("{{PERIOD}}", PeriodDisplay.Format(state, periodFormat).ToUpperInvariant())
-        .Replace("{{GAME_CLOCK}}", GameEngine.FormatClock(state.ClockSeconds))
+        // Final and End of Reg. replace the clock's digits on the graphic.
+        .Replace("{{GAME_CLOCK}}", state.GameClockText)
         .Replace("{{STOPPAGE}}", GameEngine.FormatClock(state.StoppageSeconds))
         .Replace("{{PLAY_CLOCK}}", state.PlayClockSeconds.ToString())
         .Replace("{{TIMEOUT_CLOCK}}", GameEngine.FormatClock(state.TimeoutClockSeconds))
@@ -73,18 +78,19 @@ public static class ScoreboardTemplates
         .Replace("{{PENALTY_TYPE}}", state.PenaltyActive ? state.PenaltyType : string.Empty)
         .Replace("{{PENALTY_TEAM}}", state.PenaltyActive ? (state.PenaltyHome ? state.HomeTeam : state.AwayTeam) : string.Empty)
         .Replace("{{PENALTY}}", state.PenaltyActive ? $"{(state.PenaltyHome ? state.HomeTeam : state.AwayTeam)} — {state.PenaltyType}" : string.Empty)
-        .Replace("{{DOWN}}", $"{state.Down}{Ordinal(state.Down)}")
-        .Replace("{{TO_GO}}", state.YardsToGo.ToString())
+        .Replace("{{DOWN}}", state.DownDisplay)
+        .Replace("{{TO_GO}}", state.ToGoDisplay)
         // The ball spot is a plain yard line (0-50) with its own side, independent of possession.
         .Replace("{{BALL_ON}}", state.YardsToGoal.ToString())
         .Replace("{{BALL_SIDE}}", state.BallOnHomeSide ? state.HomeAbbreviation : state.AwayAbbreviation)
         .Replace("{{BALL_TEAM}}", state.BallOnHomeSide ? state.HomeTeam : state.AwayTeam)
         .Replace("{{BALL_SIDE_SPOT}}", $"{(state.BallOnHomeSide ? state.HomeAbbreviation : state.AwayAbbreviation)} {state.YardsToGoal}")
         // Next down shows the new down alone until the distance catches up, then 2nd & 4.
-        .Replace("{{DOWNS}}", state.DownPending ? $"{state.Down}{Ordinal(state.Down)} Down" : $"{state.Down}{Ordinal(state.Down)} & {state.YardsToGo}")
+        // PAT, 2 PT ATT, goal-to-go and an intentionally blank line all come from the state.
+        .Replace("{{DOWNS}}", state.DownDistanceDisplay)
         .Replace("{{BALL_SPOT}}", $"BALL {state.YardsToGoal}")
         .Replace("{{SPORT}}", state.SportId.ToUpperInvariant())
-        .Replace("{{YARDS_TO_GO}}", state.YardsToGo.ToString())
+        .Replace("{{YARDS_TO_GO}}", state.ToGoDisplay)
         .Replace("{{HOME_YARDS}}", state.HomeYards.ToString())
         .Replace("{{AWAY_YARDS}}", state.AwayYards.ToString())
         .Replace("{{SOCCER_CARDS}}", $"Y {state.HomeYellowCards}/{state.AwayYellowCards} · R {state.HomeRedCards}/{state.AwayRedCards}")
@@ -118,5 +124,4 @@ public static class ScoreboardTemplates
         .Replace("{{DATE}}", DateTime.Now.ToString("yyyy-MM-dd"))
         .Replace("{{TIME}}", DateTime.Now.ToString("HH:mm:ss"));
 
-    static string Ordinal(int value) => value switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" };
 }

@@ -137,6 +137,7 @@ public static class RosterFiles
             Number = Math.Clamp(player.Number, 0, 999),
             Name = Trimmed(player.Name) ?? "Imported player",
             Position = Trimmed(player.Position) ?? "",
+            PhotoPath = player.PhotoPath ?? "",
             Stats = stats
         };
     }

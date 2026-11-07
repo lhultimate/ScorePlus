@@ -40,10 +40,13 @@ public partial class OutputWindow : Window
         _displayState.Period=source.Period;_displayState.HomeTimeouts=source.HomeTimeouts;
         _displayState.AwayTimeouts=source.AwayTimeouts;_displayState.HomePossession=source.HomePossession;
         _displayState.Down=source.Down;_displayState.YardsToGo=source.YardsToGo;_displayState.DownPending=source.DownPending;
+        _displayState.FootballDownMode=source.FootballDownMode;_displayState.ClockMessage=source.ClockMessage;
         // Team marks are part of the live picture: without these the audience kept the old crest.
         _displayState.HomeLogoPath=source.HomeLogoPath;_displayState.AwayLogoPath=source.AwayLogoPath;
         _displayState.HomeMascot=source.HomeMascot;_displayState.AwayMascot=source.AwayMascot;
         _displayState.HomeRecord=source.HomeRecord;_displayState.AwayRecord=source.AwayRecord;
+        _displayState.HomeDivisionRecord=source.HomeDivisionRecord;_displayState.AwayDivisionRecord=source.AwayDivisionRecord;
+        _displayState.HomeRanking=source.HomeRanking;_displayState.AwayRanking=source.AwayRanking;
         _displayState.HomePrimaryColor=source.HomePrimaryColor;_displayState.AwayPrimaryColor=source.AwayPrimaryColor;
         _displayState.HomeSecondaryColor=source.HomeSecondaryColor;_displayState.AwaySecondaryColor=source.AwaySecondaryColor;
         _displayState.YardsToGoal=source.YardsToGoal;_displayState.BallOnHomeSide=source.BallOnHomeSide;
@@ -64,12 +67,15 @@ public partial class OutputWindow : Window
         _displayState.HomeLogoPath=source.HomeLogoPath;_displayState.AwayLogoPath=source.AwayLogoPath;
         _displayState.HomeMascot=source.HomeMascot;_displayState.AwayMascot=source.AwayMascot;
         _displayState.HomeRecord=source.HomeRecord;_displayState.AwayRecord=source.AwayRecord;
+        _displayState.HomeDivisionRecord=source.HomeDivisionRecord;_displayState.AwayDivisionRecord=source.AwayDivisionRecord;
+        _displayState.HomeRanking=source.HomeRanking;_displayState.AwayRanking=source.AwayRanking;
         _displayState.HomePrimaryColor=source.HomePrimaryColor;_displayState.AwayPrimaryColor=source.AwayPrimaryColor;
         _displayState.HomeSecondaryColor=source.HomeSecondaryColor;_displayState.AwaySecondaryColor=source.AwaySecondaryColor;
         // The new down goes up as soon as it changes, but the distance stays as it was until the
         // operator publishes. Keep the pending flag on air until Publish() reloads the whole state,
         // so typing the distance does not put a half-updated "2nd & 10" on screen.
         if(source.DownPending){_displayState.Down=source.Down;_displayState.DownPending=true;}
+        _displayState.FootballDownMode=source.FootballDownMode;_displayState.ClockMessage=source.ClockMessage;
         _displayState.ClockSeconds=source.ClockSeconds;_displayState.ClockRunning=source.ClockRunning;_displayState.ClockCountsUp=source.ClockCountsUp;
         _displayState.ShotClockSeconds=source.ShotClockSeconds;_displayState.ShotClockRunning=source.ShotClockRunning;
         _displayState.StoppageSeconds=source.StoppageSeconds;_displayState.StoppageRunning=source.StoppageRunning;
@@ -93,7 +99,7 @@ public partial class OutputWindow : Window
         Background=ColorBrush(ThemeManager.Resolve(_broadcastTheme)=="Light"?"#FFF3F5F8":"#FF000000");
         HomeLabel.Text = s.HomeTeam; AwayLabel.Text = s.AwayTeam;
         HomeScore.Text = s.HomeScore.ToString(); AwayScore.Text = s.AwayScore.ToString();
-        Period.Text = PeriodDisplay.Format(s).ToUpperInvariant(); Clock.Text = GameEngine.FormatClock(s.ClockSeconds);
+        Period.Text = PeriodDisplay.Format(s).ToUpperInvariant(); Clock.Text = s.GameClockText;
         HomeExtraLabel.Text = AwayExtraLabel.Text = "TIMEOUTS";
         HomeExtraPanel.Visibility = AwayExtraPanel.Visibility = Visibility.Visible;
         HomeTimeouts.Text = Dots(s.HomeTimeouts); AwayTimeouts.Text = Dots(s.AwayTimeouts);
@@ -101,7 +107,10 @@ public partial class OutputWindow : Window
         Possession.Text = $"●  {(s.HomePossession ? s.HomeTeam : s.AwayTeam)} POSSESSION";
         if(s.SportId=="football")
         {
-            Period.Text=$"{PeriodDisplay.Format(s).ToUpperInvariant()} · {s.Down}{OrdinalSuffix(s.Down)} & {s.YardsToGo}";
+            var down=s.DownDistanceDisplay;
+            Period.Text=string.IsNullOrWhiteSpace(down)
+                ? PeriodDisplay.Format(s).ToUpperInvariant()
+                : $"{PeriodDisplay.Format(s).ToUpperInvariant()} · {down}";
             Possession.Text=$"●  {(s.HomePossession?s.HomeTeam:s.AwayTeam)} POSSESSION   ·   PLAY CLOCK {s.PlayClockSeconds}   ·   TIMEOUT CLOCK {GameEngine.FormatClock(s.TimeoutClockSeconds)}";
         }
         if(s.SportId=="soccer")

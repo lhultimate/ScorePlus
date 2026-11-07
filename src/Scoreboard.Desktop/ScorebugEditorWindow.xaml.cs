@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Reflection;
 using System.Windows;
 using System.IO;
 using System.Text.Json;
@@ -56,6 +57,16 @@ public partial class ScorebugEditorWindow : Window
     // Everything selected, in the order it was picked; the primary is the one the property panel
     // edits and the one whose resize handle is shown.
     readonly List<string> _selectedIds = [];
+    // A real object clipboard: copy one item or a whole selection, then paste independent copies.
+    readonly List<ScorebugElement> _clipboardElements = [];
+    int _pasteCount;
+    // Snapshots of the active layout, oldest to newest. A catalog change captures the previous
+    // baseline, so every property edit, move, add, remove and paste can be undone.
+    readonly List<string> _undoHistory = [];
+    readonly List<string> _redoHistory = [];
+    string _historyBaseline = "";
+    string _historyLayoutId = "";
+    bool _historyApplying;
     // What the operator last copied off another item. It lives for the editing session, like a
     // clipboard, so a size or a placement can be repeated exactly instead of eyeballed.
     Size? _copiedSize;
@@ -64,9 +75,14 @@ public partial class ScorebugEditorWindow : Window
     ScorebugElement? _dragElement;
     // Where each selected element started, so dragging one object carries the whole selection.
     readonly Dictionary<string,(double X, double Y)> _dragOrigins = [];
+    // The same idea for resize: a single item grows by the drag delta, while a multi-selection
+    // scales the whole group around its outer box.
+    readonly Dictionary<string,(double X,double Y,double Width,double Height,double FontSize)> _resizeOrigins = [];
     Point _dragStartPoint;
     bool _resizing;
-    double _resizeStartX, _resizeStartY, _resizeStartWidth, _resizeStartHeight, _resizeStartFontSize;
+    bool _groupResize;
+    Rect _resizeGroupBounds;
+    double _resizeStartX, _resizeStartY, _resizeStartWidth, _resizeStartHeight;
     Point _listStart;
     // The canvas is fitted to the studio panel by default. Scrolling changes this multiplier.
     double _canvasFit = 1;
@@ -85,6 +101,11 @@ public partial class ScorebugEditorWindow : Window
     }
 
     sealed record LogoOption(ScorebugLogoSide Side, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    sealed record PlayerPhotoSideOption(ScorebugPlayerPhotoSide Side, string Label)
     {
         public override string ToString() => Label;
     }
@@ -213,9 +234,19 @@ public partial class ScorebugEditorWindow : Window
         new(ScorebugLogoSide.Away, "Visitors team logo")
     ];
 
+    static readonly PlayerPhotoSideOption[] PlayerPhotoSides =
+    [
+        new(ScorebugPlayerPhotoSide.None, "Fixed image / no player"),
+        new(ScorebugPlayerPhotoSide.Home, "Selected home player"),
+        new(ScorebugPlayerPhotoSide.Away, "Selected visitors player")
+    ];
+
     public ScorebugEditorWindow(ScorebugCatalog catalog, GameEngine engine, MediaPlayback? playback=null, string theme="Dark")
     {
         InitializeComponent(); _catalog=catalog; _engine=engine; _playback=playback; _theme=theme;
+        GroupResizeHandle.PreviewMouseLeftButtonDown+=Resize_MouseDown;
+        GroupResizeHandle.PreviewMouseMove+=Resize_MouseMove;
+        GroupResizeHandle.PreviewMouseLeftButtonUp+=Resize_MouseUp;
         ThemeManager.Apply(this,theme);
         ApplyTipVisibility(PreferencesStore.Load().ShowHeadingHints);
         // The studio opens filling the desktop (windowed, so the title bar and taskbar stay), and it
@@ -258,6 +289,7 @@ public partial class ScorebugEditorWindow : Window
         GradientSourceInput.ItemsSource=ColorSources;
         BorderSourceInput.ItemsSource=ColorSources;
         LogoInput.ItemsSource=Logos;
+        PlayerPhotoSideInput.ItemsSource=PlayerPhotoSides;
         FontInput.ItemsSource=FontCatalog.All;
         _audioOptions=new[]{new AudioOption(null,"Default output")}
             .Concat(AudioRouter.Devices().Select(device=>new AudioOption(device.Id,device.Name))).ToArray();
@@ -274,6 +306,7 @@ public partial class ScorebugEditorWindow : Window
         PlayerFieldInput.ItemsSource=PlayerFields.All(null).Select(field=>new PlayerFieldOption(field,field)).ToArray();
         _propertySave.Tick+=(_,_)=>{_propertySave.Stop();SaveProperties();RefreshAllVisuals();};
         _catalog.Changed += Render;
+        _catalog.Changed += CaptureLayoutHistory;
         _engine.Changed += RefreshBoundText;
         _wallClock.Tick+=(_,_)=>{if(UsesWallClock())RefreshBoundText();};
         _wallClock.Start();
@@ -291,6 +324,7 @@ public partial class ScorebugEditorWindow : Window
                 ReleaseFocus();
             };
         Render();
+        ResetHistory();
     }
 
     /// <summary>A fresh copy of a linked part follows the original; a fresh copy of anything else
@@ -323,11 +357,49 @@ public partial class ScorebugEditorWindow : Window
 
     bool IsSelected(string id) => _selectedIds.Contains(id);
 
+    /// <summary>The outer box around every selected element, in artwork pixels.</summary>
+    Rect SelectionBounds()
+    {
+        var selected=_catalog.Layout.Elements.Where(item=>_selectedIds.Contains(item.Id)).ToArray();
+        if(selected.Length==0)return Rect.Empty;
+        var left=selected.Min(item=>item.X);
+        var top=selected.Min(item=>item.Y);
+        var right=selected.Max(item=>item.X+item.Width);
+        var bottom=selected.Max(item=>item.Y+item.Height);
+        return new Rect(left,top,Math.Max(1,right-left),Math.Max(1,bottom-top));
+    }
+
+    /// <summary>
+    /// Draws one frame around a multi-selection and puts its single resize handle at the
+    /// bottom-right. The individual boxes keep their blue outline but lose their own handles, so
+    /// there is only one gesture and it applies to the group.
+    /// </summary>
+    void UpdateGroupSelectionAdorners()
+    {
+        if(GroupSelectionBox is null||GroupResizeHandle is null||_catalog?.Layout is null)return;
+        var group=_selectedIds.Count>1;
+        GroupSelectionBox.Visibility=group?Visibility.Visible:Visibility.Collapsed;
+        GroupResizeHandle.Visibility=group?Visibility.Visible:Visibility.Collapsed;
+        foreach(var (id,visual) in _visuals)
+            visual.Handle.Visibility=!group&&id==_selectedId&&IsSelected(id)?Visibility.Visible:Visibility.Collapsed;
+        if(!group)return;
+        var bounds=SelectionBounds();
+        if(bounds.IsEmpty)return;
+        GroupSelectionBox.Width=bounds.Width;
+        GroupSelectionBox.Height=bounds.Height;
+        Canvas.SetLeft(GroupSelectionBox,bounds.Left);
+        Canvas.SetTop(GroupSelectionBox,bounds.Top);
+        Canvas.SetLeft(GroupResizeHandle,Math.Max(0,bounds.Right-GroupResizeHandle.Width));
+        Canvas.SetTop(GroupResizeHandle,Math.Max(0,bounds.Bottom-GroupResizeHandle.Height));
+        GroupResizeHandle.Tag=Selected??_catalog.Layout.Elements.FirstOrDefault(item=>_selectedIds.Contains(item.Id));
+    }
+
     /// <summary>Drops the selection entirely, for when the layout underneath it goes away.</summary>
     void ClearSelection()
     {
         _selectedIds.Clear();
         _selectedId=null;
+        UpdateGroupSelectionAdorners();
     }
 
     /// <summary>
@@ -370,6 +442,7 @@ public partial class ScorebugEditorWindow : Window
         _videoSurfaces.Clear();
         DesignCanvas.Width=_catalog.Layout.Width; DesignCanvas.Height=_catalog.Layout.Height;
         GridCanvas.Width=_catalog.Layout.Width; GridCanvas.Height=_catalog.Layout.Height;
+        SelectionCanvas.Width=_catalog.Layout.Width; SelectionCanvas.Height=_catalog.Layout.Height;
         // Elements (video especially) must never paint outside the artwork they belong to.
         DesignCanvas.ClipToBounds=true;
         CanvasInfo.Text=$"{_catalog.Layout.Name} · {_catalog.Layout.Width} × {_catalog.Layout.Height} · drag elements to reposition";
@@ -698,7 +771,7 @@ public partial class ScorebugEditorWindow : Window
             BorderThickness=new Thickness(1), Cursor=Cursors.SizeNWSE, Tag=item,
             HorizontalAlignment=HorizontalAlignment.Right, VerticalAlignment=VerticalAlignment.Bottom,
             Margin=new Thickness(0,0,1,1),
-            Visibility=IsSelected(item.Id)&&item.Id==_selectedId?Visibility.Visible:Visibility.Collapsed,
+            Visibility=_selectedIds.Count==1&&IsSelected(item.Id)&&item.Id==_selectedId?Visibility.Visible:Visibility.Collapsed,
             ToolTip="Drag to resize"
         };
         handle.PreviewMouseLeftButtonDown+=Resize_MouseDown;
@@ -779,7 +852,7 @@ public partial class ScorebugEditorWindow : Window
             Canvas.SetLeft(visual.Host,item.X); Canvas.SetTop(visual.Host,item.Y);
             var layer=_catalog.Layout.Elements.IndexOf(item);
             Panel.SetZIndex(visual.Host,IsSelected(item.Id)?10000+layer:layer);
-            visual.Handle.Visibility=item.Id==_selectedId&&IsSelected(item.Id)?Visibility.Visible:Visibility.Collapsed;
+            visual.Handle.Visibility=_selectedIds.Count==1&&item.Id==_selectedId&&IsSelected(item.Id)?Visibility.Visible:Visibility.Collapsed;
             visual.Host.BorderBrush=IsSelected(item.Id)?Brushes.DeepSkyBlue:ScorebugRender.HostBorder(item,_engine.State);
             visual.Host.BorderThickness=new Thickness(IsSelected(item.Id)?2:Math.Max(1,item.BorderThickness));
             ApplyAnimation(item,visual.Host);
@@ -787,6 +860,7 @@ public partial class ScorebugEditorWindow : Window
         // The property panel's colour previews follow the typed colours in place, since an edit no
         // longer rebuilds the canvas and therefore no longer reloads the panel.
         RefreshColorSwatches();
+        UpdateGroupSelectionAdorners();
     }
 
     void RefreshBoundText()
@@ -927,7 +1001,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -978,6 +1052,7 @@ public partial class ScorebugEditorWindow : Window
             AspectInput.Text=e.VideoAspect.ToString("0.###");
             AudioDeviceInput.SelectedItem=_audioOptions.FirstOrDefault(option=>string.Equals(option.Id??"",e.AudioDevice??"",StringComparison.OrdinalIgnoreCase))??_audioOptions[0];
             LogoInput.SelectedItem=Logos.FirstOrDefault(l=>l.Side==e.LogoSide)??Logos[0];
+            PlayerPhotoSideInput.SelectedItem=PlayerPhotoSides.FirstOrDefault(o=>o.Side==e.PlayerPhotoSide)??PlayerPhotoSides[0];
             PeriodFormatInput.SelectedItem=PeriodOptions.FirstOrDefault(o=>o.Key==e.PeriodFormat)??PeriodOptions[0];
             IconInput.SelectedItem=e.Icon; IconVisitorsInput.IsChecked=e.IconVisitors; IconFlipInput.IsChecked=e.IconFlipped;
             IconVerticalInput.IsChecked=e.IconVertical;
@@ -1063,6 +1138,7 @@ public partial class ScorebugEditorWindow : Window
         // angle on their host, but the text block owns the editable control.
         TransformSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         LogoSection.Visibility=kind==ScorebugElementKind.Logo?Visibility.Visible:Visibility.Collapsed;
+        PlayerPhotoSection.Visibility=kind==ScorebugElementKind.Image?Visibility.Visible:Visibility.Collapsed;
         ShapePanel.Visibility=kind==ScorebugElementKind.Shape?Visibility.Visible:Visibility.Collapsed;
         VideoPanel.Visibility=kind==ScorebugElementKind.Video?Visibility.Visible:Visibility.Collapsed;
         // The host paints the backdrop and the outline for every kind, shapes included.
@@ -1354,6 +1430,7 @@ public partial class ScorebugEditorWindow : Window
         var foregroundSource=(ForegroundSourceInput.SelectedItem as ColorSourceOption)?.Source;
         var backgroundSource=(BackgroundSourceInput.SelectedItem as ColorSourceOption)?.Source;
         var logoSide=(LogoInput.SelectedItem as LogoOption)?.Side;
+        var playerPhotoSide=(PlayerPhotoSideInput.SelectedItem as PlayerPhotoSideOption)?.Side??ScorebugPlayerPhotoSide.None;
         // One element selected is the common case: leave the file alone when nothing actually changed.
         // With a group selected every field is written, because the group is allowed to differ.
         if(ids.Length==1&&item.Name==name&&item.Content==content&&(!xOk||item.X==x)&&(!yOk||item.Y==y)&&(!wOk||item.Width==w)&&(!hOk||item.Height==h)
@@ -1383,6 +1460,7 @@ public partial class ScorebugEditorWindow : Window
             &&(font is null||item.FontFamily==font)&&item.Bold==bold&&item.Italic==italic&&item.Underline==underline&&item.StrikeThrough==strike
             &&(foregroundSource is null||item.ForegroundSource==foregroundSource)&&(backgroundSource is null||item.BackgroundSource==backgroundSource)
             &&(logoSide is null||item.LogoSide==logoSide)
+            &&(item.Kind!=ScorebugElementKind.Image||item.PlayerPhotoSide==playerPhotoSide)
             &&(!rotationOk||Math.Abs(item.Rotation-rotation)<0.001)&&(!borderWidthOk||Math.Abs(item.BorderThickness-borderWidth)<0.001)
             &&(!borderColorOk||item.BorderColor==BorderColorInput.Text)&&(borderSource is null||item.BorderSource==borderSource)
             &&item.BackgroundGradient==gradient&&(!gradientColorOk||item.BackgroundColor2==GradientColorInput.Text)
@@ -1454,6 +1532,7 @@ public partial class ScorebugEditorWindow : Window
         if(gradientColorOk&&item.BackgroundColor2!=GradientColorInput.Text)Group(t=>t.BackgroundColor2=GradientColorInput.Text);
         if(gradientAngleOk&&Math.Abs(item.GradientAngle-gradientAngle)>0.001)Group(t=>t.GradientAngle=Math.Clamp(gradientAngle,-360,360));
         if(logoSide is not null&&item.LogoSide!=logoSide)Group(t=>t.LogoSide=logoSide.Value);
+        if(item.PlayerPhotoSide!=playerPhotoSide)Group(t=>{if(t.Kind==ScorebugElementKind.Image)t.PlayerPhotoSide=playerPhotoSide;});
         if(borderWidthOk&&Math.Abs(item.BorderThickness-borderWidth)>0.001)Group(t=>t.BorderThickness=Math.Clamp(borderWidth,0,40));
         if(borderColorOk&&item.BorderColor!=BorderColorInput.Text)Group(t=>t.BorderColor=BorderColorInput.Text);
         if(borderSource is not null&&item.BorderSource!=borderSource)Group(t=>t.BorderSource=borderSource.Value);
@@ -1554,6 +1633,7 @@ public partial class ScorebugEditorWindow : Window
                 target.BackgroundOpacity=backgroundOpacity;
                 target.BorderOpacity=borderOpacity;
                 if(logoSide is not null)target.LogoSide=logoSide.Value;
+                if(target.Kind==ScorebugElementKind.Image)target.PlayerPhotoSide=playerPhotoSide;
                 if(rotationOk)target.Rotation=Math.Clamp(rotation,-360,360);
                 if(borderWidthOk)target.BorderThickness=Math.Clamp(borderWidth,0,40);
                 if(borderColorOk)target.BorderColor=BorderColorInput.Text;
@@ -1923,6 +2003,23 @@ public partial class ScorebugEditorWindow : Window
             TransparentBackground=true
         });
     }
+    /// <summary>Adds a portrait element that follows the selected player's uploaded photo.</summary>
+    void AddPlayerPhoto_Click(object sender,RoutedEventArgs e)
+    {
+        Add(new ScorebugElement
+        {
+            Name="Player photo",
+            Kind=ScorebugElementKind.Image,
+            PlayerPhotoSide=ScorebugPlayerPhotoSide.Home,
+            Content="",
+            X=Math.Round((_catalog.Layout.Width-240)/2.0),
+            Y=Math.Round((_catalog.Layout.Height-300)/2.0),
+            Width=240,
+            Height=300,
+            TransparentBackground=true
+        });
+    }
+
     void AddShape_Click(object sender,RoutedEventArgs e)
     {
         var picker=new Window{Title="Add shape",Width=340,Height=190,ResizeMode=ResizeMode.NoResize,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner};
@@ -1947,6 +2044,8 @@ public partial class ScorebugEditorWindow : Window
             ("Team · home abbreviation","{{HOME_ABBR}}"),("Team · visitors abbreviation","{{AWAY_ABBR}}"),
             ("Team · home mascot","{{HOME_MASCOT}}"),("Team · visitors mascot","{{AWAY_MASCOT}}"),
             ("Team · home record","{{HOME_RECORD}}"),("Team · visitors record","{{AWAY_RECORD}}"),
+            ("Team · home division record","{{HOME_DIVISION_RECORD}}"),("Team · visitors division record","{{AWAY_DIVISION_RECORD}}"),
+            ("Team · home ranking","{{HOME_RANKING}}"),("Team · visitors ranking","{{AWAY_RANKING}}"),
             ("Score · home","{{HOME_SCORE}}"),("Score · visitors","{{AWAY_SCORE}}"),
             ("Period (quarter)","{{PERIOD}}"),("Game clock","{{GAME_CLOCK}}"),("Play clock","{{PLAY_CLOCK}}"),
             ("Timeout clock","{{TIMEOUT_CLOCK}}"),("Timeouts left","{{TIMEOUTS}}"),("Possession","{{POSSESSION}}"),
@@ -2117,6 +2216,139 @@ public partial class ScorebugEditorWindow : Window
         _catalog.Resize(width,height);
         Render();
     }
+
+    // ---------- undo, redo and the object clipboard ----------
+
+    /// <summary>Starts the history at the layout that is open now.</summary>
+    void ResetHistory()
+    {
+        _historyLayoutId=_catalog.Layout.Id;
+        _historyBaseline=JsonSerializer.Serialize(_catalog.Layout);
+        _undoHistory.Clear(); _redoHistory.Clear();
+        UpdateHistoryButtons();
+    }
+
+    /// <summary>
+    /// Every catalog save first records the snapshot that was on screen before it. The comparison
+    /// drops no-op saves, and switching to another layout starts a fresh history for that layout.
+    /// </summary>
+    void CaptureLayoutHistory()
+    {
+        if(_historyApplying)return;
+        var layout=_catalog.Layout;
+        var current=JsonSerializer.Serialize(layout);
+        if(!string.Equals(layout.Id,_historyLayoutId,StringComparison.OrdinalIgnoreCase))
+        {
+            _historyLayoutId=layout.Id; _historyBaseline=current;
+            _undoHistory.Clear(); _redoHistory.Clear(); UpdateHistoryButtons();
+            return;
+        }
+        if(string.Equals(current,_historyBaseline,StringComparison.Ordinal))return;
+        _undoHistory.Add(_historyBaseline);
+        if(_undoHistory.Count>100)_undoHistory.RemoveAt(0);
+        _redoHistory.Clear();
+        _historyBaseline=current;
+        UpdateHistoryButtons();
+    }
+
+    void UpdateHistoryButtons()
+    {
+        if(UndoButton is not null)UndoButton.IsEnabled=_undoHistory.Count>0;
+        if(RedoButton is not null)RedoButton.IsEnabled=_redoHistory.Count>0;
+    }
+
+    void Undo_Click(object sender,RoutedEventArgs e)=>Undo();
+    void Redo_Click(object sender,RoutedEventArgs e)=>Redo();
+
+    void Undo()
+    {
+        if(_undoHistory.Count==0){CanvasInfo.Text="nothing to undo";return;}
+        var target=_undoHistory[^1];
+        _undoHistory.RemoveAt(_undoHistory.Count-1);
+        _redoHistory.Add(JsonSerializer.Serialize(_catalog.Layout));
+        ApplyHistory(target);
+        CanvasInfo.Text="undo";
+    }
+
+    void Redo()
+    {
+        if(_redoHistory.Count==0){CanvasInfo.Text="nothing to redo";return;}
+        var target=_redoHistory[^1];
+        _redoHistory.RemoveAt(_redoHistory.Count-1);
+        _undoHistory.Add(JsonSerializer.Serialize(_catalog.Layout));
+        ApplyHistory(target);
+        CanvasInfo.Text="redo";
+    }
+
+    /// <summary>Restores one snapshot without recording the restore itself as another edit.</summary>
+    void ApplyHistory(string snapshot)
+    {
+        var restored=JsonSerializer.Deserialize<ScorebugLayout>(snapshot);
+        if(restored is null)return;
+        _historyApplying=true; _skipRebuild=true;
+        try
+        {
+            _catalog.Update(layout=>CopyLayout(layout,restored));
+            _historyLayoutId=_catalog.Layout.Id;
+            _historyBaseline=snapshot;
+        }
+        finally { _skipRebuild=false; _historyApplying=false; }
+        Render(); LoadProperties(); UpdateHistoryButtons();
+    }
+
+    /// <summary>Copies every writable layout property except its identity.</summary>
+    static void CopyLayout(ScorebugLayout target,ScorebugLayout source)
+    {
+        foreach(var property in typeof(ScorebugLayout).GetProperties(BindingFlags.Public|BindingFlags.Instance))
+        {
+            if(!property.CanRead||!property.CanWrite||property.Name==nameof(ScorebugLayout.Id))continue;
+            property.SetValue(target,property.GetValue(source));
+        }
+    }
+
+    /// <summary>Copies the selected elements into the studio clipboard.</summary>
+    void CopySelection()
+    {
+        var ids=TargetIds();
+        if(ids.Length==0){CanvasInfo.Text="nothing selected to copy";return;}
+        _clipboardElements.Clear();
+        foreach(var id in ids)
+        {
+            var item=_catalog.Layout.Elements.FirstOrDefault(x=>x.Id==id);
+            if(item is not null)_clipboardElements.Add(CloneElement(item));
+        }
+        _pasteCount=0;
+        CanvasInfo.Text=_clipboardElements.Count==1?"element copied":$"{_clipboardElements.Count} elements copied";
+    }
+
+    /// <summary>Pastes independent copies, nudged clear of the originals so they are easy to grab.</summary>
+    void PasteSelection()
+    {
+        if(_clipboardElements.Count==0){CanvasInfo.Text="nothing on the clipboard";return;}
+        _pasteCount++;
+        var offset=20*_pasteCount;
+        var pastedIds=new List<string>();
+        _catalog.Update(layout=>
+        {
+            foreach(var source in _clipboardElements)
+            {
+                var copy=CloneElement(source);
+                copy.Id=Guid.NewGuid().ToString("N");
+                copy.LinkId=null;
+                copy.X=Math.Clamp(copy.X+offset,0,Math.Max(0,layout.Width-copy.Width));
+                copy.Y=Math.Clamp(copy.Y+offset,0,Math.Max(0,layout.Height-copy.Height));
+                layout.Elements.Add(copy);
+                pastedIds.Add(copy.Id);
+            }
+        });
+        ClearSelection();
+        foreach(var id in pastedIds){_selectedIds.Add(id);_selectedId=id;}
+        SyncLayersFromSelection();
+        Render(); LoadProperties();
+        CanvasInfo.Text=_clipboardElements.Count==1?"element pasted":$"{_clipboardElements.Count} elements pasted";
+    }
+
+    static ScorebugElement CloneElement(ScorebugElement item)=>JsonSerializer.Deserialize<ScorebugElement>(JsonSerializer.Serialize(item))!;
 
     void Add(ScorebugElement item)
     {
@@ -2344,6 +2576,7 @@ public partial class ScorebugEditorWindow : Window
             element.X=x; element.Y=y;
             if(_visuals.TryGetValue(selectedId,out var visual)){Canvas.SetLeft(visual.Host,x);Canvas.SetTop(visual.Host,y);}
         }
+        UpdateGroupSelectionAdorners();
         if(_dragElement is { } primary&&!string.IsNullOrEmpty(primary.Id))
         {
             var current=_catalog.Layout.Elements.FirstOrDefault(x=>x.Id==primary.Id);
@@ -2390,15 +2623,37 @@ public partial class ScorebugEditorWindow : Window
     void Resize_MouseDown(object sender,MouseButtonEventArgs e)
     {
         if(sender is not Border handle||handle.Tag is not ScorebugElement item)return;
+        // The handle belongs to the primary item or to the group frame. Either way the gesture
+        // uses the whole selection, but only a group scales every item around the outer box.
+        if(!_selectedIds.Contains(item.Id))
+        {
+            _selectedIds.Clear(); _selectedIds.Add(item.Id);
+        }
+        _selectedId=item.Id;
         _dragElement=item; _resizing=true;
-        _selectedIds.Clear(); _selectedIds.Add(item.Id); _selectedId=item.Id;
+        _groupResize=_selectedIds.Count>1;
         SyncLayersFromSelection();
         RefreshAllVisuals();
         LoadProperties();
         var origin=e.GetPosition(DesignCanvas);
         _resizeStartX=origin.X; _resizeStartY=origin.Y;
-        _resizeStartWidth=item.Width; _resizeStartHeight=item.Height;
-        _resizeStartFontSize=item.FontSize;
+        if(_groupResize)
+        {
+            _resizeGroupBounds=SelectionBounds();
+            _resizeStartWidth=_resizeGroupBounds.Width;
+            _resizeStartHeight=_resizeGroupBounds.Height;
+        }
+        else
+        {
+            _resizeGroupBounds=new Rect(item.X,item.Y,item.Width,item.Height);
+            _resizeStartWidth=item.Width; _resizeStartHeight=item.Height;
+        }
+        _resizeOrigins.Clear();
+        foreach(var id in _selectedIds)
+        {
+            var target=_catalog.Layout.Elements.FirstOrDefault(x=>x.Id==id);
+            if(target is not null)_resizeOrigins[id]=(target.X,target.Y,target.Width,target.Height,target.FontSize);
+        }
         handle.CaptureMouse();
         e.Handled=true;
     }
@@ -2407,16 +2662,18 @@ public partial class ScorebugEditorWindow : Window
     {
         if(_dragElement is null||!_resizing||e.LeftButton!=MouseButtonState.Pressed)return;
         var p=e.GetPosition(DesignCanvas);
-        var maxWidth=Math.Max(24,_catalog.Layout.Width-_dragElement.X);
-        var maxHeight=Math.Max(24,_catalog.Layout.Height-_dragElement.Y);
+        var left=_groupResize?_resizeGroupBounds.Left:_dragElement.X;
+        var top=_groupResize?_resizeGroupBounds.Top:_dragElement.Y;
+        var maxWidth=Math.Max(24,_catalog.Layout.Width-left);
+        var maxHeight=Math.Max(24,_catalog.Layout.Height-top);
         var width=Math.Clamp(_resizeStartWidth+(p.X-_resizeStartX),24,maxWidth);
         var height=Math.Clamp(_resizeStartHeight+(p.Y-_resizeStartY),24,maxHeight);
         if(_gridSnap){width=Math.Clamp(Snap(width),24,maxWidth);height=Math.Clamp(Snap(height),24,maxHeight);}
         var ctrl=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
         var shift=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
         // A video box that preserves its aspect ratio can only be resized along one diagonal;
-        // Shift asks for the same thing on any other element.
-        var lockedAspect=_dragElement.PreserveVideoAspect&&_dragElement.VideoAspect>0.05
+        // Shift asks for the same thing on any other element or on a group.
+        var lockedAspect=!_groupResize&&_dragElement.PreserveVideoAspect&&_dragElement.VideoAspect>0.05
             ? _dragElement.VideoAspect
             : shift ? _resizeStartWidth/Math.Max(1,_resizeStartHeight) : 0;
         if(lockedAspect>0)
@@ -2425,40 +2682,114 @@ public partial class ScorebugEditorWindow : Window
             width=Math.Clamp(height*lockedAspect,24,maxWidth);
             height=width/lockedAspect;
         }
-        _dragElement.Width=width; _dragElement.Height=height;
-        // Text and the possession dot keep their size as the box grows, so a value never jumps a
-        // few points because its plate was nudged. Ctrl makes the type follow the box instead.
-        if(ctrl&&_resizeStartHeight>0.5)
-            _dragElement.FontSize=Math.Clamp(_resizeStartFontSize*(height/_resizeStartHeight),8,480);
-        if(_visuals.TryGetValue(_dragElement.Id,out var visual))
+        if(_groupResize)
         {
-            visual.Host.Width=width; visual.Host.Height=height;
-            visual.Content.Width=double.NaN; visual.Content.Height=double.NaN;
+            // Restore every item to its origin before scaling, so repeated mouse moves do not
+            // compound. The group's top-left stays put and the rest follows its relative place.
+            foreach(var (id,origin) in _resizeOrigins)
+            {
+                var target=_catalog.Layout.Elements.FirstOrDefault(x=>x.Id==id);
+                if(target is null)continue;
+                target.X=origin.X; target.Y=origin.Y;
+                target.Width=origin.Width; target.Height=origin.Height;
+                target.FontSize=origin.FontSize;
+            }
+            ScaleGroupElements(
+                _catalog.Layout.Elements.Where(x=>_resizeOrigins.ContainsKey(x.Id)),
+                _resizeGroupBounds,
+                width/_resizeStartWidth,
+                height/_resizeStartHeight,
+                ctrl);
+            foreach(var (id,origin) in _resizeOrigins)
+            {
+                var target=_catalog.Layout.Elements.FirstOrDefault(x=>x.Id==id);
+                if(target is null)continue;
+                if(_visuals.TryGetValue(id,out var visual))
+                {
+                    visual.Host.Width=target.Width; visual.Host.Height=target.Height;
+                    Canvas.SetLeft(visual.Host,target.X); Canvas.SetTop(visual.Host,target.Y);
+                    visual.Content.Width=double.NaN; visual.Content.Height=double.NaN;
+                    ScorebugRender.ApplyToContent(visual.Content,target,_engine.State,
+                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat));
+                }
+            }
+            UpdateGroupSelectionAdorners();
+            if(ctrl)RefreshAllVisuals();
         }
-        if(ctrl)RefreshAllVisuals();
-        else if(_visuals.TryGetValue(_dragElement.Id,out var resized))
-            ScorebugRender.ApplyToContent(resized.Content,_dragElement,_engine.State,
-                ScoreboardTemplates.Bind(_dragElement.Content,_engine.State,_dragElement.PeriodFormat));
+        else
+        {
+            var deltaWidth=width-_resizeStartWidth;
+            var deltaHeight=height-_resizeStartHeight;
+            foreach(var (id,origin) in _resizeOrigins)
+            {
+                var target=_catalog.Layout.Elements.FirstOrDefault(x=>x.Id==id);
+                if(target is null)continue;
+                target.Width=Math.Clamp(origin.Width+deltaWidth,24,Math.Max(24,_catalog.Layout.Width-target.X));
+                target.Height=Math.Clamp(origin.Height+deltaHeight,24,Math.Max(24,_catalog.Layout.Height-target.Y));
+                // Text keeps its point size unless Ctrl asks the type to follow the box.
+                if(ctrl&&origin.Height>0.5)
+                    target.FontSize=Math.Clamp(origin.FontSize*(target.Height/origin.Height),8,480);
+                if(_visuals.TryGetValue(id,out var visual))
+                {
+                    visual.Host.Width=target.Width; visual.Host.Height=target.Height;
+                    visual.Content.Width=double.NaN; visual.Content.Height=double.NaN;
+                    ScorebugRender.ApplyToContent(visual.Content,target,_engine.State,
+                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat));
+                }
+            }
+            if(ctrl)RefreshAllVisuals();
+        }
         if(!_loading)
         {
             _loading=true;
-            WidthInput.Text=width.ToString("0"); HeightInput.Text=height.ToString("0");
-            if(FindName("FontSizeInput") is TextBox fontSizeBox)fontSizeBox.Text=_dragElement.FontSize.ToString("0.#");
+            XInput.Text=_dragElement.X.ToString("0"); YInput.Text=_dragElement.Y.ToString("0");
+            WidthInput.Text=_dragElement.Width.ToString("0"); HeightInput.Text=_dragElement.Height.ToString("0");
+            FontInputSize.Text=_dragElement.FontSize.ToString("0.#");
             _loading=false;
         }
         e.Handled=true;
     }
 
+    /// <summary>Scales every selected element around the group's top-left corner.</summary>
+    static void ScaleGroupElements(IEnumerable<ScorebugElement> elements,Rect bounds,double scaleX,double scaleY,bool scaleText)
+    {
+        foreach(var target in elements)
+        {
+            target.X=bounds.Left+(target.X-bounds.Left)*scaleX;
+            target.Y=bounds.Top+(target.Y-bounds.Top)*scaleY;
+            target.Width=Math.Max(8,target.Width*scaleX);
+            target.Height=Math.Max(8,target.Height*scaleY);
+            if(scaleText)target.FontSize=Math.Clamp(target.FontSize*Math.Min(scaleX,scaleY),8,480);
+        }
+    }
+
     void Resize_MouseUp(object sender,MouseButtonEventArgs e)
     {
         if(sender is Border handle)handle.ReleaseMouseCapture();
-        if(_dragElement is { } item)
+        var resized=_catalog.Layout.Elements
+            .Where(x=>_resizeOrigins.ContainsKey(x.Id))
+            .ToDictionary(x=>x.Id,x=>(x.X,x.Y,x.Width,x.Height,x.FontSize));
+        _dragElement=null; _resizing=false; _groupResize=false;
+        _resizeOrigins.Clear();
+        if(resized.Count>0)
         {
-            var id=item.Id; var w=item.Width; var h=item.Height;
-            _dragElement=null; _resizing=false;
-            _catalog.Update(layout=>{var target=layout.Elements.FirstOrDefault(z=>z.Id==id);if(target is not null){target.Width=Math.Clamp(w,24,layout.Width);target.Height=Math.Clamp(h,24,layout.Height);_catalog.PropagateLink(target);}});
+            _catalog.Update(layout=>
+            {
+                foreach(var (id,value) in resized)
+                {
+                    var target=layout.Elements.FirstOrDefault(z=>z.Id==id);
+                    if(target is null)continue;
+                    var width=Math.Clamp(value.Width,24,layout.Width);
+                    var height=Math.Clamp(value.Height,24,layout.Height);
+                    target.X=Math.Clamp(value.X,0,Math.Max(0,layout.Width-width));
+                    target.Y=Math.Clamp(value.Y,0,Math.Max(0,layout.Height-height));
+                    target.Width=width; target.Height=height;
+                    target.FontSize=Math.Clamp(value.FontSize,8,480);
+                    _catalog.PropagateLink(target);
+                }
+            });
         }
-        _resizing=false;
+        UpdateGroupSelectionAdorners();
         e.Handled=true;
     }
 
@@ -2553,6 +2884,17 @@ public partial class ScorebugEditorWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         var field=Keyboard.FocusedElement as TextBox??e.OriginalSource as TextBox;
+        var ctrlDown=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
+        var shiftDown=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
+        var altDown=(Keyboard.Modifiers&ModifierKeys.Alt)!=0;
+        // Object-level clipboard and history. A text field keeps its own Ctrl+Z / Ctrl+C / Ctrl+V.
+        if(field is null&&ctrlDown)
+        {
+            if(e.Key==Key.Z){if(shiftDown)Redo();else Undo();e.Handled=true;return;}
+            if(e.Key==Key.Y){Redo();e.Handled=true;return;}
+            if(e.Key==Key.C&&!shiftDown&&!altDown){CopySelection();e.Handled=true;return;}
+            if(e.Key==Key.V&&!shiftDown&&!altDown){PasteSelection();e.Handled=true;return;}
+        }
         // Arrow keys nudge the selected items. Text fields, pickers and lists keep their own arrow
         // behaviour; a chunk is 10 px, or the grid step when snapping is on.
         if(_selectedIds.Count>0&&field is null&&Keyboard.FocusedElement is not ComboBox
@@ -2629,7 +2971,7 @@ public partial class ScorebugEditorWindow : Window
         foreach(var surface in _videoSurfaces.Values) surface.Dispose();
         _videoSurfaces.Clear();
         _wallClock.Stop();
-        _catalog.Changed-=Render; _engine.Changed-=RefreshBoundText;
+        _catalog.Changed-=Render; _catalog.Changed-=CaptureLayoutHistory; _engine.Changed-=RefreshBoundText;
         base.OnClosed(e);
     }
     /// <summary>Moves the selected element to the front or all the way to the back.</summary>
@@ -2730,6 +3072,7 @@ public partial class ScorebugEditorWindow : Window
             moved=true;
         }
         if(!moved)return;
+        UpdateGroupSelectionAdorners();
         var primary=layout.Elements.FirstOrDefault(element=>element.Id==_selectedId);
         if(primary is not null)
         {

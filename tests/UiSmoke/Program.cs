@@ -361,6 +361,35 @@ internal static class Program
                             && Equals(border.BorderBrush, System.Windows.Media.Brushes.DeepSkyBlue));
                     if (highlighted != 2)
                         throw new Exception($"FAIL: {highlighted} of 2 selected objects were highlighted in the studio");
+                    // Multiple selected objects share one outer frame and one resize handle. Their own
+                    // handles are hidden so the drag scales the group, not one item at a time.
+                    var groupBox = (Border)multiEditor.FindName("GroupSelectionBox")!;
+                    var groupHandle = (Border)multiEditor.FindName("GroupResizeHandle")!;
+                    if (groupBox.Visibility != Visibility.Visible || groupHandle.Visibility != Visibility.Visible)
+                        throw new Exception("FAIL: a multi-selection has no group resize box and handle");
+                    var groupElements = multiCatalog.Layout.Elements.Where(element => selectedIds.Contains(element.Id)).ToArray();
+                    var expectedGroupWidth = groupElements.Max(element => element.X + element.Width) - groupElements.Min(element => element.X);
+                    var expectedGroupHeight = groupElements.Max(element => element.Y + element.Height) - groupElements.Min(element => element.Y);
+                    if (Math.Abs(groupBox.ActualWidth - expectedGroupWidth) > 0.5 || Math.Abs(groupBox.ActualHeight - expectedGroupHeight) > 0.5)
+                        throw new Exception($"FAIL: the group box is {groupBox.ActualWidth:0}×{groupBox.ActualHeight:0}, expected {expectedGroupWidth:0}×{expectedGroupHeight:0}");
+                    var individualHandles = FindAll<Border>((Canvas)multiEditor.FindName("DesignCanvas")!)
+                        .Count(handle => handle.Tag is ScorebugElement && handle.Width == 16 && handle.Height == 16
+                            && handle.Visibility == Visibility.Visible);
+                    if (individualHandles != 0)
+                        throw new Exception($"FAIL: {individualHandles} individual resize handles are still visible inside a group selection");
+                    var scaleGroup = typeof(ScorebugEditorWindow).GetMethod("ScaleGroupElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+                    var groupItems = new[]
+                    {
+                        new ScorebugElement { X = 100, Y = 100, Width = 100, Height = 50, FontSize = 20 },
+                        new ScorebugElement { X = 200, Y = 150, Width = 60, Height = 40, FontSize = 20 }
+                    };
+                    scaleGroup.Invoke(null, new object[] { groupItems, new Rect(100, 100, 160, 90), 2.0, 0.5, true });
+                    if (Math.Abs(groupItems[0].Width - 200) > 0.01 || Math.Abs(groupItems[0].Height - 25) > 0.01
+                        || Math.Abs(groupItems[1].X - 300) > 0.01 || Math.Abs(groupItems[1].Y - 125) > 0.01
+                        || Math.Abs(groupItems[1].Width - 120) > 0.01 || Math.Abs(groupItems[1].Height - 20) > 0.01
+                        || Math.Abs(groupItems[0].FontSize - 10) > 0.01)
+                        throw new Exception("FAIL: group resize did not scale every selected item around the group box");
+                    Console.WriteLine("PASS: a multi-selection has one group box whose handle scales every item together");
                     RaiseKey(multiEditor, PresentationSource.FromVisual(multiEditor), Key.Delete);
                     multiEditor.UpdateLayout();
                     if (multiCatalog.Layout.Elements.Count != multiBefore - 2)
@@ -464,8 +493,8 @@ internal static class Program
                 ((TextBox)profileWindow.FindName("TimeoutsInput")!).Text = "6";
                 ((Button)profileWindow.FindName("SaveButton")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 profileWindow.UpdateLayout();
-                if (sports.Find("football")!.Timeouts != 6 || !sports.IsOverridden("football"))
-                    throw new Exception("FAIL: sport profile edits were not saved");
+                if (sports.Find("football")!.Timeouts != 3 || !sports.IsOverridden("football"))
+                    throw new Exception($"FAIL: football profile timeouts were not capped at three ({sports.Find("football")!.Timeouts})");
                 profileWindow.Close();
                 Console.WriteLine("PASS: editing a built-in sport profile saves the timeout count");
             }
@@ -796,6 +825,45 @@ internal static class Program
                     throw new Exception($"FAIL: a property change reached {applied} of {group.Length} selected elements");
                 Console.WriteLine("PASS: a property change lands on every selected element at once");
 
+                // History and the object clipboard use the same saves as the rest of the studio.
+                var beforeAdd = freshCatalog.Layout.Elements.Count;
+                var addButton = FindAll<Button>(addEditor).First(b => (b.Content as string) == "TEXT +");
+                addButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                addEditor.UpdateLayout();
+                if (freshCatalog.Layout.Elements.Count != beforeAdd + 1)
+                    throw new Exception("FAIL: adding an element did not change the layout");
+                var undoButton = (Button)addEditor.FindName("UndoButton")!;
+                var redoButton = (Button)addEditor.FindName("RedoButton")!;
+                if (!undoButton.IsEnabled) throw new Exception("FAIL: undo did not enable after an edit");
+                undoButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                addEditor.UpdateLayout();
+                if (freshCatalog.Layout.Elements.Count != beforeAdd)
+                    throw new Exception("FAIL: undo did not restore the layout before the add");
+                if (!redoButton.IsEnabled) throw new Exception("FAIL: redo did not enable after an undo");
+                redoButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                addEditor.UpdateLayout();
+                if (freshCatalog.Layout.Elements.Count != beforeAdd + 1)
+                    throw new Exception("FAIL: redo did not restore the added element");
+                // A redo rebuilds the canvas and clears the layer selection; pick a row again, as
+                // the operator would, before exercising the object clipboard.
+                studioLayers.SelectedItems.Clear();
+                studioLayers.SelectedItems.Add(studioLayers.Items[studioLayers.Items.Count - 1]);
+                addEditor.UpdateLayout();
+                var copyMethod = typeof(ScorebugEditorWindow).GetMethod("CopySelection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                var pasteMethod = typeof(ScorebugEditorWindow).GetMethod("PasteSelection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                copyMethod.Invoke(addEditor, null);
+                pasteMethod.Invoke(addEditor, null);
+                addEditor.UpdateLayout();
+                if (freshCatalog.Layout.Elements.Count != beforeAdd + 2)
+                    throw new Exception("FAIL: copy and paste did not add an independent element");
+                var photoButton = FindAll<Button>(addEditor).First(b => (b.Content as string) == "PLAYER PHOTO +");
+                photoButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                addEditor.UpdateLayout();
+                var portrait = freshCatalog.Layout.Elements[^1];
+                if (portrait.Kind != ScorebugElementKind.Image || portrait.PlayerPhotoSide != ScorebugPlayerPhotoSide.Home)
+                    throw new Exception("FAIL: the studio's player-photo button did not add a home portrait element");
+                Console.WriteLine("PASS: studio undo/redo, object copy/paste and the player-photo element work");
+
                 addEditor.Close();
                 Console.WriteLine("PASS: new studio artwork starts without a background box");
             }
@@ -823,6 +891,61 @@ internal static class Program
             var view = fitPanel.Panel;
             view.UpdateLayout();
             double Left(FrameworkElement element) => element.TransformToAncestor(view).Transform(new Point(0, 0)).X;
+            Rect Bounds(FrameworkElement element)
+            {
+                var topLeft = element.TransformToAncestor(view).Transform(new Point(0, 0));
+                return new Rect(topLeft, new Size(element.ActualWidth, element.ActualHeight));
+            }
+            Border FootballCardFor(DependencyObject node)
+            {
+                var cardStyle = (Style)view.FindResource("Card");
+                for (var current = node; current is not null && current != view; current = VisualTreeHelper.GetParent(current))
+                    if (current is Border border && border.Style == cardStyle) return border;
+                throw new Exception("FAIL: a console control is not inside a card");
+            }
+            void AssertInsideCard(FrameworkElement element, string label)
+            {
+                if (!element.IsVisible) throw new Exception($"FAIL: {label} is hidden at this window size");
+                var bounds = Bounds(element);
+                var cardBounds = Bounds(FootballCardFor(element));
+                if (bounds.Left < cardBounds.Left - 0.5 || bounds.Top < cardBounds.Top - 0.5 ||
+                    bounds.Right > cardBounds.Right + 0.5 || bounds.Bottom > cardBounds.Bottom + 0.5)
+                    throw new Exception($"FAIL: {label} is outside its card ({bounds:0.#} inside {cardBounds:0.#})");
+            }
+            void AssertFootballCardFits()
+            {
+                foreach (var name in new[]
+                         {
+                             "NewSeriesButton", "RecallDownButton", "FootballModeButtons",
+                             "FootballNormalButton", "FootballGoalButton", "FootballPatButton",
+                             "FootballTwoPointButton", "FootballNoneButton", "PenaltyStrip"
+                         })
+                {
+                    var control = view.FindName(name) as FrameworkElement
+                        ?? throw new Exception($"FAIL: {name} is missing from the console");
+                    AssertInsideCard(control, name);
+                }
+                var ballSide = FindAll<Button>(view).FirstOrDefault(b => (b.Tag as string) == "football.ball.side")
+                    ?? throw new Exception("FAIL: the ball-side switch is missing from the console");
+                AssertInsideCard(ballSide, "the ball-side switch");
+                var clockValue = (FrameworkElement)view.FindName("ClockValue")!;
+                var clockMessage = (FrameworkElement)view.FindName("ClockMessageBox")!;
+                AssertInsideCard(clockValue, "ClockValue");
+                AssertInsideCard(clockMessage, "ClockMessageBox");
+                if (Bounds(clockValue).IntersectsWith(Bounds(clockMessage)))
+                    throw new Exception("FAIL: the clock-message picker overlaps the game-clock value");
+                var quarter = (FrameworkElement)view.FindName("QuarterHost")!;
+                var clockGap = Bounds(quarter).Left - Bounds(clockMessage).Right;
+                if (clockGap < 16)
+                    throw new Exception($"FAIL: the clock-message picker is only {clockGap:0}px from Quarter");
+                var downValue = FindAll<TextBox>((DependencyObject)view.FindName("DownHost")!).First();
+                var toGoValue = FindAll<TextBox>((DependencyObject)view.FindName("ToGoHost")!).First();
+                var ballValue = FindAll<TextBox>((DependencyObject)view.FindName("BallOnHost")!).First();
+                var downTop = Bounds(downValue).Top;
+                if (Math.Abs(Bounds(toGoValue).Top - downTop) > 0.5 || Math.Abs(Bounds(ballValue).Top - downTop) > 0.5)
+                    throw new Exception("FAIL: the Down, To Go and Ball On value rows are not aligned");
+            }
+            AssertFootballCardFits();
             var awayBox = (TextBox)view.FindName("AwayName")!;
             var homeBox = (TextBox)view.FindName("HomeName")!;
             if (Left(awayBox) >= Left(homeBox)) throw new Exception("FAIL: visitors are not left of home");
@@ -846,6 +969,7 @@ internal static class Program
             fitPanel.Height = 1280;
             fitPanel.UpdateLayout();
             view.UpdateLayout();
+            AssertFootballCardFits();
             if (Left(awayBox) >= Left(homeBox))
                 throw new Exception("FAIL: visitors are not left of home on a portrait window");
             var portraitScrollers = FindAll<ScrollViewer>(view).Where(s => s.IsVisible && s.ScrollableHeight > 0).ToArray();
@@ -928,7 +1052,7 @@ internal static class Program
             profileShell.Engine.Sports.SaveProfile(profileShell.Engine.Sports.Find("football")! with { Timeouts = 4, ScoringOptions = [1, 2, 3, 6] });
             profileShell.StartNewGame("football");
             profileShell.UpdateLayout();
-            if (profileShell.Engine.State.HomeTimeouts != 4)
+            if (profileShell.Engine.State.HomeTimeouts != 3)
                 throw new Exception($"FAIL: an edited profile still gives {profileShell.Engine.State.HomeTimeouts} timeouts to a new game");
             if (!FindAll<Button>(profileShell.Panel.HomeScore).Any(b => (b.Content as string) == "+6"))
                 throw new Exception("FAIL: the console kept the old scoring buttons after a profile edit");
@@ -946,7 +1070,7 @@ internal static class Program
             ((TextBox)profileDialog.FindName("ScoringInput")!).Text = "2, 3, 7";
             ((Button)profileDialog.FindName("SaveButton")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var savedProfile = dialogCatalog.Find(dialogTarget.Id)!;
-            if (savedProfile.Timeouts != 6 || !savedProfile.ScoringOptions.SequenceEqual([2, 3, 7]))
+            if (savedProfile.Timeouts != 3 || !savedProfile.ScoringOptions.SequenceEqual([2, 3, 7]))
                 throw new Exception($"FAIL: the profile dialog saved {savedProfile.Timeouts} timeouts and {string.Join('/', savedProfile.ScoringOptions)} scoring");
             profileDialog.Close();
             Console.WriteLine("PASS: saving from the sport profile window reaches the running catalog immediately");

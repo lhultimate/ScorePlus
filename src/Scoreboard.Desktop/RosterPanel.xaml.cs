@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Scoreboard.Core;
@@ -111,7 +112,7 @@ public partial class RosterPanel : UserControl
         var signature = string.Join('|',
             RosterStore.Version, rosterId, _roster?.Name, _player?.Id, _search,
             selected?.PlayerId, RosterStore.All().Count,
-            string.Join(",", _roster?.Players.Select(p => $"{p.Id}:{p.Number}:{p.Name}:{p.Position}:{p.Group}:{p.Stats.Count}") ?? []));
+            string.Join(",", _roster?.Players.Select(p => $"{p.Id}:{p.Number}:{p.Name}:{p.Position}:{p.Group}:{p.PhotoPath}:{p.Stats.Count}") ?? []));
         if (signature == _signature)
         {
             UpdateOnAir(selected);
@@ -157,6 +158,8 @@ public partial class RosterPanel : UserControl
         var hasPlayer = hasRoster && _player is not null;
         GroupPlayerButton.IsEnabled = hasPlayer;
         NumberInput.IsEnabled = NameInput.IsEnabled = PositionInput.IsEnabled = GroupInput.IsEnabled = hasPlayer;
+        ChoosePhotoButton.IsEnabled = hasPlayer;
+        RemovePhotoButton.IsEnabled = hasPlayer && !string.IsNullOrWhiteSpace(_player?.PhotoPath);
         AddStatButton.IsEnabled = StatPresetBox.IsEnabled = hasPlayer;
     }
 
@@ -403,6 +406,62 @@ public partial class RosterPanel : UserControl
         PlayerInfoText.Text = _player is null
             ? "highlight a player on the left"
             : $"{_player.Record} · {(_player.Position.Length == 0 ? "no position" : _player.Position)}";
+        ShowPlayerPhoto();
+    }
+
+    /// <summary>Draws the uploaded portrait, or the empty frame when this player has none.</summary>
+    void ShowPlayerPhoto()
+    {
+        PlayerPhotoImage.Source = null;
+        var path = _player?.PhotoPath ?? "";
+        if (path.Length > 0 && File.Exists(path))
+        {
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad;
+                image.UriSource = new Uri(path); image.EndInit(); image.Freeze();
+                PlayerPhotoImage.Source = image;
+                PlayerPhotoEmpty.Visibility = Visibility.Collapsed;
+                PlayerPhotoNameText.Text = Path.GetFileName(path);
+                return;
+            }
+            catch { }
+        }
+        PlayerPhotoEmpty.Visibility = Visibility.Visible;
+        PlayerPhotoNameText.Text = path.Length == 0 ? "No portrait uploaded" : "Portrait file is missing";
+    }
+
+    void ChoosePhoto_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine is null || _player is null) return;
+        var dialog = new OpenFileDialog
+        {
+            Title = "Choose a player photo",
+            Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|All files (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        try
+        {
+            var folder = AppPaths.Combine("PlayerPhotos");
+            Directory.CreateDirectory(folder);
+            var target = Path.Combine(folder, $"{_player.Id}-{DateTime.Now:yyyyMMdd-HHmmss}{Path.GetExtension(dialog.FileName)}");
+            File.Copy(dialog.FileName, target, true);
+            _player.PhotoPath = target;
+            SaveAndReload();
+        }
+        catch (Exception ex)
+        {
+            NoticeWindow.Tell(Window.GetWindow(this), "That photo could not be imported", ex.Message, warning: true);
+        }
+    }
+
+    void RemovePhoto_Click(object sender, RoutedEventArgs e)
+    {
+        if (_player is null || string.IsNullOrWhiteSpace(_player.PhotoPath)) return;
+        _player.PhotoPath = "";
+        SaveAndReload();
     }
 
     /// <summary>One row per stat column: right-aligned name, a dark value well, and a remove box.</summary>

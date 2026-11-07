@@ -109,6 +109,8 @@ public sealed class SportCatalog
         Id = string.IsNullOrWhiteSpace(profile.Id) ? Guid.NewGuid().ToString("N") : profile.Id.Trim(),
         Name = profile.Name.Trim(),
         Unit = profile.Unit.Trim(),
+        // Football's laws allow three timeouts a side, including when a preset is edited.
+        Timeouts = profile.Id == "football" ? Math.Clamp(profile.Timeouts, 0, 3) : profile.Timeouts,
         ScoringOptions = profile.ScoringOptions?.Distinct().Order().ToArray() ?? []
     };
 
