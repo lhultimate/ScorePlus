@@ -179,3 +179,18 @@ Open items: write `App.axaml`/`App.axaml.cs` (delete `App.xaml`/`.cs`), scratch-
   `Lifetime`/`DesktopLifetime` names (dll strings show `CreateLifetime`, `lifetimeBuilder`,
   `AppBuilderDesktopExtensions` but `Avalonia.Desktop.AppBuilder` unresolvable CS0234 — entry stays
   plain static Main + lifetime).
+
+# Phase 2 log (markup conversion — DONE)
+
+All 12 windows converted to .axaml + renamed .axaml.cs pairs, old .xaml deleted; MainWindow + App.axaml done in phase 1. Subagents landed all 12 conversions but drifted (fetched web sources, skipped rename/delete on several) — finishing, verification, and cross-file fixes were done directly, not delegated.
+
+- Markup gate: Desktop rebuild = 1574 errors, ALL CS0xxx from .axaml.cs cascade (System.Windows.* imports in renamed hand-written files + plain WPF .cs files); ZERO markup/codegen errors; compiled-markup blob obj/…/Avalonia/resources = 185KB (all 13 surfaces codegen'd).
+- Sweep facts: no presentation xmlns remains (one schemas.microsoft.com per file = the legal xmlns:x decl); zero keyed `<Style>` refs except SolidColorBrush x:Key (keyed brushes survive, used by DynamicResource/Resource lookups — untouched); zero `Style="{StaticResource …}"` sites (only a comment in RosterPanel mentions the old syntax).
+- WrapPanel→WrapFlow: world container is WrapFlow (SportProfile/Scorebug conversions prove it compiles); renamed 6 tag sites (ControlPanelView ×2, MediaDock ×4). C# `new WrapPanel()` sites (ColorPickerWindow/MotionMaker/PaintTexture) deferred to C# phase — world class name for C# not yet proven.
+- MediaDock ScrollBar semantics fix (agent had merged DockH/DockV into two SIBLING bare `ScrollBar` styles — identical selectors, last-wins, would restyle both axes of every scroller; wrong vs WPF original, which had DockHScrollBar dead/unused and DockVScrollBar applied ONLY to the Tiles scroller via <ScrollViewer.Resources> override): dead horizontal style deleted (comment kept), vertical style now scoped inside `<ScrollViewer.Resources>` at the Tiles site — the mechanism WPF used, and ScrollViewer.Resources is a real property (Container-derived) in this world; compiles clean.
+- Style-key → class-selector mapping tables per file live in the converted files' markup (Classes= sites); BasedOn chains collapsed to stacked class tokens per the MainWindow exemplar.
+
+Carryovers into C# phase (keyed style lookups dangling now that styles are class-based):
+- MediaDock.axaml.cs: (Style)Resources["TransportButton"|"DockAction"|"ClearAction"|"DockCombo"|"DockSearch"], Resources["TileGlyph"] dynamic tile TextBlocks (~line 826) → assign Classes= tokens instead.
+- ControlPanelView.axaml.cs: (Style)FindResource("Tiny")/("Caption") at 96,166,187,191 → Classes= assignment.
+- Per phase-1 note: window `{ Owner = x }` sites → `.Show(owner)` when each window's C# compiles.
