@@ -1,8 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -27,7 +27,7 @@ public sealed class PaintTextureWindow : Window
     readonly TextBox _textColour = Field("#FFFFFFFF");
     readonly TextBox _plateOffset = Field("0");
     readonly TextBox _plateColour = Field("#FFFFFFFF");
-    readonly System.Windows.Threading.DispatcherTimer _apply = new() { Interval = TimeSpan.FromMilliseconds(180) };
+    readonly Avalonia.Threading.DispatcherTimer _apply = new() { Interval = TimeSpan.FromMilliseconds(180) };
 
     PaintTextureWindow(ScorebugCatalog catalog, GameEngine engine, ScorebugElement element, string theme)
     {
@@ -294,7 +294,7 @@ public sealed class PaintTextureWindow : Window
         var panel = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
         var caption = new TextBlock { Text = label, Width = 82, FontSize = 10, Opacity = 0.8, VerticalAlignment = VerticalAlignment.Center };
         var readout = new TextBlock { Text = value.ToString("0.##", CultureInfo.CurrentCulture), Width = 38, FontSize = 10, Opacity = 0.8, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-        var slider = new System.Windows.Controls.Slider
+        var slider = new Avalonia.Controls.Slider
         {
             Minimum = min,
             Maximum = max,

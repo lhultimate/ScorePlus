@@ -1,6 +1,6 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
 
 namespace Scoreboard.Desktop;
 
@@ -101,7 +101,7 @@ public sealed class UnsavedChangesWindow : Window
             Padding = new Thickness(14, 9, 14, 9),
             Margin = new Thickness(6, 0, 0, 0),
             MinHeight = 38,
-            Cursor = System.Windows.Input.Cursors.Hand
+            Cursor = Avalonia.Input.Cursors.Hand
         };
         if (primary)
         {

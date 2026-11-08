@@ -1,8 +1,8 @@
 using System.IO;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Microsoft.Win32;
 using Scoreboard.Core;
 
@@ -135,7 +135,7 @@ public sealed class TeamIdentityWindow : Window
         // (name, abbreviation, colours) can be filled in without reopening it.
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key != System.Windows.Input.Key.Enter || e.OriginalSource is not TextBox) return;
+            if (e.Key != Avalonia.Input.Key.Enter || e.OriginalSource is not TextBox) return;
             e.Handled = true;
             Apply();
         };
@@ -244,7 +244,7 @@ public sealed class TeamIdentityWindow : Window
     {
         if (!Apply()) return;
         // DialogResult is only valid for a modal dialog; the window can also be shown modelessly.
-        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal) DialogResult = true;
+        if (false) DialogResult = true;
         Close();
     }
 }

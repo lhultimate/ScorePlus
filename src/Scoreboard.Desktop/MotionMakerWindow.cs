@@ -1,12 +1,12 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Shapes;
-using System.Windows.Threading;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Microsoft.Win32;
 using Scoreboard.Core;
 
@@ -1382,7 +1382,7 @@ public sealed class MotionMakerWindow : Window
     /// <summary>Where the selected phase begins on the whole clip's ruler.</summary>
     double PhaseStart => _clip.Phases.Take(Math.Max(0, _phaseIndex)).Sum(phase => phase.Seconds);
 
-    void TimelineDown(object sender, MouseButtonEventArgs e)
+    void TimelineDown(object sender, PointerEventArgs e)
     {
         if (CurrentPhase is null) return;
         _ticker.Stop();
@@ -1401,7 +1401,7 @@ public sealed class MotionMakerWindow : Window
         ScrubTo(point);
     }
 
-    void TimelineMove(object sender, MouseEventArgs e)
+    void TimelineMove(object sender, PointerEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed) { EndDrag(); return; }
         var point = e.GetPosition(_timeline);
@@ -1417,7 +1417,7 @@ public sealed class MotionMakerWindow : Window
         if (_scrubbing) ScrubTo(point);
     }
 
-    void TimelineUp(object sender, MouseButtonEventArgs e)
+    void TimelineUp(object sender, PointerEventArgs e)
     {
         if (_dragKey is not null && _dragTrack is not null)
         {

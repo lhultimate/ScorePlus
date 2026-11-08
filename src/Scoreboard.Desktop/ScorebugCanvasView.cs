@@ -1,9 +1,9 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -45,11 +45,11 @@ public sealed class ScorebugCanvasView : Grid
     // Value switch delay: what each element is currently printing, and the wait before a change
     // lands. The operator sets the delay in Preferences; 0 prints instantly.
     readonly Dictionary<string,string> _shownText = [];
-    readonly Dictionary<string,(string Target, System.Windows.Threading.DispatcherTimer Timer)> _pendingText = [];
+    readonly Dictionary<string,(string Target, Avalonia.Threading.DispatcherTimer Timer)> _pendingText = [];
     bool _flushDelay;
     // Time-of-day text is not driven by the game clock, so it gets its own one-second pulse;
     // otherwise a layout with {{TIME}} freezes whenever no clock is running.
-    readonly System.Windows.Threading.DispatcherTimer _wallClock = new() { Interval = TimeSpan.FromSeconds(1) };
+    readonly Avalonia.Threading.DispatcherTimer _wallClock = new() { Interval = TimeSpan.FromSeconds(1) };
 
     /// <param name="publishedLayout">True for the audience output: it follows the layout that was
     /// actually published, not the one being designed in the preview.</param>
@@ -566,7 +566,7 @@ public sealed class ScorebugCanvasView : Grid
             _pendingText[item.Id]=(text,pending.Timer);
             return;
         }
-        var timer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(Math.Clamp(delay,0.05,10))};
+        var timer=new Avalonia.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(Math.Clamp(delay,0.05,10))};
         timer.Tick+=(_,_)=>{
             timer.Stop();
             var latest=_pendingText.TryGetValue(item.Id,out var queued)?queued.Target:text;
