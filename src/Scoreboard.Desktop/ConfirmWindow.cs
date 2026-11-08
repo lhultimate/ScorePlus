@@ -100,7 +100,18 @@ public sealed class ConfirmWindow : Window
     /// <summary>Asks a yes/no question in the app's chrome. Returns true only for the confirm button.</summary>
     public static bool Ask(Window owner, string theme, string heading, string detail, string confirmText, bool destructive = false)
     {
-        var dialog = new ConfirmWindow(theme, heading, detail, confirmText, destructive) { Owner = owner };
+        var dialog = new ConfirmWindow(theme, heading, detail, confirmText, destructive)
+        {
+            Owner = owner,
+            // A fullscreen main window is topmost. An owned non-topmost dialog can end up behind
+            // that window, which made End Game look as though the confirmation never opened.
+            Topmost = owner.Topmost
+        };
+        dialog.Loaded += (_, _) =>
+        {
+            dialog.Activate();
+            dialog.Focus();
+        };
         dialog.ShowDialog();
         return dialog.Confirmed;
     }

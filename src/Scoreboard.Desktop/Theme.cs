@@ -50,8 +50,20 @@ public sealed class UserPreferences
     /// </summary>
     public bool NextDownPreview { get; set; }
 
+    /// <summary>
+    /// Off by default: print the down line's words in full caps — "1st & GOAL", "2nd DOWN" —
+    /// while the ordinal and the distance keep their normal case.
+    /// </summary>
+    public bool UppercaseDownWords { get; set; }
+
     /// <summary>New series goes straight to air instead of waiting for Update Output.</summary>
     public bool NewSeriesLive { get; set; }
+
+    /// <summary>The pen width the operator last used, kept across shows.</summary>
+    public double AnnotationWidth { get; set; } = 3;
+
+    /// <summary>Seconds before annotation ink fades; zero keeps it until Clear.</summary>
+    public double AnnotationFadeSeconds { get; set; } = 1;
 
     /// <summary>
     /// How long the graphic holds an old value before printing the new one, in seconds. 0 is
@@ -138,7 +150,10 @@ public sealed class UserPreferences
         ClockFormat = ClockFormat,
         AutoUpdateRecord = AutoUpdateRecord,
         NextDownPreview = NextDownPreview,
+        UppercaseDownWords = UppercaseDownWords,
         NewSeriesLive = NewSeriesLive,
+        AnnotationWidth = AnnotationWidth,
+        AnnotationFadeSeconds = AnnotationFadeSeconds,
         LastSport = LastSport,
         QuickLayouts = QuickLayouts.Select(binding => new QuickLayoutBinding { Label = binding.Label, DisplayId = binding.DisplayId, LayoutId = binding.LayoutId }).ToList(),
         QuickMedia = QuickMedia.Select(binding => new QuickMediaBinding { Label = binding.Label, Path = binding.Path }).ToList(),
@@ -245,6 +260,14 @@ public static class PreferencesStore
         // A negative interval is not a setting; the shipped default is five minutes. Zero is a real
         // choice and means never autosave.
         if (preferences.AutosaveMinutes < 0) preferences.AutosaveMinutes = 5;
+        // Annotation settings are real choices, but a malformed or out-of-range file must not make
+        // the toolbar unusable. Zero fade is Permanent and is preserved.
+        if (!double.IsFinite(preferences.AnnotationWidth)) preferences.AnnotationWidth = 3;
+        preferences.AnnotationWidth = Math.Clamp(preferences.AnnotationWidth, 1, 24);
+        if (!double.IsFinite(preferences.AnnotationFadeSeconds) || preferences.AnnotationFadeSeconds < 0)
+            preferences.AnnotationFadeSeconds = 1;
+        preferences.AnnotationFadeSeconds = Math.Clamp(preferences.AnnotationFadeSeconds, 0, 10);
+        if (preferences.AnnotationFadeSeconds is > 0 and < 0.5) preferences.AnnotationFadeSeconds = 0.5;
         if (preferences.ClockFormat is not ("Padded" or "Compact")) preferences.ClockFormat = "Padded";
         if (preferences.Theme is not ("System" or "Dark" or "Light")) preferences.Theme = "System";
     }
@@ -256,6 +279,7 @@ public static class PreferencesStore
             ? ClockStyle.Compact
             : ClockStyle.Padded;
         GameEngine.AutoUpdateRecordEnabled = preferences.AutoUpdateRecord;
+        GameEngine.UppercaseDownWordsEnabled = preferences.UppercaseDownWords;
     }
 
     public static void Save(UserPreferences preferences)

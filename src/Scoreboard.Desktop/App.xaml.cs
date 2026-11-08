@@ -91,6 +91,20 @@ public partial class App : Application
         e.Handled = true;
     }
 
+    protected override void OnExit(ExitEventArgs e)
+    {
+        base.OnExit(e);
+#if DEBUG
+        // The smoke harness shares this App but creates and closes windows all run; don't terminate
+        // it before its own cleanup and result reporting.
+        if (SuppressStartupForSmoke) return;
+#endif
+        // A native codec, capture driver or audio endpoint can keep a thread alive after WPF has
+        // closed every window. The operator closed ScorePlus, so the process must leave Task Manager
+        // too, rather than sitting there with no window.
+        Environment.Exit(0);
+    }
+
     /// <summary>Appends a timestamped error to <c>%LOCALAPPDATA%\ScorePlus\logs\errors.log</c>.</summary>
     static void LogCrash(Exception? error)
     {

@@ -39,6 +39,8 @@
         <TextBlock Text="Off by default. Pressing Next down prints just the new down, so the graphic never shows the old series' distance beside it; setting the distance (or Update Output) turns it into 2nd &amp; 4." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <CheckBox x:Name="NewSeriesInput" Content="New series updates output immediately" Checked="NewSeries_Changed" Unchecked="NewSeries_Changed"/>
         <TextBlock Text="Off by default. Pressing New series puts 1st &amp; 10 on air at once instead of waiting for Update Output." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
+        <CheckBox x:Name="UppercaseDownInput" Content="Down line prints in full caps" Checked="UppercaseDown_Changed" Unchecked="UppercaseDown_Changed"/>
+        <TextBlock Text="Off by default. With this on, the down line reads 1st &amp; GOAL or 2nd DOWN instead of 1st &amp; Goal or 2nd Down. The ordinal, the distance and the PAT labels stay as they are." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <Separator/>
         <TextBlock Text="CLOCK HORNS" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="GameClockHornInput" Content="Sound the horn when the game clock reaches zero" Checked="ClockHorn_Changed" Unchecked="ClockHorn_Changed"/>

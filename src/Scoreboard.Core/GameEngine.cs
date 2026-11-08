@@ -180,7 +180,7 @@ public sealed class GameState
     public string ToGoDisplay => FootballDownMode switch
     {
         FootballDownMode.Normal => YardsToGo.ToString(),
-        FootballDownMode.Goal => "Goal",
+        FootballDownMode.Goal => GameEngine.UppercaseDownWordsEnabled ? "GOAL" : "Goal",
         _ => ""
     };
 
@@ -191,8 +191,8 @@ public sealed class GameState
         FootballDownMode.Pat => "PAT",
         FootballDownMode.TwoPoint => "2 PT ATT",
         FootballDownMode.None => "",
-        FootballDownMode.Goal => $"{DownDisplay} & Goal",
-        _ => DownPending ? $"{DownDisplay} Down" : $"{DownDisplay} & {ToGoDisplay}"
+        FootballDownMode.Goal => $"{DownDisplay} & {ToGoDisplay}",
+        _ => DownPending ? $"{DownDisplay} {(GameEngine.UppercaseDownWordsEnabled ? "DOWN" : "Down")}" : $"{DownDisplay} & {ToGoDisplay}"
     };
 
     /// <summary>The words or time the audience clock carries.</summary>
@@ -815,6 +815,21 @@ public sealed class GameEngine
         return true;
     }
 
+    /// <summary>
+    /// Starts the same game over after the final: the score, every clock, the period and this
+    /// game's stats return to a new game, while the teams and everything that describes them —
+    /// names, colours, logos, records and the selected rosters and players — stay put.
+    /// </summary>
+    public bool RestartGame()
+    {
+        if (!State.GameEnded) return false;
+        var sport = State.SportId;
+        NewGame(sport, keepTeamIdentity: true);
+        Log("Game", "Game restarted");
+        Changed?.Invoke();
+        return true;
+    }
+
     public void NextPeriod()
     {
         SaveUndo("Period"); State.Period++;
@@ -987,6 +1002,12 @@ public sealed class GameEngine
         Log("Down", $"Recalled {State.Down} & {State.YardsToGo} — press Update Output");
         Changed?.Invoke();
     }
+
+    /// <summary>
+    /// When on, the down line's words print in full caps: "1st & GOAL" and "2nd DOWN". The
+    /// ordinal, the distance and the PAT labels do not change. Off by default.
+    /// </summary>
+    public static bool UppercaseDownWordsEnabled { get; set; }
 
     /// <summary>Whether Next down shows the new down alone until the distance is set.</summary>
     public static bool DownPreviewEnabled { get; set; }

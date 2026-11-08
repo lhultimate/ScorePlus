@@ -38,6 +38,9 @@ public sealed class ScorebugCanvasView : Grid
     // Hosts whose position is travelling from an outgoing layout's spot to the incoming spot.
     readonly List<(ScorebugElement Item,FrameworkElement Host,Transform Original)> _swapMoves = [];
     readonly MediaPlayback? _playback;
+    // Optional node-rule runtime. When present, this view draws the runtime's temporary copy of
+    // the layout (matched actions only); the saved design is never changed.
+    readonly AutomationRuntime? _automation;
     readonly bool _muteVideo;
     // A silent monitor of the audience picture (not a preview), so it follows the on-air cue.
     readonly bool _onAirVideo;
@@ -64,9 +67,9 @@ public sealed class ScorebugCanvasView : Grid
     /// actually published, not the one being designed in the preview.</param>
     /// <param name="layoutProvider">Draws exactly the layout this view belongs to (a specific
     /// display's on-air layout, or a window's staged one). Overrides <paramref name="publishedLayout"/>.</param>
-    public ScorebugCanvasView(ScorebugCatalog catalog, GameEngine engine, Func<GameState>? stateProvider=null, MediaPlayback? playback=null, bool muteVideo=true, bool publishedLayout=false, Func<ScorebugLayout>? layoutProvider=null, bool onAirVideo=false, string? displayId=null)
+    public ScorebugCanvasView(ScorebugCatalog catalog, GameEngine engine, Func<GameState>? stateProvider=null, MediaPlayback? playback=null, bool muteVideo=true, bool publishedLayout=false, Func<ScorebugLayout>? layoutProvider=null, bool onAirVideo=false, string? displayId=null, AutomationRuntime? automation=null)
     {
-        _catalog=catalog;_engine=engine;_live=stateProvider is null;
+        _catalog=catalog;_engine=engine;_live=stateProvider is null;_automation=automation;
         _displayId=displayId;
         _layoutProvider = layoutProvider ?? (publishedLayout ? () => _catalog.PublishedLayout : () => _catalog.Layout);
         _stateProvider=stateProvider??(()=>_engine.State);
@@ -74,6 +77,7 @@ public sealed class ScorebugCanvasView : Grid
         _stage.Children.Add(_canvas);
         Children.Add(new Viewbox { Stretch=Stretch.Uniform, Child=_stage });
         _catalog.Changed+=Rebuild;
+        if(_automation is not null)_automation.Changed+=Rebuild;
         // A roster edit changes what a specific-player binding prints, without touching the game.
         RosterStore.Changed+=UpdateValues;
         if(stateProvider is null)_engine.Changed+=UpdateValues;else _engine.Changed+=UpdateClockValues;
@@ -83,7 +87,7 @@ public sealed class ScorebugCanvasView : Grid
     }
 
     /// <summary>The artwork this view is drawing: the design being previewed, or the published one.</summary>
-    public ScorebugLayout Layout => _layoutProvider();
+    public ScorebugLayout Layout => _automation?.Effective(_displayId,_layoutProvider()) ?? _layoutProvider();
 
     public void Rebuild()
     {
@@ -736,8 +740,14 @@ public sealed class ScorebugCanvasView : Grid
         var still=new Image{Source=outgoing,Width=width,Height=height,Stretch=Stretch.Fill};
         var video=new MediaElement{Width=width,Height=height,Stretch=Stretch.Fill,IsMuted=true,
             LoadedBehavior=MediaState.Play,UnloadedBehavior=MediaState.Manual};
+        // The hand-over video can be shot against a green screen just like a camera or a replay.
+        // The shader is the same one used by video elements, so the key colour reaches the pixels.
+        var keyed=TryParseColor(incoming.TransitionVideoChromaKeyColor,out var keyColour);
+        if(keyed) video.Effect=new ChromaKeyEffect{KeyColor=keyColour,Tolerance=incoming.TransitionVideoChromaKeyTolerance};
         try{video.Source=new Uri(path);}catch{return false;}
-        stack.Children.Add(still);
+        // With a key, the transparent pixels reveal the incoming layout underneath, not the old
+        // still. A plain video hand-over still covers the old picture while it plays.
+        if(!keyed) stack.Children.Add(still);
         stack.Children.Add(video);
         _stage.Children.Add(stack);
         _swapOverlay=stack;
@@ -831,6 +841,14 @@ public sealed class ScorebugCanvasView : Grid
                 break;
         }
         _animations[item.Id]=(item.Animation,item.Opacity,motion,item.Rotation);
+    }
+
+    static bool TryParseColor(string? text,out Color colour)
+    {
+        colour=default;
+        var value=(text??"").Trim();
+        if(value.Length<4||value[0]!='#')return false;
+        try{return ColorConverter.ConvertFromString(value) is Color parsed&&(colour=parsed).A>0;}catch{return false;}
     }
 
     /// <summary>True when any element prints the date or the time of day.</summary>
@@ -975,6 +993,7 @@ public sealed class ScorebugCanvasView : Grid
         _wallClock.Stop();
         foreach(var (id,_) in _pendingText.ToArray()) CancelPending(id);
         _catalog.Changed-=Rebuild;
+        if(_automation is not null)_automation.Changed-=Rebuild;
         RosterStore.Changed-=UpdateValues;
         if(_live)_engine.Changed-=UpdateValues;else _engine.Changed-=UpdateClockValues;
         foreach(var surface in _videoSurfaces.Values) surface.Dispose();

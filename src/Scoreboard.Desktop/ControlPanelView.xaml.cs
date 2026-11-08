@@ -57,6 +57,7 @@ public partial class ControlPanelView : UserControl
     string _statsSignature = "";
     bool _syncingLive;
     bool _clockMessageSync;
+    bool _footballModeSync;
     bool _loadingNames;
     bool _showHints;
     KeybindSettings _keybinds = KeybindStore.Load();
@@ -258,7 +259,7 @@ public partial class ControlPanelView : UserControl
         _clockMessageSync = true;
         ClockMessageBox.SelectedIndex = (int)s.ClockMessage;
         _clockMessageSync = false;
-        UpdateFootballModeButtons(s);
+        UpdateFootballMode(s);
         // Soccer's added time lives under the game clock, and only for soccer.
         var soccer = s.SportId == "soccer";
         StoppageRow.Visibility = soccer ? Visibility.Visible : Visibility.Collapsed;
@@ -286,7 +287,7 @@ public partial class ControlPanelView : UserControl
 
         var football = s.SportId == "football";
         FootballDetail.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
-        FootballModeButtons.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
+        FootballModeBox.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
         // Every sport with its own flag list gets the strip; Custom has no flags, so it stays hidden.
         PenaltyStrip.Visibility = GameEngine.PenaltyTypesFor(s.SportId).Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         OtherDetail.Visibility = football ? Visibility.Collapsed : Visibility.Visible;
@@ -360,19 +361,23 @@ public partial class ControlPanelView : UserControl
         _engine.SetClockMessage((GameClockMessage)Math.Clamp(ClockMessageBox.SelectedIndex, 0, 2));
     }
 
-    void UpdateFootballModeButtons(GameState s)
+    void UpdateFootballMode(GameState s)
     {
         var mode = s.SportId == "football" ? s.FootballDownMode : FootballDownMode.Normal;
-        void Mark(Button button, FootballDownMode value)
+        _footballModeSync = true;
+        try
         {
-            button.FontWeight = mode == value ? FontWeights.Bold : FontWeights.SemiBold;
-            button.Opacity = s.SportId == "football" ? 1 : 0.45;
+            FootballModeBox.SelectedIndex = (int)mode;
+            FootballModeBox.IsEnabled = s.SportId == "football";
         }
-        Mark(FootballNormalButton, FootballDownMode.Normal);
-        Mark(FootballGoalButton, FootballDownMode.Goal);
-        Mark(FootballPatButton, FootballDownMode.Pat);
-        Mark(FootballTwoPointButton, FootballDownMode.TwoPoint);
-        Mark(FootballNoneButton, FootballDownMode.None);
+        finally { _footballModeSync = false; }
+    }
+
+    void FootballMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_footballModeSync || _engine is null || FootballModeBox.SelectedItem is not ComboBoxItem item) return;
+        if (!Enum.TryParse<FootballDownMode>(item.Tag as string, out var mode)) return;
+        _engine.SetFootballDownMode(mode);
     }
 
     /// <summary>Any of the three controls writes the whole flag, so the box can never half-change.</summary>

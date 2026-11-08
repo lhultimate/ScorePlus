@@ -26,6 +26,7 @@ public partial class SettingsWindow : Window
         ShowHints.IsChecked = _draft.ShowHeadingHints;
         QuickPublishInput.IsChecked = _draft.QuickLayoutsPublish;
         DownPreviewInput.IsChecked = _draft.NextDownPreview;
+        UppercaseDownInput.IsChecked = _draft.UppercaseDownWords;
         NewSeriesInput.IsChecked = _draft.NewSeriesLive;
         GameClockHornInput.IsChecked = _draft.HornOnGameClockZero;
         PlayClockHornInput.IsChecked = _draft.HornOnPlayClockZero;
@@ -256,6 +257,12 @@ public partial class SettingsWindow : Window
         _draft.QuickLayoutsPublish = QuickPublishInput.IsChecked == true;
     }
 
+    void UppercaseDown_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || UppercaseDownInput is null) return;
+        _draft.UppercaseDownWords = UppercaseDownInput.IsChecked == true;
+    }
+
     void ClockHorn_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || GameClockHornInput is null || PlayClockHornInput is null) return;
@@ -359,6 +366,7 @@ public partial class SettingsWindow : Window
         _original.ShowHeadingHints = _draft.ShowHeadingHints;
         _original.QuickLayoutsPublish = _draft.QuickLayoutsPublish;
         _original.NextDownPreview = _draft.NextDownPreview;
+        _original.UppercaseDownWords = _draft.UppercaseDownWords;
         _original.NewSeriesLive = _draft.NewSeriesLive;
         _original.HornOnGameClockZero = _draft.HornOnGameClockZero;
         _original.HornOnPlayClockZero = _draft.HornOnPlayClockZero;

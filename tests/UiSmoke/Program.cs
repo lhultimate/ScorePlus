@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Ink;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -662,8 +663,15 @@ internal static class Program
             ((ComboBox)saveWindow.FindName("ThemeSelector")!).SelectedItem = "Light";
             saveWindow.FindName("ThemeSelector");
             var saveButton = FindAll<Button>(saveWindow).First(b => (b.Content as string) == "Save");
+            var capsBox = FindAll<CheckBox>(saveWindow).FirstOrDefault(box => (box.Content as string) == "Down line prints in full caps")
+                ?? throw new Exception("FAIL: preferences have no full-caps down line option");
+            if (capsBox.IsChecked == true)
+                throw new Exception("FAIL: the full-caps down line is on by default");
+            capsBox.IsChecked = true;
             saveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (prefsProbe.Theme != "Light") throw new Exception("FAIL: saving preferences did not apply the theme");
+            if (!prefsProbe.UppercaseDownWords || !GameEngine.UppercaseDownWordsEnabled)
+                throw new Exception("FAIL: the full-caps down line preference did not save or apply");
             // System is offered alongside the pinned themes and can be saved.
             var systemChoices = ((ComboBox)saveWindow.FindName("ThemeSelector")!).ItemsSource as string[];
             if (systemChoices is null || !systemChoices.Contains("System"))
@@ -672,10 +680,16 @@ internal static class Program
             systemWindow.Show();
             systemWindow.UpdateLayout();
             ((ComboBox)systemWindow.FindName("ThemeSelector")!).SelectedItem = "System";
+            var capsOff = FindAll<CheckBox>(systemWindow).First(box => (box.Content as string) == "Down line prints in full caps");
+            if (capsOff.IsChecked != true)
+                throw new Exception("FAIL: the saved full-caps down line did not reload");
+            capsOff.IsChecked = false;
             FindAll<Button>(systemWindow).First(b => (b.Content as string) == "Save")
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (prefsProbe.Theme != "System")
                 throw new Exception($"FAIL: the System theme saved as '{prefsProbe.Theme}'");
+            if (prefsProbe.UppercaseDownWords || GameEngine.UppercaseDownWordsEnabled)
+                throw new Exception("FAIL: turning the full-caps down line off did not save or apply");
             Console.WriteLine("PASS: preferences only apply when saved, and System is a saved option");
 
             // Enter while typing in a preference field saves the value but keeps the page open:
@@ -1005,15 +1019,22 @@ internal static class Program
             {
                 foreach (var name in new[]
                          {
-                             "NewSeriesButton", "RecallDownButton", "FootballModeButtons",
-                             "FootballNormalButton", "FootballGoalButton", "FootballPatButton",
-                             "FootballTwoPointButton", "FootballNoneButton", "PenaltyStrip"
+                             "NewSeriesButton", "RecallDownButton", "FootballModeBox", "PenaltyStrip"
                          })
                 {
                     var control = view.FindName(name) as FrameworkElement
                         ?? throw new Exception($"FAIL: {name} is missing from the console");
                     AssertInsideCard(control, name);
                 }
+                var modeBox = view.FindName("FootballModeBox") as ComboBox
+                    ?? throw new Exception("FAIL: the football down-line picker is missing");
+                var modeLabels = modeBox.Items.OfType<ComboBoxItem>().Select(item => item.Content as string).ToArray();
+                if (!modeLabels.SequenceEqual(new[] { "Yards", "Goal", "PAT", "2 PT", "No line" }))
+                    throw new Exception($"FAIL: the down-line picker offers {string.Join(", ", modeLabels)}");
+                modeBox.SelectedIndex = 2;
+                if (engine.State.FootballDownMode != FootballDownMode.Pat)
+                    throw new Exception($"FAIL: choosing PAT left the mode as {engine.State.FootballDownMode}");
+                modeBox.SelectedIndex = 0;
                 var ballSide = FindAll<Button>(view).FirstOrDefault(b => (b.Tag as string) == "football.ball.side")
                     ?? throw new Exception("FAIL: the ball-side switch is missing from the console");
                 AssertInsideCard(ballSide, "the ball-side switch");
@@ -1803,6 +1824,302 @@ internal static class Program
             fsOutput.Close();
             Console.WriteLine("PASS: F11 fills the screen on an audience window and Escape restores it");
 
+            // The audience window can be opened with its annotation tools already showing, and the
+            // toolbar never edits the underlying graphic. The node runtime is checked by applying a
+            // temporary colour and switching a layout without touching the saved artwork.
+            var annotateCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"smoke-annotation-{Guid.NewGuid():N}.json"));
+            var annotateEngine = new GameEngine();
+            annotateEngine.NewGame("football");
+            var annotateOutput = new OutputWindow(annotateEngine, annotateCatalog, "Dark", annotations: true);
+            annotateOutput.Show();
+            annotateOutput.UpdateLayout();
+            if (!annotateOutput.AnnotationToolsOpen || annotateOutput.FindName("ScorebugHost") is null)
+                throw new Exception("FAIL: the audience annotation toolbar did not open");
+            if (!annotateOutput.Title.StartsWith("Operator Draw Window", StringComparison.Ordinal))
+                throw new Exception($"FAIL: the draw window is titled {annotateOutput.Title}");
+            var widthBox = FindAll<TextBox>(annotateOutput).FirstOrDefault(box =>
+                (box.ToolTip as string ?? "").StartsWith("Pen width", StringComparison.Ordinal))
+                ?? throw new Exception("FAIL: the annotation toolbar has no typeable pen-width box");
+            widthBox.Text = "9";
+            annotateOutput.UpdateLayout();
+            if (Math.Abs(annotateOutput.AnnotationWidth - 9) > 0.001)
+                throw new Exception($"FAIL: typing a pen width produced {annotateOutput.AnnotationWidth}");
+            var fadePicker = FindAll<ComboBox>(annotateOutput).FirstOrDefault(box =>
+                (box.ToolTip as string ?? "").Contains("fades", StringComparison.Ordinal))
+                ?? throw new Exception("FAIL: the annotation toolbar has no fade-time picker");
+            if ((fadePicker.SelectedItem as string) != "1 s")
+                throw new Exception($"FAIL: the default annotation fade is {fadePicker.SelectedItem}, not 1 s");
+            var ink = FindAll<InkCanvas>(annotateOutput).SingleOrDefault()
+                ?? throw new Exception("FAIL: the draw window has no ink surface");
+            void AddInkStroke() => ink.Strokes.Add(new Stroke(new StylusPointCollection
+            {
+                new StylusPoint(10, 10), new StylusPoint(100, 100)
+            }));
+            AddInkStroke();
+            Pump(TimeSpan.FromMilliseconds(1400));
+            if (ink.Strokes.Count != 0)
+                throw new Exception("FAIL: the default 1 s ink hold did not fade the stroke away");
+            fadePicker.SelectedItem = "Permanent";
+            AddInkStroke();
+            Pump(TimeSpan.FromMilliseconds(1200));
+            if (ink.Strokes.Count != 1)
+                throw new Exception("FAIL: permanent ink was cleared by the fade timer");
+            fadePicker.SelectedItem = "0.5 s";
+            Pump(TimeSpan.FromMilliseconds(900));
+            if (ink.Strokes.Count != 0)
+                throw new Exception("FAIL: the 0.5 s ink hold did not fade the stroke away");
+            var savedAnnotation = PreferencesStore.Load();
+            if (Math.Abs(savedAnnotation.AnnotationWidth - 9) > 0.001
+                || Math.Abs(savedAnnotation.AnnotationFadeSeconds - 0.5) > 0.001)
+                throw new Exception($"FAIL: annotation settings did not save ({savedAnnotation.AnnotationWidth}, {savedAnnotation.AnnotationFadeSeconds})");
+            annotateOutput.CloseAnnotationTools();
+            if (annotateOutput.AnnotationToolsOpen
+                || !annotateOutput.Title.StartsWith("ScorePlus —", StringComparison.Ordinal))
+                throw new Exception("FAIL: Done did not close the annotation toolbar and restore the audience title");
+            annotateOutput.Close();
+
+            // The pen must be on the real audience window, not a second duplicate window. Opening
+            // annotation for a display that already has output should reuse that output.
+            var annotationMain = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+            annotationMain.Show();
+            annotationMain.UpdateLayout();
+            var audienceWindow = annotationMain.OpenOutputWindow();
+            var secondAudience = annotationMain.OpenOutputWindow();
+            var drawWindow = annotationMain.OpenOutputWindow(annotations: true);
+            if (audienceWindow is null || secondAudience is null || !ReferenceEquals(audienceWindow, drawWindow)
+                || drawWindow is null || !drawWindow.AnnotationToolsOpen
+                || !drawWindow.Title.StartsWith("Operator Draw Window", StringComparison.Ordinal))
+                throw new Exception("FAIL: annotation opened a duplicate instead of putting the pen on the audience window");
+            if (secondAudience.AnnotationToolsOpen)
+                throw new Exception("FAIL: the second audience window received the operator toolbar");
+            var drawInk = FindAll<InkCanvas>(drawWindow).Single();
+            var audienceInk = FindAll<InkCanvas>(secondAudience).Single();
+            drawInk.Strokes.Add(new Stroke(new StylusPointCollection
+            {
+                new StylusPoint(12, 12), new StylusPoint(120, 80)
+            }));
+            Pump(TimeSpan.FromMilliseconds(80));
+            if (audienceInk.Strokes.Count != 1)
+                throw new Exception("FAIL: the pen did not reach the second audience window");
+            annotationMain.Close();
+            Pump(TimeSpan.FromMilliseconds(250));
+
+            // The in-progress stroke belongs to the shared collection from the first point, and the
+            // fade hold is held back until the stroke is released. This is the exact ordering the
+            // operator sees when drawing on one output and watching another.
+            var liveBoard = new AnnotationBoard(TimeSpan.FromSeconds(0.5));
+            var livePath = Path.Combine(appDataPath, $"smoke-live-ink-{Guid.NewGuid():N}.json");
+            var inkEngine = new GameEngine();
+            inkEngine.NewGame("football");
+            try
+            {
+                var liveCatalog = new ScorebugCatalog(livePath);
+                var liveOperator = new OutputWindow(inkEngine, liveCatalog, "Dark", annotations: true, annotationBoard: liveBoard);
+                var liveAudience = new OutputWindow(inkEngine, liveCatalog, "Dark", annotationBoard: liveBoard);
+                liveOperator.Show();
+                liveAudience.Show();
+                liveAudience.ShowAudienceInk();
+                liveOperator.UpdateLayout();
+                liveAudience.UpdateLayout();
+                var liveAudienceInk = FindAll<InkCanvas>(liveAudience).Single();
+                var liveStroke = new Stroke(new StylusPointCollection { new StylusPoint(10, 10) });
+                liveBoard.BeginStroke();
+                liveBoard.Strokes.Add(liveStroke);
+                Pump(TimeSpan.FromMilliseconds(750));
+                if (liveBoard.Strokes.Count != 1)
+                    throw new Exception("FAIL: ink started fading before the operator released the pen");
+                liveStroke.StylusPoints.Add(new StylusPoint(100, 100));
+                Pump(TimeSpan.FromMilliseconds(60));
+                if (liveAudienceInk.Strokes.Count != 1 || liveAudienceInk.Strokes[0].StylusPoints.Count != 2)
+                    throw new Exception("FAIL: the audience did not receive the in-progress stroke points");
+                liveBoard.EndStroke();
+                Pump(TimeSpan.FromMilliseconds(850));
+                if (liveBoard.Strokes.Count != 0)
+                    throw new Exception("FAIL: the fade hold did not start after the stroke finished");
+                liveOperator.Close();
+                liveAudience.Close();
+                Console.WriteLine("PASS: live ink reaches the audience during the stroke, and its fade starts on release");
+            }
+            finally { if (File.Exists(livePath)) File.Delete(livePath); }
+
+            // The pen draws in the scorebug's design space, so its surface sits exactly on the
+            // artwork. On a tall, vertical monitor the graphic is letterboxed; a window-sized ink
+            // canvas put the pen in the black bars above it.
+            var alignPath = Path.Combine(appDataPath, $"smoke-annotation-align-{Guid.NewGuid():N}.json");
+            try
+            {
+                var alignCatalog = new ScorebugCatalog(alignPath);
+                var alignEngine = new GameEngine();
+                alignEngine.NewGame("football");
+                var alignOutput = new OutputWindow(alignEngine, alignCatalog, "Dark", annotations: true)
+                {
+                    Width = 760, Height = 1100
+                };
+                alignOutput.Show();
+                alignOutput.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(80));
+                alignOutput.UpdateLayout();
+                var alignRoot = (FrameworkElement)alignOutput.Content;
+                var alignInk = FindAll<InkCanvas>(alignOutput).Single();
+                var alignView = FindAll<ScorebugCanvasView>(alignOutput).Single();
+                var alignViewbox = alignView.Children.OfType<Viewbox>().Single();
+                var alignSurface = (FrameworkElement)alignInk.Parent;
+                if (Math.Abs(alignOutput.AnnotationSurfaceSize.Width - alignCatalog.Layout.Width) > 0.5
+                    || Math.Abs(alignOutput.AnnotationSurfaceSize.Height - alignCatalog.Layout.Height) > 0.5)
+                    throw new Exception($"FAIL: the pen surface is {alignOutput.AnnotationSurfaceSize}, not the layout's design size");
+                var alignScale = Math.Min(alignViewbox.ActualWidth / alignSurface.Width,
+                    alignViewbox.ActualHeight / alignSurface.Height);
+                var drawn = new Rect((alignViewbox.ActualWidth - alignSurface.Width * alignScale) / 2,
+                    (alignViewbox.ActualHeight - alignSurface.Height * alignScale) / 2,
+                    alignSurface.Width * alignScale, alignSurface.Height * alignScale);
+                var graphicRect = alignViewbox.TransformToAncestor(alignRoot).TransformBounds(drawn);
+                var inkRect = alignInk.TransformToAncestor(alignRoot).TransformBounds(
+                    new Rect(0, 0, alignInk.ActualWidth, alignInk.ActualHeight));
+                if (Math.Abs(graphicRect.Left - inkRect.Left) > 1 || Math.Abs(graphicRect.Top - inkRect.Top) > 1
+                    || Math.Abs(graphicRect.Width - inkRect.Width) > 1 || Math.Abs(graphicRect.Height - inkRect.Height) > 1)
+                    throw new Exception($"FAIL: the pen surface {inkRect} does not sit on the graphic {graphicRect}");
+                if (inkRect.Top <= 0 || inkRect.Bottom >= alignRoot.ActualHeight - 1)
+                    throw new Exception("FAIL: the pen surface fills the window instead of the letterboxed graphic");
+                alignOutput.Close();
+                Console.WriteLine("PASS: the pen surface follows the scorebug onto a tall, letterboxed window");
+            }
+            finally { if (File.Exists(alignPath)) File.Delete(alignPath); }
+
+            // A bypass rule follows the live game and patches the output without publishing; the same
+            // rule with the switch off waits for the published copy, as it always did.
+            var bypassPath = Path.Combine(appDataPath, $"smoke-bypass-{Guid.NewGuid():N}.json");
+            try
+            {
+                var bypassCatalog = new ScorebugCatalog(bypassPath);
+                var bypassDisplay = bypassCatalog.ActiveDisplay;
+                var bypassTarget = bypassCatalog.Layout.Elements.First(element => element.Name == "Home team");
+                const string bypassColor = "#FF12AB34";
+                var onAir = new GameEngine();
+                onAir.NewGame("football");
+                onAir.SetPlayClock(9);
+                var working = new GameEngine();
+                working.NewGame("football");
+                working.SetPlayClock(2);
+                var bypassRule = new AutomationRule { Name = "Live flag", BypassOutputUpdate = true };
+                bypassRule.Conditions.Add(new AutomationCondition { Field = AutomationField.PlayClock, Operator = AutomationOperator.Less, Value = 5 });
+                bypassRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SetTextColor, LayoutId = bypassDisplay.Layouts[0].Id, ElementId = bypassTarget.Id, Value = bypassColor });
+                bypassCatalog.UpdateAutomations(bypassDisplay.Id, [bypassRule]);
+                using var bypassRuntime = new AutomationRuntime(bypassCatalog, onAir, working);
+                ScorebugLayout LiveLayout() => bypassRuntime.Effective(bypassDisplay.Id, bypassCatalog.PublishedCompositeOf(bypassDisplay.Id));
+                if (LiveLayout().Elements.First(element => element.Id == bypassTarget.Id).Foreground != bypassColor)
+                    throw new Exception("FAIL: the bypass rule did not use the live game state");
+                bypassRule.BypassOutputUpdate = false;
+                bypassCatalog.UpdateAutomations(bypassDisplay.Id, [bypassRule]);
+                if (LiveLayout().Elements.First(element => element.Id == bypassTarget.Id).Foreground == bypassColor)
+                    throw new Exception("FAIL: a non-bypass rule applied without Update Output");
+                bypassRule.BypassOutputUpdate = true;
+                bypassCatalog.UpdateAutomations(bypassDisplay.Id, [bypassRule]);
+                working.SetPlayClock(8);
+                if (LiveLayout().Elements.First(element => element.Id == bypassTarget.Id).Foreground == bypassColor)
+                    throw new Exception("FAIL: the bypass rule ignored its live condition");
+                Console.WriteLine("PASS: a bypass rule applies from live state, while an ordinary rule still waits for Update Output");
+            }
+            finally { if (File.Exists(bypassPath)) File.Delete(bypassPath); }
+
+            // A rule can hold after it matches (wait until), then run after-wait actions, with an
+            // else branch while it is not matching. This is the flag-down layout round trip.
+            var flowPath = Path.Combine(appDataPath, $"smoke-flow-{Guid.NewGuid():N}.json");
+            try
+            {
+                var flowCatalog = new ScorebugCatalog(flowPath);
+                var flowDisplay = flowCatalog.ActiveDisplay;
+                var flowEngine = new GameEngine();
+                flowEngine.NewGame("football");
+                var flagIndex = flowCatalog.AddLayout("Flag layout");
+                var normalId = flowCatalog.Layouts[0].Id;
+                const string elseColor = "#FF445566";
+                var elseTarget = flowCatalog.Layouts[0].Elements.First(element => element.Name == "Home team");
+                var flowRule = new AutomationRule { Name = "Flag layout round trip" };
+                flowRule.Conditions.Add(new AutomationCondition { Field = AutomationField.PenaltyActive, Operator = AutomationOperator.IsTrue });
+                flowRule.Conditions.Add(new AutomationCondition { Field = AutomationField.PenaltyActive, Operator = AutomationOperator.IsFalse, WaitUntil = true });
+                flowRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SwitchLayout, LayoutId = flowCatalog.Layouts[flagIndex].Id, Phase = AutomationActionPhase.OnMatch });
+                flowRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SwitchLayout, LayoutId = normalId, Phase = AutomationActionPhase.AfterWait });
+                flowRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SetTextColor, Phase = AutomationActionPhase.Else, ElementId = elseTarget.Id, Value = elseColor });
+                flowCatalog.UpdateAutomations(flowDisplay.Id, [flowRule]);
+                using var flowRuntime = new AutomationRuntime(flowCatalog, flowEngine);
+                ScorebugLayout ProgramLayout() => flowRuntime.Effective(flowDisplay.Id, flowCatalog.Layouts[0]);
+                if (flowCatalog.PublishedIndex != 0)
+                    throw new Exception("FAIL: the wait rule switched layouts before its trigger matched");
+                if (ProgramLayout().Elements.First(element => element.Id == elseTarget.Id).Foreground != elseColor)
+                    throw new Exception("FAIL: the else action did not apply while the rule was not matching");
+                flowEngine.SetPenalty(true, "Holding", true);
+                if (flowCatalog.PublishedIndex != flagIndex)
+                    throw new Exception($"FAIL: the flag rule did not switch to the flag layout (published {flowCatalog.PublishedIndex})");
+                if (ProgramLayout().Elements.First(element => element.Id == elseTarget.Id).Foreground == elseColor)
+                    throw new Exception("FAIL: the else action kept applying while the flag rule was matching");
+                if (!flowRuntime.IsRuleActive(flowDisplay.Id, flowRule.Id))
+                    throw new Exception("FAIL: the flag rule is not reported active while it waits");
+                flowEngine.SetPenalty(false, "Holding", true);
+                if (flowCatalog.PublishedIndex != 0)
+                    throw new Exception($"FAIL: the wait-until step did not switch back to the program layout (published {flowCatalog.PublishedIndex})");
+                flowEngine.SetPenalty(true, "Holding", true);
+                if (flowCatalog.PublishedIndex != flagIndex)
+                    throw new Exception("FAIL: the flag rule did not fire again after it returned to its start");
+                flowEngine.SetPenalty(false, "Holding", true);
+                Console.WriteLine("PASS: a rule can wait until a condition changes and switch layouts on match, after the wait, and else");
+            }
+            finally { if (File.Exists(flowPath)) File.Delete(flowPath); }
+
+            var rulePath = Path.Combine(appDataPath, $"smoke-rules-{Guid.NewGuid():N}.json");
+            var ruleCatalog = new ScorebugCatalog(rulePath);
+            var ruleEngine = new GameEngine();
+            ruleEngine.NewGame("football");
+            ruleEngine.SetPlayClock(3);
+            var ruleDisplay = ruleCatalog.ActiveDisplay;
+            var ruleTarget = ruleCatalog.Layout.Elements.First(element => element.Name == "Home team");
+            var rule = new AutomationRule { Name = "Smoke rule" };
+            rule.Conditions.Add(new AutomationCondition { Field = AutomationField.PlayClock, Operator = AutomationOperator.Less, Value = 5 });
+            rule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SetTextColor, LayoutId = ruleDisplay.Layouts[0].Id, ElementId = ruleTarget.Id, Value = "#FFFF3B30" });
+            ruleCatalog.UpdateAutomations(ruleDisplay.Id, [rule]);
+            using (var runtime = new AutomationRuntime(ruleCatalog, ruleEngine))
+            {
+                var effective = runtime.Effective(ruleDisplay.Id, ruleCatalog.PublishedCompositeOf(ruleDisplay.Id));
+                var changed = effective.Elements.First(element => element.Id == ruleTarget.Id);
+                if (changed.Foreground != "#FFFF3B30" || ruleTarget.Foreground == "#FFFF3B30")
+                    throw new Exception("FAIL: a node rule did not recolour the temporary layout without changing the design");
+                var second = ruleCatalog.AddLayout("Automated layout");
+                var switchRule = new AutomationRule { Name = "Switch" };
+                switchRule.Conditions.Add(new AutomationCondition { Field = AutomationField.PlayClock, Operator = AutomationOperator.Less, Value = 5 });
+                switchRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SwitchLayout, LayoutId = ruleCatalog.Layouts[second].Id });
+                ruleCatalog.UpdateAutomations(ruleDisplay.Id, [rule, switchRule]);
+                if (ruleCatalog.PublishedIndex != second)
+                    throw new Exception($"FAIL: a node rule did not switch layouts (published {ruleCatalog.PublishedIndex}, wanted {second})");
+                // The node editor is a real window with trigger, condition and action cards. Open it
+                // on the same graph and make sure its add-rule path persists another rule.
+                var nodeWindow = new AutomationWindow(ruleCatalog, ruleEngine, "Dark", ruleDisplay.Id, runtime);
+                nodeWindow.Show();
+                nodeWindow.UpdateLayout();
+                if (nodeWindow.Rules.Count != 2 || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "TRIGGER")
+                    || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITION 1")
+                    || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "ACTION 1"))
+                    throw new Exception("FAIL: the node editor did not draw its trigger, condition and action cards");
+                var ruleCombos = FindAll<ComboBox>(nodeWindow).Where(combo => combo.SelectedItem is not null).ToArray();
+                if (ruleCombos.Any(combo => combo.SelectedItem.ToString()?.Contains("Choice", StringComparison.Ordinal) == true))
+                    throw new Exception("FAIL: a node dropdown is showing its CLR type name");
+                if (!ruleCombos.Any(combo => combo.SelectedItem.ToString() == "Play clock"))
+                    throw new Exception("FAIL: the node field dropdown is not showing the field label");
+                if (!FindAll<Button>(nodeWindow).Any(button => (button.Content as string) == "Export…")
+                    || !FindAll<Button>(nodeWindow).Any(button => (button.Content as string) == "Import…"))
+                    throw new Exception("FAIL: the node editor has no .spr export/import actions");
+                var bypassBox = FindAll<CheckBox>(nodeWindow).FirstOrDefault(box => (box.Content as string) == "Bypass having to update output")
+                    ?? throw new Exception("FAIL: the node editor has no Bypass having to update output option");
+                bypassBox.IsChecked = true;
+                nodeWindow.UpdateLayout();
+                if (!nodeWindow.Rules.Any(rule => rule.BypassOutputUpdate))
+                    throw new Exception("FAIL: the bypass checkbox did not reach the rule");
+                nodeWindow.AddRule();
+                nodeWindow.UpdateLayout();
+                if (nodeWindow.Rules.Count != 3)
+                    throw new Exception("FAIL: the node editor did not add a rule");
+                nodeWindow.Close();
+            }
+            Console.WriteLine("PASS: annotation toolbar opens; node rules recolor the live layout, switch layouts, and draw in the node editor");
+
             // A typed play clock must hand the box back to the clock, or the display freezes on the
             // typed value and never counts down to 0.
             var playEngine = new GameEngine();
@@ -2012,6 +2329,71 @@ internal static class Program
                 throw new Exception("FAIL: the exit prompt did not stop a changed game from closing");
             MainWindow.PromptOnExit = false;
             dirty.Close();
+
+            // End Game has to show its confirmation and settle the result. This is a modal test, not
+            // just a call to the engine: the reported bug was that the dialog never appeared.
+            {
+                var ending = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+                ending.Show();
+                ending.UpdateLayout();
+                ending.StartNewGame("football", announce: false);
+                ending.Engine.SetTeamIdentity(true, "Restart Home", "RST", null, "#FF112233", "#FF445566", mascot: "Eagles", record: "2-0", ranking: "#7", divisionRecord: "1-0");
+                ending.Engine.Score(true, 3);
+                var restartTeam = ending.Engine.State.HomeTeam;
+                var restartColor = ending.Engine.State.HomePrimaryColor;
+                ending.UpdateLayout();
+                var endButton = FindAll<Button>(ending).FirstOrDefault(button => (button.Content as string) == "End Game")
+                    ?? throw new Exception("FAIL: the main window has no End Game button");
+                var endTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+                var sawEndConfirm = false;
+                endTimer.Tick += (_, _) =>
+                {
+                    var confirm = Application.Current.Windows.OfType<ConfirmWindow>().FirstOrDefault();
+                    if (confirm is null) return;
+                    endTimer.Stop();
+                    sawEndConfirm = true;
+                    var finish = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "End game")
+                        ?? throw new Exception("FAIL: the End Game confirmation has no End game action");
+                    finish.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                };
+                endTimer.Start();
+                endButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump(TimeSpan.FromMilliseconds(250));
+                if (!sawEndConfirm || !ending.Engine.State.GameEnded || !ending.Engine.State.RecordSettled)
+                    throw new Exception("FAIL: End Game did not show its confirmation and settle the result");
+                if ((endButton.Content as string) != "Restart Game")
+                    throw new Exception($"FAIL: the final game still offers “{endButton.Content}” instead of Restart Game");
+                if (ending.Engine.State.HomeRecord != "3-0")
+                    throw new Exception($"FAIL: End Game did not settle the record before the restart ({ending.Engine.State.HomeRecord})");
+                var sawRestartConfirm = false;
+                var restartTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+                restartTimer.Tick += (_, _) =>
+                {
+                    var confirm = Application.Current.Windows.OfType<ConfirmWindow>().FirstOrDefault();
+                    if (confirm is null) return;
+                    restartTimer.Stop();
+                    sawRestartConfirm = true;
+                    var restart = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "Restart game")
+                        ?? throw new Exception("FAIL: the Restart Game confirmation has no Restart game action");
+                    restart.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                };
+                restartTimer.Start();
+                endButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump(TimeSpan.FromMilliseconds(250));
+                if (!sawRestartConfirm || ending.Engine.State.GameEnded
+                    || ending.Engine.State.HomeScore != 0 || ending.Engine.State.AwayScore != 0
+                    || ending.Engine.State.Period != 1)
+                    throw new Exception("FAIL: Restart Game did not clear the final and start a fresh game");
+                if (ending.Engine.State.HomeTeam != restartTeam
+                    || ending.Engine.State.HomePrimaryColor != restartColor
+                    || ending.Engine.State.HomeRecord != "3-0")
+                    throw new Exception("FAIL: Restart Game did not keep the team details and settled record");
+                if ((endButton.Content as string) != "End Game")
+                    throw new Exception("FAIL: the Restart Game button did not become End Game again");
+                ending.Close();
+                Pump(TimeSpan.FromMilliseconds(200));
+                Console.WriteLine("PASS: End Game settles the result, then Restart Game resets the score and keeps the teams");
+            }
 
             // Choosing Exit without saving must actually close, and must do so after OnClosing
             // has finished (calling Close from inside it is what raised the WPF error).

@@ -185,20 +185,55 @@ public partial class ScorebugEditorWindow : Window
 
     void TransitionVideoClear_Click(object sender,RoutedEventArgs e)
     {
-        _catalog.Update(layout=>layout.TransitionVideoPath="");
+        _catalog.Update(layout=>{layout.TransitionVideoPath="";layout.TransitionVideoChromaKeyColor="";});
         SyncTransitionVideo();
         LoadProperties();
     }
 
-    /// <summary>Names the chosen hand-over video on the transition bar.</summary>
+    /// <summary>Chooses the backdrop colour removed from the video hand-over.</summary>
+    void TransitionChromaKey_Click(object sender,RoutedEventArgs e)
+    {
+        var current=_catalog.Layout.TransitionVideoChromaKeyColor;
+        var chosen=ColorPickerWindow.Pick(this,string.IsNullOrWhiteSpace(current)?"#FF00B140":current);
+        if(chosen is null)return;
+        _catalog.Update(layout=>layout.TransitionVideoChromaKeyColor=chosen);
+        SyncTransitionVideo();
+        LoadProperties();
+    }
+
+    void TransitionChromaKeyClear_Click(object sender,RoutedEventArgs e)
+    {
+        _catalog.Update(layout=>layout.TransitionVideoChromaKeyColor="");
+        SyncTransitionVideo();
+        LoadProperties();
+    }
+
+    void TransitionChromaTolerance_Changed(object sender,TextChangedEventArgs e)
+    {
+        if(_loading)return;
+        if(!double.TryParse(TransitionKeyToleranceInput.Text,out var tolerance))return;
+        _catalog.Update(layout=>layout.TransitionVideoChromaKeyTolerance=Math.Clamp(tolerance,0,1));
+    }
+
+    /// <summary>Names the chosen hand-over video and its optional chroma key.</summary>
     void SyncTransitionVideo()
     {
         if(TransitionVideoClearButton is null||TransitionCaption is null)return;
         var path=_catalog.Layout.TransitionVideoPath;
-        TransitionVideoClearButton.Visibility=string.IsNullOrWhiteSpace(path)?Visibility.Collapsed:Visibility.Visible;
-        TransitionCaption.Text=string.IsNullOrWhiteSpace(path)
+        var hasVideo=!string.IsNullOrWhiteSpace(path);
+        var hasKey=hasVideo&&!string.IsNullOrWhiteSpace(_catalog.Layout.TransitionVideoChromaKeyColor);
+        TransitionVideoClearButton.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        TransitionKeyButton.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        TransitionKeyClearButton.Visibility=hasKey?Visibility.Visible:Visibility.Collapsed;
+        TransitionKeyToleranceLabel.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        TransitionKeyToleranceInput.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        var tolerance=_catalog.Layout.TransitionVideoChromaKeyTolerance.ToString("0.00");
+        if(TransitionKeyToleranceInput.Text!=tolerance)TransitionKeyToleranceInput.Text=tolerance;
+        TransitionCaption.Text=!hasVideo
             ? "  Saved with this layout — every layout can arrive differently."
-            : $"  Video hand-over · {System.IO.Path.GetFileName(path)}";
+            : hasKey
+                ? $"  Video hand-over · {System.IO.Path.GetFileName(path)} · key {_catalog.Layout.TransitionVideoChromaKeyColor}"
+                : $"  Video hand-over · {System.IO.Path.GetFileName(path)}";
     }
 
     /// <summary>Where the value sits inside its box, offered beside the text content.</summary>

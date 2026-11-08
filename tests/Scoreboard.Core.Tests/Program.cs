@@ -60,6 +60,25 @@ engine.SetDown(1);engine.SetFootballDistance(6);engine.SetFootballDownMode(Footb
 engine.NewGame("football");engine.SetClockMessage(GameClockMessage.Final);Check(engine.State.GameClockText=="FINAL"&&ScoreboardTemplates.Bind("{{GAME_CLOCK}}",engine.State)=="FINAL","the game clock can read Final");engine.SetClockMessage(GameClockMessage.EndOfRegulation);Check(engine.State.GameClockText=="END OF REG."&&ScoreboardTemplates.Bind("{{GAME_CLOCK}}",engine.State)=="END OF REG.","the game clock can read End of Reg.");engine.SetClockMessage(GameClockMessage.Clock);Check(engine.State.GameClockText==GameEngine.FormatClock(engine.State.ClockSeconds),"the game clock returns to the running time");
 engine.NewGame("football");engine.SetPeriod(5);Check(PeriodDisplay.Format(engine.State)=="OT","a fifth football period prints OT");engine.SetPeriod(6);Check(PeriodDisplay.Format(engine.State)=="2OT","a sixth football period prints 2OT");
 engine.NewGame("soccer");engine.AddCard(true);engine.AddCard(false,true);Check(engine.State.HomeYellowCards==1&&engine.State.AwayRedCards==1,"soccer yellow and red cards track per side");Check(engine.Undo()&&engine.State.AwayRedCards==0,"soccer card can be undone");
+Check(!GameEngine.UppercaseDownWordsEnabled,"the full-caps down line is off by default");
+engine.NewGame("football");engine.SetFootballDownMode(FootballDownMode.Goal);
+Check(engine.State.DownDistanceDisplay=="1st & Goal"&&engine.State.ToGoDisplay=="Goal",
+    "the down line prints mixed case by default");
+try
+{
+    GameEngine.UppercaseDownWordsEnabled=true;
+    Check(engine.State.DownDistanceDisplay=="1st & GOAL"&&engine.State.ToGoDisplay=="GOAL",
+        "the full-caps option prints 1st & GOAL");
+    engine.SetFootballDownMode(FootballDownMode.Normal);engine.State.Down=2;engine.State.DownPending=true;
+    Check(engine.State.DownDistanceDisplay=="2nd DOWN"&&ScoreboardTemplates.Bind("{{DOWNS}}",engine.State)=="2nd DOWN",
+        "the full-caps option prints 2nd DOWN on the graphic");
+}
+finally
+{
+    GameEngine.UppercaseDownWordsEnabled=false;
+    engine.State.DownPending=false;
+}
+Check(engine.State.DownDistanceDisplay=="2nd & 10","the down line returns to mixed case when the option is off");
 var sportsGame=Path.Combine(Path.GetTempPath(),$"sports-state-{Guid.NewGuid():N}.scoreboard");engine.NewGame("football");engine.SetFootballDistance(3,17);engine.AdvanceDown();engine.Save(sportsGame);var restored=new GameEngine();restored.Load(sportsGame);Check(restored.State.Down==2&&restored.State.YardsToGo==3&&restored.State.YardsToGoal==17,"sport-specific state persists in saved game");File.Delete(sportsGame);
 engine.NewGame("baseball");engine.BaseballBall();engine.BaseballBall();engine.BaseballBall();engine.BaseballBall();Check(engine.State.Balls==0&&engine.State.Strikes==0,"four baseball balls reset the count");
 engine.BaseballStrike();engine.BaseballStrike();engine.BaseballStrike(true);Check(engine.State.Strikes==2&&engine.State.Outs==0,"baseball foul at two strikes does not record a third strike");
@@ -704,6 +723,25 @@ try
     Check(endedGame.Undo()&&!endedGame.State.GameEnded&&!endedGame.State.RecordSettled
         &&endedGame.State.HomeRecord=="4-0",
         "End Game and its record update can be undone");
+    var restartGame=new GameEngine();restartGame.NewGame("football");
+    restartGame.SetTeamIdentity(true,"Restart Home","RST",null,"#FF112233","#FF445566",mascot:"Eagles",record:"2-0",ranking:"#7",divisionRecord:"1-0");
+    restartGame.State.HomeRosterId="roster-1";
+    restartGame.Score(true,7);restartGame.Score(false,3);
+    restartGame.State.HomeTimeouts=1;restartGame.State.Period=3;restartGame.State.ClockSeconds=87;
+    restartGame.EndGame();
+    var settledRecord=restartGame.State.HomeRecord;
+    Check(restartGame.RestartGame()&&!restartGame.State.GameEnded&&!restartGame.State.RecordSettled
+        &&settledRecord=="3-0"
+        &&restartGame.State.HomeScore==0&&restartGame.State.AwayScore==0
+        &&restartGame.State.Period==1&&restartGame.State.ClockSeconds==restartGame.State.PeriodSeconds
+        &&restartGame.State.HomeTimeouts==restartGame.State.HomeTimeoutLimit,
+        "Restart Game clears the final, score and clocks");
+    Check(restartGame.State.HomeTeam=="Restart Home"&&restartGame.State.HomeAbbreviation=="RST"
+        &&restartGame.State.HomePrimaryColor=="#FF112233"&&restartGame.State.HomeMascot=="Eagles"
+        &&restartGame.State.HomeRanking=="#7"&&restartGame.State.HomeDivisionRecord=="1-0"
+        &&restartGame.State.HomeRecord==settledRecord&&restartGame.State.HomeRosterId=="roster-1",
+        "Restart Game keeps the team properties and the settled record");
+    Check(!restartGame.RestartGame(),"a running game is not restarted by the End Game button");
     var quickSave=Path.Combine(Path.GetTempPath(),$"quick-buttons-{Guid.NewGuid():N}.spg");
     engine.NewGame("basketball");
     engine.State.QuickLayouts=[new SavedQuickLayout{Label="Flag Layout",DisplayId="main",LayoutId="flag"}];
@@ -714,6 +752,90 @@ try
         &&quickReload.State.QuickMedia.Single().Path=="C:\\clips\\replay.mp4",
         "quick layout and media buttons travel inside the game save");
     File.Delete(quickSave);
+
+    // ---------- node rules and hand-over chroma keying ----------
+    var automationPath=Path.Combine(Path.GetTempPath(),$"automation-{Guid.NewGuid():N}.json");
+    var chromaPath=Path.Combine(Path.GetTempPath(),$"transition-chroma-{Guid.NewGuid():N}.json");
+    try
+    {
+        var automationCatalog=new ScorebugCatalog(automationPath);
+        var automationDisplay=automationCatalog.ActiveDisplay;
+        var target=automationCatalog.Layout.Elements.First(element=>element.Name=="Home team");
+        var rule=new AutomationRule{Name="Play clock warning"};
+        rule.Conditions.Add(new AutomationCondition{Field=AutomationField.PlayClock,Operator=AutomationOperator.Less,Value=5});
+        rule.Actions.Add(new AutomationAction{Kind=AutomationActionKind.SetTextColor,LayoutId=automationDisplay.Layouts[0].Id,ElementId=target.Id,Value="#FFFF3B30"});
+        automationCatalog.UpdateAutomations(automationDisplay.Id,[rule]);
+        var automationReloaded=new ScorebugCatalog(automationPath);
+        var savedRule=automationReloaded.ActiveDisplay.Automations.Single();
+        Check(savedRule.Name=="Play clock warning"&&savedRule.Conditions.Single().Field==AutomationField.PlayClock
+            &&savedRule.Actions.Single().Kind==AutomationActionKind.SetTextColor&&savedRule.Actions.Single().Value=="#FFFF3B30",
+            "node rules, conditions and actions persist with their display");
+        var ruleEngine=new GameEngine();ruleEngine.NewGame("football");ruleEngine.SetPlayClock(3);
+        Check(savedRule.Matches(ruleEngine.State),"a play-clock condition matches while the clock is below its threshold");
+        ruleEngine.SetPlayClock(8);
+        Check(!savedRule.Matches(ruleEngine.State),"a play-clock condition stops matching above its threshold");
+
+        // Rule bundles carry more than one rule, and the expanded graph can see flags, timeouts,
+        // cards and team figures without making one element per value.
+        var secondRule=new AutomationRule{Name="Flag and yards",BypassOutputUpdate=true};
+        secondRule.Conditions.Add(new AutomationCondition{Field=AutomationField.PenaltyActive,Operator=AutomationOperator.IsTrue});
+        secondRule.Conditions.Add(new AutomationCondition{Field=AutomationField.PenaltyType,Operator=AutomationOperator.Equal,Text="Holding"});
+        secondRule.Conditions.Add(new AutomationCondition{Field=AutomationField.HomeYards,Operator=AutomationOperator.Greater,Value=300});
+        secondRule.Conditions.Add(new AutomationCondition{Field=AutomationField.HomeTimeouts,Operator=AutomationOperator.Equal,Value=1});
+        var ruleBundle=Path.Combine(Path.GetTempPath(),$"rules-{Guid.NewGuid():N}.spr");
+        try
+        {
+            RuleFiles.Save(ruleBundle,new AutomationRule?[]{rule,secondRule});
+            var importedRules=RuleFiles.Load(ruleBundle);
+            Check(importedRules?.Count==2&&importedRules[1].Conditions.Count==4
+                &&importedRules[1].Conditions[1].Field==AutomationField.PenaltyType
+                &&importedRules[1].BypassOutputUpdate,
+                "a ScorePlus Rule .spr bundle exports and imports multiple rules at once, including the live-bypass choice");
+            var flagState=new GameState{PenaltyActive=true,PenaltyType="Holding",HomeYards=347,HomeTimeouts=1,
+                HomeYellowCards=2,AwayRedCards=1,BallOnHomeSide=false,HomeTimeoutLimit=3,TimeoutClockSeconds=42};
+            Check(secondRule.Matches(flagState),"flag, flag type, yards and timeouts all evaluate from the game state");
+            flagState.PenaltyType="Offside";
+            Check(!secondRule.Matches(flagState),"the flag-type condition rejects another penalty");
+            Check(new AutomationCondition{Field=AutomationField.HomeYellowCards,Operator=AutomationOperator.GreaterOrEqual,Value=2}.Matches(flagState),
+                "a card condition reads the home team's yellow cards");
+            Check(new AutomationCondition{Field=AutomationField.HomeTimeoutLimit,Operator=AutomationOperator.Equal,Value=3}.Matches(flagState),
+                "the timeout limit is available as a rule condition");
+            var numericLabels=AutomationRules.OperatorsFor(AutomationField.PlayClock).Select(option=>option.Label).ToArray();
+            Check(new[]{"greater than","less than","less than or equal to","greater than or equal to","equal to"}
+                    .All(label=>numericLabels.Contains(label)),
+                "numeric conditions offer the requested comparisons");
+            var waitRule=new AutomationRule{Name="Flag layout and back"};
+            waitRule.Conditions.Add(new AutomationCondition{Field=AutomationField.PenaltyActive,Operator=AutomationOperator.IsTrue});
+            waitRule.Conditions.Add(new AutomationCondition{Field=AutomationField.PenaltyActive,Operator=AutomationOperator.IsFalse,WaitUntil=true});
+            waitRule.Actions.Add(new AutomationAction{Kind=AutomationActionKind.SwitchLayout,LayoutId=automationDisplay.Layouts[0].Id,Phase=AutomationActionPhase.OnMatch});
+            waitRule.Actions.Add(new AutomationAction{Kind=AutomationActionKind.SwitchLayout,LayoutId=automationDisplay.Layouts[0].Id,Phase=AutomationActionPhase.AfterWait});
+            waitRule.Actions.Add(new AutomationAction{Kind=AutomationActionKind.SetText,ElementId=target.Id,Value="NO FLAG",Phase=AutomationActionPhase.Else});
+            RuleFiles.Save(ruleBundle,new AutomationRule?[]{waitRule});
+            var waitImport=RuleFiles.Load(ruleBundle)?.SingleOrDefault();
+            Check(waitImport is not null&&waitImport.Conditions.Count==2&&waitImport.Conditions[1].WaitUntil
+                &&waitImport.Actions[1].Phase==AutomationActionPhase.AfterWait
+                &&waitImport.Actions[2].Phase==AutomationActionPhase.Else,
+                "wait-until conditions and action phases travel in a ScorePlus Rule bundle");
+            var waitState=new GameState{PenaltyActive=true};
+            Check(waitImport!.Matches(waitState)&&!waitImport.MatchesWait(waitState),
+                "a flag-down trigger matches while its wait-until condition does not");
+            waitState.PenaltyActive=false;
+            Check(!waitImport.Matches(waitState)&&waitImport.MatchesWait(waitState),
+                "the wait-until condition becomes true when the flag goes away");
+        }
+        finally { if(File.Exists(ruleBundle)) File.Delete(ruleBundle); }
+
+        var chromaCatalog=new ScorebugCatalog(chromaPath);
+        chromaCatalog.Update(layout=>{layout.TransitionVideoPath=@"C:\\clips\\transition.mp4";layout.TransitionVideoChromaKeyColor="#FF00B140";layout.TransitionVideoChromaKeyTolerance=0.23;});
+        var chromaReloaded=new ScorebugCatalog(chromaPath);
+        Check(chromaReloaded.Layout.TransitionVideoChromaKeyColor=="#FF00B140"&&Math.Abs(chromaReloaded.Layout.TransitionVideoChromaKeyTolerance-0.23)<0.001,
+            "a layout hand-over video keeps its chroma key colour and tolerance across a save");
+    }
+    finally
+    {
+        if(File.Exists(automationPath))File.Delete(automationPath);
+        if(File.Exists(chromaPath))File.Delete(chromaPath);
+    }
 }
 finally
 {

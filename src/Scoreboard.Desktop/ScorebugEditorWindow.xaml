@@ -117,6 +117,16 @@
               <Button x:Name="TransitionVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0"
                       Click="TransitionVideoClear_Click" Visibility="Collapsed"
                       ToolTip="Go back to the preset transition"/>
+              <Button x:Name="TransitionKeyButton" Content="Key…" FontSize="10" Padding="8,3" Margin="4,0,0,0"
+                      Click="TransitionChromaKey_Click" Visibility="Collapsed"
+                      ToolTip="Choose the green or blue backdrop to remove from this hand-over video"/>
+              <Button x:Name="TransitionKeyClearButton" Content="Clear key" FontSize="10" Padding="8,3" Margin="4,0,0,0"
+                      Click="TransitionChromaKeyClear_Click" Visibility="Collapsed"
+                      ToolTip="Leave the hand-over video untouched"/>
+              <TextBlock x:Name="TransitionKeyToleranceLabel" Text="Tol" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="8,0,3,0"/>
+              <TextBox x:Name="TransitionKeyToleranceInput" Width="38" FontSize="10" Padding="4,2" Visibility="Collapsed"
+                       TextChanged="TransitionChromaTolerance_Changed"
+                       ToolTip="How different a pixel may be from the key colour and still disappear (0–1)"/>
               <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>

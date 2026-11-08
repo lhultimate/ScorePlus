@@ -60,6 +60,8 @@
                   ToolTip="Lock ScorePlus — console, media, rosters and the remote stay locked until the password is entered"/>
           <Button Style="{StaticResource IconButton}" Content="⧉" Click="NewPanel_Click" ToolTip="New panel — open a detached control panel that stays in sync"/>
           <Button Style="{StaticResource IconButton}" Content="⌨" Click="Keybinds_Click" ToolTip="Keybinds — assign a key combination to any control"/>
+          <Button Style="{StaticResource IconButton}" Content="✎" Click="Annotate_Click" ToolTip="Annotate audience view — choose a display, then draw on it with a pen or highlighter"/>
+          <Button Style="{StaticResource IconButton}" Content="⛓" Click="Automation_Click" ToolTip="Node rules — conditions that recolor, move, hide or switch layouts automatically"/>
           <Button Style="{StaticResource IconButton}" Content="▶" Click="Output_Click" ToolTip="Audience output — choose a display and open its window (F11 fills the screen)"/>
           <Button Style="{StaticResource IconButton}" Content="☰" Click="EventLog_Click" ToolTip="Event log — open it in its own window"/>
           <Button Style="{StaticResource IconButton}" Content="▤" Click="AdLog_Click" ToolTip="Ad log — how many times each clip has played, and how long it runs"/>
@@ -86,7 +88,7 @@
           <Button Style="{StaticResource HeaderButton}" Content="Multiview" Click="Multiview_Click" ToolTip="Every camera at once, with the replay preview beside the live picture"/>
           <Button Style="{StaticResource HeaderButton}" Content="Scorebug Studio" Click="ScorebugStudio_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Sport Profiles" Click="SportProfiles_Click"/>
-          <Button Style="{StaticResource HeaderButton}" Content="End Game" Click="EndGame_Click" ToolTip="Stop every clock, mark the game final and add the result to each team's record"/>
+          <Button x:Name="EndGameButton" Style="{StaticResource HeaderButton}" Content="End Game" Click="EndGame_Click" ToolTip="Stop every clock, mark the game final and add the result to each team's record"/>
           <Button Style="{StaticResource HeaderButton}" Content="New Game" Click="NewGame_Click"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

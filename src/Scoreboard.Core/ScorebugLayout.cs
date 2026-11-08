@@ -372,6 +372,12 @@ public sealed class ScorebugLayout
     /// </summary>
     public string TransitionVideoPath { get; set; } = "";
 
+    /// <summary>A colour made transparent in the hand-over video. Empty leaves the clip untouched.</summary>
+    public string TransitionVideoChromaKeyColor { get; set; } = "";
+
+    /// <summary>How far a pixel may be from the hand-over video's key colour, 0–1.</summary>
+    public double TransitionVideoChromaKeyTolerance { get; set; } = 0.16;
+
     /// <summary>
     /// Items that opt out of the arrival motion for this layout. Empty means the whole graphic
     /// animates together; any entry lets the operator choose, item by item, what happens as this
@@ -438,6 +444,12 @@ public sealed class ScorebugDisplay
     /// ids keep lower thirds, bugs and other items on screen alongside it instead of replacing it.
     /// </summary>
     public List<string> PinnedLayoutIds { get; set; } = [];
+
+    /// <summary>
+    /// The node rules that run on this display. They are saved with the display and evaluated against
+    /// the published game state, so a low play clock can recolor a value or switch layouts live.
+    /// </summary>
+    public List<AutomationRule> Automations { get; set; } = [];
 }
 
 /// <summary>What is written to scorebug.json: every display, with its layouts and what is on air.</summary>
@@ -577,6 +589,9 @@ public sealed class ScorebugCatalog
             TransitionSeconds = first.TransitionSeconds,
             OnlyAnimateChanges = first.OnlyAnimateChanges,
             TransitionClip = first.TransitionClip,
+            TransitionVideoPath = first.TransitionVideoPath,
+            TransitionVideoChromaKeyColor = first.TransitionVideoChromaKeyColor,
+            TransitionVideoChromaKeyTolerance = first.TransitionVideoChromaKeyTolerance,
             Handover = first.Handover,
             Elements = layouts.SelectMany(layout => layout.Elements).ToList()
         };
@@ -594,6 +609,19 @@ public sealed class ScorebugCatalog
     {
         var display = FindDisplay(displayId);
         return display is not null && display.PinnedLayoutIds?.Contains(layoutId, StringComparer.OrdinalIgnoreCase) == true;
+    }
+
+    /// <summary>
+    /// Replaces one display's node rules. The window edits a local copy; this is the single point
+    /// that saves the graph, validates it and asks every preview to re-evaluate it.
+    /// </summary>
+    public void UpdateAutomations(string? displayId, IEnumerable<AutomationRule>? rules)
+    {
+        var display = FindDisplay(displayId);
+        if (display is null) return;
+        display.Automations = AutomationRules.Normalize(rules?.Select(rule => rule?.Copy()));
+        Save();
+        Changed?.Invoke();
     }
 
     /// <summary>Adds or removes a layout from the layered on-air feed.</summary>
@@ -827,6 +855,7 @@ public sealed class ScorebugCatalog
             display.PinnedLayoutIds = display.PinnedLayoutIds
                 .Where(id => display.Layouts.Any(layout => string.Equals(layout.Id, id, StringComparison.OrdinalIgnoreCase)))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            display.Automations = AutomationRules.Normalize(display.Automations);
             foreach (var layout in display.Layouts)
             {
                 if (string.IsNullOrWhiteSpace(layout.Id) || !seenLayouts.Add(layout.Id))
@@ -843,6 +872,11 @@ public sealed class ScorebugCatalog
                 layout.TransitionSeconds = Math.Clamp(double.IsFinite(layout.TransitionSeconds) ? layout.TransitionSeconds : 0.5, 0, 5);
                 if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Cut;
                 layout.TransitionClip?.Normalize();
+                layout.TransitionVideoChromaKeyColor = (layout.TransitionVideoChromaKeyColor ?? "").Trim();
+                if (!string.IsNullOrWhiteSpace(layout.TransitionVideoChromaKeyColor) && !IsColor(layout.TransitionVideoChromaKeyColor))
+                    layout.TransitionVideoChromaKeyColor = "";
+                layout.TransitionVideoChromaKeyTolerance = Math.Clamp(
+                    double.IsFinite(layout.TransitionVideoChromaKeyTolerance) ? layout.TransitionVideoChromaKeyTolerance : 0.16, 0, 1);
                 layout.Handover ??= [];
                 layout.Handover = layout.Handover.Where(entry => entry is not null).Take(200).ToList();
                 foreach (var entry in layout.Handover) entry.ElementId = (entry.ElementId ?? "").Trim();
