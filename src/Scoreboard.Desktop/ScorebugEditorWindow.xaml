@@ -117,6 +117,14 @@
               <Button x:Name="TransitionVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0"
                       Click="TransitionVideoClear_Click" Visibility="Collapsed"
                       ToolTip="Go back to the preset transition"/>
+              <TextBlock x:Name="TransitionVideoCutLabel" Text="CUT AT" FontSize="10" FontWeight="Bold"
+                         Foreground="#5C6B7E" VerticalAlignment="Center" Margin="8,0,3,0" Visibility="Collapsed"/>
+              <TextBox x:Name="TransitionVideoCutInput" Width="38" Height="24" FontSize="10" Padding="3,1"
+                       TextAlignment="Center" VerticalContentAlignment="Center" Margin="0"
+                       TextChanged="TransitionVideoCut_Changed" Visibility="Collapsed"
+                       ToolTip="Seconds after the video starts before the new layout cuts in; 0 cuts on its first frame"/>
+              <TextBlock x:Name="TransitionVideoCutUnit" Text="s" FontSize="10" Foreground="#5C6B7E"
+                         VerticalAlignment="Center" Margin="2,0,0,0" Visibility="Collapsed"/>
               <Button x:Name="TransitionKeyButton" Content="Key…" FontSize="10" Padding="8,3" Margin="4,0,0,0"
                       Click="TransitionChromaKey_Click" Visibility="Collapsed"
                       ToolTip="Choose the green or blue backdrop to remove from this hand-over video"/>
@@ -518,13 +526,13 @@
               </DataTemplate>
             </ComboBox.ItemTemplate>
           </ComboBox>
-          <!-- Icons made in the icon maker: pick one, or open the maker to draw a new one. -->
+          <!-- Icons made in the Icon Creator: pick one, or open it to draw a new one. -->
           <StackPanel x:Name="IconCustomPanel">
             <TextBlock x:Name="IconCustomLabel" Text="Made icon" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,0,10,8">
-              <Button DockPanel.Dock="Right" Content="Icon maker…" Margin="4,0,0,0" Click="IconMaker_Click"
-                      ToolTip="Make an icon: a glyph, its colour and its plate, saved to the icon library"/>
-              <ComboBox x:Name="IconCustomInput" Margin="10,0,0,0" SelectionChanged="Property_Changed"
+              <Button DockPanel.Dock="Right" Content="Icon creator…" Margin="4,0,0,0" Click="IconMaker_Click"
+                      ToolTip="Open the Icon Creator to make an icon, or import or export a ScorePlus Icon (.spi) file"/>
+              <ComboBox x:Name="IconCustomInput" Margin="10,0,0,0"
                         ToolTip="Which made icon this element draws"/>
             </DockPanel>
           </StackPanel>
@@ -545,6 +553,9 @@
             <DockPanel Margin="0,0,10,8">
               <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconColor_Click"
                       ToolTip="Pick the icon's own colour"/>
+              <Border x:Name="IconColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                      BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                      local:ThemeManager.SkipTheme="True" ToolTip="The colour this icon actually draws"/>
               <TextBox x:Name="IconColorInput" TextChanged="Property_Changed"
                        ToolTip="Leave empty to use the element's text colour"/>
             </DockPanel>

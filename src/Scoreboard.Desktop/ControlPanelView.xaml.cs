@@ -57,7 +57,6 @@ public partial class ControlPanelView : UserControl
     string _statsSignature = "";
     bool _syncingLive;
     bool _clockMessageSync;
-    bool _footballModeSync;
     bool _loadingNames;
     bool _showHints;
     KeybindSettings _keybinds = KeybindStore.Load();
@@ -287,7 +286,7 @@ public partial class ControlPanelView : UserControl
 
         var football = s.SportId == "football";
         FootballDetail.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
-        FootballModeBox.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
+        FootballModePicker.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
         // Every sport with its own flag list gets the strip; Custom has no flags, so it stays hidden.
         PenaltyStrip.Visibility = GameEngine.PenaltyTypesFor(s.SportId).Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         OtherDetail.Visibility = football ? Visibility.Collapsed : Visibility.Visible;
@@ -361,23 +360,34 @@ public partial class ControlPanelView : UserControl
         _engine.SetClockMessage((GameClockMessage)Math.Clamp(ClockMessageBox.SelectedIndex, 0, 2));
     }
 
+    static readonly FootballDownMode[] FootballModes =
+    [
+        FootballDownMode.Normal, FootballDownMode.Goal, FootballDownMode.Pat,
+        FootballDownMode.TwoPoint, FootballDownMode.None
+    ];
+
+    static readonly string[] FootballModeLabels = ["Yards", "Goal", "PAT", "2 PT ATT", "No line"];
+
     void UpdateFootballMode(GameState s)
     {
         var mode = s.SportId == "football" ? s.FootballDownMode : FootballDownMode.Normal;
-        _footballModeSync = true;
-        try
-        {
-            FootballModeBox.SelectedIndex = (int)mode;
-            FootballModeBox.IsEnabled = s.SportId == "football";
-        }
-        finally { _footballModeSync = false; }
+        var index = Array.IndexOf(FootballModes, mode);
+        if (index < 0) index = 0;
+        FootballModeLabel.Text = FootballModeLabels[index];
+        FootballModeLabel.ToolTip = $"Down line: {FootballModeLabels[index]}. Use ◀ / ▶ to change it.";
+        FootballModePicker.IsEnabled = s.SportId == "football";
     }
 
-    void FootballMode_Changed(object sender, SelectionChangedEventArgs e)
+    void FootballModePrev_Click(object sender, RoutedEventArgs e) => ShiftFootballMode(-1);
+    void FootballModeNext_Click(object sender, RoutedEventArgs e) => ShiftFootballMode(1);
+
+    void ShiftFootballMode(int delta)
     {
-        if (_footballModeSync || _engine is null || FootballModeBox.SelectedItem is not ComboBoxItem item) return;
-        if (!Enum.TryParse<FootballDownMode>(item.Tag as string, out var mode)) return;
-        _engine.SetFootballDownMode(mode);
+        if (_engine.State.SportId != "football") return;
+        var index = Array.IndexOf(FootballModes, _engine.State.FootballDownMode);
+        if (index < 0) index = 0;
+        index = (index + delta + FootballModes.Length) % FootballModes.Length;
+        _engine.SetFootballDownMode(FootballModes[index]);
     }
 
     /// <summary>Any of the three controls writes the whole flag, so the box can never half-change.</summary>

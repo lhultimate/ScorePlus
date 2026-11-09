@@ -55,6 +55,7 @@ public static class ScorebugHtml
         html.AppendLine(".sp-text{display:flex;align-items:center;justify-content:center;text-align:center;width:100%;height:100%;white-space:pre-wrap;line-height:1.05;word-break:break-word;}");
         html.AppendLine(".sp-shape-circle{border-radius:50%;}");
         html.AppendLine(".sp-triangle{clip-path:polygon(50% 0%,100% 100%,0% 100%);}");
+        html.AppendLine(".sp-parallelogram{clip-path:polygon(24% 0,100% 0,76% 100%,0 100%);}");
         html.AppendLine(".sp-logo{width:100%;height:100%;object-fit:contain;}");
         html.AppendLine(".sp-media{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font:600 12px/1.2 'Segoe UI',Arial,sans-serif;letter-spacing:.08em;opacity:.55;}");        html.AppendLine(".sp-bars{display:flex;align-items:center;justify-content:center;gap:6%;width:100%;height:100%;}");
         html.AppendLine(".sp-bars.vertical{flex-direction:column;gap:6% 0;}");
@@ -121,7 +122,9 @@ public static class ScorebugHtml
         // The box behind the artwork: shapes and logos draw themselves, exactly like the studio.
         if (!item.TransparentBackground && item.Kind is not (ScorebugElementKind.Shape or ScorebugElementKind.Logo))
             style.Append($"background:{Background(item, state)};");
-        if (item.BorderThickness > 0)
+        // A parallelogram draws its outline in its own SVG; a CSS border on the box would be square.
+        var svgShape = item.Kind == ScorebugElementKind.Shape && item.Shape == ScorebugShape.Parallelogram;
+        if (item.BorderThickness > 0 && !svgShape)
             style.Append(CultureInfo.InvariantCulture, $"border:{Num(item.BorderThickness)}px solid {ResolveBorder(item, state)};");
         if (item.Kind == ScorebugElementKind.Shape && item.Shape == ScorebugShape.Rectangle)
             style.Append("border-radius:8px;");
@@ -129,6 +132,7 @@ public static class ScorebugHtml
         var classes = new StringBuilder("sp-el");
         if (item.Kind == ScorebugElementKind.Shape && item.Shape == ScorebugShape.Circle) classes.Append(" sp-shape-circle");
         if (item.Kind == ScorebugElementKind.Shape && item.Shape == ScorebugShape.Triangle) classes.Append(" sp-triangle");
+        if (item.Kind == ScorebugElementKind.Shape && item.Shape == ScorebugShape.Parallelogram) classes.Append(" sp-parallelogram");
         if (item.Animation == ScorebugAnimation.Pulse) classes.Append(" sp-pulse");
         if (item.Animation == ScorebugAnimation.Drift) classes.Append(" sp-drift");
 
@@ -140,7 +144,10 @@ public static class ScorebugHtml
         {
             case ScorebugElementKind.Shape:
                 // A transparent shape is an outline only; the triangle and circle clip their own fill.
-                inner.Append($"<div style=\"width:100%;height:100%;background:{(item.TransparentBackground ? "transparent" : Background(item, state))};{(item.Shape == ScorebugShape.Circle ? "border-radius:50%;" : string.Empty)}\"></div>");
+                if (item.Shape == ScorebugShape.Parallelogram)
+                    inner.Append(ParallelogramHtml(item, state));
+                else
+                    inner.Append($"<div style=\"width:100%;height:100%;background:{(item.TransparentBackground ? "transparent" : Background(item, state))};{(item.Shape == ScorebugShape.Circle ? "border-radius:50%;" : string.Empty)}\"></div>");
                 break;
             case ScorebugElementKind.Logo:
                 inner.Append(LogoHtml(item, state));
@@ -158,6 +165,35 @@ public static class ScorebugHtml
         inner.Append(IconHtml(item, state, colour));
 
         return $"<div class=\"{classes}\" style=\"{style}\"{token}>{inner}</div>";
+    }
+
+    /// <summary>
+    /// A parallelogram as one SVG polygon. CSS clip-path cuts a clean fill but cannot draw a border
+    /// along the slanted edges, which is what made an outlined shape look broken; SVG strokes the
+    /// same geometry with round joins, and scales smoothly to any audience resolution.
+    /// </summary>
+    static string ParallelogramHtml(ScorebugElement item, GameState? state)
+    {
+        var gradientId = "sp-pg-" + string.Concat(item.Id.Where(char.IsLetterOrDigit));
+        var fill = item.TransparentBackground ? "none" : $"url(#{gradientId})";
+        var stroke = item.BorderThickness > 0 ? ResolveBorder(item, state) : "none";
+        var defs = new StringBuilder();
+        if (!item.TransparentBackground)
+        {
+            if (item.BackgroundGradient)
+            {
+                var first = Css(state?.ColorFor(item.BackgroundSource) ?? item.Background);
+                var second = Css(state?.ColorFor(item.BackgroundSource2) ?? item.BackgroundColor2);
+                defs.Append($"<defs><linearGradient id=\"{gradientId}\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\" gradientTransform=\"rotate({Num(item.GradientAngle)} .5 .5)\">")
+                    .Append($"<stop offset=\"0\" stop-color=\"{first}\"/><stop offset=\"1\" stop-color=\"{second}\"/></linearGradient></defs>");
+            }
+            else
+            {
+                defs.Append($"<defs><linearGradient id=\"{gradientId}\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0\" stop-color=\"{Css(state?.ColorFor(item.BackgroundSource) ?? item.Background)}\"/><stop offset=\"1\" stop-color=\"{Css(state?.ColorFor(item.BackgroundSource) ?? item.Background)}\"/></linearGradient></defs>");
+            }
+        }
+        return $"<svg width=\"100%\" height=\"100%\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"display:block;overflow:visible;\">{defs}"
+               + $"<polygon points=\"24,0 100,0 76,100 0,100\" fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"{Num(item.BorderThickness)}\" stroke-linejoin=\"round\" vector-effect=\"non-scaling-stroke\"/></svg>";
     }
 
     /// <summary>A still image or a player's uploaded portrait, embedded in the page.</summary>
@@ -277,13 +313,18 @@ public static class ScorebugHtml
                 // The maker's icon is self-contained markup, so an exported graphic needs nothing else.
                 var custom = CustomIconStore.Find(item.CustomIconId);
                 if (custom is null) return string.Empty;
-                var plate = custom.Plate.Length == 9 && custom.Plate.StartsWith("#00", StringComparison.OrdinalIgnoreCase)
+                var look = custom.Resolve(state);
+                var plate = look.Plate.Length == 9 && look.Plate.StartsWith("#00", StringComparison.OrdinalIgnoreCase)
                     ? "transparent"
-                    : Css(custom.Plate);
-                var radius = custom.Round ? "50%" : "16%";
+                    : Css(look.Plate);
+                var radius = look.Round ? "50%" : "16%";
+                var iconColour = string.IsNullOrWhiteSpace(item.IconColor) ? look.Color : item.IconColor;
+                var transform = $"translate({Num(look.OffsetX)}px,{Num(look.OffsetY)}px) scale({Num(look.Scale)}) rotate({Num(look.Rotation)}deg)";
+                var iconSize = Math.Clamp(Math.Min(item.Width, item.Height) * 0.62, 8, 260);
                 return "<span style=\"display:flex;align-items:center;justify-content:center;width:100%;height:100%;"
-                       + $"font-weight:700;line-height:1;color:{Css(custom.Color)};background:{plate};border-radius:{radius};\">"
-                       + System.Net.WebUtility.HtmlEncode(custom.Glyph) + "</span>";
+                       + $"font-size:{Num(iconSize)}px;font-weight:700;line-height:1;color:{Css(iconColour)};background:{plate};border-radius:{radius};"
+                       + $"opacity:{Num(Math.Clamp(look.Opacity, 0, 1))};transform:{transform};transform-origin:center;\">"
+                       + System.Net.WebUtility.HtmlEncode(look.Glyph) + "</span>";
             }
             case ScorebugIcon.Bases:
                 var first = SportValues.Read(state, "baseball.first") != 0;

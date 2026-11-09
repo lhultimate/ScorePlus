@@ -61,7 +61,7 @@
           <Button Style="{StaticResource IconButton}" Content="⧉" Click="NewPanel_Click" ToolTip="New panel — open a detached control panel that stays in sync"/>
           <Button Style="{StaticResource IconButton}" Content="⌨" Click="Keybinds_Click" ToolTip="Keybinds — assign a key combination to any control"/>
           <Button Style="{StaticResource IconButton}" Content="✎" Click="Annotate_Click" ToolTip="Annotate audience view — choose a display, then draw on it with a pen or highlighter"/>
-          <Button Style="{StaticResource IconButton}" Content="⛓" Click="Automation_Click" ToolTip="Node rules — conditions that recolor, move, hide or switch layouts automatically"/>
+          <Button Style="{StaticResource IconButton}" Content="⛓" Click="Automation_Click" ToolTip="Conditionals — conditions that recolor, move, hide or switch layouts automatically"/>
           <Button Style="{StaticResource IconButton}" Content="▶" Click="Output_Click" ToolTip="Audience output — choose a display and open its window (F11 fills the screen)"/>
           <Button Style="{StaticResource IconButton}" Content="☰" Click="EventLog_Click" ToolTip="Event log — open it in its own window"/>
           <Button Style="{StaticResource IconButton}" Content="▤" Click="AdLog_Click" ToolTip="Ad log — how many times each clip has played, and how long it runs"/>

@@ -203,7 +203,7 @@ Any text element can draw artwork from game state instead of (or alongside) type
 | **Possession arrow** | A solid arrow pointing into the plate of the team with the ball, and nothing at all on the other team | The team with the ball; **Visitors** picks the away plate and **Flip** turns the arrow around |
 | **Timeout dots** | Round pips instead of bars, one per timeout left | Home or visitors timeouts |
 | **Yellow card / Red card** | The referee's angled card, in its own yellow or red whatever the plate's colour is | Nothing — a fixed mark |
-| **Custom** | An icon you made in the **Icon maker**: a glyph on its own plate | Nothing — pick which made icon under **Made icon** |
+| **Custom** | An icon you made in the **Icon Creator**: a glyph on its own plate | Nothing — pick which made icon under **Made icon** |
 
 They update themselves with no studio edit, and **every icon animates** with the element's own value transition: a base fades and pops in as a runner arrives and shrinks away when they leave, new timeout bars slide or dissolve into the row, and the possession dot slides across the plate when the ball changes hands. The possession dot and the text are exclusive: turning on the dot removes the text rather than sitting under it. Small icons keep their size when you resize the box, unless you hold `Ctrl`, exactly like text.
 
@@ -618,7 +618,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 
 ### Making Icons
 
-The **ICON** section of the element panel draws live artwork — timeout bars, the possession dot or arrow, the baseball diamond, the referee's yellow and red cards — or an icon you make. Choose **Custom** in the Icon list, press **Icon maker…**, and draw one: a glyph (one to three characters — ★ ⚑ ▲ ⬤ or a letter), its colour and its plate, round or squared. Saved icons go into one shared library, so a house badge works in every layout and every display, and it travels inside any layout you export.
+The **ICON** section of the element panel draws live artwork — timeout bars, the possession dot or arrow, the baseball diamond, the referee's yellow and red cards — or an icon you make. Choose **Custom** in the Icon list, press **Icon creator…**, and draw one: a glyph (one to three characters — ★ ⚑ ▲ ⬤ or a letter), its colour and its plate, round or squared. Saved icons go into one shared library, so a house badge works in every layout and every display, and it travels inside any layout you export. Use **Import .spi…** and **Export .spi…** in the Icon Creator to move one icon, including its data states, between machines; a `.spi` is a ScorePlus Icon file.
 
 ### Display and Layout Bars
 

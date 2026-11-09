@@ -1019,22 +1019,64 @@ internal static class Program
             {
                 foreach (var name in new[]
                          {
-                             "NewSeriesButton", "RecallDownButton", "FootballModeBox", "PenaltyStrip"
+                             "NewSeriesButton", "RecallDownButton", "FootballModePicker", "PenaltyStrip"
                          })
                 {
                     var control = view.FindName(name) as FrameworkElement
                         ?? throw new Exception($"FAIL: {name} is missing from the console");
                     AssertInsideCard(control, name);
                 }
-                var modeBox = view.FindName("FootballModeBox") as ComboBox
-                    ?? throw new Exception("FAIL: the football down-line picker is missing");
-                var modeLabels = modeBox.Items.OfType<ComboBoxItem>().Select(item => item.Content as string).ToArray();
-                if (!modeLabels.SequenceEqual(new[] { "Yards", "Goal", "PAT", "2 PT", "No line" }))
-                    throw new Exception($"FAIL: the down-line picker offers {string.Join(", ", modeLabels)}");
-                modeBox.SelectedIndex = 2;
-                if (engine.State.FootballDownMode != FootballDownMode.Pat)
-                    throw new Exception($"FAIL: choosing PAT left the mode as {engine.State.FootballDownMode}");
-                modeBox.SelectedIndex = 0;
+                var modeLabel = view.FindName("FootballModeLabel") as TextBlock
+                    ?? throw new Exception("FAIL: the football down-line label is missing");
+                var modeNext = view.FindName("FootballModeNextButton") as Button
+                    ?? throw new Exception("FAIL: the next down-line arrow is missing");
+                var modePrev = view.FindName("FootballModePrevButton") as Button
+                    ?? throw new Exception("FAIL: the previous down-line arrow is missing");
+                // The whole arrow button must be inside its card, not just the row around it.
+                AssertInsideCard(modeNext, "FootballModeNextButton");
+                AssertInsideCard(modePrev, "FootballModePrevButton");
+                // The glyph is drawn as a vector, so no font's overhang can clip half the arrow,
+                // and the fixed row must give the full button its 38 pixels rather than shrinking
+                // it through the shared button margin.
+                if (modeNext.ActualHeight < 37 || modePrev.ActualHeight < 37 ||
+                    modeNext.Margin != new Thickness(0) || modePrev.Margin != new Thickness(0))
+                    throw new Exception($"FAIL: the down-line arrows are squeezed ({modePrev.ActualHeight:0.#} / {modeNext.ActualHeight:0.#} px)");
+                var nextGlyph = FindAll<System.Windows.Shapes.Path>(modeNext).FirstOrDefault()
+                    ?? throw new Exception("FAIL: the next down-line arrow has no vector glyph");
+                var prevGlyph = FindAll<System.Windows.Shapes.Path>(modePrev).FirstOrDefault()
+                    ?? throw new Exception("FAIL: the previous down-line arrow has no vector glyph");
+                void AssertGlyphInside(Button button, System.Windows.Shapes.Path glyph, string label)
+                {
+                    var glyphBounds = glyph.TransformToAncestor(button)
+                        .TransformBounds(new Rect(glyph.RenderSize));
+                    if (glyphBounds.Left < -0.5 || glyphBounds.Top < -0.5 ||
+                        glyphBounds.Right > button.ActualWidth + 0.5 || glyphBounds.Bottom > button.ActualHeight + 0.5)
+                        throw new Exception($"FAIL: the {label} arrow glyph is clipped ({glyphBounds:0.#} inside {button.ActualWidth:0.#}x{button.ActualHeight:0.#})");
+                }
+                AssertGlyphInside(modeNext, nextGlyph, "next");
+                AssertGlyphInside(modePrev, prevGlyph, "previous");
+                if (modeLabel.Text != "Yards")
+                    throw new Exception($"FAIL: the down-line arrows start on {modeLabel.Text}, not Yards");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "Goal" || engine.State.FootballDownMode != FootballDownMode.Goal)
+                    throw new Exception($"FAIL: next from Yards did not reach Goal ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "PAT" || engine.State.FootballDownMode != FootballDownMode.Pat)
+                    throw new Exception($"FAIL: next from Goal did not reach PAT ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "2 PT ATT" || engine.State.FootballDownMode != FootballDownMode.TwoPoint)
+                    throw new Exception($"FAIL: the arrows did not reach 2 PT ATT ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "No line" || engine.State.FootballDownMode != FootballDownMode.None)
+                    throw new Exception($"FAIL: the arrows did not reach No line ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "Yards" || engine.State.FootballDownMode != FootballDownMode.Normal)
+                    throw new Exception($"FAIL: the arrows did not wrap back to Yards ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modePrev.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "No line" || engine.State.FootballDownMode != FootballDownMode.None)
+                    throw new Exception($"FAIL: previous from Yards did not wrap to No line ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                engine.SetFootballDownMode(FootballDownMode.Normal);
+                view.Refresh();
                 var ballSide = FindAll<Button>(view).FirstOrDefault(b => (b.Tag as string) == "football.ball.side")
                     ?? throw new Exception("FAIL: the ball-side switch is missing from the console");
                 AssertInsideCard(ballSide, "the ball-side switch");
@@ -1305,8 +1347,98 @@ internal static class Program
             var expectedVerticalVisibility = studioIcon is ScorebugIcon.TimeoutBars ? Visibility.Visible : Visibility.Collapsed;
             if (verticalVisibility != expectedVerticalVisibility)
                 throw new Exception($"FAIL: the vertical-bar property visibility is {verticalVisibility} for {studioIcon}");
+            var iconColourSwatch = (Border)iconStudio.FindName("IconColorSwatch")!;
+            if (!iconColourSwatch.IsVisible || iconColourSwatch.ActualWidth < 20)
+                throw new Exception("FAIL: the studio's icon colour row has no visible swatch");
+            ((TextBox)iconStudio.FindName("IconColorInput")!).Text = "#FFFF0000";
+            iconStudio.UpdateLayout();
+            if (iconColourSwatch.Background is not SolidColorBrush iconColourBrush || iconColourBrush.Color != Colors.Red)
+                throw new Exception($"FAIL: the studio's icon colour swatch did not follow the typed colour (found={iconColourSwatch.Background})");
             iconStudio.Close();
             Console.WriteLine("PASS: icon elements draw on the scorebug canvas and edit from the studio");
+
+            // The window is named Icon Creator, and the optional state label is separated from the
+            // condition that actually decides when a design applies.
+            {
+                var creator = new IconMakerWindow("Dark");
+                creator.Show();
+                creator.UpdateLayout();
+                if (creator.Title != "ScorePlus — Icon Creator")
+                    throw new Exception($"FAIL: the icon window is still titled {creator.Title}");
+                if (!FindAll<TextBlock>(creator).Any(text => text.Text == "ICON CREATOR"))
+                    throw new Exception("FAIL: the icon window heading is not ICON CREATOR");
+                if (!FindAll<TextBlock>(creator).Any(text => text.Text == "STATE NAME (OPTIONAL)")
+                    || !FindAll<TextBlock>(creator).Any(text => text.Text == "WHEN THIS DATA IS TRUE"))
+                    throw new Exception("FAIL: the state name and its condition still share one heading");
+                if (!FindAll<Button>(creator).Any(button => (button.Content as string) == "Import .spi…")
+                    || !FindAll<Button>(creator).Any(button => (button.Content as string) == "Export .spi…"))
+                    throw new Exception("FAIL: the Icon Creator does not offer .spi import and export");
+                var colourInput = FindAll<TextBox>(creator).FirstOrDefault(box => box.Name == "IconColor");
+                var colourSwatch = FindAll<Border>(creator).FirstOrDefault(border => border.Name == "IconColorSwatch");
+                if (colourInput is null || colourSwatch is null)
+                    throw new Exception("FAIL: the Icon Creator has no colour thumbnail beside its colour field");
+                colourInput.Text = "#FFFF0000";
+                creator.UpdateLayout();
+                if (colourSwatch.Background is not SolidColorBrush colourBrush || colourBrush.Color != Colors.Red)
+                    throw new Exception($"FAIL: the Icon Creator colour thumbnail did not follow the typed colour (found={colourSwatch.Background})");
+                creator.Close();
+                Console.WriteLine("PASS: the Icon Creator labels state names separately and offers .spi import and export");
+            }
+
+            // A made icon must stay selected after the picker writes it, and a wheel over a
+            // closed drop-down must not silently move to the next value.
+            {
+                var madeIconPath = Path.Combine(appDataPath, $"made-icons-{Guid.NewGuid():N}.json");
+                CustomIconStore.UsePath(madeIconPath);
+                var made = CustomIconStore.Save(new CustomIcon
+                {
+                    Name = "Smoke crest", Glyph = "★", Color = "#FFFFFFFF"
+                });
+                var madeCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"made-{Guid.NewGuid():N}.json"));
+                madeCatalog.Update(layout =>
+                {
+                    layout.Elements.Clear();
+                    layout.Elements.Add(new ScorebugElement
+                    {
+                        Name = "Icon target", Kind = ScorebugElementKind.Text, Content = "",
+                        Icon = ScorebugIcon.None
+                    });
+                });
+                var madeStudio = new ScorebugEditorWindow(madeCatalog, iconEngine, null, "Dark");
+                madeStudio.Show();
+                madeStudio.UpdateLayout();
+                ((ListBox)madeStudio.FindName("Layers")!).SelectedIndex = 0;
+                madeStudio.UpdateLayout();
+                var iconType = (ComboBox)madeStudio.FindName("IconInput")!;
+                iconType.SelectedItem = ScorebugIcon.Custom;
+                madeStudio.UpdateLayout();
+                var madeChoice = (ComboBox)madeStudio.FindName("IconCustomInput")!;
+                if (madeChoice.Visibility != Visibility.Visible)
+                    throw new Exception("FAIL: the Made icon picker stayed hidden after choosing Custom");
+                var choice = madeChoice.Items.Cast<object>().FirstOrDefault(item => item.ToString() == made.Name);
+                if (choice is null)
+                    throw new Exception("FAIL: the Made icon picker does not list the saved icon");
+                madeChoice.SelectedItem = choice;
+                madeStudio.UpdateLayout();
+                var target = madeCatalog.Layout.Elements[0];
+                if (target.Icon != ScorebugIcon.Custom || !string.Equals(target.CustomIconId, made.Id, StringComparison.Ordinal))
+                    throw new Exception($"FAIL: selecting a made icon saved {target.Icon}/{target.CustomIconId}");
+                if (madeChoice.SelectedItem is null)
+                    throw new Exception("FAIL: the Made icon picker went blank after choosing an icon");
+                var contentSite = madeChoice.Template.FindName("ContentSite", madeChoice) as ContentPresenter;
+                if (contentSite?.Content?.ToString() != made.Name)
+                    throw new Exception("FAIL: the Made icon picker does not show the chosen icon's name");
+                var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, 0, -120)
+                {
+                    RoutedEvent = UIElement.PreviewMouseWheelEvent
+                };
+                iconType.RaiseEvent(wheel);
+                if (!wheel.Handled || !Equals(iconType.SelectedItem, ScorebugIcon.Custom))
+                    throw new Exception("FAIL: a mouse wheel over a closed drop-down changed its value");
+                madeStudio.Close();
+                CustomIconStore.UsePath(null);
+                Console.WriteLine("PASS: a made icon stays selected and a closed drop-down ignores the mouse wheel");
+            }
 
             // The possession dot is the whole icon — no value printed beside it — and its mark keeps
             // its size when the box is resized, growing only with the element's own type size.
@@ -2094,6 +2226,8 @@ internal static class Program
                 var nodeWindow = new AutomationWindow(ruleCatalog, ruleEngine, "Dark", ruleDisplay.Id, runtime);
                 nodeWindow.Show();
                 nodeWindow.UpdateLayout();
+                if (nodeWindow.Title != "Conditionals" || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITIONALS"))
+                    throw new Exception($"FAIL: the node editor is still titled {nodeWindow.Title}");
                 if (nodeWindow.Rules.Count != 2 || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "TRIGGER")
                     || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITION 1")
                     || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "ACTION 1"))
@@ -2118,7 +2252,7 @@ internal static class Program
                     throw new Exception("FAIL: the node editor did not add a rule");
                 nodeWindow.Close();
             }
-            Console.WriteLine("PASS: annotation toolbar opens; node rules recolor the live layout, switch layouts, and draw in the node editor");
+            Console.WriteLine("PASS: annotation toolbar opens; conditionals recolor the live layout, switch layouts, and draw in the conditionals editor");
 
             // A typed play clock must hand the box back to the clock, or the display freezes on the
             // typed value and never counts down to 0.
@@ -2720,6 +2854,25 @@ internal static class Program
                 });
                 layoutMain.Scorebug.SelectLayout(0);
                 var preview = FindAll<ScorebugCanvasView>(layoutMain).First();
+                // The program preview is the staging desk: it must show the staged down-line type,
+                // not the copy that is still on air. Add the value to layout one and cycle it.
+                layoutMain.Scorebug.Update(layout => layout.Elements.Add(new ScorebugElement
+                {
+                    Name = "Preview down", Content = "{{DOWNS}}", X = 40, Y = 40,
+                    Width = 400, Height = 60, FontSize = 30
+                }));
+                layoutMain.Engine.SetFootballDownMode(FootballDownMode.Pat);
+                layoutMain.UpdateLayout();
+                if (!FindAll<TextBlock>(preview).Any(t => t.Text == "PAT"))
+                    throw new Exception("FAIL: the program preview did not show the staged PAT down line");
+                layoutMain.Engine.SetFootballDownMode(FootballDownMode.TwoPoint);
+                layoutMain.UpdateLayout();
+                if (!FindAll<TextBlock>(preview).Any(t => t.Text == "2 PT ATT"))
+                    throw new Exception("FAIL: the program preview did not show the staged two-point down line");
+                layoutMain.Engine.SetFootballDownMode(FootballDownMode.Normal);
+                layoutMain.UpdateLayout();
+                if (!FindAll<TextBlock>(preview).Any(t => t.Text == "1st & 10"))
+                    throw new Exception("FAIL: the program preview did not return to the staged yards down line");
                 if (FindAll<TextBlock>(preview).Any(t => t.Text == "SLIDE TWO"))
                     throw new Exception("FAIL: the preview already shows the second layout before the arrow is used");
                 layoutMain.ShiftLayout(1);
@@ -2921,14 +3074,17 @@ internal static class Program
                     PreserveVideoAspect = true, VideoAspect = 16.0 / 9.0, Width = 1600, Height = 900
                 };
                 var surface = new VideoSurface(video, null, true);
-                var picture = FindAll<MediaElement>(surface).FirstOrDefault()
-                    ?? throw new Exception("FAIL: a video element has no picture");
-                if (picture.Stretch != Stretch.Uniform)
-                    throw new Exception($"FAIL: a preserved-aspect video letterboxes with {picture.Stretch}");
+                var picture = FindAll<System.Windows.Shapes.Rectangle>(surface).FirstOrDefault(rect => rect.Fill is DrawingBrush)
+                    ?? throw new Exception("FAIL: a video element has no decoded picture surface");
+                var pictureBrush = (DrawingBrush)picture.Fill;
+                if (pictureBrush.Drawing is not VideoDrawing)
+                    throw new Exception("FAIL: the video picture is not drawn through a VideoDrawing, so effects cannot reach the frames");
+                if (pictureBrush.Stretch != Stretch.Uniform)
+                    throw new Exception($"FAIL: a preserved-aspect video letterboxes with {pictureBrush.Stretch}");
                 video.PreserveVideoAspect = false;
                 surface.SetElement(video);
-                if (picture.Stretch != Stretch.UniformToFill)
-                    throw new Exception($"FAIL: a free video box should fill its frame, not {picture.Stretch}");
+                if (pictureBrush.Stretch != Stretch.UniformToFill)
+                    throw new Exception($"FAIL: a free video box should fill its frame, not {pictureBrush.Stretch}");
                 if (Math.Abs(video.Width / video.Height - video.VideoAspect) > 0.001)
                     throw new Exception("FAIL: the preserved-aspect box does not match its picture");
                 // Chroma key: the selected green disappears, while another colour survives. Rendering

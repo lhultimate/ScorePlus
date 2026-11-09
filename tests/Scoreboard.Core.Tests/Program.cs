@@ -28,6 +28,32 @@ Check(engine.State.ClockSeconds==0&&!engine.State.ClockRunning,"clock stops safe
 engine.NextPeriod(); Check(engine.State.Period==2&&engine.State.ClockSeconds==720,"period transition restores sport clock preset");
 var file=Path.Combine(Path.GetTempPath(),$"scoreboard-{Guid.NewGuid():N}.scoreboard"); engine.Save(file); var other=new GameEngine(); other.Load(file);
 Check(other.State.HomeTeam=="Eagles"&&other.State.Period==2&&other.State.Events.Count>0,"portable project saves game, teams, and event history"); File.Delete(file);
+// A new console field must not be forgotten by the save. This checks every writable GameState
+// property, not just the values the rest of the suite happens to set, and confirms it reads back.
+var gameShapePath=Path.Combine(Path.GetTempPath(),$"game-shape-{Guid.NewGuid():N}.spg");
+try
+{
+    var shapeState=new GameState();
+    var shapeJson=GameFiles.Serialize(shapeState,null);
+    File.WriteAllText(gameShapePath,shapeJson);
+    using var shapeDocument=JsonDocument.Parse(shapeJson);
+    var writtenFields=shapeDocument.RootElement.EnumerateObject().Select(property=>property.Name)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var gameFields=typeof(GameState).GetProperties()
+        .Where(property=>property.CanRead&&property.CanWrite)
+        .Where(property=>property.GetCustomAttributes(typeof(System.Text.Json.Serialization.JsonIgnoreAttribute),true).Length==0)
+        .ToArray();
+    var missingFields=gameFields.Where(property=>!writtenFields.Contains(property.Name)).Select(property=>property.Name).ToArray();
+    Check(missingFields.Length==0,$"every writable game field is written to a .spg file ({gameFields.Length} fields checked"
+        +(missingFields.Length==0?")":$"; missing: {string.Join(", ",missingFields)})"));
+    var (shapeLoaded,_)=GameFiles.Read(gameShapePath);
+    var lostFields=gameFields.Where(property=>
+        JsonSerializer.Serialize(property.GetValue(shapeState))!=JsonSerializer.Serialize(property.GetValue(shapeLoaded)))
+        .Select(property=>property.Name).ToArray();
+    Check(lostFields.Length==0,$"every writable game field reads back from a .spg file"
+        +(lostFields.Length==0?"":$" (lost: {string.Join(", ",lostFields)})"));
+}
+finally { if(File.Exists(gameShapePath))File.Delete(gameShapePath); }
 var catalogPath=Path.Combine(Path.GetTempPath(),$"sports-{Guid.NewGuid():N}.json");
 try
 {
@@ -97,7 +123,7 @@ engine.NewGame("football");engine.SetFootballDistance(3,41);engine.MarkPublished
 var hardwareDowns=new GameEngine();hardwareDowns.NewGame("football");hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:1,YardsToGo:10,BallOn:35));hardwareDowns.MarkPublished();hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));Check(hardwareDowns.State.Down==2&&hardwareDowns.State.YardsToGo==7,"a console frame moves the down");Check(!hardwareDowns.CanRecallLastDown,"recall waits for the console's new down to be published");hardwareDowns.MarkPublished();hardwareDowns.RecallLastDown();Check(hardwareDowns.State.Down==1&&hardwareDowns.State.YardsToGo==10&&hardwareDowns.State.YardsToGoal==35,"a recall restores the down that was on air before");hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));hardwareDowns.MarkPublished();hardwareDowns.RecallLastDown();Check(hardwareDowns.State.Down==1&&hardwareDowns.State.YardsToGo==10,"a repeated controller frame still recalls the down before it");
 engine.NewGame("football");Check(PeriodDisplay.Format(engine.State)=="Quarter 1","default period label is Quarter 1");engine.SetPeriodFormat("Short");Check(PeriodDisplay.Format(engine.State)=="Q1"&&ScoreboardTemplates.Bind("{{PERIOD}}",engine.State)=="Q1","short period label is Q1");Check(ScoreboardTemplates.Bind("{{PERIOD}}",engine.State,"Full")=="QUARTER 1"&&ScoreboardTemplates.Bind("{{PERIOD}}",engine.State,"Number")=="1","a studio element can choose its own quarter style");engine.SetPeriodFormat("Number");Check(PeriodDisplay.Format(engine.State)=="1","numeric period label is a bare number");engine.SetPeriodFormat("Ordinal");Check(PeriodDisplay.Format(engine.State)=="1st","ordinal period label is 1st");var periodReport=GameReport.Build(engine.State);Check(periodReport.Contains("1 of 4"),"game report honors the selected period format");engine.NewGame("soccer");engine.SetPeriodFormat("Short");Check(PeriodDisplay.Format(engine.State)=="Half 1","period format only applies to quarter-based sports");
 var ordinalPath=Path.Combine(Path.GetTempPath(),$"ordinal-{Guid.NewGuid():N}.json");try{var ordinalCatalog=new ScorebugCatalog(ordinalPath);ordinalCatalog.Update(layout=>layout.Elements.Add(new ScorebugElement{Name="Ordinal",Content="{{PERIOD}}",PeriodFormat="Ordinal"}));Check(new ScorebugCatalog(ordinalPath).Layout.Elements[^1].PeriodFormat=="Ordinal","an element's ordinal quarter style survives a save");}finally{if(File.Exists(ordinalPath))File.Delete(ordinalPath);}
-var shapeLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Triangle};var shapeCatalogPath=Path.Combine(Path.GetTempPath(),$"shape-{Guid.NewGuid():N}.json");try{var catalog=new ScorebugCatalog(shapeCatalogPath);catalog.Update(layout=>layout.Elements.Add(shapeLayout));var reloaded=new ScorebugCatalog(shapeCatalogPath);Check(reloaded.Layout.Elements[^1].Shape==ScorebugShape.Triangle,"scorebug shapes persist in the studio layout");}finally{if(File.Exists(shapeCatalogPath))File.Delete(shapeCatalogPath);}
+var shapeLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Parallelogram};var shapeCatalogPath=Path.Combine(Path.GetTempPath(),$"shape-{Guid.NewGuid():N}.json");try{var catalog=new ScorebugCatalog(shapeCatalogPath);catalog.Update(layout=>layout.Elements.Add(shapeLayout));var reloaded=new ScorebugCatalog(shapeCatalogPath);Check(reloaded.Layout.Elements[^1].Shape==ScorebugShape.Parallelogram,"scorebug shapes persist in the studio layout, including the parallelogram");}finally{if(File.Exists(shapeCatalogPath))File.Delete(shapeCatalogPath);}
 Check(ClockFormat.TryParse("10:30",out var parsedClock)&&parsedClock==630,"MM:SS clock entry parses minutes and seconds");Check(ClockFormat.TryParse("1:05",out var shortClock)&&shortClock==65,"single-digit minutes parse correctly");Check(ClockFormat.TryParse("720",out var rawClock)&&rawClock==720,"plain seconds still parse");Check(!ClockFormat.TryParse("10:75",out _)&&!ClockFormat.TryParse("abc",out _),"invalid clock entry is rejected");Check(ClockFormat.Format(630)=="10:30"&&ClockFormat.Format(0)=="00:00","clock formatting round trips");
 engine.NewGame("football");Check(engine.State.HomeTimeouts==3&&engine.State.AwayTimeouts==3,"new games take the timeout count from the sport profile");var timeoutCatalogPath=Path.Combine(Path.GetTempPath(),$"timeouts-{Guid.NewGuid():N}.json");try{var timeouts=new SportCatalog(timeoutCatalogPath);timeouts.SaveProfile(timeouts.Find("football")! with { Timeouts=7 });var reloaded=new SportCatalog(timeoutCatalogPath);Check(reloaded.Find("football")!.Timeouts==3,"editing a football profile clamps its timeout override to three");var overrideGame=new GameEngine(reloaded);overrideGame.NewGame("football");Check(overrideGame.State.HomeTimeouts==3&&overrideGame.State.HomeTimeoutLimit==3,"football timeouts never exceed three in a new game");Check(reloaded.ResetOverride("football")&&reloaded.Find("football")!.Timeouts==3,"resetting an override restores the preset");}finally{if(File.Exists(timeoutCatalogPath))File.Delete(timeoutCatalogPath);}
 engine.NewGame("soccer");var stat=engine.AddStat("Turnovers");engine.AdjustStat(stat.Id,2);engine.AdjustStat(stat.Id,1);Check(engine.State.Stats.Single().Value==3,"custom stats track a single value");Check(ScoreboardTemplates.Bind("{{STAT:Turnovers}}",engine.State)=="3"&&ScoreboardTemplates.Bind("{{stat:turnovers}}",engine.State)=="3","custom stat tokens display the value");Check(ScoreboardTemplates.Bind("{{STAT:Missing}}",engine.State)=="","missing custom stat tokens render empty");Check(engine.Undo()&&engine.State.Stats.Single().Value==2,"custom stat changes are undoable");var statsReport=GameReport.Build(engine.State);Check(statsReport.Contains("Custom stats")&&statsReport.Contains("Turnovers: 2"),"game report lists custom stats");engine.RemoveStat(stat.Id);Check(engine.State.Stats.Count==0,"custom stats can be removed");
@@ -763,13 +789,19 @@ try
         var target=automationCatalog.Layout.Elements.First(element=>element.Name=="Home team");
         var rule=new AutomationRule{Name="Play clock warning"};
         rule.Conditions.Add(new AutomationCondition{Field=AutomationField.PlayClock,Operator=AutomationOperator.Less,Value=5});
-        rule.Actions.Add(new AutomationAction{Kind=AutomationActionKind.SetTextColor,LayoutId=automationDisplay.Layouts[0].Id,ElementId=target.Id,Value="#FFFF3B30"});
+        rule.Actions.Add(new AutomationAction{Kind=AutomationActionKind.SetTextColor,LayoutId=automationDisplay.Layouts[0].Id,ElementId=target.Id,Value="#FFFF3B30",ColorSource=ScorebugColorSource.HomePrimary});
         automationCatalog.UpdateAutomations(automationDisplay.Id,[rule]);
         var automationReloaded=new ScorebugCatalog(automationPath);
         var savedRule=automationReloaded.ActiveDisplay.Automations.Single();
         Check(savedRule.Name=="Play clock warning"&&savedRule.Conditions.Single().Field==AutomationField.PlayClock
-            &&savedRule.Actions.Single().Kind==AutomationActionKind.SetTextColor&&savedRule.Actions.Single().Value=="#FFFF3B30",
-            "node rules, conditions and actions persist with their display");
+            &&savedRule.Actions.Single().Kind==AutomationActionKind.SetTextColor&&savedRule.Actions.Single().Value=="#FFFF3B30"
+            &&savedRule.Actions.Single().ColorSource==ScorebugColorSource.HomePrimary,
+            "conditionals, conditions, actions and team-palette colours persist with their display");
+        var paletteState=new GameState{HomePrimaryColor="#FF123456",AwaySecondaryColor="#FF654321"};
+        Check(AutomationRules.ResolveColor(savedRule.Actions.Single(),paletteState)=="#FF123456",
+            "a conditional colour can resolve against the home team's primary colour");
+        Check(new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Away"}.Matches(new GameState{HomePossession=false}),
+            "possession is available as a readable Home/Away condition");
         var ruleEngine=new GameEngine();ruleEngine.NewGame("football");ruleEngine.SetPlayClock(3);
         Check(savedRule.Matches(ruleEngine.State),"a play-clock condition matches while the clock is below its threshold");
         ruleEngine.SetPlayClock(8);
@@ -826,15 +858,76 @@ try
         finally { if(File.Exists(ruleBundle)) File.Delete(ruleBundle); }
 
         var chromaCatalog=new ScorebugCatalog(chromaPath);
-        chromaCatalog.Update(layout=>{layout.TransitionVideoPath=@"C:\\clips\\transition.mp4";layout.TransitionVideoChromaKeyColor="#FF00B140";layout.TransitionVideoChromaKeyTolerance=0.23;});
+        chromaCatalog.Update(layout=>{layout.TransitionVideoPath=@"C:\\clips\\transition.mp4";layout.TransitionVideoChromaKeyColor="#FF00B140";layout.TransitionVideoChromaKeyTolerance=0.23;layout.TransitionVideoCutSeconds=2.4;});
         var chromaReloaded=new ScorebugCatalog(chromaPath);
         Check(chromaReloaded.Layout.TransitionVideoChromaKeyColor=="#FF00B140"&&Math.Abs(chromaReloaded.Layout.TransitionVideoChromaKeyTolerance-0.23)<0.001,
             "a layout hand-over video keeps its chroma key colour and tolerance across a save");
+        Check(Math.Abs(chromaReloaded.Layout.TransitionVideoCutSeconds-2.4)<0.001,
+            "a layout hand-over video keeps the beat when the incoming layout cuts in");
+        chromaReloaded.Update(layout=>layout.TransitionVideoCutSeconds=90);
+        Check(new ScorebugCatalog(chromaPath).Layout.TransitionVideoCutSeconds<=30,
+            "a hand-over cut beat is clamped to a safe range");
     }
     finally
     {
         if(File.Exists(automationPath))File.Delete(automationPath);
         if(File.Exists(chromaPath))File.Delete(chromaPath);
+    }
+
+    // Made icons can carry a different design for each game value, with its own colour, position,
+    // size, rotation and opacity. These are the values the studio and exported HTML both read.
+    var iconStatePath=Path.Combine(Path.GetTempPath(),$"icons-{Guid.NewGuid():N}.json");
+    try
+    {
+        CustomIconStore.UsePath(iconStatePath);
+        var made=new CustomIcon{Name="Possession mark",Glyph="●",Color="#FFFFFFFF",Plate="#00000000"};
+        made.States.Add(new CustomIconState
+        {
+            Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Away"},
+            Glyph="A",Color="#FF112233",Plate="#FF445566",Round=false,OffsetX=8,OffsetY=-4,Scale=1.4,Opacity=0.6,Rotation=20
+        });
+        made.States.Add(new CustomIconState
+        {
+            Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Home"},
+            Glyph="H",Color="#FF778899",OffsetX=-6,Scale=0.8
+        });
+        var stored=CustomIconStore.Save(made.Copy());
+        var away=stored.Resolve(new GameState{HomePossession=false});
+        var home=stored.Resolve(new GameState{HomePossession=true});
+        Check(stored.States.Count==2&&away.Glyph=="A"&&home.Glyph=="H"
+            &&away.Color=="#FF112233"&&away.OffsetX==8&&Math.Abs(away.Scale-1.4)<0.001&&Math.Abs(away.Opacity-0.6)<0.001,
+            "a made icon chooses the first matching data state, including its colour, location, scale and opacity");
+        Check(home.Color=="#FF778899"&&home.Round,"each icon state keeps its own plate and roundness");
+        var fallback=new CustomIcon{Glyph="F",Color="#FFFFFFFF"};
+        fallback.States.Add(new CustomIconState{Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Neither"},Glyph="X"});
+        Check(fallback.Resolve(new GameState{HomePossession=false}).Glyph=="F","the fallback icon design draws when no data state matches");
+        var copied=stored.Copy();
+        Check(!ReferenceEquals(copied.States[0],stored.States[0])&&copied.States[0].Glyph=="A","copying an icon deep-copies its data states");
+        var reloadedIcon=CustomIconStore.Find(stored.Id);
+        Check(reloadedIcon is not null&&reloadedIcon.States.Count==2&&reloadedIcon.Resolve(new GameState{HomePossession=true}).Glyph=="H",
+            "icon data states survive a save and reload");
+        // A ScorePlus Icon file carries one icon and its data states between machines, and imports
+        // as a new library entry rather than reusing the file's ids.
+        var iconFile=Path.Combine(Path.GetTempPath(),$"icon-{Guid.NewGuid():N}.spi");
+        try
+        {
+            var shared=new CustomIcon{Name="Shared icon",Glyph="◆",Color="#FF102030",Plate="#FF405060",Round=false,OffsetX=3,Scale=1.2,Opacity=0.8,Rotation=15};
+            shared.States.Add(new CustomIconState{Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Home"},Glyph="H",Color="#FF00FF00",OffsetY=-2});
+            IconFiles.Save(iconFile,shared);
+            var imported=IconFiles.Load(iconFile);
+            Check(imported is not null&&imported.Name=="Shared icon"&&imported.Glyph=="◆"
+                &&imported.States.Count==1&&imported.States[0].Glyph=="H"&&imported.States[0].Condition.Text=="Home"
+                &&imported.Id!=shared.Id&&imported.States[0].Id!=shared.States[0].Id,
+                "a .spi file carries an icon and its data states and imports as an independent copy");
+            File.WriteAllText(iconFile,"not a ScorePlus icon");
+            Check(IconFiles.Load(iconFile) is null,"a damaged .spi file is refused");
+        }
+        finally { if(File.Exists(iconFile))File.Delete(iconFile); }
+    }
+    finally
+    {
+        CustomIconStore.UsePath(null);
+        if(File.Exists(iconStatePath))File.Delete(iconStatePath);
     }
 }
 finally

@@ -38,7 +38,7 @@ public enum ScorebugTransition
     Drop
 }
 
-public enum ScorebugShape { Rectangle, Circle, Triangle }
+public enum ScorebugShape { Rectangle, Circle, Triangle, Parallelogram }
 
 /// <summary>Where an element's colour comes from: a fixed colour, or one of the team palette slots.</summary>
 public enum ScorebugColorSource
@@ -80,7 +80,7 @@ public enum ScorebugIcon
     RedCard,
     /// <summary>An American-football flag: a yellow pennant on a short pole.</summary>
     PenaltyFlag,
-    /// <summary>An icon made in the icon maker: a glyph, its colour and its plate.</summary>
+    /// <summary>An icon made in the Icon Creator: a glyph, its colour and its plate.</summary>
     Custom
 }
 
@@ -379,6 +379,13 @@ public sealed class ScorebugLayout
     public double TransitionVideoChromaKeyTolerance { get; set; } = 0.16;
 
     /// <summary>
+    /// Seconds after the hand-over video starts before the incoming layout cuts in underneath it.
+    /// 0 cuts as soon as the video's first frame is ready; a positive value keeps the outgoing
+    /// picture underneath for that beat, so the cut can land while the video fills the frame.
+    /// </summary>
+    public double TransitionVideoCutSeconds { get; set; }
+
+    /// <summary>
     /// Items that opt out of the arrival motion for this layout. Empty means the whole graphic
     /// animates together; any entry lets the operator choose, item by item, what happens as this
     /// layout comes on air. Saved with the layout, the display and the game.
@@ -592,6 +599,7 @@ public sealed class ScorebugCatalog
             TransitionVideoPath = first.TransitionVideoPath,
             TransitionVideoChromaKeyColor = first.TransitionVideoChromaKeyColor,
             TransitionVideoChromaKeyTolerance = first.TransitionVideoChromaKeyTolerance,
+            TransitionVideoCutSeconds = first.TransitionVideoCutSeconds,
             Handover = first.Handover,
             Elements = layouts.SelectMany(layout => layout.Elements).ToList()
         };
@@ -877,6 +885,8 @@ public sealed class ScorebugCatalog
                     layout.TransitionVideoChromaKeyColor = "";
                 layout.TransitionVideoChromaKeyTolerance = Math.Clamp(
                     double.IsFinite(layout.TransitionVideoChromaKeyTolerance) ? layout.TransitionVideoChromaKeyTolerance : 0.16, 0, 1);
+                layout.TransitionVideoCutSeconds = Math.Clamp(
+                    double.IsFinite(layout.TransitionVideoCutSeconds) ? layout.TransitionVideoCutSeconds : 0, 0, 30);
                 layout.Handover ??= [];
                 layout.Handover = layout.Handover.Where(entry => entry is not null).Take(200).ToList();
                 foreach (var entry in layout.Handover) entry.ElementId = (entry.ElementId ?? "").Trim();

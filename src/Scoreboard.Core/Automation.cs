@@ -54,7 +54,9 @@ public enum AutomationField
     PenaltyType,
     PenaltyHome,
     GameEnded,
-    RecordSettled
+    RecordSettled,
+    /// <summary>Who has the ball, as the word Home or Away.</summary>
+    PossessionSide
 }
 
 public enum AutomationOperator
@@ -160,6 +162,9 @@ public sealed class AutomationAction
     /// <summary>Colour, text, or the layout id when the action is SwitchLayout.</summary>
     public string Value { get; set; } = "#FFFF3B30";
 
+    /// <summary>Where a colour action gets its colour: a fixed value or a team palette slot.</summary>
+    public ScorebugColorSource ColorSource { get; set; } = ScorebugColorSource.Custom;
+
     /// <summary>The first number: opacity, x, width, and so on.</summary>
     public double Number { get; set; } = 1;
 
@@ -173,6 +178,7 @@ public sealed class AutomationAction
         LayoutId = LayoutId,
         ElementId = ElementId,
         Value = Value,
+        ColorSource = ColorSource,
         Number = Number,
         Number2 = Number2
     };
@@ -238,6 +244,7 @@ public static class AutomationRules
         (AutomationField.Strikes, "Strikes"),
         (AutomationField.Outs, "Outs"),
         (AutomationField.HomePossession, "Home has possession"),
+        (AutomationField.PossessionSide, "Possession"),
         (AutomationField.ClockRunning, "Game clock running"),
         (AutomationField.PlayClockRunning, "Play clock running"),
         (AutomationField.Sport, "Sport"),
@@ -285,6 +292,16 @@ public static class AutomationRules
         (AutomationOperator.IsFalse, "is false")
     ];
 
+    /// <summary>Colour choices offered by a colour action, including both teams' palettes.</summary>
+    public static readonly (ScorebugColorSource Source, string Label)[] ColorSources =
+    [
+        (ScorebugColorSource.Custom, "Custom colour"),
+        (ScorebugColorSource.HomePrimary, "Home primary"),
+        (ScorebugColorSource.HomeSecondary, "Home secondary"),
+        (ScorebugColorSource.AwayPrimary, "Away primary"),
+        (ScorebugColorSource.AwaySecondary, "Away secondary")
+    ];
+
     public static readonly (AutomationActionPhase Phase, string Label)[] ActionPhases =
     [
         (AutomationActionPhase.OnMatch, "When matched"),
@@ -324,7 +341,7 @@ public static class AutomationRules
         or AutomationField.PenaltyHome or AutomationField.GameEnded or AutomationField.RecordSettled;
 
     public static bool IsTextField(AutomationField field) =>
-        field is AutomationField.Sport or AutomationField.PenaltyType;
+        field is AutomationField.Sport or AutomationField.PenaltyType or AutomationField.PossessionSide;
 
     public static bool IsNumericField(AutomationField field) => !IsBooleanField(field) && !IsTextField(field);
 
@@ -414,6 +431,7 @@ public static class AutomationRules
     {
         AutomationField.Sport => state.SportId,
         AutomationField.PenaltyType => state.PenaltyType,
+        AutomationField.PossessionSide => state.HomePossession ? "Home" : "Away",
         AutomationField.CustomStat => state.Stats.FirstOrDefault(stat =>
             string.Equals(stat.Name, condition.Key, StringComparison.OrdinalIgnoreCase))?.Display ?? "",
         _ => ""
@@ -451,13 +469,15 @@ public static class AutomationRules
             {
                 if (!Enum.IsDefined(action.Kind)) action.Kind = AutomationActionKind.SetTextColor;
                 if (!Enum.IsDefined(action.Phase)) action.Phase = AutomationActionPhase.OnMatch;
+                if (!Enum.IsDefined(action.ColorSource)) action.ColorSource = ScorebugColorSource.Custom;
                 action.LayoutId = (action.LayoutId ?? "").Trim();
                 action.ElementId = (action.ElementId ?? "").Trim();
                 action.Value = (action.Value ?? "").Trim();
                 action.Number = double.IsFinite(action.Number) ? action.Number : 0;
                 action.Number2 = double.IsFinite(action.Number2) ? action.Number2 : 0;
                 if ((action.Kind is AutomationActionKind.SetTextColor or AutomationActionKind.SetBackgroundColor
-                    or AutomationActionKind.SetBorderColor) && string.IsNullOrWhiteSpace(action.Value))
+                    or AutomationActionKind.SetBorderColor) && action.ColorSource == ScorebugColorSource.Custom
+                    && string.IsNullOrWhiteSpace(action.Value))
                     action.Value = "#FFFF3B30";
             }
             normalized.Add(rule);
@@ -465,14 +485,25 @@ public static class AutomationRules
         return normalized;
     }
 
+    /// <summary>The colour an action paints, resolving a team palette slot against the current game.</summary>
+    public static string ResolveColor(AutomationAction action, GameState? state) =>
+        action.ColorSource == ScorebugColorSource.Custom
+            ? action.Value
+            : state?.ColorFor(action.ColorSource) ?? action.Value;
+
+    static string ColorLabel(AutomationAction action) =>
+        action.ColorSource == ScorebugColorSource.Custom
+            ? action.Value
+            : ColorSources.FirstOrDefault(choice => choice.Source == action.ColorSource).Label ?? action.Value;
+
     public static string Describe(AutomationAction action, string? elementName = null)
     {
         var target = string.IsNullOrWhiteSpace(elementName) ? "element" : elementName;
         return action.Kind switch
         {
-            AutomationActionKind.SetTextColor => $"{target} text → {action.Value}",
-            AutomationActionKind.SetBackgroundColor => $"{target} background → {action.Value}",
-            AutomationActionKind.SetBorderColor => $"{target} border → {action.Value}",
+            AutomationActionKind.SetTextColor => $"{target} text → {ColorLabel(action)}",
+            AutomationActionKind.SetBackgroundColor => $"{target} background → {ColorLabel(action)}",
+            AutomationActionKind.SetBorderColor => $"{target} border → {ColorLabel(action)}",
             AutomationActionKind.SetOpacity => $"{target} opacity → {action.Number:0.##}",
             AutomationActionKind.MoveBy => $"{target} move → {action.Number:0.#}, {action.Number2:0.#}",
             AutomationActionKind.MoveTo => $"{target} move to {action.Number:0.#}, {action.Number2:0.#}",

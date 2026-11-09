@@ -77,7 +77,8 @@ public partial class GameControlWindow : Window
         _engine = engine;
         _catalog = catalog;
         Program = new ProgramSelection(catalog);
-        _preview = new ScorebugCanvasView(catalog, previewEngine, playback: media?.Playback, layoutProvider: () => Program!.Layout, displayId: Program!.DisplayId, automation: automation);
+        // The preview is staged; the small audience monitor below reads the published copy.
+        _preview = new ScorebugCanvasView(catalog, engine, stateProvider: () => engine.State, playback: media?.Playback, layoutProvider: () => Program!.Layout, displayId: Program!.DisplayId, automation: automation);
         PreviewHost.Content = _preview;
         // The monitor reads the published engine and layout, so it reflects a real audience window.
         _audience = new AudiencePreview(catalog, previewEngine, media?.Playback, Program.DisplayId, automation);
@@ -165,6 +166,7 @@ public partial class GameControlWindow : Window
         ProgramHint.Text = Program.HasStagedChanges
             ? "Preview only — press Update Output to put this display on air."
             : "This display is on air with the layout shown here.";
+        _preview?.PrepareTransition(Program.Layout);
         _preview?.Rebuild();
         Panel.Refresh();
         RefreshMeterStatus();

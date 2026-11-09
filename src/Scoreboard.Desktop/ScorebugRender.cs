@@ -73,6 +73,19 @@ internal static class ScorebugRender
             ? state?.ColorFor(item.IconFillSource) ?? item.IconFillColor
             : string.IsNullOrWhiteSpace(item.IconFillColor) ? ResolveForeground(item, state) : item.IconFillColor;
 
+    /// <summary>The colour the icon actually draws with: its own colour, a made icon's resolved
+    /// state colour, or the element's text colour when neither one is set.</summary>
+    public static string ResolveIconColor(ScorebugElement item, GameState? state)
+    {
+        if (!string.IsNullOrWhiteSpace(item.IconColor)) return item.IconColor;
+        if (item.Icon == ScorebugIcon.Custom)
+        {
+            var icon = CustomIconStore.Find(item.CustomIconId);
+            if (icon is not null) return icon.Resolve(state).Color;
+        }
+        return ResolveForeground(item, state);
+    }
+
     public static string? ResolveLogoPath(ScorebugElement item, GameState? state)
     {
         if (item.LogoSide == ScorebugLogoSide.None) return item.ImagePath;
@@ -145,6 +158,13 @@ internal static class ScorebugRender
         {
             ScorebugShape.Circle => new Ellipse(),
             ScorebugShape.Triangle => new Polygon { Points = new PointCollection { new(0.5, 0), new(1, 1), new(0, 1) } },
+            // A true parallelogram: the diagonals are geometry, not a scaled rectangle, and WPF
+            // anti-aliases the sloped edges instead of leaving a stepped "broken" border.
+            ScorebugShape.Parallelogram => new Polygon
+            {
+                Points = new PointCollection { new(0.24, 0), new(1, 0), new(0.76, 1), new(0, 1) },
+                StrokeLineJoin = PenLineJoin.Round
+            },
             _ => new Rectangle { RadiusX = 8, RadiusY = 8 }
         };
         shape.Stretch = Stretch.Fill;
@@ -155,6 +175,10 @@ internal static class ScorebugRender
         shape.StrokeThickness = Math.Max(0, item.BorderThickness);
         shape.StrokeStartLineCap = PenLineCap.Round;
         shape.StrokeEndLineCap = PenLineCap.Round;
+        // Smooth, full-strength diagonals on every render scale; snapping to device pixels made a
+        // sloped edge look chipped when the scorebug was scaled into an audience window.
+        shape.SnapsToDevicePixels = false;
+        shape.UseLayoutRounding = false;
         return shape;
     }
 
@@ -680,7 +704,7 @@ public sealed class ScorebugIconView : Grid
     bool? _arrowShown;
     // A referee's yellow or red card, drawn as the angled rectangle the official holds up.
     Rectangle? _card;
-    // An icon made in the icon maker: a glyph on its plate.
+    // An icon made in the Icon Creator: a glyph on its plate.
     Border? _customHost;
     TextBlock? _customText;
 
@@ -804,13 +828,21 @@ public sealed class ScorebugIconView : Grid
         }
         var width = Math.Max(12, _item.Width);
         var height = Math.Max(12, _item.Height);
-        _customText.Text = icon.Glyph;
+        var look = icon.Resolve(_state?.Invoke());
+        _customText.Text = look.Glyph;
         _customText.FontSize = Math.Clamp(Math.Min(width, height) * 0.62, 8, 260);
-        _customText.Foreground = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? icon.Color : _item.IconColor);
-        _customHost.Background = ScorebugRender.ParseBrush(icon.Plate);
+        _customText.Foreground = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? look.Color : _item.IconColor);
+        _customHost.Background = ScorebugRender.ParseBrush(look.Plate);
         _customHost.Width = width;
         _customHost.Height = height;
-        _customHost.CornerRadius = new CornerRadius(icon.Round ? Math.Min(width, height) / 2 : Math.Min(width, height) * 0.16);
+        _customHost.CornerRadius = new CornerRadius(look.Round ? Math.Min(width, height) / 2 : Math.Min(width, height) * 0.16);
+        _customHost.Opacity = Math.Clamp(look.Opacity, 0, 1);
+        _customHost.RenderTransformOrigin = new Point(0.5, 0.5);
+        var transform = new TransformGroup();
+        transform.Children.Add(new ScaleTransform(look.Scale, look.Scale));
+        transform.Children.Add(new RotateTransform(look.Rotation));
+        transform.Children.Add(new TranslateTransform(look.OffsetX, look.OffsetY));
+        _customHost.RenderTransform = transform;
     }
 
     /// <summary>Moves the icon off its box's centre, so one element can carry a mark elsewhere.</summary>

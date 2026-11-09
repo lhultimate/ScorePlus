@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Input;
 using System.IO;
+using System.Windows.Controls;
+using System.Windows.Media;
 using System.Threading;
 using Scoreboard.Core;
 
@@ -89,6 +91,28 @@ public partial class App : Application
         // look like it had been returned to a window at the side of the screen.
         WindowFullscreen.Toggle(window);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// A wheel over a closed picker should not change its value. Forward the scroll to the
+    /// surrounding panel so the editor still scrolls as the operator expects.
+    /// </summary>
+    void ComboBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ComboBox { IsDropDownOpen: false } combo || e.Handled) return;
+        e.Handled = true;
+        // Raising the bubbling event on the scroller (rather than the closed combo) lets the
+        // ScrollViewer treat it as a normal wheel gesture.
+        for (var parent = VisualTreeHelper.GetParent(combo); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+        {
+            if (parent is not ScrollViewer scroller) continue;
+            scroller.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+            {
+                RoutedEvent = UIElement.MouseWheelEvent,
+                Source = scroller
+            });
+            return;
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

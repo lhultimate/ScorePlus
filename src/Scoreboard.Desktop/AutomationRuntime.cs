@@ -168,7 +168,7 @@ public sealed class AutomationRuntime : IDisposable
 
                     if (trigger) matched.Add(key);
                     flows[key] = nextFlow;
-                    ApplyPatches(rule, patches, onMatch, afterWait, elseBranch);
+                    ApplyPatches(rule, patches, onMatch, afterWait, elseBranch, state);
                     if (enterOnMatch || enterAfterWait || enterElse)
                         CollectSwitches(rule, display.Id, switchTargets, enterOnMatch, enterAfterWait, enterElse);
                 }
@@ -214,7 +214,7 @@ public sealed class AutomationRuntime : IDisposable
     /// that satisfies the wait while ending the trigger still leaves the after-wait result on top.
     /// </summary>
     static void ApplyPatches(AutomationRule rule, Dictionary<string, VisualPatch> patches,
-        bool onMatch, bool afterWait, bool elseBranch)
+        bool onMatch, bool afterWait, bool elseBranch, GameState state)
     {
         foreach (var phase in new[]
                  {
@@ -235,7 +235,7 @@ public sealed class AutomationRuntime : IDisposable
                 if (string.IsNullOrWhiteSpace(action.ElementId)) continue;
                 if (!patches.TryGetValue(action.ElementId, out var patch))
                     patches[action.ElementId] = patch = new VisualPatch();
-                patch.Apply(action);
+                patch.Apply(action, state);
             }
         }
     }
@@ -320,20 +320,21 @@ public sealed class AutomationRuntime : IDisposable
                 .Append('|').Append(Width).Append('|').Append(Height).Append('|').Append(Visible);
         }
 
-        public void Apply(AutomationAction action)
+        public void Apply(AutomationAction action, GameState state)
         {
             var number = double.IsFinite(action.Number) ? action.Number : 0;
             var number2 = double.IsFinite(action.Number2) ? action.Number2 : 0;
+            var colour = AutomationRules.ResolveColor(action, state);
             switch (action.Kind)
             {
-                case AutomationActionKind.SetTextColor when IsColor(action.Value):
-                    TextColor = action.Value;
+                case AutomationActionKind.SetTextColor when IsColor(colour):
+                    TextColor = colour;
                     break;
-                case AutomationActionKind.SetBackgroundColor when IsColor(action.Value):
-                    BackgroundColor = action.Value;
+                case AutomationActionKind.SetBackgroundColor when IsColor(colour):
+                    BackgroundColor = colour;
                     break;
-                case AutomationActionKind.SetBorderColor when IsColor(action.Value):
-                    BorderColor = action.Value;
+                case AutomationActionKind.SetBorderColor when IsColor(colour):
+                    BorderColor = colour;
                     break;
                 case AutomationActionKind.SetOpacity:
                     Opacity = Math.Clamp(number, 0, 1);

@@ -360,8 +360,11 @@ public partial class OutputWindow : Window
             Width = _highlighter ? Math.Max(12 / scale, pen * 5) : pen,
             Height = _highlighter ? Math.Max(12 / scale, pen * 5) : pen,
             StylusTip = StylusTip.Ellipse,
-            FitToCurve = true,
-            IgnorePressure = _highlighter
+            // Re-fitting a growing stroke to a curve made the line visibly wiggle and shift under
+            // the pen. Raw points keep every already-drawn segment still while the stroke grows.
+            FitToCurve = false,
+            // Pressure changed the width mid-stroke on some tablets, which read as a second wobble.
+            IgnorePressure = true
         };
     }
 
@@ -570,6 +573,8 @@ public partial class OutputWindow : Window
         ? $"Operator Draw Window — {DisplayName}"
         : $"ScorePlus — {DisplayName} Audience Output";
     public void Publish(){_displayState=_engine.CloneState();Update();_scorebugView.Refresh();}
+    /// <summary>Opens a staged layout's hand-over video before the layout is sent to air.</summary>
+    public void PrepareTransition(ScorebugLayout layout)=>_scorebugView.PrepareTransition(layout);
     /// <summary>Re-creates the on-air visuals; used when a new game replaces everything.</summary>
     public void Rebuild(){Update();_scorebugView.Rebuild();}
     /// <summary>Copies controller-owned game values to the audience without staging them.</summary>

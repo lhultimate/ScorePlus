@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -35,6 +36,12 @@ public sealed class ScorebugCanvasView : Grid
     // arrival. Both belong to the swap, not to the layout, so FinishSwap takes them down together.
     Canvas? _swapPieces;
     DispatcherTimer? _swapTimer;
+    // The hand-over video is drawn through a video brush so its chroma shader reaches the frames.
+    MediaPlayer? _swapPlayer;
+    // A staged layout's hand-over video is opened before Update Output, so the first frame is
+    // already available when the cut actually starts.
+    MediaPlayer? _preparedTransitionPlayer;
+    string _preparedTransitionPath = "";
     // Hosts whose position is travelling from an outgoing layout's spot to the incoming spot.
     readonly List<(ScorebugElement Item,FrameworkElement Host,Transform Original)> _swapMoves = [];
     readonly MediaPlayback? _playback;
@@ -88,6 +95,56 @@ public sealed class ScorebugCanvasView : Grid
 
     /// <summary>The artwork this view is drawing: the design being previewed, or the published one.</summary>
     public ScorebugLayout Layout => _automation?.Effective(_displayId,_layoutProvider()) ?? _layoutProvider();
+
+    /// <summary>
+    /// Opens this layout's hand-over video ahead of time. Preloading takes the media stack's startup
+    /// cost out of the cut, and the player prepared here is consumed by the next video swap.
+    /// </summary>
+    public void PrepareTransition(ScorebugLayout layout)
+    {
+        if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(()=>PrepareTransition(layout));return;}
+        PrepareTransition(layout.TransitionVideoPath);
+    }
+
+    void PrepareTransition(string? path)
+    {
+        path=(path??"").Trim();
+        if(string.Equals(path,_preparedTransitionPath,StringComparison.OrdinalIgnoreCase)&&_preparedTransitionPlayer is not null)return;
+        ReleasePreparedTransition();
+        if(path.Length==0||!System.IO.File.Exists(path))return;
+        var extension=System.IO.Path.GetExtension(path).ToLowerInvariant();
+        if(extension is not (".mp4" or ".m4v" or ".wmv" or ".avi" or ".mov" or ".mkv" or ".webm"))return;
+        var player=new MediaPlayer{IsMuted=true,ScrubbingEnabled=true};
+        _preparedTransitionPlayer=player;
+        _preparedTransitionPath=path;
+        player.MediaOpened+=(_,_)=>{
+            if(!ReferenceEquals(_preparedTransitionPlayer,player))return;
+            // Put the first frame at the head of the clip while the layout waits on stage. The
+            // swap must not seek again: that seek is what kept the video cold until after the cut.
+            try{player.Position=TimeSpan.Zero;player.Pause();}catch{}
+        };
+        player.MediaFailed+=(_,_)=>{
+            if(ReferenceEquals(_preparedTransitionPlayer,player))ReleasePreparedTransition();
+        };
+        try{player.Open(new Uri(path));}catch{ReleasePreparedTransition();}
+    }
+
+    MediaPlayer? TakePreparedTransition(string path)
+    {
+        if(_preparedTransitionPlayer is null||!string.Equals(_preparedTransitionPath,path,StringComparison.OrdinalIgnoreCase))return null;
+        var player=_preparedTransitionPlayer;
+        _preparedTransitionPlayer=null;
+        _preparedTransitionPath="";
+        return player;
+    }
+
+    void ReleasePreparedTransition()
+    {
+        if(_preparedTransitionPlayer is not { } player)return;
+        _preparedTransitionPlayer=null;
+        _preparedTransitionPath="";
+        try{player.Stop();player.Close();}catch{}
+    }
 
     public void Rebuild()
     {
@@ -738,30 +795,117 @@ public sealed class ScorebugCanvasView : Grid
         var height=Math.Max(1,_canvas.Height);
         var stack=new Grid{Width=width,Height=height,IsHitTestVisible=false};
         var still=new Image{Source=outgoing,Width=width,Height=height,Stretch=Stretch.Fill};
-        var video=new MediaElement{Width=width,Height=height,Stretch=Stretch.Fill,IsMuted=true,
-            LoadedBehavior=MediaState.Play,UnloadedBehavior=MediaState.Manual};
+        var prepared=TakePreparedTransition(path);
+        var player=prepared??new MediaPlayer{IsMuted=true,ScrubbingEnabled=false};
+        var drawing=new VideoDrawing{Player=player,Rect=new Rect(0,0,1,1)};
+        var brush=new DrawingBrush(drawing){Stretch=Stretch.Fill};
+        var video=new Rectangle{Width=width,Height=height,Fill=brush,IsHitTestVisible=false};
         // The hand-over video can be shot against a green screen just like a camera or a replay.
         // The shader is the same one used by video elements, so the key colour reaches the pixels.
         var keyed=TryParseColor(incoming.TransitionVideoChromaKeyColor,out var keyColour);
         if(keyed) video.Effect=new ChromaKeyEffect{KeyColor=keyColour,Tolerance=incoming.TransitionVideoChromaKeyTolerance};
-        try{video.Source=new Uri(path);}catch{return false;}
-        // With a key, the transparent pixels reveal the incoming layout underneath, not the old
-        // still. A plain video hand-over still covers the old picture while it plays.
-        if(!keyed) stack.Children.Add(still);
+        // The incoming layout is already underneath. Hold the outgoing still over it until the
+        // video's first frame is ready, then until the operator's chosen cut beat. A keyed clip
+        // needs this too: otherwise its transparent pixels reveal the new layout while the media
+        // pipeline is still opening, which is the three-second early cut.
+        var cutSeconds=Math.Clamp(incoming.TransitionVideoCutSeconds,0,30);
+        stack.Children.Add(still);
         stack.Children.Add(video);
         _stage.Children.Add(stack);
         _swapOverlay=stack;
+        _swapPlayer=player;
+        DispatcherTimer? cutTimer=null;
+        DispatcherTimer? paintTimer=null;
+        EventHandler? paintHandler=null;
+        var cutDone=false;
+        void StopPaintWait()
+        {
+            if(paintHandler is not null){CompositionTarget.Rendering-=paintHandler;paintHandler=null;}
+            if(paintTimer is not null){paintTimer.Stop();paintTimer=null;}
+        }
+        void Cut()
+        {
+            if(cutDone)return;
+            cutDone=true;
+            cutTimer?.Stop();
+            cutTimer=null;
+            if(stack.Children.Contains(still))stack.Children.Remove(still);
+        }
+        void StartCut()
+        {
+            if(cutDone)return;
+            StopPaintWait();
+            // The fixed fallback that removes a stuck clip must not fire before a deliberately
+            // late cut. Honor the chosen beat and the clip's own duration, with a ceiling that
+            // still clears a hung media pipeline.
+            var guardSeconds=cutSeconds;
+            if(player.NaturalDuration.HasTimeSpan)
+                guardSeconds=Math.Max(guardSeconds,player.NaturalDuration.TimeSpan.TotalSeconds);
+            StartSwapTimer(Math.Clamp(guardSeconds+1,12,65),Finish);
+            if(cutSeconds<=0.001){Cut();return;}
+            cutTimer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(cutSeconds)};
+            cutTimer.Tick+=(_,_) => {
+                cutTimer?.Stop();
+                cutTimer=null;
+                if(ReferenceEquals(_swapOverlay,stack))Cut();
+            };
+            cutTimer.Start();
+        }
+        void WaitForFirstFrames()
+        {
+            if(cutDone||paintHandler is not null||!ReferenceEquals(_swapOverlay,stack))return;
+            var frames=0;
+            paintHandler=(_,_)=>{
+                if(cutDone||!ReferenceEquals(_swapOverlay,stack)){StopPaintWait();return;}
+                // Two composed frames prove the video brush is painting, not merely that the
+                // media clock has opened. MediaOpened happens before the first visible frame.
+                if(++frames<2||player.Position<=TimeSpan.Zero)return;
+                StopPaintWait();
+                StartCut();
+            };
+            CompositionTarget.Rendering+=paintHandler;
+            // Never let a decoder that opens but never paints pin the old scoreboard forever.
+            paintTimer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(5)};
+            paintTimer.Tick+=(_,_)=>{
+                StopPaintWait();
+                if(!cutDone&&ReferenceEquals(_swapOverlay,stack))StartCut();
+            };
+            paintTimer.Start();
+        }
+        void BeginPlayback()
+        {
+            if(cutDone)return;
+            try{player.Play();}catch{Finish();return;}
+            WaitForFirstFrames();
+        }
         void Finish()
         {
             if(!ReferenceEquals(_swapOverlay,stack))return;
-            try{video.Stop();video.Close();}catch{}
+            cutDone=true;
+            StopPaintWait();
+            cutTimer?.Stop();
+            cutTimer=null;
+            cutDone=true;
+            try{player.Stop();player.Close();}catch{}
+            if(ReferenceEquals(_swapPlayer,player))_swapPlayer=null;
             _stage.Children.Remove(stack);
             _swapOverlay=null;
         }
-        video.MediaEnded+=(_,_)=>Finish();
+        player.MediaEnded+=(_,_)=>Finish();
         // A clip that cannot open on this machine must not leave the old picture over the new layout.
-        video.MediaFailed+=(_,_)=>Finish();
-        StartSwapTimer(12,Finish);
+        player.MediaFailed+=(_,_)=>Finish();
+        // A video that never opens must not leave the old still over the new layout. This is
+        // replaced by the clip-aware guard once playback opens.
+        StartSwapTimer(30,Finish);
+        if(prepared is null)
+        {
+            try{player.Open(new Uri(path));}
+            catch{Finish();return true;}
+        }
+        else player.ScrubbingEnabled=false;
+        // A prepared player is already parked on its first frame at position zero. Play it without
+        // seeking again, then hold the outgoing still until composed video frames actually land.
+        BeginPlayback();
         return true;
     }
 
@@ -771,11 +915,11 @@ public sealed class ScorebugCanvasView : Grid
         _swapTimer?.Stop();
         _swapTimer=null;
         RestoreMovePieces();
-        if(_swapOverlay is Panel panel)
-            foreach(var media in panel.Children.OfType<MediaElement>())
-            {
-                try{media.Stop();media.Close();}catch{}
-            }
+        if(_swapPlayer is { } player)
+        {
+            try{player.Stop();player.Close();}catch{}
+            _swapPlayer=null;
+        }
         if(_swapOverlay is not null)
         {
             _stage.Children.Remove(_swapOverlay);
@@ -1000,5 +1144,6 @@ public sealed class ScorebugCanvasView : Grid
         _videoSurfaces.Clear();
         foreach(var page in _htmlSurfaces.Values) page.Dispose();
         _htmlSurfaces.Clear();
+        ReleasePreparedTransition();
     }
 }

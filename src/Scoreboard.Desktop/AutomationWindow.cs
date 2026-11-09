@@ -54,7 +54,7 @@ public sealed class AutomationWindow : Window
         _rules.AddRange((catalog.FindDisplay(_displayId)?.Automations ?? []).Select(rule => rule.Copy()));
         _selected = _rules.FirstOrDefault();
 
-        Title = "Node rules";
+        Title = "Conditionals";
         Width = 1280;
         Height = 780;
         MinWidth = 900;
@@ -93,7 +93,7 @@ public sealed class AutomationWindow : Window
         };
         var railStack = new DockPanel();
         var header = new StackPanel();
-        header.Children.Add(new TextBlock { Text = "NODE RULES", FontWeight = FontWeights.Bold, FontSize = 12, Foreground = AccentBrush });
+        header.Children.Add(new TextBlock { Text = "CONDITIONALS", FontWeight = FontWeights.Bold, FontSize = 12, Foreground = AccentBrush });
         _displayLabel.Text = "Program";
         _displayLabel.FontSize = 18;
         _displayLabel.FontWeight = FontWeights.Bold;
@@ -306,7 +306,7 @@ public sealed class AutomationWindow : Window
         var display = _catalog.FindDisplay(_displayId);
         var dialog = new SaveFileDialog
         {
-            Title = "Export node rules",
+            Title = "Export conditionals",
             Filter = "ScorePlus Rule (*.spr)|*.spr",
             DefaultExt = RuleFiles.Extension,
             AddExtension = true,
@@ -328,7 +328,7 @@ public sealed class AutomationWindow : Window
     {
         var dialog = new OpenFileDialog
         {
-            Title = "Import node rules",
+            Title = "Import conditionals",
             Filter = "ScorePlus Rule (*.spr)|*.spr|All files (*.*)|*.*",
             DefaultExt = RuleFiles.Extension,
             CheckFileExists = true,
@@ -762,32 +762,60 @@ public sealed class AutomationWindow : Window
 
             if (action.Kind is AutomationActionKind.SetTextColor or AutomationActionKind.SetBackgroundColor or AutomationActionKind.SetBorderColor)
             {
+                var sourceChoices = AutomationRules.ColorSources
+                    .Select(option => new ColorSourceChoice(option.Source, option.Label)).ToArray();
+                var source = new ComboBox
+                {
+                    ItemsSource = sourceChoices,
+                    DisplayMemberPath = "Label",
+                    SelectedItem = sourceChoices.FirstOrDefault(choice => choice.Source == action.ColorSource) ?? sourceChoices[0],
+                    FontSize = 10,
+                    MinHeight = 28,
+                    Margin = new Thickness(0, 0, 0, 5)
+                };
+                panel.Children.Add(FieldLabel("Colour from"));
+                source.SelectionChanged += (_, _) =>
+                {
+                    if (_building || source.SelectedItem is not ColorSourceChoice choice) return;
+                    action.ColorSource = choice.Source;
+                    Persist();
+                    RefreshGraph();
+                };
+                panel.Children.Add(source);
+
                 panel.Children.Add(FieldLabel("Colour"));
                 var row = new DockPanel();
+                var resolved = AutomationRules.ResolveColor(action, _engine.State);
                 var swatch = new Border
                 {
                     Width = 22, Height = 22, CornerRadius = new CornerRadius(4),
-                    Background = ColorBrush(action.Value), BorderBrush = EdgeBrush,
+                    Background = ColorBrush(resolved), BorderBrush = EdgeBrush,
                     BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 5, 0),
-                    ToolTip = action.Value
+                    ToolTip = resolved
                 };
                 DockPanel.SetDock(swatch, Dock.Left);
                 row.Children.Add(swatch);
-                var choose = new Button { Content = "Choose…", FontSize = 9, Padding = new Thickness(6, 2, 6, 2) };
+                var choose = new Button
+                {
+                    Content = "Choose…", FontSize = 9, Padding = new Thickness(6, 2, 6, 2),
+                    IsEnabled = action.ColorSource == ScorebugColorSource.Custom
+                };
                 DockPanel.SetDock(choose, Dock.Right);
                 choose.Click += (_, _) =>
                 {
                     var chosen = ColorPickerWindow.Pick(this, action.Value);
                     if (chosen is null) return;
                     action.Value = chosen;
+                    action.ColorSource = ScorebugColorSource.Custom;
                     Persist();
                     RefreshGraph();
                 };
                 row.Children.Add(choose);
-                var hex = Box(action.Value, 11);
+                var hex = Box(resolved, 11);
+                hex.IsEnabled = action.ColorSource == ScorebugColorSource.Custom;
                 hex.TextChanged += (_, _) =>
                 {
-                    if (_building) return;
+                    if (_building || action.ColorSource != ScorebugColorSource.Custom) return;
                     action.Value = hex.Text.Trim();
                     swatch.Background = ColorBrush(action.Value);
                     swatch.ToolTip = action.Value;
@@ -795,6 +823,13 @@ public sealed class AutomationWindow : Window
                 };
                 row.Children.Add(hex);
                 panel.Children.Add(row);
+                if (action.ColorSource != ScorebugColorSource.Custom)
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = $"Follows {AutomationRules.ColorSources.First(choice => choice.Source == action.ColorSource).Label.ToLowerInvariant()} from the team colours.",
+                        Foreground = MutedBrush, FontSize = 9, TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 3, 0, 0)
+                    });
             }
             else if (action.Kind == AutomationActionKind.SetText)
             {
@@ -1018,4 +1053,5 @@ public sealed class AutomationWindow : Window
     sealed record ElementChoice(string LayoutId, string ElementId, string Label) { public override string ToString() => Label; }
     sealed record LayoutChoice(string Id, string Label) { public override string ToString() => Label; }
     sealed record PhaseChoice(AutomationActionPhase Phase, string Label) { public override string ToString() => Label; }
+    sealed record ColorSourceChoice(ScorebugColorSource Source, string Label) { public override string ToString() => Label; }
 }

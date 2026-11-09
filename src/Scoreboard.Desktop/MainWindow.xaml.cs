@@ -149,7 +149,10 @@ public partial class MainWindow : Window, IControlPanelHost
         _automation = new AutomationRuntime(_scorebug, _publishedEngine, _engine);
         _program = new ProgramSelection(_scorebug);
         _program.Changed += ProgramChanged;
-        _preview = new ScorebugCanvasView(_scorebug, _publishedEngine, playback: _playback, layoutProvider: () => _program.Layout, displayId: _program.DisplayId, automation: _automation);
+        // The preview is the staging desk: it must show the values the operator is about to put on
+        // air, including the Yards/Goal/PAT choice, while the monitor below stays on the published
+        // copy. Reading the published engine here made the preview lag one Update Output behind.
+        _preview = new ScorebugCanvasView(_scorebug, _engine, stateProvider: () => _engine.State, playback: _playback, layoutProvider: () => _program.Layout, displayId: _program.DisplayId, automation: _automation);
         PreviewHost.Content = _preview;
         // The monitor reads the published engine and the published layout, so it is a real
         // reflection of the audience window rather than another staged preview.
@@ -534,7 +537,22 @@ public partial class MainWindow : Window, IControlPanelHost
     {
         SyncDisplayPicker();
         RefreshLayoutIndicators();
+        // Arm the hand-over video while the operator is still looking at the preview. If they wait
+        // a beat before Update Output, the first frame is decoded and the cut does not start with a
+        // three-second black gap. The preview is armed before its own rebuild so its swap can
+        // consume the prepared player too.
+        PrepareTransitionForStagedLayout();
         _preview?.Rebuild();
+    }
+
+    void PrepareTransitionForStagedLayout()
+    {
+        _preview?.PrepareTransition(_program.Layout);
+        // A link stages more than the previewed display. Arm every visible output for the layout
+        // it will actually publish, so a linked screen gets the same preloaded hand-over.
+        foreach (var output in _outputs.Where(output => output.IsVisible))
+            if (_program.LayoutFor(output.DisplayId) is { } layout)
+                output.PrepareTransition(layout);
     }
 
     /// <summary>Fills the display picker without treating the sync as the operator's choice.</summary>
@@ -1187,7 +1205,13 @@ public partial class MainWindow : Window, IControlPanelHost
             if (_scorebug.Displays.Count == 1) displayId = _scorebug.Displays[0].Id;
             else
             {
-                displayId = DisplayPickerWindow.Ask(this, _scorebug, _preferences.Theme, _program.DisplayId);
+                displayId = annotations
+                    ? DisplayPickerWindow.Ask(this, _scorebug, _preferences.Theme, _program.DisplayId,
+                        title: "Operator Draw Window",
+                        heading: "Which display are you drawing on?",
+                        detail: "The pen and highlighter appear on this display's audience picture. Opening the draw window again reuses an output already showing that display.",
+                        confirm: "Open draw window")
+                    : DisplayPickerWindow.Ask(this, _scorebug, _preferences.Theme, _program.DisplayId);
                 if (displayId is null) return null;
             }
         }
@@ -1211,6 +1235,8 @@ public partial class MainWindow : Window, IControlPanelHost
         _outputs.Add(output);
         output.Closed += (_, _) => _outputs.Remove(output);
         output.Show();
+        if (string.Equals(displayId, _program.DisplayId, StringComparison.OrdinalIgnoreCase))
+            output.PrepareTransition(_program.Layout);
         if (annotations)
         {
             foreach (var other in _outputs.Where(candidate => !ReferenceEquals(candidate, output) && candidate.IsVisible

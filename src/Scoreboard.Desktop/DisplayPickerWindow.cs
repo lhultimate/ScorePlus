@@ -83,9 +83,13 @@ internal sealed class DisplayPickerWindow : Window
     }
 
     /// <summary>The chosen display id, or null when the operator cancelled.</summary>
-    public static string? Ask(Window owner, ScorebugCatalog catalog, string theme, string? preferredDisplayId)
+    public static string? Ask(Window owner, ScorebugCatalog catalog, string theme, string? preferredDisplayId,
+        string title = "Audience output",
+        string heading = "Which display is this window for?",
+        string detail = "Each display has its own audience window and its own layout. Opening one again adds another window rather than replacing the first.",
+        string confirm = "Open output")
     {
-        var window = new DisplayPickerWindow(catalog, theme, preferredDisplayId) { Owner = owner };
+        var window = new DisplayPickerWindow(catalog, theme, preferredDisplayId, title, heading, detail, confirm) { Owner = owner };
         return window.ShowDialog() == true ? window._result : null;
     }
 

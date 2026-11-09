@@ -215,6 +215,14 @@ public partial class ScorebugEditorWindow : Window
         _catalog.Update(layout=>layout.TransitionVideoChromaKeyTolerance=Math.Clamp(tolerance,0,1));
     }
 
+    /// <summary>The beat after the video starts before the incoming layout is revealed.</summary>
+    void TransitionVideoCut_Changed(object sender,TextChangedEventArgs e)
+    {
+        if(_loading||_canvasLoading)return;
+        if(!double.TryParse(TransitionVideoCutInput.Text,out var seconds))return;
+        _catalog.Update(layout=>layout.TransitionVideoCutSeconds=Math.Clamp(seconds,0,30));
+    }
+
     /// <summary>Names the chosen hand-over video and its optional chroma key.</summary>
     void SyncTransitionVideo()
     {
@@ -223,10 +231,15 @@ public partial class ScorebugEditorWindow : Window
         var hasVideo=!string.IsNullOrWhiteSpace(path);
         var hasKey=hasVideo&&!string.IsNullOrWhiteSpace(_catalog.Layout.TransitionVideoChromaKeyColor);
         TransitionVideoClearButton.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        TransitionVideoCutLabel.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        TransitionVideoCutInput.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        TransitionVideoCutUnit.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
         TransitionKeyButton.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
         TransitionKeyClearButton.Visibility=hasKey?Visibility.Visible:Visibility.Collapsed;
         TransitionKeyToleranceLabel.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
         TransitionKeyToleranceInput.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        var cut=_catalog.Layout.TransitionVideoCutSeconds.ToString("0.##");
+        if(TransitionVideoCutInput.Text!=cut)TransitionVideoCutInput.Text=cut;
         var tolerance=_catalog.Layout.TransitionVideoChromaKeyTolerance.ToString("0.00");
         if(TransitionKeyToleranceInput.Text!=tolerance)TransitionKeyToleranceInput.Text=tolerance;
         TransitionCaption.Text=!hasVideo
@@ -1125,8 +1138,8 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>
-    /// Paints the two colour previews in the property panel. A hex box on its own never showed
-    /// what an element (or a team palette slot) actually draws; these swatches do.
+    /// Paints the colour previews in the property panel. A hex box on its own never showed what
+    /// an element (or a team palette slot) actually draws; these swatches do.
     /// </summary>
     void RefreshColorSwatches()
     {
@@ -1137,12 +1150,14 @@ public partial class ScorebugEditorWindow : Window
         // The chosen outline colour shows even at width 0: the panel is where the colour is picked,
         // and a hidden swatch made a just-chosen colour look like it had not taken.
         BorderColorSwatch.Background=item is null?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveBorder(item,_engine.State));
+        IconColorSwatch.Background=item is null?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveIconColor(item,_engine.State));
         IconFillSwatch.Background=item is null||item.Icon!=ScorebugIcon.Bases?Brushes.Transparent:ScorebugRender.ParseBrush(ScorebugRender.ResolveIconFill(item,_engine.State));
         ChromaKeySwatch.Background=item is null||!TryColor(item.ChromaKeyColor,out var chromaColour)?Brushes.Transparent:new SolidColorBrush(chromaColour);
         TextColorSwatch.ToolTip=item is null?null:$"Text colour: {ScorebugRender.ResolveForeground(item,_engine.State)}";
         BackgroundColorSwatch.ToolTip=item is null?null:item.TransparentBackground?"No background box":$"Background colour: {ScorebugRender.ResolveBackground(item,_engine.State)}";
         GradientColorSwatch.ToolTip=item is null||!item.BackgroundGradient?"No gradient":$"Second gradient colour: {_engine.State.ColorFor(item.BackgroundSource2)??item.BackgroundColor2}";
         BorderColorSwatch.ToolTip=item is null||item.BorderThickness<=0?"No border":$"Border colour: {ScorebugRender.ResolveBorder(item,_engine.State)}";
+        IconColorSwatch.ToolTip=item is null?null:$"Icon colour: {ScorebugRender.ResolveIconColor(item,_engine.State)}";
         IconFillSwatch.ToolTip=item is null||item.Icon!=ScorebugIcon.Bases?"No bases":$"Base fill: {ScorebugRender.ResolveIconFill(item,_engine.State)}";
         ChromaKeySwatch.ToolTip=item is null||string.IsNullOrWhiteSpace(item.ChromaKeyColor)?"No chroma key":$"Chroma key: {item.ChromaKeyColor}";
     }
@@ -1202,7 +1217,7 @@ public partial class ScorebugEditorWindow : Window
         // The fill only appears for the diamond: bars and the possession dot have one colour.
         BaseFillPanel.Visibility=text&&IconInput.SelectedItem is ScorebugIcon.Bases?Visibility.Visible:Visibility.Collapsed;
         // The made-icon picker only means something once the icon itself is a made one.
-        // The Made icon row and its Icon maker button stay visible for every text element: the
+        // The Made icon row and its Icon Creator button stay visible for every text element: the
         // maker is where icons are created, so hiding it until one already exists hid the feature.
         IconCustomPanel.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         var icon=text?(e?.Icon??ScorebugIcon.None):ScorebugIcon.None;
@@ -1368,7 +1383,7 @@ public partial class ScorebugEditorWindow : Window
             Render(); return;
         }
         if(sender is CheckBox){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();return;}
-        if(sender==ColorInput||sender==BackgroundInput||sender==GradientColorInput||sender==ChromaKeyInput){SaveProperties();RefreshAllVisuals();return;}
+        if(sender==ColorInput||sender==BackgroundInput||sender==GradientColorInput||sender==ChromaKeyInput||sender==IconColorInput){SaveProperties();RefreshAllVisuals();return;}
         if(sender==ContentInput) UpdatePropertyVisibility();
         _propertySave.Stop(); _propertySave.Start();
     }
@@ -1388,12 +1403,17 @@ public partial class ScorebugEditorWindow : Window
         IconCustomInput.SelectedItem=choices.FirstOrDefault(choice=>string.Equals(choice.Icon.Id,previous,StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>Opens the icon maker, then points the selected element at the icon it made.</summary>
+    /// <summary>Opens the Icon Creator, then points the selected element at the icon it made.</summary>
     void IconMaker_Click(object sender,RoutedEventArgs e)
     {
         var maker=new IconMakerWindow(PreferencesStore.Load().Theme){Owner=this};
         maker.ShowDialog();
         RefreshIconChoices();
+        var madeIconId=maker.SelectedIconId;
+        // A newly made or selected icon should be the one the element uses when the maker closes.
+        if(madeIconId is not null)
+            IconCustomInput.SelectedItem=(IconCustomInput.ItemsSource as List<CustomIconChoice>)
+                ?.FirstOrDefault(choice=>string.Equals(choice.Icon.Id,madeIconId,StringComparison.OrdinalIgnoreCase));
         if(Selected is null||IconCustomInput.SelectedItem is not CustomIconChoice choice)return;
         var id=Selected.Id;
         _catalog.Update(layout=>
@@ -2089,7 +2109,8 @@ public partial class ScorebugEditorWindow : Window
         var add=new Button{Content="Add shape",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right};
         add.Click+=(_,_)=>{
             var kind=(ScorebugShape)(shape.SelectedItem??ScorebugShape.Rectangle);
-            Add(new ScorebugElement{Name=$"New {kind.ToString().ToLowerInvariant()}",Kind=ScorebugElementKind.Shape,Shape=kind,Content="",X=450,Y=470,Width=kind==ScorebugShape.Rectangle?200:140,Height=kind==ScorebugShape.Rectangle?100:140,TransparentBackground=true,BorderThickness=2});
+            var wide=kind is ScorebugShape.Rectangle or ScorebugShape.Parallelogram;
+            Add(new ScorebugElement{Name=$"New {kind.ToString().ToLowerInvariant()}",Kind=ScorebugElementKind.Shape,Shape=kind,Content="",X=450,Y=470,Width=wide?200:140,Height=wide?100:140,TransparentBackground=true,BorderThickness=2});
             picker.DialogResult=true; picker.Close();
         };
         panel.Children.Add(shape); panel.Children.Add(add); picker.Content=panel; ThemeManager.Apply(picker,_theme); picker.ShowDialog();
