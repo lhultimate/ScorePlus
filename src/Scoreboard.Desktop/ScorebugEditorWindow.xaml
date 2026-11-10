@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Scoreboard.Desktop"
-        Title="ScorePlus — Scorebug Studio" Width="1360" Height="900" MinWidth="1120" MinHeight="720"
+        Title="ScorePlus — Display Studio" Width="1360" Height="900" MinWidth="1120" MinHeight="720"
         WindowStartupLocation="CenterOwner" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <Window.Resources>
     <local:IconNameConverter x:Key="IconNameConverter"/>
@@ -67,6 +67,8 @@
                   ToolTip="A live HTML/CSS widget, drawn by a browser engine on every screen"/>
           <Button Content="PLAYER PHOTO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddPlayerPhoto_Click"
                   ToolTip="A picture element that follows the selected player's uploaded portrait"/>
+          <Button Content="LAYOUT +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddLayoutFeed_Click"
+                  ToolTip="Put another layout inside this one as a resizeable live feed"/>
           <Button Content="PARTS +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="ImportParts_Click"
                   ToolTip="Copy elements from another layout instead of rebuilding them"/>
           <Button x:Name="UndoButton" Content="UNDO" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Undo_Click"
@@ -76,7 +78,7 @@
           <Button Content="REMOVE" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Remove_Click" ToolTip="Delete the selected element"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal">
-          <TextBlock Text="SCOREPLUS · SCOREBUG STUDIO" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
+          <TextBlock Text="SCOREPLUS · DISPLAY STUDIO" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
           <TextBlock x:Name="HeaderHint" Text="   Arrange audience graphics · edits save automatically" Foreground="#93A0B2" VerticalAlignment="Center"/>
         </StackPanel>
       </DockPanel>
@@ -507,6 +509,20 @@
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,4"/>
           <ComboBox x:Name="PlayerPhotoSideInput" Margin="10,0,10,6" SelectionChanged="Property_Changed"
                     ToolTip="Follow the selected home player, the selected visitors player, or use a fixed image instead"/>
+        </StackPanel>
+
+        <StackPanel x:Name="LayoutSection">
+          <TextBlock Text="LIVE LAYOUT" Style="{StaticResource SectionTitle}"/>
+          <TextBlock Text="Source layout" Style="{StaticResource FieldLabel}"/>
+          <ComboBox x:Name="NestedLayoutInput" Margin="10,0,10,4" SelectionChanged="NestedLayout_Changed"
+                    ToolTip="The layout this box shows live"/>
+          <TextBlock x:Name="NestedLayoutHint" Text="Choose a layout. The feed follows its artwork and values and can be resized like any other element."
+                     Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
+          <CheckBox x:Name="NestedAspectInput" Content="Keep the source layout's shape" Margin="10,2,10,4"
+                    Checked="Property_Changed" Unchecked="Property_Changed"
+                    ToolTip="On: letterbox the feed to the source's proportions. Off: stretch it to this box."/>
+          <TextBlock Text="Tip: drag the corner handle to resize the feed. Open the source layout above to edit its artwork; this box follows automatically."
+                     Foreground="#5C6B7E" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,8"/>
         </StackPanel>
 
         <StackPanel x:Name="ShapePanel">

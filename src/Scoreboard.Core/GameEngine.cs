@@ -138,6 +138,18 @@ public sealed class GameState
     public string AwaySecondaryColor { get; set; } = "#FF101820";
     public int HomeScore { get; set; }
     public int AwayScore { get; set; }
+    /// <summary>
+    /// The last scoring button pressed, so an animation can say +3 only for a +3. This is the
+    /// actual change after clamping (not the requested amount), and it survives a save.
+    /// </summary>
+    public int LastScoreAmount { get; set; }
+    public bool LastScoreHome { get; set; } = true;
+    [JsonIgnore]
+    public int LastScoreMagnitude => Math.Abs(LastScoreAmount);
+    [JsonIgnore]
+    public string LastScoreTeam => LastScoreHome ? HomeTeam : AwayTeam;
+    [JsonIgnore]
+    public string LastScoreAbbreviation => LastScoreHome ? HomeAbbreviation : AwayAbbreviation;
     public int Period { get; set; } = 1;
     public int HomeTimeouts { get; set; } = 5;
     public int AwayTimeouts { get; set; } = 5;
@@ -554,13 +566,19 @@ public sealed class GameEngine
 
     public void Score(bool home, int amount)
     {
-        SaveUndo("Score"); if (home) State.HomeScore = Math.Max(0, State.HomeScore + amount); else State.AwayScore = Math.Max(0, State.AwayScore + amount);
+        SaveUndo("Score");
+        var before = home ? State.HomeScore : State.AwayScore;
+        if (home) State.HomeScore = Math.Max(0, State.HomeScore + amount); else State.AwayScore = Math.Max(0, State.AwayScore + amount);
+        var after = home ? State.HomeScore : State.AwayScore;
+        State.LastScoreAmount = after - before;
+        State.LastScoreHome = home;
         Log("Score", $"{(home ? State.HomeTeam : State.AwayTeam)} {(amount >= 0 ? "+" : "−")}{Math.Abs(amount)}"); Changed?.Invoke();
     }
 
     public void SetScore(bool home, int value)
     {
         SaveUndo("Score correction"); if (home) State.HomeScore = Math.Max(0, value); else State.AwayScore = Math.Max(0, value);
+        State.LastScoreAmount = 0; State.LastScoreHome = home;
         Log("Score", $"{(home ? State.HomeTeam : State.AwayTeam)} score set to {Math.Max(0, value)}"); Changed?.Invoke();
     }
 
@@ -1330,7 +1348,10 @@ public sealed class GameEngine
             if (value is not int next) return;
             next = Math.Max(0, next);
             if (home ? State.HomeScore == next : State.AwayScore == next) return;
+            var before = home ? State.HomeScore : State.AwayScore;
             if (home) State.HomeScore = next; else State.AwayScore = next;
+            State.LastScoreAmount = next - before;
+            State.LastScoreHome = home;
             changed = notable = true;
         }
 
@@ -1506,6 +1527,7 @@ public sealed class GameEngine
             // The new down goes on air at once when the preview is on; the distance waits for publish.
             (!source.DownPending || (State.Down == source.Down && State.DownPending))) return false;
         State.HomeScore=source.HomeScore;State.AwayScore=source.AwayScore;
+        State.LastScoreAmount=source.LastScoreAmount;State.LastScoreHome=source.LastScoreHome;
         State.HomeTeam=source.HomeTeam;State.AwayTeam=source.AwayTeam;
         State.HomeAbbreviation=source.HomeAbbreviation;State.AwayAbbreviation=source.AwayAbbreviation;
         State.HomeLogoPath=source.HomeLogoPath;State.AwayLogoPath=source.AwayLogoPath;

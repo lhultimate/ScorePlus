@@ -27,6 +27,24 @@ internal static class MotionPlayback
     public static double GetBaseRotation(FrameworkElement host) =>
         host.GetValue(BaseRotationProperty) is double angle && double.IsFinite(angle) ? angle : 0;
 
+    /// <summary>The design colour of a brush a clip is about to repaint.</summary>
+    static readonly DependencyProperty OriginalColourProperty = DependencyProperty.RegisterAttached(
+        "OriginalColour", typeof(Color?), typeof(MotionPlayback), new PropertyMetadata(null));
+
+    /// <summary>The design opacity of a brush a clip is about to fade.</summary>
+    static readonly DependencyProperty OriginalBrushOpacityProperty = DependencyProperty.RegisterAttached(
+        "OriginalBrushOpacity", typeof(double?), typeof(MotionPlayback), new PropertyMetadata(null));
+
+    // A colour key on a gradient or textured paint cannot animate that brush's single Colour
+    // property. The brush is swapped for a plain brush while the key runs, and these properties
+    // remember exactly what to put back when the phase ends.
+    static readonly DependencyProperty OriginalForegroundBrushProperty = DependencyProperty.RegisterAttached(
+        "OriginalForegroundBrush", typeof(BrushSnapshot), typeof(MotionPlayback), new PropertyMetadata(null));
+    static readonly DependencyProperty OriginalBackgroundBrushProperty = DependencyProperty.RegisterAttached(
+        "OriginalBackgroundBrush", typeof(BrushSnapshot), typeof(MotionPlayback), new PropertyMetadata(null));
+    static readonly DependencyProperty OriginalBorderBrushProperty = DependencyProperty.RegisterAttached(
+        "OriginalBorderBrush", typeof(BrushSnapshot), typeof(MotionPlayback), new PropertyMetadata(null));
+
     /// <summary>Puts a host at its design angle when no motion is running.</summary>
     public static void SetDesignRotation(FrameworkElement host, double angle)
     {
@@ -125,6 +143,29 @@ internal static class MotionPlayback
                 case MotionTarget.Blur:
                     AnimateBlur(host, track, seconds, repeatBehaviour, pingPong);
                     break;
+                case MotionTarget.Width:
+                    AnimateElement(host, FrameworkElement.WidthProperty, track, seconds, repeatBehaviour, pingPong, 1);
+                    break;
+                case MotionTarget.Height:
+                    AnimateElement(host, FrameworkElement.HeightProperty, track, seconds, repeatBehaviour, pingPong, 1);
+                    break;
+                case MotionTarget.TextOpacity:
+                    foreach (var text in Descendants(host).OfType<TextBlock>())
+                        AnimateElement(text, UIElement.OpacityProperty, track, seconds, repeatBehaviour, pingPong, 1);
+                    break;
+                case MotionTarget.BackgroundOpacity:
+                    AnimateBrushOpacity(host, MotionColorRole.Background, track, seconds, repeatBehaviour, pingPong);
+                    break;
+                case MotionTarget.BorderOpacity:
+                    AnimateBrushOpacity(host, MotionColorRole.Border, track, seconds, repeatBehaviour, pingPong);
+                    break;
+                case MotionTarget.FontSize:
+                    foreach (var text in Descendants(host).OfType<TextBlock>())
+                        AnimateElement(text, TextBlock.FontSizeProperty, track, seconds, repeatBehaviour, pingPong, 1);
+                    break;
+                case MotionTarget.BorderThickness:
+                    AnimateBorderThickness(host, track, seconds, repeatBehaviour, pingPong);
+                    break;
             }
         }
 
@@ -181,21 +222,42 @@ internal static class MotionPlayback
                 case MotionTarget.SkewY: skew.AngleY = value; break;
                 case MotionTarget.Opacity: host.Opacity = Math.Clamp(value, 0, 1); break;
                 case MotionTarget.Blur: host.Effect = new BlurEffect { Radius = Math.Max(0, value), KernelType = KernelType.Gaussian }; break;
+                case MotionTarget.Width: host.Width = Math.Max(0, value); break;
+                case MotionTarget.Height: host.Height = Math.Max(0, value); break;
+                case MotionTarget.TextOpacity:
+                    foreach (var text in Descendants(host).OfType<TextBlock>()) text.Opacity = Math.Clamp(value, 0, 1);
+                    break;
+                case MotionTarget.BackgroundOpacity:
+                    foreach (var brush in Targets(host, MotionColorRole.Background)) brush.Opacity = Math.Clamp(value, 0, 1);
+                    break;
+                case MotionTarget.BorderOpacity:
+                    foreach (var brush in Targets(host, MotionColorRole.Border)) brush.Opacity = Math.Clamp(value, 0, 1);
+                    break;
+                case MotionTarget.FontSize:
+                    foreach (var text in Descendants(host).OfType<TextBlock>()) text.FontSize = Math.Clamp(value, 1, 1000);
+                    break;
+                case MotionTarget.BorderThickness:
+                    foreach (var border in Descendants(host).OfType<Border>()) border.BorderThickness = new Thickness(Math.Clamp(value, 0, 100));
+                    foreach (var shape in Descendants(host).OfType<Shape>()) shape.StrokeThickness = Math.Clamp(value, 0, 100);
+                    break;
             }
         }
         foreach (var track in colorTracks)
         {
             if (track.ColorAt(time) is not { } hex) continue;
             var color = Paint.ColorOf(hex, Colors.White);
-            foreach (var brush in Targets(host, track.Role)) brush.Color = color;
+            foreach (var target in ColourTargets(host, track.Role)) target.Set(color);
         }
     }
 
     /// <summary>Plays an animation clip's motion, either once or for as long as the graphic is up.</summary>
-    public static void PlayClip(FrameworkElement host, MotionClip? clip, double baseOpacity, bool ambient, Action? done = null)
+    public static void PlayClip(FrameworkElement host, MotionClip? clip, double baseOpacity, bool ambient, Action? done = null, MotionPhase? phase = null)
     {
         if (clip is null || clip.IsEmpty) { done?.Invoke(); return; }
-        var phase = ambient ? clip.Phases.FirstOrDefault(candidate => candidate.Enabled && !candidate.IsEmpty) : clip.EnterPhase;
+        phase ??= ambient
+            ? clip.Phases.FirstOrDefault(candidate => candidate.Enabled && !candidate.IsEmpty && !candidate.IsTriggered)
+              ?? clip.Phases.FirstOrDefault(candidate => candidate.Enabled && !candidate.IsEmpty)
+            : clip.EnterPhase;
         if (phase is null) { done?.Invoke(); return; }
         PlayPhase(host, phase, baseOpacity, done, 1, repeat: ambient && clip.Loop, pingPong: ambient && clip.PingPong);
     }
@@ -204,6 +266,8 @@ internal static class MotionPlayback
     public static void Stop(FrameworkElement host)
     {
         host.BeginAnimation(UIElement.OpacityProperty, null);
+        host.BeginAnimation(FrameworkElement.WidthProperty, null);
+        host.BeginAnimation(FrameworkElement.HeightProperty, null);
         switch (host.RenderTransform)
         {
             case ScaleTransform scale:
@@ -226,6 +290,18 @@ internal static class MotionPlayback
                 break;
         }
         if (host.Effect is BlurEffect blur) blur.BeginAnimation(BlurEffect.RadiusProperty, null);
+        // A clip never leaves a property behind: box size, text size, outline and every brush
+        // return to the values the designer actually saved.
+        foreach (var text in Descendants(host).OfType<TextBlock>())
+        {
+            text.BeginAnimation(UIElement.OpacityProperty, null);
+            text.BeginAnimation(TextBlock.FontSizeProperty, null);
+        }
+        foreach (var border in Descendants(host).OfType<Border>())
+            border.BeginAnimation(Border.BorderThicknessProperty, null);
+        foreach (var shape in Descendants(host).OfType<Shape>())
+            shape.BeginAnimation(Shape.StrokeThicknessProperty, null);
+        RestoreBrushes(host);
     }
 
     static void StopTransform(Transform transform)
@@ -276,6 +352,48 @@ internal static class MotionPlayback
         animation.RepeatBehavior = repeat;
         animation.AutoReverse = pingPong;
         blur.BeginAnimation(BlurEffect.RadiusProperty, animation);
+    }
+
+    static void AnimateElement(IAnimatable element, DependencyProperty property, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong, double fallback)
+    {
+        var animation = BuildDouble(track, seconds, 0, fallback, 1);
+        animation.RepeatBehavior = repeat;
+        animation.AutoReverse = pingPong;
+        element.BeginAnimation(property, animation);
+    }
+
+    static void AnimateBrushOpacity(FrameworkElement host, MotionColorRole role, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong)
+    {
+        foreach (var brush in Targets(host, role))
+        {
+            if (brush.GetValue(OriginalBrushOpacityProperty) is not double)
+                brush.SetValue(OriginalBrushOpacityProperty, brush.Opacity);
+            var animation = BuildDouble(track, seconds, 1, 1, 1);
+            animation.RepeatBehavior = repeat;
+            animation.AutoReverse = pingPong;
+            brush.BeginAnimation(Brush.OpacityProperty, animation);
+        }
+    }
+
+    static void AnimateBorderThickness(FrameworkElement host, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong)
+    {
+        var keys = track.Keys.OrderBy(key => key.Time).ToList();
+        if (keys.Count == 0) return;
+        var animation = new ThicknessAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd, RepeatBehavior = repeat, AutoReverse = pingPong };
+        if (keys[0].Time > 0.0001)
+            animation.KeyFrames.Add(new LinearThicknessKeyFrame(new Thickness(Math.Max(0, keys[0].Value)), KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        foreach (var key in keys)
+        {
+            var fraction = seconds <= 0.0001 ? 1 : Math.Clamp(key.Time / seconds, 0, 1);
+            animation.KeyFrames.Add(new EasingThicknessKeyFrame(new Thickness(Math.Clamp(key.Value, 0, 100)), KeyTime.FromTimeSpan(TimeSpan.FromSeconds(fraction * seconds)))
+            {
+                EasingFunction = Ease(key.Ease)
+            });
+        }
+        foreach (var border in Descendants(host).OfType<Border>())
+            border.BeginAnimation(Border.BorderThicknessProperty, animation);
+        foreach (var shape in Descendants(host).OfType<Shape>())
+            shape.BeginAnimation(Shape.StrokeThicknessProperty, BuildDouble(track, seconds, 0, 0, 1));
     }
 
     /// <summary>
@@ -335,8 +453,77 @@ internal static class MotionPlayback
             var animation = BuildColour(track, seconds);
             animation.RepeatBehavior = repeat;
             animation.AutoReverse = pingPong;
-            foreach (var brush in Targets(host, track.Role))
-                brush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+            foreach (var target in ColourTargets(host, track.Role)) target.Animate(animation);
+        }
+    }
+
+    /// <summary>Restores every brush a clip has touched, including colours held by an animation.</summary>
+    static void RestoreBrushes(DependencyObject root)
+    {
+        foreach (var element in Descendants(root))
+        {
+            RestoreOwnerBrush(element, OriginalForegroundBrushProperty, brush =>
+            {
+                if (element is TextBlock text) text.Foreground = brush;
+                else if (element is TextBox box) box.Foreground = brush;
+            });
+            RestoreOwnerBrush(element, OriginalBackgroundBrushProperty, brush =>
+            {
+                if (element is Border border) border.Background = brush;
+                else if (element is Panel panel) panel.Background = brush;
+                else if (element is Shape shape) shape.Fill = brush;
+            });
+            RestoreOwnerBrush(element, OriginalBorderBrushProperty, brush =>
+            {
+                if (element is Border border) border.BorderBrush = brush;
+                else if (element is Shape shape) shape.Stroke = brush;
+            });
+        }
+        foreach (var brush in Brushes(root))
+        {
+            // A frozen brush is shared, immutable paint. It was never animated (colour animation
+            // gets a live copy), and WPF refuses BeginAnimation on it, so leave it alone.
+            if (brush.IsFrozen) continue;
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+            brush.BeginAnimation(Brush.OpacityProperty, null);
+            if (brush.GetValue(OriginalColourProperty) is Color colour) brush.Color = colour;
+            if (brush.GetValue(OriginalBrushOpacityProperty) is double opacity) brush.Opacity = opacity;
+            brush.ClearValue(OriginalColourProperty);
+            brush.ClearValue(OriginalBrushOpacityProperty);
+        }
+    }
+
+    static void RestoreOwnerBrush(DependencyObject owner, DependencyProperty property, Action<Brush?> assign)
+    {
+        if (owner.GetValue(property) is not BrushSnapshot snapshot) return;
+        assign(snapshot.Brush);
+        owner.ClearValue(property);
+    }
+
+    static IEnumerable<SolidColorBrush> Brushes(DependencyObject root)
+    {
+        foreach (var element in Descendants(root))
+        {
+            switch (element)
+            {
+                case TextBlock { Foreground: SolidColorBrush text }:
+                    yield return text;
+                    break;
+                case TextBox { Foreground: SolidColorBrush box }:
+                    yield return box;
+                    break;
+                case Border border:
+                    if (border.Background is SolidColorBrush plate) yield return plate;
+                    if (border.BorderBrush is SolidColorBrush outline) yield return outline;
+                    break;
+                case Panel panel when panel.Background is SolidColorBrush panelBrush:
+                    yield return panelBrush;
+                    break;
+                case Shape shape:
+                    if (shape.Fill is SolidColorBrush fill) yield return fill;
+                    if (shape.Stroke is SolidColorBrush stroke) yield return stroke;
+                    break;
+            }
         }
     }
 
@@ -388,6 +575,114 @@ internal static class MotionPlayback
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// Every painted property a colour role owns, including gradient and textured brushes. A
+    /// colour key is one colour, so those paints are temporarily replaced by a flat brush of that
+    /// colour; the original brush is restored when the phase ends.
+    /// </summary>
+    static IEnumerable<ColourTarget> ColourTargets(DependencyObject root, MotionColorRole role)
+    {
+        foreach (var element in Descendants(root))
+        {
+            switch (role)
+            {
+                case MotionColorRole.Text:
+                    if (element is TextBlock text)
+                        yield return new ColourTarget(text, () => text.Foreground, brush => text.Foreground = brush, OriginalForegroundBrushProperty);
+                    if (element is TextBox box)
+                        yield return new ColourTarget(box, () => box.Foreground, brush => box.Foreground = brush, OriginalForegroundBrushProperty);
+                    break;
+                case MotionColorRole.Background:
+                    if (element is Border border)
+                        yield return new ColourTarget(border, () => border.Background, brush => border.Background = brush, OriginalBackgroundBrushProperty);
+                    if (element is Panel panel)
+                        yield return new ColourTarget(panel, () => panel.Background, brush => panel.Background = brush, OriginalBackgroundBrushProperty);
+                    if (element is Shape shape)
+                        yield return new ColourTarget(shape, () => shape.Fill, brush => shape.Fill = brush, OriginalBackgroundBrushProperty);
+                    break;
+                case MotionColorRole.Border:
+                    if (element is Border outlined)
+                        yield return new ColourTarget(outlined, () => outlined.BorderBrush, brush => outlined.BorderBrush = brush, OriginalBorderBrushProperty);
+                    if (element is Shape stroked)
+                        yield return new ColourTarget(stroked, () => stroked.Stroke, brush => stroked.Stroke = brush, OriginalBorderBrushProperty);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>A painted property that can hold any brush, not just a solid one.</summary>
+    sealed class ColourTarget
+    {
+        readonly DependencyObject _owner;
+        readonly Func<Brush?> _read;
+        readonly Action<Brush?> _assign;
+        readonly DependencyProperty _originalProperty;
+
+        public ColourTarget(DependencyObject owner, Func<Brush?> read, Action<Brush?> assign, DependencyProperty originalProperty)
+        {
+            _owner = owner;
+            _read = read;
+            _assign = assign;
+            _originalProperty = originalProperty;
+        }
+
+        public void Set(Color color)
+        {
+            if (_read() is SolidColorBrush solid)
+            {
+                if (solid.IsFrozen)
+                {
+                    solid = new SolidColorBrush(solid.Color);
+                    _assign(solid);
+                }
+                solid.Color = color;
+                return;
+            }
+            RememberOriginal();
+            _assign(new SolidColorBrush(color));
+        }
+
+        public void Animate(ColorAnimationUsingKeyFrames animation)
+        {
+            if (_read() is SolidColorBrush solid)
+            {
+                if (solid.IsFrozen)
+                {
+                    solid = new SolidColorBrush(solid.Color);
+                    _assign(solid);
+                }
+                if (solid.GetValue(OriginalColourProperty) is not Color)
+                    solid.SetValue(OriginalColourProperty, solid.Color);
+                solid.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+                return;
+            }
+            RememberOriginal();
+            var brush = new SolidColorBrush(FirstColour(_read()));
+            brush.SetValue(OriginalColourProperty, brush.Color);
+            _assign(brush);
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+        }
+
+        void RememberOriginal()
+        {
+            if (_owner.GetValue(_originalProperty) is null)
+                _owner.SetValue(_originalProperty, new BrushSnapshot(_read()));
+        }
+
+        static Color FirstColour(Brush? brush) => brush switch
+        {
+            SolidColorBrush solid => solid.Color,
+            GradientBrush gradient when gradient.GradientStops.Count > 0 => gradient.GradientStops[0].Color,
+            _ => Colors.White
+        };
+    }
+
+    sealed class BrushSnapshot
+    {
+        public Brush? Brush { get; }
+        public BrushSnapshot(Brush? brush) => Brush = brush;
     }
 
     /// <summary>An unfrozen copy of a brush, already assigned, ready to animate.</summary>

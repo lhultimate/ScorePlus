@@ -111,7 +111,7 @@ public partial class ControlPanelView : UserControl
         BallOnHost.Content = _ballOn;
 
         // How the quarter prints (Quarter 1 / Q1 / 1) belongs to the graphic, not the console:
-        // it is a property of the element in Scorebug Studio.
+        // it is a property of the element in Display Studio.
         QuarterHost.Content = BuildQuarterControl();
 
         _awayTimeouts = BuildTimeoutStepper(false);

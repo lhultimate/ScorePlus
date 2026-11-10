@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace Scoreboard.Core;
 
-public enum ScorebugElementKind { Text, Logo, Shape, Video, Html, Image }
+public enum ScorebugElementKind { Text, Logo, Shape, Video, Html, Image, Layout }
 
 /// <summary>
 /// How one layout hands over to the next on the audience output when a display switches. The
@@ -92,6 +92,15 @@ public sealed class ScorebugElement
     public ScorebugShape Shape { get; set; } = ScorebugShape.Rectangle;
     public string Content { get; set; } = "TEXT";
     public string? ImagePath { get; set; }
+
+    /// <summary>
+    /// For a live-layout element: the layout drawn inside this box. The source layout remains the
+    /// one being edited, so the feed follows it and can be resized without duplicating its artwork.
+    /// </summary>
+    public string? NestedLayoutId { get; set; }
+
+    /// <summary>For a live-layout element: keep the source layout's shape instead of stretching it.</summary>
+    public bool NestedPreserveAspect { get; set; } = true;
 
     /// <summary>For image elements: follow the selected home or visitors player's uploaded photo.</summary>
     public ScorebugPlayerPhotoSide PlayerPhotoSide { get; set; }
@@ -425,8 +434,51 @@ public sealed class ScorebugLayout
         copy.Name = name ?? $"{Name} copy";
         // A duplicate is its own layout: it keeps the link settings but gets a fresh identity.
         copy.Id = Guid.NewGuid().ToString("N");
-        foreach (var element in copy.Elements) element.Id = Guid.NewGuid().ToString("N");
+        var freshIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var element in copy.Elements) freshIds[element.Id] = Guid.NewGuid().ToString("N");
+        foreach (var element in copy.Elements) element.Id = freshIds[element.Id];
+        // Every clip in the layout was keyed against the old ids. Remap them in the same breath, or
+        // per-item keys silently vanish the moment a layout is duplicated or imported.
+        copy.RemapMotionReferences(Id, copy.Id, freshIds);
         return copy;
+    }
+
+    /// <summary>
+    /// Rewrites every motion reference after a copy gives the layout and its elements fresh ids.
+    /// Whole-graphic keys carry an empty piece id and stay empty; temporary pieces keep their own
+    /// clip-local ids. A clip that named this layout now names the copy.
+    /// </summary>
+    public void RemapMotionReferences(string? fromLayoutId, string toLayoutId,
+        IReadOnlyDictionary<string, string> elementIds)
+    {
+        string Map(string? id)
+        {
+            var key = (id ?? "").Trim();
+            return key.Length > 0 && elementIds.TryGetValue(key, out var fresh) ? fresh : key;
+        }
+
+        void Remap(MotionClip? clip)
+        {
+            if (clip is null) return;
+            foreach (var phase in clip.Phases ?? [])
+            {
+                foreach (var track in phase.Tracks ?? []) track.PieceId = Map(track.PieceId);
+                foreach (var track in phase.Colors ?? []) track.PieceId = Map(track.PieceId);
+            }
+            clip.PieceOrder = (clip.PieceOrder ?? []).Select(Map).ToList();
+            if (!string.IsNullOrWhiteSpace(fromLayoutId)
+                && string.Equals(clip.TimelineLayoutId, fromLayoutId, StringComparison.OrdinalIgnoreCase))
+                clip.TimelineLayoutId = toLayoutId;
+        }
+
+        foreach (var element in Elements)
+        {
+            Remap(element.MotionTransition);
+            Remap(element.MotionAnimation);
+        }
+        Remap(TransitionClip);
+        foreach (var entry in Handover ?? [])
+            entry.ElementId = Map(entry.ElementId);
     }
 }
 
@@ -547,6 +599,48 @@ public sealed class ScorebugCatalog
 
     public ScorebugDisplay? FindDisplay(string? id) =>
         id is null ? null : Displays.FirstOrDefault(display => string.Equals(display.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a layout anywhere in the document, for a live-layout feed.</summary>
+    public ScorebugLayout? FindLayout(string? layoutId)
+    {
+        if (string.IsNullOrWhiteSpace(layoutId)) return null;
+        foreach (var display in Displays)
+        {
+            var layout = display.Layouts.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, layoutId, StringComparison.OrdinalIgnoreCase));
+            if (layout is not null) return layout;
+        }
+        return null;
+    }
+
+    /// <summary>The display that owns a layout, so a nested feed can follow that display's rules.</summary>
+    public ScorebugDisplay? FindDisplayOfLayout(string? layoutId)
+    {
+        if (string.IsNullOrWhiteSpace(layoutId)) return null;
+        return Displays.FirstOrDefault(display => display.Layouts.Any(layout =>
+            string.Equals(layout.Id, layoutId, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// True when putting <paramref name="nestedLayoutId"/> inside <paramref name="hostLayoutId"/> would
+    /// make the feed contain itself, directly or through another live layout.
+    /// </summary>
+    public bool WouldCreateLayoutCycle(string? hostLayoutId, string? nestedLayoutId)
+    {
+        if (string.IsNullOrWhiteSpace(hostLayoutId) || string.IsNullOrWhiteSpace(nestedLayoutId)) return false;
+        if (string.Equals(hostLayoutId, nestedLayoutId, StringComparison.OrdinalIgnoreCase)) return true;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool Reaches(string? id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return false;
+            if (string.Equals(id, hostLayoutId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (!visited.Add(id)) return false;
+            var source = FindLayout(id);
+            if (source is null) return false;
+            return source.Elements.Any(element => element.Kind == ScorebugElementKind.Layout && Reaches(element.NestedLayoutId));
+        }
+        return Reaches(nestedLayoutId);
+    }
 
     public IReadOnlyList<ScorebugLayout> LayoutsOf(string? displayId) =>
         (FindDisplay(displayId) ?? ActiveDisplay).Layouts;
@@ -892,6 +986,9 @@ public sealed class ScorebugCatalog
                 foreach (var entry in layout.Handover) entry.ElementId = (entry.ElementId ?? "").Trim();
                 foreach (var item in layout.Elements)
                 {
+                    item.NestedLayoutId = string.IsNullOrWhiteSpace(item.NestedLayoutId) ? null : item.NestedLayoutId.Trim();
+                    if (item.Kind == ScorebugElementKind.Layout && string.Equals(item.NestedLayoutId, layout.Id, StringComparison.OrdinalIgnoreCase))
+                        item.NestedLayoutId = null;
                     item.X = Math.Clamp(double.IsFinite(item.X) ? item.X : 0, 0, layout.Width);
                     item.Y = Math.Clamp(double.IsFinite(item.Y) ? item.Y : 0, 0, layout.Height);
                     item.Width = Math.Clamp(double.IsFinite(item.Width) ? item.Width : 100, 24, layout.Width);
@@ -934,6 +1031,23 @@ public sealed class ScorebugCatalog
             }
         }
         ActiveDisplayIndex = Math.Clamp(ActiveDisplayIndex, 0, Displays.Count - 1);
+        // A live layout cannot contain itself. Files can be hand-edited or older copies can create a
+        // loop, so break the first back-edge deterministically instead of recursing forever.
+        foreach (var display in Displays)
+        {
+            foreach (var layout in display.Layouts)
+            {
+                foreach (var item in layout.Elements.Where(element => element.Kind == ScorebugElementKind.Layout))
+                {
+                    if (item.NestedLayoutId is not { } nestedId) continue;
+                    var target = FindLayout(nestedId);
+                    if (target is null) continue;
+                    if (string.Equals(nestedId, layout.Id, StringComparison.OrdinalIgnoreCase)
+                        || WouldCreateLayoutCycle(layout.Id, nestedId))
+                        item.NestedLayoutId = null;
+                }
+            }
+        }
         // A link that no longer resolves (a deleted layout, a display that is gone) is dropped rather
         // than left dangling; a layout can only link to another display.
         foreach (var display in Displays)
@@ -1173,6 +1287,10 @@ public sealed class ScorebugCatalog
     {
         var layout = source.Copy(name ?? source.Name);
         if (string.IsNullOrWhiteSpace(layout.Name)) layout.Name = $"Layout {ActiveDisplay.Layouts.Count + 1}";
+        // A single .spl file deliberately carries one layout, not the layouts a live feed points at,
+        // so those references cannot be trusted in this game. The operator can pick a source again.
+        foreach (var element in layout.Elements.Where(element => element.Kind == ScorebugElementKind.Layout))
+            element.NestedLayoutId = null;
         ActiveDisplay.Layouts.Add(layout);
         ActiveDisplay.ActiveIndex = ActiveDisplay.Layouts.Count - 1;
         Validate();
@@ -1188,19 +1306,7 @@ public sealed class ScorebugCatalog
     /// </summary>
     public int ImportDisplay(ScorebugDisplay source, string? name = null)
     {
-        var copy = JsonSerializer.Deserialize<ScorebugDisplay>(JsonSerializer.Serialize(source)) ?? new ScorebugDisplay();
-        copy.Id = Guid.NewGuid().ToString("N");
-        if (!string.IsNullOrWhiteSpace(name)) copy.Name = name.Trim();
-        if (copy.Layouts.Count == 0) copy.Layouts.Add(new ScorebugLayout { Name = "Layout 1" });
-        foreach (var layout in copy.Layouts)
-        {
-            layout.Id = Guid.NewGuid().ToString("N");
-            layout.LinkDisplayId = null;
-            layout.LinkLayoutId = null;
-            foreach (var element in layout.Elements) element.Id = Guid.NewGuid().ToString("N");
-        }
-        copy.ActiveIndex = Math.Clamp(copy.ActiveIndex, 0, copy.Layouts.Count - 1);
-        copy.PublishedIndex = Math.Clamp(copy.PublishedIndex, 0, copy.Layouts.Count - 1);
+        var copy = ScorebugFiles.FreshDisplay(source, name);
         Displays.Add(copy);
         ActiveDisplayIndex = Displays.Count - 1;
         Validate();

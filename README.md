@@ -25,7 +25,7 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 - [Tutorial: Scoreboard Controllers and the Horn](#tutorial-scoreboard-controllers-and-the-horn)
 - [Tutorial: Sport Profiles](#tutorial-sport-profiles)
 - [Reference: The Control Panel](#reference-the-control-panel)
-- [Reference: The Scorebug Studio](#reference-the-scorebug-studio)
+- [Reference: The Display Studio](#reference-the-display-studio)
 - [Reference: Data Tokens](#reference-data-tokens)
 - [Reference: Preferences](#reference-preferences)
 - [Reference: File Types](#reference-file-types)
@@ -128,7 +128,7 @@ That's a working show. Everything from here is refinement.
 
 ## Tutorial: Design a Scorebug
 
-Open **Scorebug Studio** from the second row of the console. The studio opens maximized and fills the desktop: toolbar on top, layers on the left, property panel on the right, and the scorebug canvas in the middle framed with a border marking exactly where the artwork ends.
+Open **Display Studio** from the second row of the console. The studio opens maximized and fills the desktop: toolbar on top, layers on the left, property panel on the right, and the scorebug canvas in the middle framed with a border marking exactly where the artwork ends.
 
 ### Add Your First Three Elements
 
@@ -539,7 +539,7 @@ The main window is one page, top to bottom.
 | **▤ Ad log** | What the show has played: impressions per clip and how long each one runs |
 | **⌁ Hardware** | Connect a scoreboard controller and watch the data it sends |
 | **Save Game** / **Open Game** | `.spg` save and load |
-| **Scorebug Studio** | Design the on-air graphic |
+| **Display Studio** | Design the on-air graphic |
 | **Sport Profiles** | Edit how the sport behaves |
 | **New Game** | Start a blank slate |
 
@@ -566,13 +566,13 @@ Every notice and confirmation in ScorePlus is the app's own themed window — cl
 
 ---
 
-## Reference: The Scorebug Studio
+## Reference: The Display Studio
 
 Layout: toolbar across the top, layers down the left, canvas in the middle, properties on the right, and the display/layout bars above the canvas.
 
 ### Toolbar
 
-Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE +**, **SHAPE +**, **SPORT DATA +**, **PLAYER DATA +**, **VIDEO +**, **HTML +**, **PARTS +**.
+Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE +**, **SHAPE +**, **SPORT DATA +**, **PLAYER DATA +**, **VIDEO +**, **HTML +**, **LAYOUT +**, **PARTS +**.
 
 ### Element Types
 
@@ -584,6 +584,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 | **Shape** | Rectangle, circle or triangle | Shape type, fill or gradient, border, opacity |
 | **Video** | Live clip from one tag | Media tag (or **ANY**), preserve aspect ratio, audio output, border, radius |
 | **HTML** | A live web widget | Free HTML/CSS/JS, `data-token` bindings |
+| **Layout** | Another layout, playing live inside this one | Source layout, keep the source's shape or stretch to the box |
 
 ### Properties Worth Knowing
 
@@ -626,6 +627,7 @@ The **ICON** section of the element panel draws live artwork — timeout bars, t
 - **TRANSITION IN** — the arriving layout's hand-over and its duration. The **Transition Builder** also has a **TIMELINE**: pick the layout, then order its items with **Move up / Move down**, and the hand-over runs them in that order instead of moving every box at once. **Layout order** clears the timeline back to a single beat.
 - **LINK THIS LAYOUT TO** — the layout on another display that moves with this one, with a both-ways checkbox.
 - **LAYOUT** — the display's layouts as thumbnails with their names underneath, plus **Import .spl… / Export .spl…** and **Import .spd… / Export .spd…**, **Copy to… / Move to…** and **PARTS +**.
+- **LAYOUT +** — puts another layout inside this one as a resizeable live feed. It draws the source's real artwork, game values, video and animations, follows edits to the source immediately, and can keep the source's shape or stretch to the box. Loops are refused, so a layout can never contain itself directly or through another feed.
 - **CANVAS BACKGROUND** — green screen, navy reset, black, custom color.
 - **Size presets** — HD, Full HD, QHD, 4K UHD, vertical, square.
 

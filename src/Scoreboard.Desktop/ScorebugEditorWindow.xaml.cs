@@ -124,6 +124,11 @@ public partial class ScorebugEditorWindow : Window
         public override string ToString() => Label;
     }
 
+    sealed record NestedLayoutChoice(string? Id, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
     sealed record LinkDisplayOption(string? Id, string Label)
     {
         public override string ToString() => Label;
@@ -542,6 +547,10 @@ public partial class ScorebugEditorWindow : Window
             if(!_visuals.Values.Any(visual=>ReferenceEquals(visual.Host,child)))DesignCanvas.Children.Remove(child);
         foreach(var (id,surface) in previousVideos)
             if(!_videoSurfaces.ContainsKey(id))surface.Dispose();
+        foreach(var (id,prior) in previousVisuals)
+            if((!_visuals.TryGetValue(id,out var current)||!ReferenceEquals(current.Content,prior.Content))
+                &&prior.Content is ScorebugLayoutFeed oldFeed)
+                oldFeed.Dispose();
         RefreshAllVisuals();
         _loading=false;
         FitCanvas();
@@ -669,7 +678,8 @@ public partial class ScorebugEditorWindow : Window
             +$"{item.Opacity}:{item.TextOpacity}:{item.BackgroundOpacity}:{item.BorderOpacity}:"
             +$"{item.BorderThickness}:{item.BorderColor}:{item.BorderSource}:{item.Icon}:{item.IconScale}:"
             +$"{item.IconFillColor}:{item.IconFillSource}:{item.Animation}:{item.MotionAnimation?.Id}:{item.MotionTransition?.Id}:"
-            +$"{item.Shape}:{item.Visible}:{item.LogoSide}:{item.ImagePath}"));
+            +$"{item.Shape}:{item.Visible}:{item.LogoSide}:{item.ImagePath}:"
+            +$"{item.NestedLayoutId}:{item.NestedPreserveAspect}"));
 
     /// <summary>Fills the display picker from the catalog without treating the sync as a choice.</summary>
     void SyncDisplayPicker()
@@ -815,7 +825,9 @@ public partial class ScorebugEditorWindow : Window
             kept.SetElement(item);
             content=kept;
         }
-        else content=ScorebugRender.CreateContent(item,()=>_engine.State,_playback,true,showVideoPlaceholder:true);
+        else content=ScorebugRender.CreateContent(item,()=>_engine.State,_playback,true,showVideoPlaceholder:true,
+            catalog:_catalog,engine:_engine,displayId:_catalog.ActiveDisplay.Id,
+            layoutChain:new HashSet<string>(StringComparer.OrdinalIgnoreCase){_catalog.Layout.Id});
         if(content is VideoSurface videoSurface)_videoSurfaces[item.Id]=videoSurface;
         var handle=new Border
         {
@@ -1058,7 +1070,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -1130,6 +1142,14 @@ public partial class ScorebugEditorWindow : Window
             TextShadowSoftnessInput.Text=e.TextShadowSoftness.ToString("0.#");
             TextShadowAngleInput.Text=e.TextShadowAngle.ToString("0");
             TextAlignInput.SelectedItem=AlignOptions.FirstOrDefault(o=>o.Align==e.TextAlign)??AlignOptions[1];
+            NestedAspectInput.IsChecked=e.NestedPreserveAspect;
+            RefreshNestedLayoutChoices();
+            var source=_catalog.FindLayout(e.NestedLayoutId);
+            NestedLayoutHint.Text=source is null
+                ? (string.IsNullOrWhiteSpace(e.NestedLayoutId)
+                    ? "Choose a layout. The feed follows its artwork and values and can be resized like any other element."
+                    : "That source layout is gone. Choose another layout for this feed.")
+                : $"{source.Name} · {source.Width} × {source.Height} · live feed; edits to the source redraw here.";
         }
         if(e is not null&&e.Kind==ScorebugElementKind.Text) LoadPlayerBinding(e);
         _loading=false;
@@ -1202,6 +1222,7 @@ public partial class ScorebugEditorWindow : Window
         TransformSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         LogoSection.Visibility=kind==ScorebugElementKind.Logo?Visibility.Visible:Visibility.Collapsed;
         PlayerPhotoSection.Visibility=kind==ScorebugElementKind.Image?Visibility.Visible:Visibility.Collapsed;
+        LayoutSection.Visibility=kind==ScorebugElementKind.Layout?Visibility.Visible:Visibility.Collapsed;
         ShapePanel.Visibility=kind==ScorebugElementKind.Shape?Visibility.Visible:Visibility.Collapsed;
         VideoPanel.Visibility=kind==ScorebugElementKind.Video?Visibility.Visible:Visibility.Collapsed;
         // The host paints the backdrop and the outline for every kind, shapes included.
@@ -1334,7 +1355,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _propertySave.Stop(); SaveProperties();
         var current=kind==MotionKind.Transition?Selected?.MotionTransition:Selected?.MotionAnimation;
-        var maker=new MotionMakerWindow(kind,_catalog,_engine,PreferencesStore.Load().Theme,current){Owner=this};
+        var maker=new MotionMakerWindow(kind,_catalog,_engine,PreferencesStore.Load().Theme,current,_catalog.Layout.Id){Owner=this};
         maker.ShowDialog();
         // A clip saved in the maker has just joined the library; the pickers must offer it now.
         Render(); RefreshMotionLists(); LoadProperties();
@@ -1497,6 +1518,7 @@ public partial class ScorebugEditorWindow : Window
         var shadowAngleOk=double.TryParse(TextShadowAngleInput.Text,out var shadowAngle);
         var align=(TextAlignInput.SelectedItem as AlignOption)?.Align;
         var font=(FontInput.SelectedItem as FontChoice)?.Source;
+        var nestedAspect=NestedAspectInput.IsChecked==true;
         var bold=BoldInput.IsChecked==true; var italic=ItalicInput.IsChecked==true;
         var underline=UnderlineInput.IsChecked==true; var strike=StrikeInput.IsChecked==true;
         var foregroundSource=(ForegroundSourceInput.SelectedItem as ColorSourceOption)?.Source;
@@ -1550,7 +1572,8 @@ public partial class ScorebugEditorWindow : Window
             &&(!shadowOffsetOk||Math.Abs(item.TextShadowOffset-shadowOffset)<0.001)
             &&(!shadowSoftnessOk||Math.Abs(item.TextShadowSoftness-shadowSoftness)<0.001)
             &&(!shadowAngleOk||Math.Abs(item.TextShadowAngle-shadowAngle)<0.001)
-            &&(align is null||item.TextAlign==align))return;
+            &&(align is null||item.TextAlign==align)
+            &&item.NestedPreserveAspect==nestedAspect)return;
         // Everything below follows the same rule: a group edit carries only what this panel edit
         // actually changed, measured against the element being edited.
         var groupEdits=new List<Action<ScorebugElement>>();
@@ -1577,6 +1600,7 @@ public partial class ScorebugEditorWindow : Window
         else if(transition is not null&&item.Transition!=transition)Group(t=>{t.Transition=transition.Value;t.MotionTransition=null;});
         if(shape is not null&&item.Shape!=shape)Group(t=>t.Shape=shape.Value);
         if(item.Visible!=visible)Group(t=>t.Visible=visible);
+        if(item.NestedPreserveAspect!=nestedAspect)Group(t=>{if(t.Kind==ScorebugElementKind.Layout)t.NestedPreserveAspect=nestedAspect;});
         if(item.TransparentBackground!=transparent)Group(t=>t.TransparentBackground=transparent);
         if(item.MediaTag!=mediaTag)Group(t=>{if(t.Kind==ScorebugElementKind.Video)t.MediaTag=mediaTag;});
         if(periodFormat is not null&&item.PeriodFormat!=periodFormat)Group(t=>t.PeriodFormat=periodFormat);
@@ -1677,6 +1701,7 @@ public partial class ScorebugEditorWindow : Window
                 if(!downOn){target.TransitionDown=null;target.TransitionDownSeconds=null;}
                 if(shape is not null)target.Shape=shape.Value;
                 target.Visible=visible; target.TransparentBackground=transparent;
+                if(target.Kind==ScorebugElementKind.Layout)target.NestedPreserveAspect=nestedAspect;
                 if(target.Kind==ScorebugElementKind.Video)target.MediaTag=mediaTag;
                 if(periodFormat is not null||target.PeriodFormat is not null)target.PeriodFormat=periodFormat;
                 target.PreserveVideoAspect=preserveAspect;
@@ -2098,6 +2123,100 @@ public partial class ScorebugEditorWindow : Window
             Height=300,
             TransparentBackground=true
         });
+    }
+
+    /// <summary>Layouts that can legally sit inside the layout being designed.</summary>
+    IEnumerable<NestedLayoutChoice> NestedLayoutCandidates()
+    {
+        for(var displayIndex=0;displayIndex<_catalog.Displays.Count;displayIndex++)
+        {
+            var display=_catalog.Displays[displayIndex];
+            foreach(var layout in display.Layouts)
+            {
+                if(string.Equals(layout.Id,_catalog.Layout.Id,StringComparison.OrdinalIgnoreCase))continue;
+                if(_catalog.WouldCreateLayoutCycle(_catalog.Layout.Id,layout.Id))continue;
+                yield return new NestedLayoutChoice(layout.Id,$"{displayIndex+1} · {display.Name}  /  {layout.Name}");
+            }
+        }
+    }
+
+    /// <summary>Keeps the live-layout source list current and selected without offering a loop.</summary>
+    void RefreshNestedLayoutChoices()
+    {
+        if(NestedLayoutInput is null)return;
+        var current=(NestedLayoutInput.SelectedItem as NestedLayoutChoice)?.Id;
+        if(current is null&&Selected is { Kind:ScorebugElementKind.Layout } selected)current=selected.NestedLayoutId;
+        var choices=new List<NestedLayoutChoice>{new(null,"Choose a layout…")};
+        choices.AddRange(NestedLayoutCandidates());
+        if(!string.IsNullOrWhiteSpace(current)&&choices.All(choice=>!string.Equals(choice.Id,current,StringComparison.OrdinalIgnoreCase)))
+            choices.Add(new NestedLayoutChoice(current,"Source layout unavailable — choose another"));
+        NestedLayoutInput.ItemsSource=choices;
+        NestedLayoutInput.SelectedItem=choices.FirstOrDefault(choice=>string.Equals(choice.Id??"",current??"",StringComparison.OrdinalIgnoreCase))??choices[0];
+    }
+
+    /// <summary>Points a live-layout element at another layout, refusing a feed that would loop.</summary>
+    void NestedLayout_Changed(object sender,SelectionChangedEventArgs e)
+    {
+        if(_loading||_resizing||Selected is not { Kind:ScorebugElementKind.Layout } item)return;
+        var choice=NestedLayoutInput.SelectedItem as NestedLayoutChoice;
+        if(choice?.Id is { Length:>0 } target&&_catalog.WouldCreateLayoutCycle(_catalog.Layout.Id,target))
+        {
+            NoticeWindow.Tell(this,"That would loop","A live layout cannot contain itself, directly or through another layout.",warning:true);
+            RefreshNestedLayoutChoices();
+            return;
+        }
+        var id=item.Id;
+        _skipRebuild=true;
+        try
+        {
+            _catalog.Update(layout=>
+            {
+                var targetItem=layout.Elements.FirstOrDefault(element=>element.Id==id);
+                if(targetItem is not null)targetItem.NestedLayoutId=choice?.Id;
+            });
+        }
+        finally { _skipRebuild=false; }
+        Render();
+        LoadProperties();
+    }
+
+    /// <summary>Adds another layout as a resizeable live feed inside this one.</summary>
+    void AddLayoutFeed_Click(object sender,RoutedEventArgs e)
+    {
+        var choices=NestedLayoutCandidates().ToArray();
+        if(choices.Length==0)
+        {
+            NoticeWindow.Tell(this,"No layout to embed","Create another layout first, then add it here as a live feed.");
+            return;
+        }
+        var picker=new Window{Title="Add live layout",Width=430,SizeToContent=SizeToContent.Height,ResizeMode=ResizeMode.NoResize,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner,ShowInTaskbar=false};
+        var panel=new StackPanel{Margin=new Thickness(16)};
+        panel.Children.Add(new TextBlock{Text="Put another layout inside this one. The box is a live feed: it follows the source's artwork and game values, and resizes like any other element.",TextWrapping=TextWrapping.Wrap,FontSize=11,Opacity=0.8,Margin=new Thickness(2,0,2,10)});
+        var sourceBox=new ComboBox{ItemsSource=choices,SelectedIndex=0,Margin=new Thickness(2,0,2,10)};
+        panel.Children.Add(sourceBox);
+        var add=new Button{Content="Add live layout",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right,MinWidth=140,Margin=new Thickness(2,6,2,0)};
+        add.Click+=(_,_)=>
+        {
+            if(sourceBox.SelectedItem is not NestedLayoutChoice choice||choice.Id is null)return;
+            var source=_catalog.FindLayout(choice.Id);
+            if(source is null)return;
+            var width=Math.Max(160,Math.Round(_catalog.Layout.Width*0.42));
+            var height=Math.Max(90,Math.Round(width*source.Height/Math.Max(1,source.Width)));
+            var maxHeight=Math.Max(90,_catalog.Layout.Height*0.68);
+            if(height>maxHeight){height=maxHeight;width=Math.Max(160,Math.Round(height*source.Width/Math.Max(1,source.Height)));}
+            Add(new ScorebugElement
+            {
+                Name=$"Live · {source.Name}",Kind=ScorebugElementKind.Layout,Content="",
+                NestedLayoutId=source.Id,NestedPreserveAspect=true,
+                X=Math.Round((_catalog.Layout.Width-width)/2),Y=Math.Round((_catalog.Layout.Height-height)/2),
+                Width=width,Height=height,TransparentBackground=true,BorderThickness=1
+            });
+            picker.DialogResult=true;picker.Close();
+        };
+        panel.Children.Add(add);
+        picker.Content=panel;
+        ThemeManager.Apply(picker,_theme);
+        picker.ShowDialog();
     }
 
     void AddShape_Click(object sender,RoutedEventArgs e)
@@ -2547,6 +2666,7 @@ public partial class ScorebugEditorWindow : Window
         ScorebugElementKind.Logo=>"Logo",
         ScorebugElementKind.Shape=>"Shape",
         ScorebugElementKind.Video=>"Video",
+        ScorebugElementKind.Layout=>"Live layout",
         _=>"Text"
     };
 
@@ -3057,6 +3177,8 @@ public partial class ScorebugEditorWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _propertySave.Stop(); SaveProperties();
+        foreach(var visual in _visuals.Values)
+            if(visual.Content is ScorebugLayoutFeed feed)feed.Dispose();
         foreach(var surface in _videoSurfaces.Values) surface.Dispose();
         _videoSurfaces.Clear();
         _wallClock.Stop();
@@ -3297,6 +3419,7 @@ public partial class ScorebugEditorWindow : Window
             ScorebugElementKind.Shape => "◼",
             ScorebugElementKind.Video => "▶",
             ScorebugElementKind.Html => "◧",
+        ScorebugElementKind.Layout => "▤",
             _ => "T"
         };
         public string Label => Element.Name;

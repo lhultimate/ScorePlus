@@ -752,7 +752,7 @@ public partial class MainWindow : Window, IControlPanelHost
         var displayIndex = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
         if (displayIndex >= 0) _scorebug.SelectDisplay(displayIndex);
         _scorebug.SelectLayout(_program.LayoutIndex);
-        var maker = new MotionMakerWindow(kind, _scorebug, _engine, _preferences.Theme) { Owner = this };
+        var maker = new MotionMakerWindow(kind, _scorebug, _engine, _preferences.Theme, layoutId: _program.Layout.Id) { Owner = this };
         maker.ShowDialog();
         _preview?.Rebuild();
         RefreshLayoutIndicators();

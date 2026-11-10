@@ -104,8 +104,16 @@ internal static class ScorebugRender
         return item.ImagePath;
     }
 
-    public static FrameworkElement CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false)
+    public static FrameworkElement CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false,
+        ScorebugCatalog? catalog = null, GameEngine? engine = null, string? displayId = null, IReadOnlySet<string>? layoutChain = null)
     {
+        // A live-layout element is a real scorebug feed inside this box: the source layout keeps
+        // its own artwork and values, and redraws whenever either changes.
+        if (item.Kind == ScorebugElementKind.Layout)
+        {
+            if (catalog is null || engine is null) return LayoutPlaceholder("LIVE LAYOUT");
+            return new ScorebugLayoutFeed(catalog, engine, state, playback, muteVideo, item, displayId, layoutChain, onAirVideo);
+        }
         if (item.Kind == ScorebugElementKind.Video) return new VideoSurface(item, playback, muteVideo, showVideoPlaceholder, onAirVideo);
         // HTML is drawn by a browser engine and captured as a frame, so every feed shows the same
         // picture at the element's design size.
@@ -209,6 +217,9 @@ internal static class ScorebugRender
             case HtmlSurface htmlPage:
                 htmlPage.Update(item);
                 break;
+            case ScorebugLayoutFeed layoutFeed:
+                layoutFeed.Update(item);
+                break;
             case Image image:
                 var path = ResolveImagePath(item, state);
                 if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
@@ -222,6 +233,189 @@ internal static class ScorebugRender
                 }
                 break;
         }
+    }
+
+    internal static FrameworkElement LayoutPlaceholder(string text) => new Border
+    {
+        Background = ParseBrush("#66101822"),
+        BorderBrush = ParseBrush("#6638D7A3"),
+        BorderThickness = new Thickness(1),
+        Padding = new Thickness(10),
+        Child = new TextBlock
+        {
+            Text = text,
+            Foreground = ParseBrush("#8FA0B4"),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        }
+    };
+
+    /// <summary>
+    /// Draws a timeline piece. Text pieces bind the same tokens as normal elements, so a pop-up can
+    /// read <c>{{LAST_SCORE_CHANGE}}</c> and always show the score that was actually pressed. A
+    /// logo piece follows the home/away logo, and a shape piece uses the same silhouettes as a
+    /// designed shape element.
+    /// </summary>
+    public static FrameworkElement CreateMotionPiece(MotionPiece piece, Func<GameState>? state, ScorebugCatalog? catalog = null, GameEngine? engine = null)
+    {
+        var game = state?.Invoke();
+        if (piece.Kind == MotionPieceKind.Logo)
+        {
+            var element = new ScorebugElement
+            {
+                Name = piece.Name,
+                Kind = ScorebugElementKind.Logo,
+                LogoSide = piece.Logo,
+                Content = piece.Name,
+                Width = piece.Width,
+                Height = piece.Height,
+                Foreground = piece.TextColor,
+                Background = piece.Fill,
+                BorderColor = piece.Border,
+                BorderThickness = piece.BorderThickness
+            };
+            return CreateContent(element, state, showVideoPlaceholder: false, catalog: catalog, engine: engine);
+        }
+        if (piece.Kind == MotionPieceKind.Shape)
+        {
+            var element = new ScorebugElement
+            {
+                Name = piece.Name,
+                Kind = ScorebugElementKind.Shape,
+                Shape = piece.Shape,
+                Width = piece.Width,
+                Height = piece.Height,
+                Background = piece.Fill,
+                BorderColor = piece.Border,
+                BorderThickness = piece.BorderThickness
+            };
+            return CreateShape(element, game);
+        }
+        var text = game is null ? piece.Text : ScoreboardTemplates.Bind(piece.Text, game);
+        return new TextBlock
+        {
+            Text = text,
+            FontSize = piece.FontSize,
+            Foreground = new SolidColorBrush(Paint.ColorOf(piece.TextColor, Colors.White)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
+        };
+    }
+}
+
+/// <summary>
+/// A resizeable live feed of another layout. It deliberately hosts the same canvas view the studio
+/// and the audience use, so game values, media and value changes keep moving inside the box instead
+/// of becoming a picture. The feed owns that view and disposes it when it is removed.
+/// </summary>
+public sealed class ScorebugLayoutFeed : Grid, IDisposable
+{
+    readonly ScorebugCatalog _catalog;
+    readonly GameEngine _engine;
+    readonly Func<GameState>? _state;
+    readonly MediaPlayback? _playback;
+    readonly bool _muteVideo;
+    readonly string? _baseDisplayId;
+    readonly IReadOnlySet<string> _chain;
+    readonly bool _onAirVideo;
+    ScorebugElement _item;
+    ScorebugCanvasView? _view;
+    string? _viewLayoutId;
+    bool _disposed;
+
+    public ScorebugLayoutFeed(ScorebugCatalog catalog, GameEngine engine, Func<GameState>? state,
+        MediaPlayback? playback, bool muteVideo, ScorebugElement item, string? displayId,
+        IReadOnlySet<string>? layoutChain, bool onAirVideo)
+    {
+        _catalog = catalog;
+        _engine = engine;
+        _state = state;
+        _playback = playback;
+        _muteVideo = muteVideo;
+        _baseDisplayId = displayId;
+        _chain = layoutChain is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(layoutChain, StringComparer.OrdinalIgnoreCase);
+        _onAirVideo = onAirVideo;
+        _item = item;
+        IsHitTestVisible = false;
+        Update(item);
+    }
+
+    /// <summary>The layout this feed is drawing, so the studio can verify and serialise the choice.</summary>
+    public string? SourceLayoutId => _item.NestedLayoutId;
+
+    public void Update(ScorebugElement item)
+    {
+        if(_disposed)return;
+        _item = item;
+        var target = _catalog.FindLayout(item.NestedLayoutId);
+        if (target is null)
+        {
+            ShowPlaceholder(string.IsNullOrWhiteSpace(item.NestedLayoutId) ? "LIVE LAYOUT" : "LAYOUT NOT FOUND");
+            return;
+        }
+        if (_chain.Contains(target.Id))
+        {
+            ShowPlaceholder("LAYOUT LOOP");
+            return;
+        }
+        if (_view is null || !string.Equals(_viewLayoutId, target.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            ShowView(target);
+        }
+        _view!.SetFill(!item.NestedPreserveAspect);
+        ToolTip = $"Live layout: {target.Name} · {target.Width} × {target.Height}";
+    }
+
+    void ShowView(ScorebugLayout source)
+    {
+        DisposeView();
+        Children.Clear();
+        var chain = new HashSet<string>(_chain, StringComparer.OrdinalIgnoreCase) { source.Id };
+        var display = _catalog.FindDisplayOfLayout(source.Id);
+        _view = new ScorebugCanvasView(_catalog, _engine, _state, _playback, _muteVideo,
+            layoutProvider: () => _catalog.FindLayout(source.Id) ?? source,
+            onAirVideo: _onAirVideo,
+            displayId: display?.Id ?? _baseDisplayId,
+            layoutChain: chain,
+            liveValues: true,
+            fillBox: !_item.NestedPreserveAspect);
+        _viewLayoutId = source.Id;
+        Children.Add(_view);
+    }
+
+    void ShowPlaceholder(string text)
+    {
+        DisposeView();
+        if (Children.Count == 1 && Children[0] is Border existing && existing.Child is TextBlock label && label.Text == text)
+            return;
+        Children.Clear();
+        Children.Add(ScorebugRender.LayoutPlaceholder(text));
+        ToolTip = string.IsNullOrWhiteSpace(_item.NestedLayoutId)
+            ? "Choose a source layout in the properties panel"
+            : "The live layout source is missing or would loop back into this layout";
+    }
+
+    void DisposeView()
+    {
+        if (_view is null) return;
+        _view.Dispose();
+        _view = null;
+        _viewLayoutId = null;
+    }
+
+    public void Dispose()
+    {
+        if(_disposed)return;
+        _disposed=true;
+        DisposeView();
+        Children.Clear();
     }
 }
 
@@ -305,6 +499,12 @@ public sealed class ScorebugTextBlock : TextBlock
     // so a stale out-phase can never put its old text back on the graphic.
     int _generation;
     ScorebugElement? _style;
+
+    /// <summary>The live game, used to choose a score-triggered take for a value animation.</summary>
+    public Func<GameState>? StateProvider { get; set; }
+
+    /// <summary>Lets the canvas show the clip's temporary pieces while this value changes.</summary>
+    public Action<MotionClip, string, string>? ValueMotionPlayed { get; set; }
 
     public ScorebugTextBlock(ScorebugElement item)
     {
@@ -407,10 +607,11 @@ public sealed class ScorebugTextBlock : TextBlock
             return;
         }
         var valueMotion = _style?.MotionAnimation is { UseOnValueChange: true, IsEmpty: false } motion ? motion : null;
+        var beforeValue = _shown;
         if (transition == ScorebugTransition.Cut || total < 0.02 || !IsLoaded)
         {
             Snap(text);
-            if (valueMotion is not null) MotionPlayback.PlayClip(this, valueMotion, Opacity, ambient: false);
+            PlayValueMotion(valueMotion, beforeValue, text);
             return;
         }
         _animating = true;
@@ -431,9 +632,18 @@ public sealed class ScorebugTextBlock : TextBlock
                 // A value that arrived while the crossing ran starts its own crossing now, from
                 // the value that just landed. Nothing snaps into place between the two.
                 if (_queuedText is not null) { PlayQueued(); return; }
-                if (valueMotion is not null) MotionPlayback.PlayClip(this, valueMotion, Opacity, ambient: false);
+                PlayValueMotion(valueMotion, beforeValue, text);
             });
         });
+    }
+
+    void PlayValueMotion(MotionClip? clip, string before, string after)
+    {
+        if (clip is null) return;
+        var state = StateProvider?.Invoke();
+        var phase = clip.ValuePhaseFor(state);
+        ValueMotionPlayed?.Invoke(clip, before, after);
+        MotionPlayback.PlayClip(this, clip, Opacity, ambient: false, phase: phase);
     }
 
     void PlayQueued()

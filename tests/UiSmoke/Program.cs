@@ -92,6 +92,284 @@ internal static class Program
             if (smokeTarget.TransitionDown != ScorebugTransition.SlideUp)
                 throw new Exception($"FAIL: the down transition did not stick ({smokeTarget.TransitionDown})");
             smokeEditor.Close();
+            // The rebuilt motion makers are code-built windows, so opening them is itself a smoke
+            // test: the layout timeline must draw, and a temporary piece must join the clip.
+            var motionCatalogPath = Path.Combine(Path.GetTempPath(), $"smoke-motion-{Guid.NewGuid():N}.json");
+            var motionCatalog = new ScorebugCatalog(motionCatalogPath);
+            var motionEngine = new GameEngine();
+            motionEngine.NewGame("basketball");
+            motionEngine.Score(true, 3);
+            var transitionMaker = new MotionMakerWindow(MotionKind.Transition, motionCatalog, motionEngine, "Dark");
+            transitionMaker.Show();
+            transitionMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(180));
+            var layoutTimeline = FindAll<Canvas>(transitionMaker)
+                .FirstOrDefault(canvas => Math.Abs(canvas.Width - 1040) < 0.5);
+            if (layoutTimeline is null || layoutTimeline.Children.Count < 4)
+                throw new Exception("FAIL: the transition builder did not draw its layout-wide timeline");
+            var addTemporaryText = FindAll<Button>(transitionMaker).FirstOrDefault(button => (button.Content as string) == "+ Text")
+                ?? throw new Exception("FAIL: the timeline has no add-text action");
+            addTemporaryText.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            transitionMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(80));
+            var clipField = typeof(MotionMakerWindow).GetField("_clip", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (clipField?.GetValue(transitionMaker) is not MotionClip transitionClip || transitionClip.Pieces.Count != 1)
+                throw new Exception("FAIL: adding a temporary item did not add it to the transition clip");
+            // The reorder commit is the same one a row drop uses: a temporary piece can move to
+            // the front or the end, while the whole-graphic row stays pinned first.
+            var drop = typeof(MotionMakerWindow).GetMethod("CommitTimelineDrop", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: the timeline has no drop commit");
+            var pieceId = transitionClip.Pieces[0].Id;
+            if ((bool)drop.Invoke(transitionMaker, ["", 1])!)
+                throw new Exception("FAIL: the whole-graphic row was allowed to move");
+            if (!(bool)drop.Invoke(transitionMaker, [pieceId, 1])!
+                || !string.Equals(transitionClip.PieceOrder.FirstOrDefault(), pieceId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("FAIL: dropping a temporary piece at the top did not reorder the timeline");
+            if (!(bool)drop.Invoke(transitionMaker, [pieceId, 99])!
+                || !string.Equals(transitionClip.PieceOrder.LastOrDefault(), pieceId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("FAIL: dropping a temporary piece at the bottom did not reorder the timeline");
+
+            // A saved clip remembers its layout. Loading it while a different layout is active
+            // must reopen the authored layout, not the one that happened to be on screen.
+            transitionClip.Name = "Smoke timeline clip";
+            var authoredLayoutId = motionCatalog.Layout.Id;
+            transitionClip.TimelineLayoutId = authoredLayoutId;
+            motionCatalog.SaveTransition(transitionClip);
+            transitionMaker.Close();
+            motionCatalog.AddLayout("Smoke second layout");
+            if (string.Equals(motionCatalog.Layout.Id, authoredLayoutId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("FAIL: the smoke catalog did not switch to its second layout");
+            var reloadMaker = new MotionMakerWindow(MotionKind.Transition, motionCatalog, motionEngine, "Dark");
+            reloadMaker.Show();
+            reloadMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(180));
+            var libraryList = (ListBox?)typeof(MotionMakerWindow)
+                .GetField("_libraryList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(reloadMaker)
+                ?? throw new Exception("FAIL: the transition maker has no saved-clip list");
+            var savedRow = libraryList.Items.OfType<object>()
+                .FirstOrDefault(row => (row.ToString() ?? "").Contains("Smoke timeline clip", StringComparison.Ordinal));
+            if (savedRow is null) throw new Exception("FAIL: the saved transition did not reach the library");
+            libraryList.SelectedItem = savedRow;
+            typeof(MotionMakerWindow).GetMethod("LoadFromLibrary", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(reloadMaker, null);
+            reloadMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(80));
+            var smokeTimelinePicker = (ComboBox?)typeof(MotionMakerWindow)
+                .GetField("_timelineLayoutPicker", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(reloadMaker);
+            var pickedChoice = smokeTimelinePicker?.SelectedItem;
+            var pickedLayout = pickedChoice?.GetType().GetProperty("Layout")?.GetValue(pickedChoice) as ScorebugLayout;
+            if (!string.Equals(pickedLayout?.Id, authoredLayoutId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception($"FAIL: loading a clip reopened “{pickedLayout?.Name ?? "none"}” instead of its authored layout");
+            if (!string.Equals((clipField.GetValue(reloadMaker) as MotionClip)?.TimelineLayoutId, authoredLayoutId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("FAIL: loading a clip did not restore its timeline layout id");
+            reloadMaker.Close();
+            Console.WriteLine("PASS: dragging a timeline row reorders the clip, and loading it reopens the authored layout");
+
+            // A delayed row still owns keys at its own times. The row used to clamp every key to
+            // the phase boundary, which made late keys look pinned to the switch break, impossible
+            // to drag past it and easy to overwrite with the wrong value.
+            {
+                var keyCatalogPath = Path.Combine(Path.GetTempPath(), $"smoke-keys-{Guid.NewGuid():N}.json");
+                var keyCatalog = new ScorebugCatalog(keyCatalogPath);
+                keyCatalog.Update(layout =>
+                {
+                    layout.Elements.Clear();
+                    for (var index = 0; index < 4; index++)
+                        layout.Elements.Add(new ScorebugElement
+                        {
+                            Name = $"Key item {index + 1}", Content = $"ITEM {index + 1}",
+                            X = 40 + index * 24, Y = 60, Width = 210, Height = 64, FontSize = 24
+                        });
+                });
+                var keyClip = MotionClip.NewTransition("Smoke key clip");
+                keyClip.TimelineLayoutId = keyCatalog.Layout.Id;
+                keyClip.ItemStagger = 0.08;
+                keyClip.PieceOrder = keyCatalog.Layout.Elements.Select(element => element.Id).ToList();
+                var keyMaker = new MotionMakerWindow(MotionKind.Transition, keyCatalog, motionEngine, "Dark", keyClip);
+                keyMaker.Show();
+                keyMaker.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(180));
+                var liveClip = (MotionClip?)clipField?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no clip");
+                var lateId = keyCatalog.Layout.Elements[^1].Id;
+                var exitPhase = liveClip.Phases[0];
+                exitPhase.Tracks.RemoveAll(track => string.Equals(track.PieceId, lateId, StringComparison.OrdinalIgnoreCase));
+                var lateTrack = new MotionTrack(MotionTarget.Opacity, (0, 1), (exitPhase.Seconds, 0)) { PieceId = lateId };
+                exitPhase.Tracks.Add(lateTrack);
+                var lateColor = new ColorTrack(MotionColorRole.Text, (0, "#FFFFFFFF"), (exitPhase.Seconds, "#FF000000")) { PieceId = lateId };
+                exitPhase.Colors.Add(lateColor);
+                var refreshAll = typeof(MotionMakerWindow).GetMethod("RefreshAll", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the maker cannot refresh its timeline");
+                refreshAll.Invoke(keyMaker, null);
+                var probeTimelineList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_timelineList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no timeline list");
+                probeTimelineList.SelectedIndex = probeTimelineList.Items.Count - 1;
+                var probePhaseList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_phaseList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no phase list");
+                probePhaseList.SelectedIndex = 0;
+                typeof(MotionMakerWindow).GetMethod("LoadPhase", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(keyMaker, null);
+                var probeTrackList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_trackList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no track list");
+                probeTrackList.SelectedIndex = 0;
+                var probeKeyList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_keyList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no key list");
+                probeKeyList.SelectedIndex = 0;
+                keyMaker.UpdateLayout();
+                var probeKeyTime = (TextBox?)typeof(MotionMakerWindow)
+                    .GetField("_keyTime", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no time box");
+                var probeKeyValue = (TextBox?)typeof(MotionMakerWindow)
+                    .GetField("_keyValue", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no value box");
+                var updateKey = typeof(MotionMakerWindow).GetMethod("UpdateKey", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot update a key");
+                probeKeyTime.Text = "0.1";
+                probeKeyValue.Text = "0.42";
+                updateKey.Invoke(keyMaker, null);
+                var editedKey = lateTrack.Keys.FirstOrDefault(key => Math.Abs(key.Time - 0.1) < 0.001)
+                    ?? throw new Exception("FAIL: updating a key did not retime it");
+                if (Math.Abs(editedKey.Value - 0.42) > 0.001)
+                    throw new Exception($"FAIL: updating a key did not apply its value ({editedKey.Value})");
+                if (probeKeyList.SelectedIndex < 0)
+                    throw new Exception("FAIL: updating a key threw the selection away");
+                // Enter must commit the value box, not just drop focus.
+                probeKeyTime.Text = "0.12";
+                probeKeyValue.Text = "0.77";
+                var keySource = PresentationSource.FromVisual(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no presentation source");
+                probeKeyValue.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, keySource, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
+                Pump(TimeSpan.FromMilliseconds(60));
+                editedKey = lateTrack.Keys.FirstOrDefault(key => Math.Abs(key.Time - 0.12) < 0.005)
+                    ?? throw new Exception("FAIL: Enter did not commit the key's time");
+                if (Math.Abs(editedKey.Value - 0.77) > 0.001)
+                    throw new Exception($"FAIL: Enter did not commit the key's value ({editedKey.Value})");
+                // The value must reach the picture, not just the model: the selected item's host is
+                // left at this key's value because PreviewAt put the preview on the edited frame.
+                var keyPreview = typeof(MotionMakerWindow)
+                    .GetField("_transitionPreview", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker);
+                var keyHosts = keyPreview?.GetType().GetProperty("Hosts")?.GetValue(keyPreview) as System.Collections.IDictionary;
+                if (keyHosts is null || keyHosts[lateId] is not FrameworkElement keyedHost)
+                    throw new Exception("FAIL: the keyframe probe could not find the previewed item");
+                if (Math.Abs(keyedHost.Opacity - 0.77) > 0.01)
+                    throw new Exception($"FAIL: the edited key did not reach the preview ({keyedHost.Opacity:0.###})");
+
+                // The last row starts 0.24s after the phase. A click on its own key must map back
+                // to that key's time, and its dot must sit where the value is, not at the boundary.
+                var xForGlobal = typeof(MotionMakerWindow).GetMethod("XForGlobal", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot place a time");
+                var timeAt = typeof(MotionMakerWindow).GetMethod("TimeAt", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot read a time");
+                var delay = (keyCatalog.Layout.Elements.Count - 1) * keyClip.ItemStagger;
+                var timelineCanvas = FindAll<Canvas>(keyMaker).First(canvas => Math.Abs(canvas.Width - 1040) < 0.5);
+                var keyY = 34 + (probeTimelineList.Items.Count - 1) * 34 + 18;
+                var keyPoint = new Point((double)xForGlobal.Invoke(keyMaker, [delay + 0.12])!, keyY);
+                var mapped = (double)timeAt.Invoke(keyMaker, [keyPoint, null])!;
+                if (Math.Abs(mapped - 0.12) > 0.01)
+                    throw new Exception($"FAIL: a delayed key mapped back to {mapped:0.###}s instead of 0.12s");
+                var keyDot = timelineCanvas.Children.OfType<System.Windows.Shapes.Ellipse>()
+                    .FirstOrDefault(dot => ReferenceEquals(dot.Tag, editedKey));
+                if (keyDot is null) throw new Exception("FAIL: the edited key has no dot on the timeline");
+                var dotCentre = Canvas.GetLeft(keyDot) + keyDot.Width / 2;
+                var expectedCentre = (double)xForGlobal.Invoke(keyMaker, [delay + 0.12])!;
+                if (Math.Abs(dotCentre - expectedCentre) > 1)
+                    throw new Exception($"FAIL: the key dot is drawn at {dotCentre:0.#} instead of {expectedCentre:0.#}");
+                var retimeKey = typeof(MotionMakerWindow).GetMethod("RetimeKey", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot retime a key");
+                var retimePoint = new Point((double)xForGlobal.Invoke(keyMaker, [delay + 0.16])!, keyY);
+                retimeKey.Invoke(keyMaker, [lateTrack, editedKey, retimePoint]);
+                if (Math.Abs(editedKey.Time - 0.16) > 0.01)
+                    throw new Exception($"FAIL: dragging a delayed key retimed it to {editedKey.Time:0.###}s instead of 0.16s");
+
+                // Colour keys sit below the numeric dots and follow the same delayed clock.
+                var probeColorList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_colorList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no color key list");
+                var firstColorKey = lateColor.Keys.OrderBy(key => key.Time).First();
+                var colorRow = probeColorList.Items.OfType<object>().FirstOrDefault(item =>
+                    ReferenceEquals(item.GetType().GetProperty("Key")?.GetValue(item), firstColorKey));
+                if (colorRow is null) throw new Exception("FAIL: the color key never reached the timeline inspector");
+                probeColorList.SelectedItem = colorRow;
+                var probeColorTime = (TextBox?)typeof(MotionMakerWindow)
+                    .GetField("_colorTime", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no color time box");
+                var probeColorValue = (TextBox?)typeof(MotionMakerWindow)
+                    .GetField("_colorValue", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no color value box");
+                probeColorTime.Text = "0.05";
+                probeColorValue.Text = "#FF112233";
+                var updateColor = typeof(MotionMakerWindow).GetMethod("UpdateColor", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot update a color key");
+                updateColor.Invoke(keyMaker, null);
+                var editedColor = lateColor.Keys.FirstOrDefault(key => Math.Abs(key.Time - 0.05) < 0.001)
+                    ?? throw new Exception("FAIL: updating a color key did not retime it");
+                if (!string.Equals(editedColor.Color, "#FF112233", StringComparison.OrdinalIgnoreCase))
+                    throw new Exception($"FAIL: updating a color key did not apply its colour ({editedColor.Color})");
+                var retimeColor = typeof(MotionMakerWindow).GetMethod("RetimeColorKey", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot retime a color key");
+                var colorPoint = new Point((double)xForGlobal.Invoke(keyMaker, [delay + 0.09])!, keyY + 9);
+                retimeColor.Invoke(keyMaker, [lateColor, editedColor, colorPoint]);
+                if (Math.Abs(editedColor.Time - 0.09) > 0.01)
+                    throw new Exception($"FAIL: dragging a delayed color key retimed it to {editedColor.Time:0.###}s instead of 0.09s");
+
+                // A colour key must repaint what is actually drawn, including a gradient plate that
+                // cannot hold a single Colour animation. Scrub first, then play, then restore.
+                var colourPhase = new MotionPhase("Colour probe", 0.4);
+                colourPhase.Colors.Add(new ColorTrack(MotionColorRole.Text, (0, "#FF000000"), (0.4, "#FFFF0000")));
+                colourPhase.Colors.Add(new ColorTrack(MotionColorRole.Background, (0, "#FF000000"), (0.4, "#FF00FF00")));
+                var colourText = new TextBlock { Text = "COLOUR", Foreground = new SolidColorBrush(Colors.White), FontSize = 24 };
+                var colourPlate = new Border
+                {
+                    Width = 180, Height = 70,
+                    Background = new LinearGradientBrush(Colors.Blue, Colors.White, 0),
+                    Child = colourText
+                };
+                var colourWindow = new Window
+                {
+                    Content = colourPlate, Width = 220, Height = 110,
+                    WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+                    ShowActivated = false, Left = -2000, Top = -2000
+                };
+                colourWindow.Show();
+                colourWindow.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(50));
+                var playbackType = typeof(MotionMakerWindow).Assembly.GetType("Scoreboard.Desktop.MotionPlayback")
+                    ?? throw new Exception("FAIL: the colour probe cannot find the motion player");
+                var applyAt = playbackType.GetMethod("ApplyAt", BindingFlags.Public | BindingFlags.Static)
+                    ?? throw new Exception("FAIL: the colour probe cannot scrub a phase");
+                var playPhase = playbackType.GetMethod("PlayPhase", BindingFlags.Public | BindingFlags.Static)
+                    ?? throw new Exception("FAIL: the colour probe cannot play a phase");
+                var stopMotion = playbackType.GetMethod("Stop", BindingFlags.Public | BindingFlags.Static)
+                    ?? throw new Exception("FAIL: the colour probe cannot stop a phase");
+                applyAt.Invoke(null, [colourPlate, colourPhase, 0.2, null]);
+                if (colourText.Foreground is not SolidColorBrush scrubbedText || scrubbedText.Color.R < 90 || scrubbedText.Color.G > 40)
+                    throw new Exception($"FAIL: a colour key did not reach the text brush ({colourText.Foreground})");
+                if (colourPlate.Background is not SolidColorBrush scrubbedPlate || scrubbedPlate.Color.G < 90 || scrubbedPlate.Color.R > 40)
+                    throw new Exception($"FAIL: a colour key did not reach a gradient plate ({colourPlate.Background})");
+                stopMotion.Invoke(null, [colourPlate]);
+                if (colourPlate.Background is not LinearGradientBrush)
+                    throw new Exception("FAIL: stopping a colour key did not restore the plate's gradient");
+                playPhase.Invoke(null, [colourPlate, colourPhase, 1.0, null, 1.0, false, false, null]);
+                Pump(TimeSpan.FromMilliseconds(180));
+                if (colourText.Foreground is not SolidColorBrush playedText || playedText.Color.R < 90 || playedText.Color.G > 60)
+                    throw new Exception($"FAIL: a played colour key did not animate the text ({colourText.Foreground})");
+                stopMotion.Invoke(null, [colourPlate]);
+                colourWindow.Close();
+                keyMaker.Close();
+                Console.WriteLine("PASS: delayed keyframes and colour keys keep their own times, can be retimed, and accept keyed values");
+            }
+
+            var animationMaker = new MotionMakerWindow(MotionKind.Animation, motionCatalog, motionEngine, "Dark");
+            animationMaker.Show();
+            animationMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(180));
+            if (!FindAll<Button>(animationMaker).Any(button => (button.Content as string) == "+3 take"))
+                throw new Exception("FAIL: the animation maker does not offer score-specific takes");
+            animationMaker.Close();
+            Console.WriteLine("PASS: the transition timeline draws every item and adds temporary pieces; the animation maker offers score takes");
             GameEngine.NewSeriesLiveEnabled = true;
             smokeEngine.NewSeries();
             if (!smokeEngine.TakePublishRequest()) throw new Exception("FAIL: New series did not ask to publish");
@@ -334,7 +612,81 @@ internal static class Program
             Console.WriteLine("PASS: studio edits apply to the selected element only");
 
             editor.Close();
-            Console.WriteLine("PASS: scorebug studio loads");
+            Console.WriteLine("PASS: Display Studio loads");
+
+            // ---------- Display Studio: another layout is a live, resizeable feed ----------
+            {
+                var nestedPath = Path.Combine(Path.GetTempPath(), $"smoke-live-layout-{Guid.NewGuid():N}.json");
+                ScorebugEditorWindow? nestedEditor = null;
+                try
+                {
+                    var nestedCatalog = new ScorebugCatalog(nestedPath);
+                    var liveSourceId = nestedCatalog.Layout.Id;
+                    nestedCatalog.Update(layout =>
+                    {
+                        layout.Elements.Clear();
+                        layout.Elements.Add(new ScorebugElement
+                        {
+                            Name = "Live score", Kind = ScorebugElementKind.Text, Content = "{{HOME_SCORE}}",
+                            X = 30, Y = 30, Width = 260, Height = 90, FontSize = 56
+                        });
+                    });
+                    nestedCatalog.AddLayout("Feed host");
+                    var feedElement = new ScorebugElement
+                    {
+                        Name = "Live layout", Kind = ScorebugElementKind.Layout, Content = "",
+                        NestedLayoutId = liveSourceId, NestedPreserveAspect = true,
+                        X = 140, Y = 100, Width = 480, Height = 270
+                    };
+                    nestedCatalog.Update(layout => { layout.Elements.Clear(); layout.Elements.Add(feedElement); });
+                    var nestedEngine = new GameEngine();
+                    nestedEngine.NewGame("football");
+                    nestedEditor = new ScorebugEditorWindow(nestedCatalog, nestedEngine);
+                    nestedEditor.Show();
+                    nestedEditor.UpdateLayout();
+                    if (!nestedEditor.Title.Contains("Display Studio", StringComparison.Ordinal))
+                        throw new Exception($"FAIL: the editor is still titled '{nestedEditor.Title}'");
+                    var nestedCanvas = (Canvas)nestedEditor.FindName("DesignCanvas")!;
+                    var feedHost = nestedCanvas.Children.OfType<Border>()
+                        .SingleOrDefault(border => (border.Tag as ScorebugElement)?.Id == feedElement.Id)
+                        ?? throw new Exception("FAIL: the live layout has no element on the studio canvas");
+                    var feed = FindAll<ScorebugLayoutFeed>(feedHost).SingleOrDefault()
+                        ?? throw new Exception("FAIL: the live layout did not build a nested canvas");
+                    var nestedView = feed.Children.OfType<ScorebugCanvasView>().SingleOrDefault()
+                        ?? throw new Exception("FAIL: the live layout has no live feed view");
+                    if (nestedView.Layout.Id != liveSourceId)
+                        throw new Exception("FAIL: the live layout is not drawing its source layout");
+                    nestedEngine.Score(true, 7);
+                    Pump(TimeSpan.FromMilliseconds(650));
+                    nestedEditor.UpdateLayout();
+                    if (!FindAll<TextBlock>(nestedView).Any(text => text.Text.Trim() == "7"))
+                        throw new Exception("FAIL: a score change did not reach the live nested layout");
+                    var nestedLayers = (ListBox)nestedEditor.FindName("Layers")!;
+                    nestedLayers.SelectedIndex = 0;
+                    nestedEditor.UpdateLayout();
+                    var nestedAspect = (CheckBox)nestedEditor.FindName("NestedAspectInput")!;
+                    var nestedPicker = (ComboBox)nestedEditor.FindName("NestedLayoutInput")!;
+                    var pickedId = nestedPicker.SelectedItem?.GetType().GetProperty("Id")?.GetValue(nestedPicker.SelectedItem) as string;
+                    if (nestedAspect.IsChecked != true || pickedId != liveSourceId)
+                        throw new Exception("FAIL: the live layout panel does not show its source and fit mode");
+                    var resizeHandle = FindAll<Border>(feedHost)
+                        .FirstOrDefault(border => border.Cursor == Cursors.SizeNWSE && border.Visibility == Visibility.Visible)
+                        ?? throw new Exception("FAIL: a selected live layout has no resize handle");
+                    var nestedWidth = (TextBox)nestedEditor.FindName("WidthInput")!;
+                    nestedWidth.Text = "360";
+                    Pump(TimeSpan.FromMilliseconds(650));
+                    nestedEditor.UpdateLayout();
+                    if (Math.Abs(nestedCatalog.Layout.Elements.Single().Width - 360) > 0.5
+                        || Math.Abs(feedHost.Width - 360) > 0.5)
+                        throw new Exception($"FAIL: the live layout did not resize ({nestedCatalog.Layout.Elements.Single().Width:0}, {feedHost.Width:0})");
+                    Console.WriteLine("PASS: Display Studio embeds another layout as a live, resizeable feed");
+                }
+                finally
+                {
+                    nestedEditor?.Close();
+                    if (File.Exists(nestedPath)) File.Delete(nestedPath);
+                }
+            }
 
             // ---------- studio multi-select: Ctrl/Shift rows and Delete ----------
             {

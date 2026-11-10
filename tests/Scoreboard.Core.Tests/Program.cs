@@ -245,6 +245,65 @@ try
 }
 finally{if(File.Exists(displaysPath))File.Delete(displaysPath);}
 
+// ---------- live layouts: a layout inside another, still playing ----------
+var nestedPath=Path.Combine(Path.GetTempPath(),$"live-layout-{Guid.NewGuid():N}.json");
+try
+{
+    var nested=new ScorebugCatalog(nestedPath);
+    var sourceLayoutId=nested.Layout.Id;
+    nested.AddLayout("Live host");
+    var hostLayoutId=nested.Layout.Id;
+    nested.Update(layout=>{
+        layout.Elements.Clear();
+        layout.Elements.Add(new ScorebugElement{Name="Live feed",Kind=ScorebugElementKind.Layout,Content="",NestedLayoutId=sourceLayoutId,NestedPreserveAspect=false,X=80,Y=60,Width=720,Height=405});
+    });
+    Check(nested.Layout.Name=="Live host"&&nested.Layout.Elements.Single().NestedLayoutId==sourceLayoutId,"a layout can hold another layout as a live feed");
+    var nestedReloaded=new ScorebugCatalog(nestedPath);
+    var loadedHost=nestedReloaded.Displays[0].Layouts.Single(layout=>layout.Id==hostLayoutId);
+    var loadedFeed=loadedHost.Elements.Single(element=>element.Kind==ScorebugElementKind.Layout);
+    Check(loadedFeed.NestedLayoutId==sourceLayoutId&&!loadedFeed.NestedPreserveAspect&&loadedFeed.Width==720&&loadedFeed.Height==405,"a live layout keeps its source and fit mode across a save");
+    Check(!nestedReloaded.WouldCreateLayoutCycle(hostLayoutId,sourceLayoutId),"the catalog allows a feed that points at another layout");
+    Check(nestedReloaded.WouldCreateLayoutCycle(sourceLayoutId,hostLayoutId),"the catalog detects a feed that would close a loop");
+    var sourceIndex=nestedReloaded.Displays[0].Layouts.FindIndex(layout=>layout.Id==sourceLayoutId);
+    nestedReloaded.SelectLayout(sourceIndex);
+    nestedReloaded.Update(layout=>layout.Elements.Add(new ScorebugElement{Name="Loop",Kind=ScorebugElementKind.Layout,Content="",NestedLayoutId=hostLayoutId}));
+    Check(nestedReloaded.FindLayout(sourceLayoutId)!.Elements.Where(element=>element.Kind==ScorebugElementKind.Layout).All(element=>element.NestedLayoutId is null),"a layout cannot be put inside itself through another layout");
+    nestedReloaded.Update(layout=>layout.Elements.Add(new ScorebugElement{Name="Self",Kind=ScorebugElementKind.Layout,Content="",NestedLayoutId=sourceLayoutId}));
+    Check(nestedReloaded.FindLayout(sourceLayoutId)!.Elements.Where(element=>element.Kind==ScorebugElementKind.Layout).All(element=>element.NestedLayoutId is null),"a layout cannot contain itself directly");
+}
+finally{if(File.Exists(nestedPath))File.Delete(nestedPath);}
+
+// ---------- display import: nested feeds keep pointing at their own copied layouts ----------
+var nestedDisplayPath=Path.Combine(Path.GetTempPath(),$"nested-display-{Guid.NewGuid():N}.spd");
+var nestedImportPath=Path.Combine(Path.GetTempPath(),$"nested-import-{Guid.NewGuid():N}.json");
+try
+{
+    var shared=new ScorebugCatalog(Path.Combine(Path.GetTempPath(),$"nested-shared-{Guid.NewGuid():N}.json"));
+    var originalHostId=shared.Layout.Id;
+    shared.AddLayout("Embedded source");
+    var originalNestedId=shared.Layout.Id;
+    shared.SelectLayout(0);
+    shared.Update(layout=>{layout.Elements.Clear();layout.Elements.Add(new ScorebugElement{Name="Imported feed",Kind=ScorebugElementKind.Layout,Content="",NestedLayoutId=originalNestedId});});
+    var receiving=new ScorebugCatalog(nestedImportPath);
+    var importedIndex=receiving.ImportDisplay(shared.ActiveDisplay,"Imported live display");
+    var imported=receiving.Displays[importedIndex];
+    var importedHost=imported.Layouts[0];
+    var importedNested=imported.Layouts[1];
+    var importedFeed=importedHost.Elements.Single(element=>element.Kind==ScorebugElementKind.Layout);
+    Check(importedFeed.NestedLayoutId==importedNested.Id&&importedFeed.NestedLayoutId!=originalNestedId,"importing a display remaps a live feed to the copied layout");
+    Check(importedHost.Id!=originalHostId&&importedNested.Id!=originalNestedId,"an imported display gives its layouts independent identities");
+    var reopenedImport=new ScorebugCatalog(nestedImportPath);
+    var savedDisplay=reopenedImport.Displays.Single(display=>display.Name=="Imported live display");
+    Check(savedDisplay.Layouts[0].Elements.Single(element=>element.Kind==ScorebugElementKind.Layout).NestedLayoutId==savedDisplay.Layouts[1].Id,"the remapped live feed survives a reload");
+    var singleIndex=receiving.ImportLayout(shared.ActiveDisplay.Layouts[0],"Single live layout");
+    Check(receiving.Layouts[singleIndex].Elements.Where(element=>element.Kind==ScorebugElementKind.Layout).All(element=>element.NestedLayoutId is null),"a single-layout import drops a source that did not travel with it");
+}
+finally
+{
+    if(File.Exists(nestedDisplayPath))File.Delete(nestedDisplayPath);
+    if(File.Exists(nestedImportPath))File.Delete(nestedImportPath);
+}
+
 // ---------- video elements: preserved aspect, own audio output ----------
 var videoPath=Path.Combine(Path.GetTempPath(),$"video-element-{Guid.NewGuid():N}.json");
 try
@@ -633,6 +692,42 @@ try
     var pieceCopy=pieceClip.Snapshot();
     Check(pieceCopy.Pieces.Count==1&&pieceCopy.Pieces[0].Name=="Flash"
         &&pieceCopy.Phase("Enter")!.Tracks.Any(track=>track.PieceId=="element-a"),"a saved clip carries its temporary pieces and piece-scoped keys");
+
+    // ---------- score-specific takes, temporary pieces and the layout timeline ----------
+    var scoreGame=new GameEngine();scoreGame.NewGame("basketball");scoreGame.Score(true,3);
+    Check(scoreGame.State.LastScoreAmount==3&&scoreGame.State.LastScoreHome
+        &&ScoreboardTemplates.Bind("{{LAST_SCORE_CHANGE}} {{LAST_SCORE_ABBR}} {{LAST_SCORE_SIDE}}",scoreGame.State,null).StartsWith("+3 "),
+        "the last score is kept and its score-change tokens are available to a timeline piece");
+    Check(ScoreboardTemplates.Bind("{{LAST_SCORE_AMOUNT}}|{{LAST_SCORE_CHANGE}}",scoreGame.State,null)=="3|+3",
+        "a temporary piece can print the actual score amount instead of a hard-coded number");
+    var takeClip=new MotionClip{Name="Score takes",Kind=MotionKind.Animation,UseOnValueChange=true};
+    var untriggeredTake=new MotionPhase("Value",0.4);
+    untriggeredTake.Tracks.Add(new MotionTrack(MotionTarget.Scale,(0,1),(0.4,1.1)));
+    var plus3=untriggeredTake.Copy();plus3.Name="Value +3";plus3.TriggerAmount=3;
+    var plus6=untriggeredTake.Copy();plus6.Name="Value +6";plus6.TriggerAmount=6;
+    takeClip.Phases.AddRange([untriggeredTake,plus3,plus6]);
+    takeClip.Pieces.AddRange([
+        new MotionPiece{Name="Three",Text="{{LAST_SCORE_CHANGE}}",TriggerAmount=3},
+        new MotionPiece{Name="Six",Text="{{LAST_SCORE_CHANGE}}",TriggerAmount=6}
+    ]);
+    takeClip.Normalize();
+    Check(ReferenceEquals(takeClip.ValuePhaseFor(3,true),plus3)&&ReferenceEquals(takeClip.ValuePhaseFor(6,true),plus6),
+        "a value phase is chosen by the exact score that was pressed");
+    Check(ReferenceEquals(takeClip.ValuePhaseFor(2,true),untriggeredTake),
+        "a score with no take falls back to the untriggered phase");
+    Check(takeClip.PiecesForTrigger(3,true).Select(piece=>piece.Name).SequenceEqual(["Three"])
+        &&takeClip.PiecesForTrigger(6,true).Select(piece=>piece.Name).SequenceEqual(["Six"]),
+        "a +3 temporary piece never appears for +6");
+    scoreGame.Score(true,6);
+    Check(takeClip.PiecesForTrigger(scoreGame.State.LastScoreAmount,scoreGame.State.LastScoreHome)
+        .All(piece=>piece.Name!="Three"),"the live last-score amount filters the temporary pieces");
+    var timelineClip=new MotionClip{Name="Timeline",Kind=MotionKind.Transition};
+    timelineClip.PieceOrder=["first","second"];
+    timelineClip.ItemStagger=0.12;
+    timelineClip.Normalize();
+    Check(timelineClip.PieceOrder.SequenceEqual(["first","second"])
+        &&Math.Abs(timelineClip.ItemStagger-0.12)<0.001,
+        "a layout timeline keeps its item order and gap when the clip is saved");
 
     // ---------- Daktronics All Sport 5000 RTD decoding ----------
     // Build one RTD packet exactly as the console does: SYN SOH header STX text EOT checksum ETX.

@@ -158,6 +158,9 @@ public static class ScorebugHtml
             case ScorebugElementKind.Video:
                 inner.Append($"<div class=\"sp-media\" style=\"color:{colour};background:rgba(255,255,255,.06);\">{WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(item.MediaTag) ? "VIDEO" : $"VIDEO · {item.MediaTag}")}</div>");
                 break;
+            case ScorebugElementKind.Layout:
+                inner.Append($"<div class=\"sp-media\" style=\"color:{colour};background:rgba(255,255,255,.06);\">LIVE LAYOUT</div>");
+                break;
             default:
                 inner.Append(TextHtml(item, state, colour));
                 break;

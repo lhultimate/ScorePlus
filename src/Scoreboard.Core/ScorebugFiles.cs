@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 namespace Scoreboard.Core;
 
 /// <summary>
-/// The two files the scorebug studio trades with other shows and other machines:
+/// The two files Display Studio trades with other shows and other machines:
 /// a ScorePlus Layout (<c>.spl</c>) holding one layout, and a ScorePlus Display (<c>.spd</c>)
 /// holding a whole screen — every layout on it, in order, with what was being edited and what
 /// was on air, and all of their links. Both are plain, indented JSON so a broken file can be
@@ -169,22 +169,46 @@ public static class ScorebugFiles
     /// transitions — is carried over untouched.
     /// </summary>
     public static ScorebugLayout FreshCopy(ScorebugLayout layout, string? name = null) =>
-        FreshCopy(layout, name, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+        FreshCopy(layout, name, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), null);
 
     /// <summary>
     /// The shared link map matters for a display: a part linked across two layouts in the file has
     /// to stay one part after the import, so every layout in the file draws from the same map.
     /// </summary>
-    static ScorebugLayout FreshCopy(ScorebugLayout layout, string? name, Dictionary<string, string> links)
+    static ScorebugLayout FreshCopy(ScorebugLayout layout, string? name, Dictionary<string, string> links,
+        IReadOnlyDictionary<string, string>? layoutIds)
     {
+        var oldLayoutId = layout.Id;
         var copy = layout.Copy(string.IsNullOrWhiteSpace(name) ? layout.Name : name);
         copy.Elements ??= [];
-        if (string.IsNullOrWhiteSpace(copy.Id)) copy.Id = Guid.NewGuid().ToString("N");
+        // Copy() already remapped its clips to the ids it gave this copy. When the import supplies
+        // its own layout id, or gives the elements another identity, those clips must move with
+        // them — otherwise their per-item keys point at elements that no longer exist.
+        var copiedLayoutId = copy.Id;
+        if (layoutIds is not null && layoutIds.TryGetValue(oldLayoutId, out var freshLayoutId))
+            copy.Id = freshLayoutId;
+        else if (string.IsNullOrWhiteSpace(copy.Id))
+            copy.Id = Guid.NewGuid().ToString("N");
+        var freshElementIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var element in copy.Elements) freshElementIds[element.Id] = Guid.NewGuid().ToString("N");
+        foreach (var element in copy.Elements) element.Id = freshElementIds[element.Id];
+        copy.RemapMotionReferences(copiedLayoutId, copy.Id, freshElementIds);
         // Parts that shared a link id in the file still share one afterwards — but a new one, so the
         // import cannot hijack a part that is already linked in this game.
         foreach (var element in copy.Elements)
         {
-            element.Id = Guid.NewGuid().ToString("N");
+            // A live-layout element points at another layout by id. Inside a display import that
+            // layout is part of the file, so keep the feed by mapping its id to the fresh copy.
+            // A single-layout import has no such layout, so the reference is cleared instead of
+            // being left aimed at whatever happens to share that id in this game.
+            if (element.Kind == ScorebugElementKind.Layout)
+            {
+                element.NestedLayoutId = element.NestedLayoutId is { } nestedId
+                    && layoutIds is not null
+                    && layoutIds.TryGetValue(nestedId, out var freshNestedId)
+                        ? freshNestedId
+                        : null;
+            }
             if (string.IsNullOrWhiteSpace(element.LinkId)) continue;
             if (!links.TryGetValue(element.LinkId, out var fresh)) links[element.LinkId] = fresh = Guid.NewGuid().ToString("N");
             element.LinkId = fresh;
@@ -200,7 +224,11 @@ public static class ScorebugFiles
     public static ScorebugDisplay FreshDisplay(ScorebugDisplay display, string? name = null)
     {
         var links = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var copies = (display.Layouts ?? []).Select(layout => FreshCopy(layout, null, links)).ToList();
+        var layoutIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var layout in display.Layouts ?? [])
+            if (!string.IsNullOrWhiteSpace(layout.Id) && !layoutIds.ContainsKey(layout.Id))
+                layoutIds[layout.Id] = Guid.NewGuid().ToString("N");
+        var copies = (display.Layouts ?? []).Select(layout => FreshCopy(layout, null, links, layoutIds)).ToList();
         foreach (var copy in copies)
         {
             // A layout link always points at a layout on *another* display, and that display is not
@@ -214,7 +242,12 @@ public static class ScorebugFiles
             Name = string.IsNullOrWhiteSpace(name) ? display.Name : name.Trim(),
             Layouts = copies,
             ActiveIndex = Math.Clamp(display.ActiveIndex, 0, Math.Max(0, copies.Count - 1)),
-            PublishedIndex = Math.Clamp(display.PublishedIndex, 0, Math.Max(0, copies.Count - 1))
+            PublishedIndex = Math.Clamp(display.PublishedIndex, 0, Math.Max(0, copies.Count - 1)),
+            PinnedLayoutIds = (display.PinnedLayoutIds ?? [])
+                .Where(id => layoutIds.ContainsKey(id))
+                .Select(id => layoutIds[id])
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            Automations = display.Automations ?? []
         };
         if (string.IsNullOrWhiteSpace(fresh.Id)) fresh.Id = Guid.NewGuid().ToString("N");
         return fresh;

@@ -65,6 +65,13 @@ public static class ScoreboardTemplates
         .Replace("{{AWAY_RANKING}}", state.AwayRanking)
         .Replace("{{HOME_SCORE}}", state.HomeScore.ToString())
         .Replace("{{AWAY_SCORE}}", state.AwayScore.ToString())
+        // The last scoring action, so a temporary timeline piece can print the real change
+        // instead of a hard-coded +3 that would be wrong after a +6.
+        .Replace("{{LAST_SCORE_AMOUNT}}", state.LastScoreMagnitude == 0 ? string.Empty : state.LastScoreMagnitude.ToString())
+        .Replace("{{LAST_SCORE_CHANGE}}", state.LastScoreAmount == 0 ? string.Empty : $"{(state.LastScoreAmount > 0 ? "+" : "−")}{state.LastScoreMagnitude}")
+        .Replace("{{LAST_SCORE_TEAM}}", state.LastScoreAmount == 0 ? string.Empty : state.LastScoreTeam)
+        .Replace("{{LAST_SCORE_ABBR}}", state.LastScoreAmount == 0 ? string.Empty : state.LastScoreAbbreviation)
+        .Replace("{{LAST_SCORE_SIDE}}", state.LastScoreAmount == 0 ? string.Empty : state.LastScoreHome ? "HOME" : "AWAY")
         .Replace("{{PERIOD}}", PeriodDisplay.Format(state, periodFormat).ToUpperInvariant())
         // Final and End of Reg. replace the clock's digits on the graphic.
         .Replace("{{GAME_CLOCK}}", state.GameClockText)

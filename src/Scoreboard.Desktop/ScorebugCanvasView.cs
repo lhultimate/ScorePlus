@@ -20,6 +20,8 @@ public sealed class ScorebugCanvasView : Grid
     // Which artwork this view draws. The audience output resolves it from its own display; the
     // window preview resolves it from that window's staged selection.
     readonly Func<ScorebugLayout> _layoutProvider;
+    // The layouts above this feed, so a live-layout element cannot contain itself.
+    readonly HashSet<string> _layoutChain;
     readonly Canvas _canvas = new() { Background=new SolidColorBrush(Color.FromRgb(9,16,24)), ClipToBounds=true };
     // Everything the view draws sits on this stage, so a layout hand-over can hold the outgoing
     // artwork on top of the incoming one while it slides or dissolves away.
@@ -36,6 +38,10 @@ public sealed class ScorebugCanvasView : Grid
     // arrival. Both belong to the swap, not to the layout, so FinishSwap takes them down together.
     Canvas? _swapPieces;
     DispatcherTimer? _swapTimer;
+    // Temporary pieces from a value-change animation. They live above the layout for the length
+    // of that flourish and are removed on the next value change, rebuild or stop.
+    Canvas? _valuePieces;
+    DispatcherTimer? _valueTimer;
     // The hand-over video is drawn through a video brush so its chroma shader reaches the frames.
     MediaPlayer? _swapPlayer;
     // A staged layout's hand-over video is opened before Update Output, so the first frame is
@@ -51,6 +57,9 @@ public sealed class ScorebugCanvasView : Grid
     readonly bool _muteVideo;
     // A silent monitor of the audience picture (not a preview), so it follows the on-air cue.
     readonly bool _onAirVideo;
+    // A nested feed must follow every game value, not just the clocks a preview copies.
+    readonly bool _liveValues;
+    readonly Viewbox _viewbox;
     readonly Dictionary<string, (FrameworkElement Host, FrameworkElement Content)> _visuals = [];
     // Keyed by element id so a rebuild can keep the surface (and the running picture) alive.
     readonly Dictionary<string, VideoSurface> _videoSurfaces = [];
@@ -64,6 +73,7 @@ public sealed class ScorebugCanvasView : Grid
     readonly Dictionary<string,string> _shownText = [];
     readonly Dictionary<string,(string Target, System.Windows.Threading.DispatcherTimer Timer)> _pendingText = [];
     bool _flushDelay;
+    bool _disposed;
     // Time-of-day text is not driven by the game clock, so it gets its own one-second pulse;
     // otherwise a layout with {{TIME}} freezes whenever no clock is running.
     readonly System.Windows.Threading.DispatcherTimer _wallClock = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -74,22 +84,29 @@ public sealed class ScorebugCanvasView : Grid
     /// actually published, not the one being designed in the preview.</param>
     /// <param name="layoutProvider">Draws exactly the layout this view belongs to (a specific
     /// display's on-air layout, or a window's staged one). Overrides <paramref name="publishedLayout"/>.</param>
-    public ScorebugCanvasView(ScorebugCatalog catalog, GameEngine engine, Func<GameState>? stateProvider=null, MediaPlayback? playback=null, bool muteVideo=true, bool publishedLayout=false, Func<ScorebugLayout>? layoutProvider=null, bool onAirVideo=false, string? displayId=null, AutomationRuntime? automation=null)
+    public ScorebugCanvasView(ScorebugCatalog catalog, GameEngine engine, Func<GameState>? stateProvider=null, MediaPlayback? playback=null, bool muteVideo=true, bool publishedLayout=false, Func<ScorebugLayout>? layoutProvider=null, bool onAirVideo=false, string? displayId=null, AutomationRuntime? automation=null,
+        IReadOnlySet<string>? layoutChain=null, bool liveValues=false, bool fillBox=false)
     {
         _catalog=catalog;_engine=engine;_live=stateProvider is null;_automation=automation;
+        _liveValues=liveValues;
+        _layoutChain=layoutChain is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(layoutChain,StringComparer.OrdinalIgnoreCase);
         _displayId=displayId;
         _layoutProvider = layoutProvider ?? (publishedLayout ? () => _catalog.PublishedLayout : () => _catalog.Layout);
         _stateProvider=stateProvider??(()=>_engine.State);
         _playback=playback;_muteVideo=muteVideo;_onAirVideo=onAirVideo;
         _stage.Children.Add(_canvas);
-        Children.Add(new Viewbox { Stretch=Stretch.Uniform, Child=_stage });
+        _viewbox=new Viewbox { Stretch=fillBox?Stretch.Fill:Stretch.Uniform, Child=_stage };
+        Children.Add(_viewbox);
         _catalog.Changed+=Rebuild;
         if(_automation is not null)_automation.Changed+=Rebuild;
         // A roster edit changes what a specific-player binding prints, without touching the game.
         RosterStore.Changed+=UpdateValues;
-        if(stateProvider is null)_engine.Changed+=UpdateValues;else _engine.Changed+=UpdateClockValues;
+        if(stateProvider is null||liveValues)_engine.Changed+=UpdateValues;else _engine.Changed+=UpdateClockValues;
         _wallClock.Tick+=(_,_)=>{if(UsesWallClock())UpdateValues();};
         _wallClock.Start();
+        _layoutChain.Add(Layout.Id);
         Rebuild();
     }
 
@@ -149,6 +166,7 @@ public sealed class ScorebugCanvasView : Grid
     public void Rebuild()
     {
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(Rebuild);return;}
+        if(_disposed)return;
         // A different layout on the same feed is a hand-over: keep what is currently on screen as a
         // still, so the new layout can be revealed through it rather than snapping into place. Any
         // other rebuild (an edit, a palette change) must never trigger the animation.
@@ -173,6 +191,7 @@ public sealed class ScorebugCanvasView : Grid
         foreach(var (id,_) in _pendingText) CancelPending(id);
         _videoSurfaces.Clear();_htmlSurfaces.Clear();_visuals.Clear();_animations.Clear();_backgrounds.Clear();_transparentStates.Clear();_borders.Clear();_shownText.Clear();
         var layout = incoming;
+        ClearValuePieces();
         _stage.Width=layout.Width;_stage.Height=layout.Height;
         _canvas.Width=layout.Width;_canvas.Height=layout.Height;
         // The artwork backdrop belongs to the layout, so a green-screen design and the studio agree.
@@ -188,7 +207,7 @@ public sealed class ScorebugCanvasView : Grid
             FrameworkElement content;
             if(previousVideos.TryGetValue(item.Id,out var surface)){surface.SetElement(item);content=surface;}
             else if(previousHtml.TryGetValue(item.Id,out var page)){page.Update(item);content=page;}
-            else content=ScorebugRender.CreateContent(item,_stateProvider,_playback,_muteVideo,showVideoPlaceholder:false,onAirVideo:_onAirVideo);
+            else content=ScorebugRender.CreateContent(item,_stateProvider,_playback,_muteVideo,showVideoPlaceholder:false,onAirVideo:_onAirVideo,catalog:_catalog,engine:_engine,displayId:_displayId,layoutChain:_layoutChain);
             if(content is VideoSurface video) _videoSurfaces[item.Id]=video;
             // An HTML element keeps its browser and its last frame across a rebuild, so editing the
             // graphic never blanks or restarts it.
@@ -208,7 +227,13 @@ public sealed class ScorebugCanvasView : Grid
             Canvas.SetLeft(host,item.X);Canvas.SetTop(host,item.Y);Panel.SetZIndex(host,zIndex++);
             _visuals[item.Id]=(host,content);
             // A rebuilt view starts from what it draws right now, so a delay never blanks the graphic.
-            if(content is ScorebugTextBlock shown) _shownText[item.Id]=shown.Text;
+            if(content is ScorebugTextBlock shown)
+            {
+                _shownText[item.Id]=shown.Text;
+                shown.StateProvider=_stateProvider;
+                var elementId=item.Id;
+                shown.ValueMotionPlayed=(clip,before,after)=>PlayValuePieces(elementId,clip,before,after);
+            }
             if(!_canvas.Children.Contains(host))_canvas.Children.Add(host);
             live.Add(host);
             ApplyAnimation(item,host);
@@ -219,6 +244,10 @@ public sealed class ScorebugCanvasView : Grid
             if(!_videoSurfaces.ContainsKey(id))orphan.Dispose();
         foreach(var (id,orphan) in previousHtml)
             if(!_htmlSurfaces.ContainsKey(id))orphan.Dispose();
+        foreach(var (id,prior) in previousVisuals)
+            if((!_visuals.TryGetValue(id,out var current)||!ReferenceEquals(current.Content,prior.Content))
+                &&prior.Content is ScorebugLayoutFeed oldFeed)
+                oldFeed.Dispose();
         UpdateValues();
         _drawnLayoutId=layout.Id;
         _drawnLayout=layout;
@@ -593,9 +622,6 @@ public sealed class ScorebugCanvasView : Grid
                 var step=image;var id=PieceIdFor(item);
                 exitSteps.Add((id,()=>MotionPlayback.PlayPhase(step,exit,Math.Clamp(item.Opacity,0,1),pieceId:id)));
             }
-            // The crop order is the timeline order, so a hand-over can travel across the graphic
-            // instead of every item leaving on the same beat.
-            PlayStaggered(exitSteps,exit?.Seconds??0,clip.PieceOrder);
             outgoingHost=crops;
         }
         else
@@ -617,11 +643,16 @@ public sealed class ScorebugCanvasView : Grid
                 var host=BuildTemporaryPiece(piece);
                 pieces.Children.Add(host);
                 temporary.Add((host,piece));
-                if(exit is {Enabled:true,IsEmpty:false}) MotionPlayback.PlayPhase(host,exit,Math.Clamp(piece.Opacity,0,1),pieceId:piece.Id);
             }
             _stage.Children.Add(pieces);
             _swapPieces=pieces;
         }
+        // Extra pieces are part of the same timeline as the layout: they take their slot in the
+        // exit and the arrival instead of all appearing on the first beat.
+        if(exit is {Enabled:true,IsEmpty:false})
+            foreach(var (host,piece) in temporary)
+                exitSteps.Add((piece.Id,()=>MotionPlayback.PlayPhase(host,exit,Math.Clamp(piece.Opacity,0,1),pieceId:piece.Id)));
+        PlayStaggered(exitSteps,exit?.Seconds??0,clip);
 
         bool Active()=>ReferenceEquals(_swapOverlay,outgoingHost)||(pieces is not null&&ReferenceEquals(_swapPieces,pieces));
         void ClearOutgoing()
@@ -652,14 +683,14 @@ public sealed class ScorebugCanvasView : Grid
                 var host=visual.Host;var id=item.Id;var opacity=Math.Clamp(item.Opacity,0,1);
                 enterSteps.Add((id,()=>MotionPlayback.PlayPhase(host,enter,opacity,pieceId:id)));
             }
-            PlayStaggered(enterSteps,enter.Seconds,clip.PieceOrder);
             foreach(var (host,piece) in temporary)
-                MotionPlayback.PlayPhase(host,enter,Math.Clamp(piece.Opacity,0,1),pieceId:piece.Id);
+                enterSteps.Add((piece.Id,()=>MotionPlayback.PlayPhase(host,enter,Math.Clamp(piece.Opacity,0,1),pieceId:piece.Id)));
+            PlayStaggered(enterSteps,enter.Seconds,clip);
             // Scoped pieces finish individually; one timer ends the hand-over once the leg is over,
             // including the time the timeline spends spreading its items out.
-            StartSwapTimer(enter.Seconds+StaggerFor(enterSteps,clip.PieceOrder),FinishSwap);
+            StartSwapTimer(enter.Seconds+StaggerFor(enterSteps,clip),FinishSwap);
         }
-        if(exit is {Enabled:true,IsEmpty:false}&&exit.Seconds>0.001) StartSwapTimer(exit.Seconds+StaggerFor(exitSteps,clip.PieceOrder),Arrive);
+        if(exit is {Enabled:true,IsEmpty:false}&&exit.Seconds>0.001) StartSwapTimer(exit.Seconds+StaggerFor(exitSteps,clip),Arrive);
         else Arrive();
     }
 
@@ -710,26 +741,16 @@ public sealed class ScorebugCanvasView : Grid
 
     FrameworkElement BuildTemporaryPiece(MotionPiece piece)
     {
-        var text=new TextBlock
-        {
-            Text=piece.Text,
-            FontSize=piece.FontSize,
-            Foreground=new SolidColorBrush(Paint.ColorOf(piece.TextColor,Colors.White)),
-            HorizontalAlignment=HorizontalAlignment.Center,
-            VerticalAlignment=VerticalAlignment.Center,
-            TextAlignment=TextAlignment.Center,
-            TextWrapping=TextWrapping.Wrap
-        };
         var host=new Border
         {
             Width=piece.Width,
             Height=piece.Height,
-            Background=new SolidColorBrush(Paint.ColorOf(piece.Fill,Color.FromRgb(0x0B,0x6B,0x50))),
+            Background=piece.Kind==MotionPieceKind.Shape?Brushes.Transparent:new SolidColorBrush(Paint.ColorOf(piece.Fill,Color.FromRgb(0x0B,0x6B,0x50))),
             BorderBrush=new SolidColorBrush(Paint.ColorOf(piece.Border,Color.FromRgb(0x38,0xD7,0xA3))),
             BorderThickness=new Thickness(piece.BorderThickness),
             Opacity=Math.Clamp(piece.Opacity,0,1),
             ClipToBounds=true,
-            Child=text
+            Child=ScorebugRender.CreateMotionPiece(piece,_stateProvider,_catalog,_engine)
         };
         host.RenderTransformOrigin=new Point(0.5,0.5);
         Canvas.SetLeft(host,piece.X);Canvas.SetTop(host,piece.Y);
@@ -741,18 +762,18 @@ public sealed class ScorebugCanvasView : Grid
     /// later item follows, sharing half the leg between them, so the order is visible but the leg
     /// still finishes on time. A clip with no order keeps its single, simultaneous beat.
     /// </summary>
-    void PlayStaggered(List<(string Id,Action Play)> steps,double leg,IReadOnlyList<string>? order)
+    void PlayStaggered(List<(string Id,Action Play)> steps,double leg,MotionClip clip)
     {
         if(steps.Count==0)return;
         var ranks=new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
-        if(order is not null)
-            foreach(var id in order)
+        if(clip.PieceOrder is not null)
+            foreach(var id in clip.PieceOrder)
                 if(!ranks.ContainsKey(id))ranks[id]=ranks.Count;
         var ordered=steps
             .Select((step,index)=>(step.Id,step.Play,index,Rank:ranks.TryGetValue(step.Id,out var rank)?rank:int.MaxValue))
             .OrderBy(step=>step.Rank).ThenBy(step=>step.index)
             .ToList();
-        var gap=StaggerFor(steps,order)/(ordered.Count>1?ordered.Count-1:1);
+        var gap=StaggerFor(steps,clip)/(ordered.Count>1?ordered.Count-1:1);
         for(var index=0;index<ordered.Count;index++)
         {
             var play=ordered[index].Play;
@@ -764,11 +785,58 @@ public sealed class ScorebugCanvasView : Grid
     }
 
     /// <summary>How long the timeline spreads a leg out, or zero when the clip has no order.</summary>
-    static double StaggerFor(List<(string Id,Action Play)> steps,IReadOnlyList<string>? order)
+    static double StaggerFor(List<(string Id,Action Play)> steps,MotionClip clip)
     {
-        if(steps.Count<2||order is null||order.Count<2)return 0;
-        var ordered=steps.Count(step=>order.Contains(step.Id,StringComparer.OrdinalIgnoreCase));
-        return ordered<2?0:Math.Clamp(0.06*(ordered-1),0.01,0.6);
+        if(steps.Count<2||clip.PieceOrder is null||clip.PieceOrder.Count<2)return 0;
+        var ordered=steps.Count(step=>clip.PieceOrder.Contains(step.Id,StringComparer.OrdinalIgnoreCase));
+        return ordered<2?0:Math.Clamp(Math.Clamp(clip.ItemStagger,0,1.5)*(ordered-1),0.01,2.5);
+    }
+
+    /// <summary>
+    /// Value animations can carry temporary pieces of their own. They sit above the layout, are
+    /// filtered by the score that was pressed, and disappear when the clip's take ends.
+    /// </summary>
+    void PlayValuePieces(string elementId,MotionClip clip,string before,string after)
+    {
+        var state=_stateProvider();
+        var amount=state.LastScoreAmount;
+        if(amount==0
+            &&double.TryParse(before.Trim(),out var oldValue)
+            &&double.TryParse(after.Trim(),out var newValue))
+            amount=(int)Math.Round(newValue-oldValue);
+        var pieces=clip.PiecesForTrigger(amount,state.LastScoreHome);
+        if(pieces.Count==0)return;
+        var phase=clip.ValuePhaseFor(amount,state.LastScoreHome);
+        if(phase is null||!phase.Enabled)return;
+        ClearValuePieces();
+        var canvas=new Canvas{Width=Math.Max(1,_canvas.Width),Height=Math.Max(1,_canvas.Height),IsHitTestVisible=false};
+        Panel.SetZIndex(canvas,10000);
+        var steps=new List<(string Id,Action Play)>();
+        foreach(var piece in pieces)
+        {
+            var host=BuildTemporaryPiece(piece);
+            canvas.Children.Add(host);
+            var pieceId=piece.Id;
+            var opacity=Math.Clamp(piece.Opacity,0,1);
+            steps.Add((pieceId,()=>MotionPlayback.PlayPhase(host,phase,opacity,pieceId:pieceId)));
+        }
+        PlayStaggered(steps,phase.Seconds,clip);
+        _stage.Children.Add(canvas);
+        _valuePieces=canvas;
+        var timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(Math.Max(0.05,phase.Seconds+StaggerFor(steps,clip)))};
+        _valueTimer=timer;
+        timer.Tick+=(_,_) => { timer.Stop(); if(ReferenceEquals(_valueTimer,timer)) ClearValuePieces(); };
+        timer.Start();
+    }
+
+    void ClearValuePieces()
+    {
+        _valueTimer?.Stop();
+        _valueTimer=null;
+        if(_valuePieces is null)return;
+        foreach(var host in _valuePieces.Children.OfType<FrameworkElement>()) MotionPlayback.Stop(host);
+        _stage.Children.Remove(_valuePieces);
+        _valuePieces=null;
     }
 
     void StartSwapTimer(double seconds,Action done)
@@ -1005,6 +1073,9 @@ public sealed class ScorebugCanvasView : Grid
 
     public void Refresh()=>UpdateValues();
 
+    /// <summary>Switches a nested feed between filling its box and keeping the source's shape.</summary>
+    public void SetFill(bool fill)=>_viewbox.Stretch=fill?Stretch.Fill:Stretch.Uniform;
+
     /// <summary>
     /// Prints the newest values at once, skipping the switch delay. Used when the delay itself is
     /// changed, so the new timing starts from what is actually on screen.
@@ -1034,6 +1105,7 @@ public sealed class ScorebugCanvasView : Grid
     void UpdateValues()
     {
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(UpdateValues);return;}
+        if(_disposed)return;
         var state=_stateProvider();
         var layout=Layout;
         foreach(var item in layout.Elements)
@@ -1134,12 +1206,17 @@ public sealed class ScorebugCanvasView : Grid
 
     public void Dispose()
     {
+        if(_disposed)return;
+        _disposed=true;
+        ClearValuePieces();
         _wallClock.Stop();
         foreach(var (id,_) in _pendingText.ToArray()) CancelPending(id);
         _catalog.Changed-=Rebuild;
         if(_automation is not null)_automation.Changed-=Rebuild;
         RosterStore.Changed-=UpdateValues;
-        if(_live)_engine.Changed-=UpdateValues;else _engine.Changed-=UpdateClockValues;
+        if(_live||_liveValues)_engine.Changed-=UpdateValues;else _engine.Changed-=UpdateClockValues;
+        foreach(var visual in _visuals.Values)
+            if(visual.Content is ScorebugLayoutFeed feed)feed.Dispose();
         foreach(var surface in _videoSurfaces.Values) surface.Dispose();
         _videoSurfaces.Clear();
         foreach(var page in _htmlSurfaces.Values) page.Dispose();
