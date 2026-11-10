@@ -184,18 +184,6 @@ h3{font-size:23px;line-height:1.15;letter-spacing:-.02em}
 .monitor-corner--tl{top:10px;left:10px;border-width:1px 0 0 1px}
 .monitor-corner--br{right:10px;bottom:10px;border-width:0 1px 1px 0}
 .monitor-foot{display:flex;justify-content:space-between;padding:10px 4px 3px;color:var(--muted-2);font:9px/1 var(--mono);letter-spacing:.08em}
-.event-card{
-  position:absolute;z-index:3;right:-14px;top:-34px;width:180px;
-  padding:13px 15px 14px;background:rgba(9,20,19,.94);border:1px solid rgba(56,215,163,.45);
-  box-shadow:0 18px 50px rgba(0,0,0,.48),0 0 24px rgba(56,215,163,.08);
-  transform:rotate(2deg);animation:eventFloat 5.5s ease-in-out infinite;
-}
-@keyframes eventFloat{0%,100%{transform:rotate(2deg) translateY(0)}50%{transform:rotate(2deg) translateY(-7px)}}
-.event-label{display:block;color:var(--accent);font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase}
-.event-main{display:flex;align-items:baseline;gap:9px;margin-top:11px}
-.event-main strong{font:700 42px/.8 var(--display);letter-spacing:-.04em;color:var(--text)}
-.event-main span{font:700 10px/1.15 var(--body);letter-spacing:.1em;color:var(--muted)}
-.event-meta{display:block;margin-top:13px;padding-top:10px;border-top:1px solid var(--line);color:var(--muted-2);font:9px/1 var(--mono);letter-spacing:.1em}
 .media-caption{margin:22px 0 0 4px;color:var(--muted-2);font:10px/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase}
 
 /* ---------- ticker ---------- */
@@ -471,7 +459,6 @@ h3{font-size:23px;line-height:1.15;letter-spacing:-.02em}
   .hero-grid{grid-template-columns:1fr;gap:62px}
   .hero-copy h1{max-width:720px}
   .hero-media{max-width:720px;width:100%;margin-left:auto;margin-right:auto}
-  .event-card{right:8px;top:-26px}
   .section-head,.studio-grid,.download-grid{grid-template-columns:1fr;gap:32px}
   .section-head .section-copy{max-width:620px}
   .studio-copy{order:2}
@@ -498,8 +485,6 @@ h3{font-size:23px;line-height:1.15;letter-spacing:-.02em}
   .hero-stats div:nth-child(2){border-right:0}
   .hero-stats div{padding:16px 12px 0 0;margin-bottom:16px}
   .hero-actions .button{width:100%}
-  .event-card{width:158px;right:-4px;top:-18px;padding:11px 12px}
-  .event-main strong{font-size:34px}
   .media-caption{margin-top:18px}
   .monitor-chrome{padding-inline:2px}
   .monitor-path{font-size:7px}
