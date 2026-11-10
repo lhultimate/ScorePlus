@@ -3,13 +3,13 @@ using System.Text.Json.Nodes;
 
 namespace Scoreboard.Core;
 
-public enum ScorebugElementKind { Text, Logo, Shape, Video, Html, Image }
+public enum ScorebugElementKind { Text, Logo, Shape, Video, Html, Image, Layout }
 
 /// <summary>
 /// How one layout hands over to the next on the audience output when a display switches. The
 /// duration lives beside it on the display, so a slow dissolve and a hard cut are one setting apart.
 /// </summary>
-public enum LayoutTransition { Cut, Fade, SlideLeft, SlideRight, SlideUp, SlideDown, Zoom }
+public enum LayoutTransition { Cut, Fade, SlideLeft, SlideRight, SlideUp, SlideDown, Zoom, Move }
 
 /// <summary>Where a value sits inside its box: its own text lines, and the block inside the plate.</summary>
 public enum ScorebugTextAlign { Left, Center, Right }
@@ -38,7 +38,7 @@ public enum ScorebugTransition
     Drop
 }
 
-public enum ScorebugShape { Rectangle, Circle, Triangle }
+public enum ScorebugShape { Rectangle, Circle, Triangle, Parallelogram }
 
 /// <summary>Where an element's colour comes from: a fixed colour, or one of the team palette slots.</summary>
 public enum ScorebugColorSource
@@ -52,6 +52,9 @@ public enum ScorebugColorSource
 
 /// <summary>Which team's logo a logo element shows; set in the control panel, not the studio.</summary>
 public enum ScorebugLogoSide { None, Home, Away }
+
+/// <summary>Which selected player's uploaded portrait an image element follows.</summary>
+public enum ScorebugPlayerPhotoSide { None, Home, Away }
 
 /// <summary>Artwork drawn by an element in addition to (or instead of) its bound text.</summary>
 public enum ScorebugIcon
@@ -77,7 +80,7 @@ public enum ScorebugIcon
     RedCard,
     /// <summary>An American-football flag: a yellow pennant on a short pole.</summary>
     PenaltyFlag,
-    /// <summary>An icon made in the icon maker: a glyph, its colour and its plate.</summary>
+    /// <summary>An icon made in the Icon Creator: a glyph, its colour and its plate.</summary>
     Custom
 }
 
@@ -89,6 +92,18 @@ public sealed class ScorebugElement
     public ScorebugShape Shape { get; set; } = ScorebugShape.Rectangle;
     public string Content { get; set; } = "TEXT";
     public string? ImagePath { get; set; }
+
+    /// <summary>
+    /// For a live-layout element: the layout drawn inside this box. The source layout remains the
+    /// one being edited, so the feed follows it and can be resized without duplicating its artwork.
+    /// </summary>
+    public string? NestedLayoutId { get; set; }
+
+    /// <summary>For a live-layout element: keep the source layout's shape instead of stretching it.</summary>
+    public bool NestedPreserveAspect { get; set; } = true;
+
+    /// <summary>For image elements: follow the selected home or visitors player's uploaded photo.</summary>
+    public ScorebugPlayerPhotoSide PlayerPhotoSide { get; set; }
 
     /// <summary>Which icon from the icon library a <see cref="ScorebugIcon.Custom"/> element draws.</summary>
     public string? CustomIconId { get; set; }
@@ -110,6 +125,18 @@ public sealed class ScorebugElement
 
     /// <summary>The picture's width ÷ height while <see cref="PreserveVideoAspect"/> is on. 16:9 by default.</summary>
     public double VideoAspect { get; set; } = 16.0 / 9.0;
+
+    /// <summary>
+    /// For video elements: a colour made transparent in the picture, so a green or blue screen
+    /// can sit over the scorebug. Empty turns the key off.
+    /// </summary>
+    public string ChromaKeyColor { get; set; } = "";
+
+    /// <summary>
+    /// How far a pixel may be from <see cref="ChromaKeyColor"/> and still be keyed, 0–1. A little
+    /// tolerance covers uneven studio lighting and video compression; zero keys only an exact match.
+    /// </summary>
+    public double ChromaKeyTolerance { get; set; } = 0.16;
 
     /// <summary>
     /// For video elements: which speaker this element's clip plays through (a WASAPI render device
@@ -206,6 +233,9 @@ public sealed class ScorebugElement
 
     /// <summary>For timeout bars: scale the bars and their gaps. 1 is the box's natural size.</summary>
     public double IconScale { get; set; } = 1;
+
+    /// <summary>For timeout bars: stack the bars downward instead of in one row.</summary>
+    public bool IconVertical { get; set; }
 
     /// <summary>
     /// A value the icon follows, written as a token — <c>{{PENALTY_TYPE}}</c>, <c>{{STAT:Turnovers}}</c>.
@@ -351,6 +381,19 @@ public sealed class ScorebugLayout
     /// </summary>
     public string TransitionVideoPath { get; set; } = "";
 
+    /// <summary>A colour made transparent in the hand-over video. Empty leaves the clip untouched.</summary>
+    public string TransitionVideoChromaKeyColor { get; set; } = "";
+
+    /// <summary>How far a pixel may be from the hand-over video's key colour, 0–1.</summary>
+    public double TransitionVideoChromaKeyTolerance { get; set; } = 0.16;
+
+    /// <summary>
+    /// Seconds after the hand-over video starts before the incoming layout cuts in underneath it.
+    /// 0 cuts as soon as the video's first frame is ready; a positive value keeps the outgoing
+    /// picture underneath for that beat, so the cut can land while the video fills the frame.
+    /// </summary>
+    public double TransitionVideoCutSeconds { get; set; }
+
     /// <summary>
     /// Items that opt out of the arrival motion for this layout. Empty means the whole graphic
     /// animates together; any entry lets the operator choose, item by item, what happens as this
@@ -391,8 +434,51 @@ public sealed class ScorebugLayout
         copy.Name = name ?? $"{Name} copy";
         // A duplicate is its own layout: it keeps the link settings but gets a fresh identity.
         copy.Id = Guid.NewGuid().ToString("N");
-        foreach (var element in copy.Elements) element.Id = Guid.NewGuid().ToString("N");
+        var freshIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var element in copy.Elements) freshIds[element.Id] = Guid.NewGuid().ToString("N");
+        foreach (var element in copy.Elements) element.Id = freshIds[element.Id];
+        // Every clip in the layout was keyed against the old ids. Remap them in the same breath, or
+        // per-item keys silently vanish the moment a layout is duplicated or imported.
+        copy.RemapMotionReferences(Id, copy.Id, freshIds);
         return copy;
+    }
+
+    /// <summary>
+    /// Rewrites every motion reference after a copy gives the layout and its elements fresh ids.
+    /// Whole-graphic keys carry an empty piece id and stay empty; temporary pieces keep their own
+    /// clip-local ids. A clip that named this layout now names the copy.
+    /// </summary>
+    public void RemapMotionReferences(string? fromLayoutId, string toLayoutId,
+        IReadOnlyDictionary<string, string> elementIds)
+    {
+        string Map(string? id)
+        {
+            var key = (id ?? "").Trim();
+            return key.Length > 0 && elementIds.TryGetValue(key, out var fresh) ? fresh : key;
+        }
+
+        void Remap(MotionClip? clip)
+        {
+            if (clip is null) return;
+            foreach (var phase in clip.Phases ?? [])
+            {
+                foreach (var track in phase.Tracks ?? []) track.PieceId = Map(track.PieceId);
+                foreach (var track in phase.Colors ?? []) track.PieceId = Map(track.PieceId);
+            }
+            clip.PieceOrder = (clip.PieceOrder ?? []).Select(Map).ToList();
+            if (!string.IsNullOrWhiteSpace(fromLayoutId)
+                && string.Equals(clip.TimelineLayoutId, fromLayoutId, StringComparison.OrdinalIgnoreCase))
+                clip.TimelineLayoutId = toLayoutId;
+        }
+
+        foreach (var element in Elements)
+        {
+            Remap(element.MotionTransition);
+            Remap(element.MotionAnimation);
+        }
+        Remap(TransitionClip);
+        foreach (var entry in Handover ?? [])
+            entry.ElementId = Map(entry.ElementId);
     }
 }
 
@@ -417,6 +503,12 @@ public sealed class ScorebugDisplay
     /// ids keep lower thirds, bugs and other items on screen alongside it instead of replacing it.
     /// </summary>
     public List<string> PinnedLayoutIds { get; set; } = [];
+
+    /// <summary>
+    /// The node rules that run on this display. They are saved with the display and evaluated against
+    /// the published game state, so a low play clock can recolor a value or switch layouts live.
+    /// </summary>
+    public List<AutomationRule> Automations { get; set; } = [];
 }
 
 /// <summary>What is written to scorebug.json: every display, with its layouts and what is on air.</summary>
@@ -508,6 +600,48 @@ public sealed class ScorebugCatalog
     public ScorebugDisplay? FindDisplay(string? id) =>
         id is null ? null : Displays.FirstOrDefault(display => string.Equals(display.Id, id, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Finds a layout anywhere in the document, for a live-layout feed.</summary>
+    public ScorebugLayout? FindLayout(string? layoutId)
+    {
+        if (string.IsNullOrWhiteSpace(layoutId)) return null;
+        foreach (var display in Displays)
+        {
+            var layout = display.Layouts.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, layoutId, StringComparison.OrdinalIgnoreCase));
+            if (layout is not null) return layout;
+        }
+        return null;
+    }
+
+    /// <summary>The display that owns a layout, so a nested feed can follow that display's rules.</summary>
+    public ScorebugDisplay? FindDisplayOfLayout(string? layoutId)
+    {
+        if (string.IsNullOrWhiteSpace(layoutId)) return null;
+        return Displays.FirstOrDefault(display => display.Layouts.Any(layout =>
+            string.Equals(layout.Id, layoutId, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// True when putting <paramref name="nestedLayoutId"/> inside <paramref name="hostLayoutId"/> would
+    /// make the feed contain itself, directly or through another live layout.
+    /// </summary>
+    public bool WouldCreateLayoutCycle(string? hostLayoutId, string? nestedLayoutId)
+    {
+        if (string.IsNullOrWhiteSpace(hostLayoutId) || string.IsNullOrWhiteSpace(nestedLayoutId)) return false;
+        if (string.Equals(hostLayoutId, nestedLayoutId, StringComparison.OrdinalIgnoreCase)) return true;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool Reaches(string? id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return false;
+            if (string.Equals(id, hostLayoutId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (!visited.Add(id)) return false;
+            var source = FindLayout(id);
+            if (source is null) return false;
+            return source.Elements.Any(element => element.Kind == ScorebugElementKind.Layout && Reaches(element.NestedLayoutId));
+        }
+        return Reaches(nestedLayoutId);
+    }
+
     public IReadOnlyList<ScorebugLayout> LayoutsOf(string? displayId) =>
         (FindDisplay(displayId) ?? ActiveDisplay).Layouts;
 
@@ -556,6 +690,10 @@ public sealed class ScorebugCatalog
             TransitionSeconds = first.TransitionSeconds,
             OnlyAnimateChanges = first.OnlyAnimateChanges,
             TransitionClip = first.TransitionClip,
+            TransitionVideoPath = first.TransitionVideoPath,
+            TransitionVideoChromaKeyColor = first.TransitionVideoChromaKeyColor,
+            TransitionVideoChromaKeyTolerance = first.TransitionVideoChromaKeyTolerance,
+            TransitionVideoCutSeconds = first.TransitionVideoCutSeconds,
             Handover = first.Handover,
             Elements = layouts.SelectMany(layout => layout.Elements).ToList()
         };
@@ -573,6 +711,19 @@ public sealed class ScorebugCatalog
     {
         var display = FindDisplay(displayId);
         return display is not null && display.PinnedLayoutIds?.Contains(layoutId, StringComparer.OrdinalIgnoreCase) == true;
+    }
+
+    /// <summary>
+    /// Replaces one display's node rules. The window edits a local copy; this is the single point
+    /// that saves the graph, validates it and asks every preview to re-evaluate it.
+    /// </summary>
+    public void UpdateAutomations(string? displayId, IEnumerable<AutomationRule>? rules)
+    {
+        var display = FindDisplay(displayId);
+        if (display is null) return;
+        display.Automations = AutomationRules.Normalize(rules?.Select(rule => rule?.Copy()));
+        Save();
+        Changed?.Invoke();
     }
 
     /// <summary>Adds or removes a layout from the layered on-air feed.</summary>
@@ -806,6 +957,7 @@ public sealed class ScorebugCatalog
             display.PinnedLayoutIds = display.PinnedLayoutIds
                 .Where(id => display.Layouts.Any(layout => string.Equals(layout.Id, id, StringComparison.OrdinalIgnoreCase)))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            display.Automations = AutomationRules.Normalize(display.Automations);
             foreach (var layout in display.Layouts)
             {
                 if (string.IsNullOrWhiteSpace(layout.Id) || !seenLayouts.Add(layout.Id))
@@ -822,11 +974,21 @@ public sealed class ScorebugCatalog
                 layout.TransitionSeconds = Math.Clamp(double.IsFinite(layout.TransitionSeconds) ? layout.TransitionSeconds : 0.5, 0, 5);
                 if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Cut;
                 layout.TransitionClip?.Normalize();
+                layout.TransitionVideoChromaKeyColor = (layout.TransitionVideoChromaKeyColor ?? "").Trim();
+                if (!string.IsNullOrWhiteSpace(layout.TransitionVideoChromaKeyColor) && !IsColor(layout.TransitionVideoChromaKeyColor))
+                    layout.TransitionVideoChromaKeyColor = "";
+                layout.TransitionVideoChromaKeyTolerance = Math.Clamp(
+                    double.IsFinite(layout.TransitionVideoChromaKeyTolerance) ? layout.TransitionVideoChromaKeyTolerance : 0.16, 0, 1);
+                layout.TransitionVideoCutSeconds = Math.Clamp(
+                    double.IsFinite(layout.TransitionVideoCutSeconds) ? layout.TransitionVideoCutSeconds : 0, 0, 30);
                 layout.Handover ??= [];
                 layout.Handover = layout.Handover.Where(entry => entry is not null).Take(200).ToList();
                 foreach (var entry in layout.Handover) entry.ElementId = (entry.ElementId ?? "").Trim();
                 foreach (var item in layout.Elements)
                 {
+                    item.NestedLayoutId = string.IsNullOrWhiteSpace(item.NestedLayoutId) ? null : item.NestedLayoutId.Trim();
+                    if (item.Kind == ScorebugElementKind.Layout && string.Equals(item.NestedLayoutId, layout.Id, StringComparison.OrdinalIgnoreCase))
+                        item.NestedLayoutId = null;
                     item.X = Math.Clamp(double.IsFinite(item.X) ? item.X : 0, 0, layout.Width);
                     item.Y = Math.Clamp(double.IsFinite(item.Y) ? item.Y : 0, 0, layout.Height);
                     item.Width = Math.Clamp(double.IsFinite(item.Width) ? item.Width : 100, 24, layout.Width);
@@ -839,6 +1001,8 @@ public sealed class ScorebugCatalog
                     if (item.TransitionDownSeconds is { } downSeconds)
                         item.TransitionDownSeconds = Math.Clamp(double.IsFinite(downSeconds) ? downSeconds : 0.2, 0, 5);
                     item.VideoAspect = Math.Clamp(double.IsFinite(item.VideoAspect) && item.VideoAspect > 0.05 ? item.VideoAspect : 16.0 / 9.0, 0.1, 10);
+                    item.ChromaKeyColor = (item.ChromaKeyColor ?? "").Trim();
+                    item.ChromaKeyTolerance = Math.Clamp(double.IsFinite(item.ChromaKeyTolerance) ? item.ChromaKeyTolerance : 0.16, 0, 1);
                     item.GradientAngle = Math.Clamp(double.IsFinite(item.GradientAngle) ? item.GradientAngle : 0, -360, 360);
                     item.TextOpacity = Math.Clamp(double.IsFinite(item.TextOpacity) ? item.TextOpacity : 1, 0, 1);
                     item.BackgroundOpacity = Math.Clamp(double.IsFinite(item.BackgroundOpacity) ? item.BackgroundOpacity : 1, 0, 1);
@@ -867,6 +1031,23 @@ public sealed class ScorebugCatalog
             }
         }
         ActiveDisplayIndex = Math.Clamp(ActiveDisplayIndex, 0, Displays.Count - 1);
+        // A live layout cannot contain itself. Files can be hand-edited or older copies can create a
+        // loop, so break the first back-edge deterministically instead of recursing forever.
+        foreach (var display in Displays)
+        {
+            foreach (var layout in display.Layouts)
+            {
+                foreach (var item in layout.Elements.Where(element => element.Kind == ScorebugElementKind.Layout))
+                {
+                    if (item.NestedLayoutId is not { } nestedId) continue;
+                    var target = FindLayout(nestedId);
+                    if (target is null) continue;
+                    if (string.Equals(nestedId, layout.Id, StringComparison.OrdinalIgnoreCase)
+                        || WouldCreateLayoutCycle(layout.Id, nestedId))
+                        item.NestedLayoutId = null;
+                }
+            }
+        }
         // A link that no longer resolves (a deleted layout, a display that is gone) is dropped rather
         // than left dangling; a layout can only link to another display.
         foreach (var display in Displays)
@@ -1106,6 +1287,10 @@ public sealed class ScorebugCatalog
     {
         var layout = source.Copy(name ?? source.Name);
         if (string.IsNullOrWhiteSpace(layout.Name)) layout.Name = $"Layout {ActiveDisplay.Layouts.Count + 1}";
+        // A single .spl file deliberately carries one layout, not the layouts a live feed points at,
+        // so those references cannot be trusted in this game. The operator can pick a source again.
+        foreach (var element in layout.Elements.Where(element => element.Kind == ScorebugElementKind.Layout))
+            element.NestedLayoutId = null;
         ActiveDisplay.Layouts.Add(layout);
         ActiveDisplay.ActiveIndex = ActiveDisplay.Layouts.Count - 1;
         Validate();
@@ -1121,19 +1306,7 @@ public sealed class ScorebugCatalog
     /// </summary>
     public int ImportDisplay(ScorebugDisplay source, string? name = null)
     {
-        var copy = JsonSerializer.Deserialize<ScorebugDisplay>(JsonSerializer.Serialize(source)) ?? new ScorebugDisplay();
-        copy.Id = Guid.NewGuid().ToString("N");
-        if (!string.IsNullOrWhiteSpace(name)) copy.Name = name.Trim();
-        if (copy.Layouts.Count == 0) copy.Layouts.Add(new ScorebugLayout { Name = "Layout 1" });
-        foreach (var layout in copy.Layouts)
-        {
-            layout.Id = Guid.NewGuid().ToString("N");
-            layout.LinkDisplayId = null;
-            layout.LinkLayoutId = null;
-            foreach (var element in layout.Elements) element.Id = Guid.NewGuid().ToString("N");
-        }
-        copy.ActiveIndex = Math.Clamp(copy.ActiveIndex, 0, copy.Layouts.Count - 1);
-        copy.PublishedIndex = Math.Clamp(copy.PublishedIndex, 0, copy.Layouts.Count - 1);
+        var copy = ScorebugFiles.FreshDisplay(source, name);
         Displays.Add(copy);
         ActiveDisplayIndex = Displays.Count - 1;
         Validate();

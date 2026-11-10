@@ -2,7 +2,7 @@
 
 **A native Windows scoreboard and broadcast graphics system for live production — one operator console, unlimited displays, and a scorebug you design yourself.**
 
-> **Alpha software.** ScorePlus is under active development and the alpha builds are updated often. Expect rough edges; don't run it as the only copy of a show you care about. Release labels read like `a1.4`, `a1.41`, `a1.5`.
+> **Beta software.** ScorePlus is under active development and the beta builds are updated every few days. Expect rough edges; don't run it as the only copy of a show you care about. Release labels read like `b1.0`, `a1.41`, etc.
 
 Everything runs locally on one Windows PC. No browser, no server, no internet connection, and no separately installed .NET runtime. The clock, the score and the graphics are all in one program, and the audience output updates the moment a value changes — there is never a "refresh" step mid-game.
 
@@ -25,7 +25,7 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 - [Tutorial: Scoreboard Controllers and the Horn](#tutorial-scoreboard-controllers-and-the-horn)
 - [Tutorial: Sport Profiles](#tutorial-sport-profiles)
 - [Reference: The Control Panel](#reference-the-control-panel)
-- [Reference: The Scorebug Studio](#reference-the-scorebug-studio)
+- [Reference: The Display Studio](#reference-the-display-studio)
 - [Reference: Data Tokens](#reference-data-tokens)
 - [Reference: Preferences](#reference-preferences)
 - [Reference: File Types](#reference-file-types)
@@ -128,7 +128,7 @@ That's a working show. Everything from here is refinement.
 
 ## Tutorial: Design a Scorebug
 
-Open **Scorebug Studio** from the second row of the console. The studio opens maximized and fills the desktop: toolbar on top, layers on the left, property panel on the right, and the scorebug canvas in the middle framed with a border marking exactly where the artwork ends.
+Open **Display Studio** from the second row of the console. The studio opens maximized and fills the desktop: toolbar on top, layers on the left, property panel on the right, and the scorebug canvas in the middle framed with a border marking exactly where the artwork ends.
 
 ### Add Your First Three Elements
 
@@ -203,7 +203,7 @@ Any text element can draw artwork from game state instead of (or alongside) type
 | **Possession arrow** | A solid arrow pointing into the plate of the team with the ball, and nothing at all on the other team | The team with the ball; **Visitors** picks the away plate and **Flip** turns the arrow around |
 | **Timeout dots** | Round pips instead of bars, one per timeout left | Home or visitors timeouts |
 | **Yellow card / Red card** | The referee's angled card, in its own yellow or red whatever the plate's colour is | Nothing — a fixed mark |
-| **Custom** | An icon you made in the **Icon maker**: a glyph on its own plate | Nothing — pick which made icon under **Made icon** |
+| **Custom** | An icon you made in the **Icon Creator**: a glyph on its own plate | Nothing — pick which made icon under **Made icon** |
 
 They update themselves with no studio edit, and **every icon animates** with the element's own value transition: a base fades and pops in as a runner arrives and shrinks away when they leave, new timeout bars slide or dissolve into the row, and the possession dot slides across the plate when the ball changes hands. The possession dot and the text are exclusive: turning on the dot removes the text rather than sitting under it. Small icons keep their size when you resize the box, unless you hold `Ctrl`, exactly like text.
 
@@ -349,7 +349,7 @@ The camera keeps rolling a two-minute buffer while it is live. Replay is staged,
 
 If you never press **Start replay**, nothing on air changes. The audience screen and the audience view thumbnail both keep feeding live until you do.
 
-**Clear** empties the media side and blanks the screen — the way out of a camera that is holding on its last frame.
+**Clear** takes every video, camera and microphone off air and blanks the screen — the way out of a camera that is holding on its last frame. The library, its folders and its playlists are kept.
 
 > **Why replay is staged.** A live camera has no "rewind" that the audience can see. Staging the replay means you can find the start of the play, confirm the frame, and only then make the cut — and if the moment passes, you just press **Live** and nothing ever went out.
 
@@ -539,7 +539,7 @@ The main window is one page, top to bottom.
 | **▤ Ad log** | What the show has played: impressions per clip and how long each one runs |
 | **⌁ Hardware** | Connect a scoreboard controller and watch the data it sends |
 | **Save Game** / **Open Game** | `.spg` save and load |
-| **Scorebug Studio** | Design the on-air graphic |
+| **Display Studio** | Design the on-air graphic |
 | **Sport Profiles** | Edit how the sport behaves |
 | **New Game** | Start a blank slate |
 
@@ -566,13 +566,13 @@ Every notice and confirmation in ScorePlus is the app's own themed window — cl
 
 ---
 
-## Reference: The Scorebug Studio
+## Reference: The Display Studio
 
 Layout: toolbar across the top, layers down the left, canvas in the middle, properties on the right, and the display/layout bars above the canvas.
 
 ### Toolbar
 
-Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE +**, **SHAPE +**, **SPORT DATA +**, **PLAYER DATA +**, **VIDEO +**, **HTML +**, **PARTS +**.
+Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE +**, **SHAPE +**, **SPORT DATA +**, **PLAYER DATA +**, **VIDEO +**, **HTML +**, **LAYOUT +**, **PARTS +**.
 
 ### Element Types
 
@@ -584,6 +584,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 | **Shape** | Rectangle, circle or triangle | Shape type, fill or gradient, border, opacity |
 | **Video** | Live clip from one tag | Media tag (or **ANY**), preserve aspect ratio, audio output, border, radius |
 | **HTML** | A live web widget | Free HTML/CSS/JS, `data-token` bindings |
+| **Layout** | Another layout, playing live inside this one | Source layout, keep the source's shape or stretch to the box |
 
 ### Properties Worth Knowing
 
@@ -618,7 +619,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 
 ### Making Icons
 
-The **ICON** section of the element panel draws live artwork — timeout bars, the possession dot or arrow, the baseball diamond, the referee's yellow and red cards — or an icon you make. Choose **Custom** in the Icon list, press **Icon maker…**, and draw one: a glyph (one to three characters — ★ ⚑ ▲ ⬤ or a letter), its colour and its plate, round or squared. Saved icons go into one shared library, so a house badge works in every layout and every display, and it travels inside any layout you export.
+The **ICON** section of the element panel draws live artwork — timeout bars, the possession dot or arrow, the baseball diamond, the referee's yellow and red cards — or an icon you make. Choose **Custom** in the Icon list, press **Icon creator…**, and draw one: a glyph (one to three characters — ★ ⚑ ▲ ⬤ or a letter), its colour and its plate, round or squared. Saved icons go into one shared library, so a house badge works in every layout and every display, and it travels inside any layout you export. Use **Import .spi…** and **Export .spi…** in the Icon Creator to move one icon, including its data states, between machines; a `.spi` is a ScorePlus Icon file.
 
 ### Display and Layout Bars
 
@@ -626,6 +627,7 @@ The **ICON** section of the element panel draws live artwork — timeout bars, t
 - **TRANSITION IN** — the arriving layout's hand-over and its duration. The **Transition Builder** also has a **TIMELINE**: pick the layout, then order its items with **Move up / Move down**, and the hand-over runs them in that order instead of moving every box at once. **Layout order** clears the timeline back to a single beat.
 - **LINK THIS LAYOUT TO** — the layout on another display that moves with this one, with a both-ways checkbox.
 - **LAYOUT** — the display's layouts as thumbnails with their names underneath, plus **Import .spl… / Export .spl…** and **Import .spd… / Export .spd…**, **Copy to… / Move to…** and **PARTS +**.
+- **LAYOUT +** — puts another layout inside this one as a resizeable live feed. It draws the source's real artwork, game values, video and animations, follows edits to the source immediately, and can keep the source's shape or stretch to the box. Loops are refused, so a layout can never contain itself directly or through another feed.
 - **CANVAS BACKGROUND** — green screen, navy reset, black, custom color.
 - **Size presets** — HD, Full HD, QHD, 4K UHD, vertical, square.
 

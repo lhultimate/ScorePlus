@@ -73,6 +73,19 @@ internal static class ScorebugRender
             ? state?.ColorFor(item.IconFillSource) ?? item.IconFillColor
             : string.IsNullOrWhiteSpace(item.IconFillColor) ? ResolveForeground(item, state) : item.IconFillColor;
 
+    /// <summary>The colour the icon actually draws with: its own colour, a made icon's resolved
+    /// state colour, or the element's text colour when neither one is set.</summary>
+    public static string ResolveIconColor(ScorebugElement item, GameState? state)
+    {
+        if (!string.IsNullOrWhiteSpace(item.IconColor)) return item.IconColor;
+        if (item.Icon == ScorebugIcon.Custom)
+        {
+            var icon = CustomIconStore.Find(item.CustomIconId);
+            if (icon is not null) return icon.Resolve(state).Color;
+        }
+        return ResolveForeground(item, state);
+    }
+
     public static string? ResolveLogoPath(ScorebugElement item, GameState? state)
     {
         if (item.LogoSide == ScorebugLogoSide.None) return item.ImagePath;
@@ -80,8 +93,27 @@ internal static class ScorebugRender
         return string.IsNullOrWhiteSpace(path) ? item.ImagePath : path;
     }
 
-    public static FrameworkElement CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false)
+    /// <summary>An image element's file, including a portrait that follows the selected player.</summary>
+    public static string? ResolveImagePath(ScorebugElement item, GameState? state)
     {
+        if (item.PlayerPhotoSide != ScorebugPlayerPhotoSide.None)
+        {
+            var player = item.PlayerPhotoSide == ScorebugPlayerPhotoSide.Home ? state?.HomePlayer : state?.AwayPlayer;
+            if (!string.IsNullOrWhiteSpace(player?.PhotoPath)) return player.PhotoPath;
+        }
+        return item.ImagePath;
+    }
+
+    public static FrameworkElement CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false,
+        ScorebugCatalog? catalog = null, GameEngine? engine = null, string? displayId = null, IReadOnlySet<string>? layoutChain = null)
+    {
+        // A live-layout element is a real scorebug feed inside this box: the source layout keeps
+        // its own artwork and values, and redraws whenever either changes.
+        if (item.Kind == ScorebugElementKind.Layout)
+        {
+            if (catalog is null || engine is null) return LayoutPlaceholder("LIVE LAYOUT");
+            return new ScorebugLayoutFeed(catalog, engine, state, playback, muteVideo, item, displayId, layoutChain, onAirVideo);
+        }
         if (item.Kind == ScorebugElementKind.Video) return new VideoSurface(item, playback, muteVideo, showVideoPlaceholder, onAirVideo);
         // HTML is drawn by a browser engine and captured as a frame, so every feed shows the same
         // picture at the element's design size.
@@ -89,7 +121,11 @@ internal static class ScorebugRender
         // A still image imported into the studio. It keeps its picture slot while the file is there,
         // and goes blank (rather than stale) if the file is moved away.
         if (item.Kind == ScorebugElementKind.Image)
-            return new Image { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+        {
+            var picture = new Image { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+            ApplyToContent(picture, item, state?.Invoke());
+            return picture;
+        }
         // Icons are drawn from live data rather than typed text: small bars per timeout, or a dot
         // showing which team has the ball.
         if (item.Kind == ScorebugElementKind.Text && item.Icon != ScorebugIcon.None) return new ScorebugIconView(item, state);
@@ -130,6 +166,13 @@ internal static class ScorebugRender
         {
             ScorebugShape.Circle => new Ellipse(),
             ScorebugShape.Triangle => new Polygon { Points = new PointCollection { new(0.5, 0), new(1, 1), new(0, 1) } },
+            // A true parallelogram: the diagonals are geometry, not a scaled rectangle, and WPF
+            // anti-aliases the sloped edges instead of leaving a stepped "broken" border.
+            ScorebugShape.Parallelogram => new Polygon
+            {
+                Points = new PointCollection { new(0.24, 0), new(1, 0), new(0.76, 1), new(0, 1) },
+                StrokeLineJoin = PenLineJoin.Round
+            },
             _ => new Rectangle { RadiusX = 8, RadiusY = 8 }
         };
         shape.Stretch = Stretch.Fill;
@@ -140,6 +183,10 @@ internal static class ScorebugRender
         shape.StrokeThickness = Math.Max(0, item.BorderThickness);
         shape.StrokeStartLineCap = PenLineCap.Round;
         shape.StrokeEndLineCap = PenLineCap.Round;
+        // Smooth, full-strength diagonals on every render scale; snapping to device pixels made a
+        // sloped edge look chipped when the scorebug was scaled into an audience window.
+        shape.SnapsToDevicePixels = false;
+        shape.UseLayoutRounding = false;
         return shape;
     }
 
@@ -170,8 +217,11 @@ internal static class ScorebugRender
             case HtmlSurface htmlPage:
                 htmlPage.Update(item);
                 break;
+            case ScorebugLayoutFeed layoutFeed:
+                layoutFeed.Update(item);
+                break;
             case Image image:
-                var path = ResolveLogoPath(item, state);
+                var path = ResolveImagePath(item, state);
                 if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
                 {
                     try { image.Source = LoadLogo(path); } catch { }
@@ -183,6 +233,189 @@ internal static class ScorebugRender
                 }
                 break;
         }
+    }
+
+    internal static FrameworkElement LayoutPlaceholder(string text) => new Border
+    {
+        Background = ParseBrush("#66101822"),
+        BorderBrush = ParseBrush("#6638D7A3"),
+        BorderThickness = new Thickness(1),
+        Padding = new Thickness(10),
+        Child = new TextBlock
+        {
+            Text = text,
+            Foreground = ParseBrush("#8FA0B4"),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        }
+    };
+
+    /// <summary>
+    /// Draws a timeline piece. Text pieces bind the same tokens as normal elements, so a pop-up can
+    /// read <c>{{LAST_SCORE_CHANGE}}</c> and always show the score that was actually pressed. A
+    /// logo piece follows the home/away logo, and a shape piece uses the same silhouettes as a
+    /// designed shape element.
+    /// </summary>
+    public static FrameworkElement CreateMotionPiece(MotionPiece piece, Func<GameState>? state, ScorebugCatalog? catalog = null, GameEngine? engine = null)
+    {
+        var game = state?.Invoke();
+        if (piece.Kind == MotionPieceKind.Logo)
+        {
+            var element = new ScorebugElement
+            {
+                Name = piece.Name,
+                Kind = ScorebugElementKind.Logo,
+                LogoSide = piece.Logo,
+                Content = piece.Name,
+                Width = piece.Width,
+                Height = piece.Height,
+                Foreground = piece.TextColor,
+                Background = piece.Fill,
+                BorderColor = piece.Border,
+                BorderThickness = piece.BorderThickness
+            };
+            return CreateContent(element, state, showVideoPlaceholder: false, catalog: catalog, engine: engine);
+        }
+        if (piece.Kind == MotionPieceKind.Shape)
+        {
+            var element = new ScorebugElement
+            {
+                Name = piece.Name,
+                Kind = ScorebugElementKind.Shape,
+                Shape = piece.Shape,
+                Width = piece.Width,
+                Height = piece.Height,
+                Background = piece.Fill,
+                BorderColor = piece.Border,
+                BorderThickness = piece.BorderThickness
+            };
+            return CreateShape(element, game);
+        }
+        var text = game is null ? piece.Text : ScoreboardTemplates.Bind(piece.Text, game);
+        return new TextBlock
+        {
+            Text = text,
+            FontSize = piece.FontSize,
+            Foreground = new SolidColorBrush(Paint.ColorOf(piece.TextColor, Colors.White)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
+        };
+    }
+}
+
+/// <summary>
+/// A resizeable live feed of another layout. It deliberately hosts the same canvas view the studio
+/// and the audience use, so game values, media and value changes keep moving inside the box instead
+/// of becoming a picture. The feed owns that view and disposes it when it is removed.
+/// </summary>
+public sealed class ScorebugLayoutFeed : Grid, IDisposable
+{
+    readonly ScorebugCatalog _catalog;
+    readonly GameEngine _engine;
+    readonly Func<GameState>? _state;
+    readonly MediaPlayback? _playback;
+    readonly bool _muteVideo;
+    readonly string? _baseDisplayId;
+    readonly IReadOnlySet<string> _chain;
+    readonly bool _onAirVideo;
+    ScorebugElement _item;
+    ScorebugCanvasView? _view;
+    string? _viewLayoutId;
+    bool _disposed;
+
+    public ScorebugLayoutFeed(ScorebugCatalog catalog, GameEngine engine, Func<GameState>? state,
+        MediaPlayback? playback, bool muteVideo, ScorebugElement item, string? displayId,
+        IReadOnlySet<string>? layoutChain, bool onAirVideo)
+    {
+        _catalog = catalog;
+        _engine = engine;
+        _state = state;
+        _playback = playback;
+        _muteVideo = muteVideo;
+        _baseDisplayId = displayId;
+        _chain = layoutChain is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(layoutChain, StringComparer.OrdinalIgnoreCase);
+        _onAirVideo = onAirVideo;
+        _item = item;
+        IsHitTestVisible = false;
+        Update(item);
+    }
+
+    /// <summary>The layout this feed is drawing, so the studio can verify and serialise the choice.</summary>
+    public string? SourceLayoutId => _item.NestedLayoutId;
+
+    public void Update(ScorebugElement item)
+    {
+        if(_disposed)return;
+        _item = item;
+        var target = _catalog.FindLayout(item.NestedLayoutId);
+        if (target is null)
+        {
+            ShowPlaceholder(string.IsNullOrWhiteSpace(item.NestedLayoutId) ? "LIVE LAYOUT" : "LAYOUT NOT FOUND");
+            return;
+        }
+        if (_chain.Contains(target.Id))
+        {
+            ShowPlaceholder("LAYOUT LOOP");
+            return;
+        }
+        if (_view is null || !string.Equals(_viewLayoutId, target.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            ShowView(target);
+        }
+        _view!.SetFill(!item.NestedPreserveAspect);
+        ToolTip = $"Live layout: {target.Name} · {target.Width} × {target.Height}";
+    }
+
+    void ShowView(ScorebugLayout source)
+    {
+        DisposeView();
+        Children.Clear();
+        var chain = new HashSet<string>(_chain, StringComparer.OrdinalIgnoreCase) { source.Id };
+        var display = _catalog.FindDisplayOfLayout(source.Id);
+        _view = new ScorebugCanvasView(_catalog, _engine, _state, _playback, _muteVideo,
+            layoutProvider: () => _catalog.FindLayout(source.Id) ?? source,
+            onAirVideo: _onAirVideo,
+            displayId: display?.Id ?? _baseDisplayId,
+            layoutChain: chain,
+            liveValues: true,
+            fillBox: !_item.NestedPreserveAspect);
+        _viewLayoutId = source.Id;
+        Children.Add(_view);
+    }
+
+    void ShowPlaceholder(string text)
+    {
+        DisposeView();
+        if (Children.Count == 1 && Children[0] is Border existing && existing.Child is TextBlock label && label.Text == text)
+            return;
+        Children.Clear();
+        Children.Add(ScorebugRender.LayoutPlaceholder(text));
+        ToolTip = string.IsNullOrWhiteSpace(_item.NestedLayoutId)
+            ? "Choose a source layout in the properties panel"
+            : "The live layout source is missing or would loop back into this layout";
+    }
+
+    void DisposeView()
+    {
+        if (_view is null) return;
+        _view.Dispose();
+        _view = null;
+        _viewLayoutId = null;
+    }
+
+    public void Dispose()
+    {
+        if(_disposed)return;
+        _disposed=true;
+        DisposeView();
+        Children.Clear();
     }
 }
 
@@ -257,10 +490,21 @@ public sealed class ScorebugTextBlock : TextBlock
     readonly TransformGroup _rest = new();
     string _shown = "";
     bool _animating;
+    // A value that arrives while a crossing is running waits for that crossing to finish, then
+    // crosses from there. Replacing the running one made the printed value jump mid-animation.
+    string? _queuedText;
+    ScorebugTransition _queuedTransition = ScorebugTransition.Cut;
+    double _queuedSeconds = 0.2;
     // A transition is two phases with callbacks; a newer value (or a snap) bumps the generation,
     // so a stale out-phase can never put its old text back on the graphic.
     int _generation;
     ScorebugElement? _style;
+
+    /// <summary>The live game, used to choose a score-triggered take for a value animation.</summary>
+    public Func<GameState>? StateProvider { get; set; }
+
+    /// <summary>Lets the canvas show the clip's temporary pieces while this value changes.</summary>
+    public Action<MotionClip, string, string>? ValueMotionPlayed { get; set; }
 
     public ScorebugTextBlock(ScorebugElement item)
     {
@@ -342,7 +586,19 @@ public sealed class ScorebugTextBlock : TextBlock
             transition = down;
             total = Math.Clamp(_style.TransitionDownSeconds ?? total, 0, 5);
         }
-        if (_shown == text && !_animating) return;
+        // The target is already recorded when a transition starts. A refresh that prints the same
+        // value must leave that transition alone, and it also cancels a value queued behind it:
+        // the latest state is the value already crossing in, not an older detour.
+        if (_shown == text) { _queuedText = null; return; }
+        // A different value that arrives mid-crossing waits its turn. A cut still snaps, because
+        // a cut is supposed to land immediately.
+        if (_animating && transition != ScorebugTransition.Cut && total >= 0.02)
+        {
+            _queuedText = text;
+            _queuedTransition = transition;
+            _queuedSeconds = total;
+            return;
+        }
         // A hand-over built in the transition maker wins over the preset: the old value leaves on
         // the clip's exit keys and the new one arrives on its enter keys, colour keys and all.
         if (_style?.MotionTransition is { } clip && IsLoaded && clip.Phases.Any(phase => phase.Enabled && !phase.IsEmpty))
@@ -351,10 +607,11 @@ public sealed class ScorebugTextBlock : TextBlock
             return;
         }
         var valueMotion = _style?.MotionAnimation is { UseOnValueChange: true, IsEmpty: false } motion ? motion : null;
-        if (transition == ScorebugTransition.Cut || total < 0.02 || !IsLoaded || _animating)
+        var beforeValue = _shown;
+        if (transition == ScorebugTransition.Cut || total < 0.02 || !IsLoaded)
         {
             Snap(text);
-            if (valueMotion is not null) MotionPlayback.PlayClip(this, valueMotion, Opacity, ambient: false);
+            PlayValueMotion(valueMotion, beforeValue, text);
             return;
         }
         _animating = true;
@@ -372,14 +629,37 @@ public sealed class ScorebugTextBlock : TextBlock
             {
                 if (generation != _generation) return;
                 _animating = false;
-                if (valueMotion is not null) MotionPlayback.PlayClip(this, valueMotion, Opacity, ambient: false);
+                // A value that arrived while the crossing ran starts its own crossing now, from
+                // the value that just landed. Nothing snaps into place between the two.
+                if (_queuedText is not null) { PlayQueued(); return; }
+                PlayValueMotion(valueMotion, beforeValue, text);
             });
         });
+    }
+
+    void PlayValueMotion(MotionClip? clip, string before, string after)
+    {
+        if (clip is null) return;
+        var state = StateProvider?.Invoke();
+        var phase = clip.ValuePhaseFor(state);
+        ValueMotionPlayed?.Invoke(clip, before, after);
+        MotionPlayback.PlayClip(this, clip, Opacity, ambient: false, phase: phase);
+    }
+
+    void PlayQueued()
+    {
+        if (_queuedText is not { } next) return;
+        var transition = _queuedTransition;
+        var seconds = _queuedSeconds;
+        _queuedText = null;
+        if (string.Equals(next, Text, StringComparison.Ordinal)) return;
+        UpdateText(next, transition, seconds);
     }
 
     void Snap(string text)
     {
         _generation++;
+        _queuedText = null;
         ClearPhase();
         Text = text;
         _shown = text;
@@ -393,6 +673,7 @@ public sealed class ScorebugTextBlock : TextBlock
     void PlayMotionTransition(string text, MotionClip clip)
     {
         _generation++;
+        _queuedText = null;
         var generation = _generation;
         ClearPhase();
         _animating = true;
@@ -408,6 +689,7 @@ public sealed class ScorebugTextBlock : TextBlock
             {
                 ClearPhase();
                 _animating = false;
+                if (_queuedText is not null) PlayQueued();
                 return;
             }
             MotionPlayback.PlayPhase(this, enter, level, () =>
@@ -415,6 +697,7 @@ public sealed class ScorebugTextBlock : TextBlock
                 if (generation != _generation) return;
                 ClearPhase();
                 _animating = false;
+                if (_queuedText is not null) PlayQueued();
             });
         }
         if (exit is not null && !exit.IsEmpty) MotionPlayback.PlayPhase(this, exit, level, Arrive);
@@ -608,6 +891,7 @@ public sealed class ScorebugTextBlock : TextBlock
 /// </summary>
 public sealed class ScorebugIconView : Grid
 {
+    static readonly Brush TimeoutUsedBrush = new SolidColorBrush(Color.FromRgb(0x9A, 0xA5, 0xB2));
     readonly ScorebugElement _item;
     readonly Func<GameState>? _state;
     readonly Ellipse? _dot;
@@ -630,7 +914,7 @@ public sealed class ScorebugIconView : Grid
     bool? _arrowShown;
     // A referee's yellow or red card, drawn as the angled rectangle the official holds up.
     Rectangle? _card;
-    // An icon made in the icon maker: a glyph on its plate.
+    // An icon made in the Icon Creator: a glyph on its plate.
     Border? _customHost;
     TextBlock? _customText;
 
@@ -706,7 +990,8 @@ public sealed class ScorebugIconView : Grid
             // One short horizontal line per timeout, in a row from left to right.
             _bars = new StackPanel
             {
-                Orientation = Orientation.Horizontal,
+                Orientation = item.IconVertical && Icon == ScorebugIcon.TimeoutBars
+                    ? Orientation.Vertical : Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -753,13 +1038,21 @@ public sealed class ScorebugIconView : Grid
         }
         var width = Math.Max(12, _item.Width);
         var height = Math.Max(12, _item.Height);
-        _customText.Text = icon.Glyph;
+        var look = icon.Resolve(_state?.Invoke());
+        _customText.Text = look.Glyph;
         _customText.FontSize = Math.Clamp(Math.Min(width, height) * 0.62, 8, 260);
-        _customText.Foreground = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? icon.Color : _item.IconColor);
-        _customHost.Background = ScorebugRender.ParseBrush(icon.Plate);
+        _customText.Foreground = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? look.Color : _item.IconColor);
+        _customHost.Background = ScorebugRender.ParseBrush(look.Plate);
         _customHost.Width = width;
         _customHost.Height = height;
-        _customHost.CornerRadius = new CornerRadius(icon.Round ? Math.Min(width, height) / 2 : Math.Min(width, height) * 0.16);
+        _customHost.CornerRadius = new CornerRadius(look.Round ? Math.Min(width, height) / 2 : Math.Min(width, height) * 0.16);
+        _customHost.Opacity = Math.Clamp(look.Opacity, 0, 1);
+        _customHost.RenderTransformOrigin = new Point(0.5, 0.5);
+        var transform = new TransformGroup();
+        transform.Children.Add(new ScaleTransform(look.Scale, look.Scale));
+        transform.Children.Add(new RotateTransform(look.Rotation));
+        transform.Children.Add(new TranslateTransform(look.OffsetX, look.OffsetY));
+        _customHost.RenderTransform = transform;
     }
 
     /// <summary>Moves the icon off its box's centre, so one element can carry a mark elsewhere.</summary>
@@ -873,50 +1166,72 @@ public sealed class ScorebugIconView : Grid
         }
         if (_bars is not null)
         {
-            var count = 0;
-            if (state is not null) count = Math.Clamp(_item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 10);
+            var remaining = 0;
+            var limit = 0;
+            if (state is not null)
+            {
+                remaining = Math.Clamp(_item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 12);
+                limit = _item.IconVisitors ? state.AwayTimeoutLimit : state.HomeTimeoutLimit;
+            }
+            var count = Math.Clamp(Math.Max(remaining, limit), 0, 12);
+            var vertical = Icon == ScorebugIcon.TimeoutBars && _item.IconVertical;
+            _bars.Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
+            if (count == 0)
+            {
+                _bars.Children.Clear();
+                _appliedForeground = foreground;
+                return;
+            }
             var scale = Math.Clamp(_item.IconScale, 0.25, 3);
-            var slot = _item.Width / Math.Max(1, count);
-            var width = Math.Max(3, Math.Min(_item.Width * 0.22, slot * 0.62) * scale);
+            var slot = (vertical ? _item.Height : _item.Width) / Math.Max(1, count);
+            var width = vertical
+                ? Math.Max(4, Math.Min(_item.Width * 0.62, slot * 1.4) * scale)
+                : Math.Max(3, Math.Min(_item.Width * 0.22, slot * 0.62) * scale);
             var thickness = Math.Clamp(_item.Height / 8 * scale, 1.5, 18);
-            var gap = Math.Max(1, width * 0.22);
+            var gap = vertical ? Math.Max(1, slot * 0.22) : Math.Max(1, width * 0.22);
             if (_bars.Children.Count != count)
             {
                 _bars.Children.Clear();
                 var animate = Animates;
                 for (var i = 0; i < count; i++)
                 {
+                    var fill = i < remaining ? ScorebugRender.ParseBrush(foreground) : TimeoutUsedBrush;
                     // Bars are rounded lines; the dots variant is the same row of round pips.
                     Shape bar = Icon == ScorebugIcon.TimeoutDots
-                        ? new Ellipse { Width = width, Height = width, Fill = ScorebugRender.ParseBrush(foreground) }
+                        ? new Ellipse { Width = width, Height = width, Fill = fill }
                         : new Rectangle
                         {
                             Width = width,
                             Height = thickness,
                             RadiusX = thickness / 2,
                             RadiusY = thickness / 2,
-                            Fill = ScorebugRender.ParseBrush(foreground)
+                            Fill = fill
                         };
-                    bar.Margin = new Thickness(gap / 2, 0, gap / 2, 0);
+                    bar.Margin = vertical
+                        ? new Thickness(0, gap / 2, 0, gap / 2)
+                        : new Thickness(gap / 2, 0, gap / 2, 0);
                     _bars.Children.Add(bar);
-                    // A timeout being used changes how many bars the icon shows; the new row arrives
-                    // with the element's own value-change motion instead of appearing all at once.
+                    // A timeout being used keeps its place but turns grey, so the row still reads as
+                    // the full allotment instead of shrinking every time a timeout is taken.
                     if (animate) AnimateIn(bar);
                 }
                 _appliedForeground = foreground;
             }
             else
             {
-                // A size or team-colour change updates the existing bars in place instead of
+                // A size, colour or used-timeout change updates the existing bars in place instead of
                 // rebuilding them, so the row never flickers while the slider moves.
                 var brush = ScorebugRender.ParseBrush(foreground);
+                var index = 0;
                 foreach (var child in _bars.Children.OfType<Shape>())
                 {
                     child.Width = width;
                     child.Height = Icon == ScorebugIcon.TimeoutDots ? width : thickness;
                     if (child is Rectangle rounded) { rounded.RadiusX = thickness / 2; rounded.RadiusY = thickness / 2; }
-                    child.Margin = new Thickness(gap / 2, 0, gap / 2, 0);
-                    child.Fill = brush;
+                    child.Margin = vertical
+                        ? new Thickness(0, gap / 2, 0, gap / 2)
+                        : new Thickness(gap / 2, 0, gap / 2, 0);
+                    child.Fill = index++ < remaining ? brush : TimeoutUsedBrush;
                 }
                 _appliedForeground = foreground;
             }
@@ -936,6 +1251,9 @@ public sealed class ScorebugIconView : Grid
             var pointsEast = homeSide;
             // The turn plays whenever the ball changes hands: the mark slides and fades in from the
             // side it is leaving, so possession never blinks from one edge to the other.
+            // The first paint is a still: rebuilding a feed for another layout must not replay the
+            // mark's arrival when possession has not changed.
+            if (_arrowShown is null) _arrowShown = pointsEast;
             if (_arrowShown != pointsEast)
             {
                 _arrowShown = pointsEast;
@@ -1019,6 +1337,8 @@ public sealed class ScorebugIconView : Grid
             // Possession changing moves the mark to the other side of the plate. It slides across
             // the plate, from the side the ball left, so a viewer sees the ball change hands rather
             // than a dot teleport — and the slide happens inside the box, never past its clip.
+            // Like the arrow, the dot's first paint lands where it belongs without an entrance.
+            if (_dotRight is null) _dotRight = right;
             if (_dotRight != right)
             {
                 _dotRight = right;

@@ -56,6 +56,7 @@ public partial class ControlPanelView : UserControl
     string _scoreSignature = "";
     string _statsSignature = "";
     bool _syncingLive;
+    bool _clockMessageSync;
     bool _loadingNames;
     bool _showHints;
     KeybindSettings _keybinds = KeybindStore.Load();
@@ -72,19 +73,19 @@ public partial class ControlPanelView : UserControl
         AwayScoreHost.Content = _awayScore;
         HomeScoreHost.Content = _homeScore;
 
-        _down = new Stepper("Down", 26);
+        _down = new Stepper("Down", 26, compact: true);
         _down.SetButtons([new("+", 1, "football.down.next")], [new("−", -1, "football.down.previous")]);
         _down.Stepped += Step;
         _down.Committed += value => _engine.SetDown(value);
         DownHost.Content = _down;
 
-        _toGo = new Stepper("To go", 26);
+        _toGo = new Stepper("To go", 26, compact: true);
         _toGo.SetButtons([new("+", 1, "football.distance.plus")], [new("−", -1, "football.distance.minus")]);
         _toGo.Stepped += Step;
         _toGo.Committed += value => _engine.SetFootballDistance(value);
         ToGoHost.Content = _toGo;
 
-        _ballOn = new Stepper("BALL ON", 26);
+        _ballOn = new Stepper("BALL ON", 26, compact: true);
         _ballOn.ToolTip = "Ball spot as a yard line, 0–50, on either team's half. Its side is independent of possession.";
         // + raises the yard line, − lowers it, matching every other stepper on the panel.
         _ballOn.SetButtons([new("+", 1, "football.ball.plus")], [new("−", -1, "football.ball.minus")]);
@@ -96,18 +97,21 @@ public partial class ControlPanelView : UserControl
             Content = "HOME ▶",
             Tag = "football.ball.side",
             Style = (Style)FindResource("Tiny"),
-            Margin = new Thickness(2, 6, 2, 0),
-            FontSize = 11,
+            Margin = new Thickness(0),
+            // A full-size target with its own line above the step arrows: a button that touched the
+            // Ball On buttons read as if it were clipped into them.
+            Height = 30,
+            MinHeight = 30,
+            Padding = new Thickness(4, 0, 4, 0),
+            FontSize = 10,
             ToolTip = "Which team's half of the field the ball is on — independent of possession"
         };
         _ballSide.Click += Action_Click;
-        var ballColumn = new StackPanel();
-        ballColumn.Children.Add(_ballOn);
-        ballColumn.Children.Add(_ballSide);
-        BallOnHost.Content = ballColumn;
+        _ballOn.SetCaptionAccessory(_ballSide);
+        BallOnHost.Content = _ballOn;
 
         // How the quarter prints (Quarter 1 / Q1 / 1) belongs to the graphic, not the console:
-        // it is a property of the element in Scorebug Studio.
+        // it is a property of the element in Display Studio.
         QuarterHost.Content = BuildQuarterControl();
 
         _awayTimeouts = BuildTimeoutStepper(false);
@@ -251,6 +255,10 @@ public partial class ControlPanelView : UserControl
         LayoutLabel.Text = _host.LayoutLabel;
 
         if (!ClockValue.IsKeyboardFocused) ClockValue.Text = GameEngine.FormatClock(s.ClockSeconds);
+        _clockMessageSync = true;
+        ClockMessageBox.SelectedIndex = (int)s.ClockMessage;
+        _clockMessageSync = false;
+        UpdateFootballMode(s);
         // Soccer's added time lives under the game clock, and only for soccer.
         var soccer = s.SportId == "soccer";
         StoppageRow.Visibility = soccer ? Visibility.Visible : Visibility.Collapsed;
@@ -278,6 +286,7 @@ public partial class ControlPanelView : UserControl
 
         var football = s.SportId == "football";
         FootballDetail.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
+        FootballModePicker.Visibility = football ? Visibility.Visible : Visibility.Collapsed;
         // Every sport with its own flag list gets the strip; Custom has no flags, so it stays hidden.
         PenaltyStrip.Visibility = GameEngine.PenaltyTypesFor(s.SportId).Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         OtherDetail.Visibility = football ? Visibility.Collapsed : Visibility.Visible;
@@ -343,6 +352,42 @@ public partial class ControlPanelView : UserControl
                 : "No flag up";
         }
         finally { _penaltySync = false; }
+    }
+
+    void ClockMessage_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_clockMessageSync || _engine is null) return;
+        _engine.SetClockMessage((GameClockMessage)Math.Clamp(ClockMessageBox.SelectedIndex, 0, 2));
+    }
+
+    static readonly FootballDownMode[] FootballModes =
+    [
+        FootballDownMode.Normal, FootballDownMode.Goal, FootballDownMode.Pat,
+        FootballDownMode.TwoPoint, FootballDownMode.None
+    ];
+
+    static readonly string[] FootballModeLabels = ["Yards", "Goal", "PAT", "2 PT ATT", "No line"];
+
+    void UpdateFootballMode(GameState s)
+    {
+        var mode = s.SportId == "football" ? s.FootballDownMode : FootballDownMode.Normal;
+        var index = Array.IndexOf(FootballModes, mode);
+        if (index < 0) index = 0;
+        FootballModeLabel.Text = FootballModeLabels[index];
+        FootballModeLabel.ToolTip = $"Down line: {FootballModeLabels[index]}. Use ◀ / ▶ to change it.";
+        FootballModePicker.IsEnabled = s.SportId == "football";
+    }
+
+    void FootballModePrev_Click(object sender, RoutedEventArgs e) => ShiftFootballMode(-1);
+    void FootballModeNext_Click(object sender, RoutedEventArgs e) => ShiftFootballMode(1);
+
+    void ShiftFootballMode(int delta)
+    {
+        if (_engine.State.SportId != "football") return;
+        var index = Array.IndexOf(FootballModes, _engine.State.FootballDownMode);
+        if (index < 0) index = 0;
+        index = (index + delta + FootballModes.Length) % FootballModes.Length;
+        _engine.SetFootballDownMode(FootballModes[index]);
     }
 
     /// <summary>Any of the three controls writes the whole flag, so the box can never half-change.</summary>
@@ -870,6 +915,11 @@ public partial class ControlPanelView : UserControl
             case "clock.stoppage.minus30": _engine.AdjustStoppageClock(-30); break;
             case "football.down.next": NextDown(); break;
             case "football.down.previous": _engine.PreviousDown(); break;
+            case "football.distance.normal": _engine.SetFootballDownMode(FootballDownMode.Normal); break;
+            case "football.distance.goal": _engine.SetFootballDownMode(FootballDownMode.Goal); break;
+            case "football.distance.pat": _engine.SetFootballDownMode(FootballDownMode.Pat); break;
+            case "football.distance.twopt": _engine.SetFootballDownMode(FootballDownMode.TwoPoint); break;
+            case "football.distance.none": _engine.SetFootballDownMode(FootballDownMode.None); break;
             case "football.down.recall": _engine.RecallLastDown(); break;
             case "football.distance.minus": _engine.SetFootballDistance(_engine.State.YardsToGo - 1); break;
             case "football.distance.plus": _engine.SetFootballDistance(_engine.State.YardsToGo + 1); break;

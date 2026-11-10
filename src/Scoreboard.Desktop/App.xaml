@@ -48,6 +48,9 @@
     </Style>
 
     <Style TargetType="ComboBox">
+      <!-- A wheel over a closed picker should scroll the panel, not quietly change the
+           operator's value. The handler forwards the scroll to the nearest ScrollViewer. -->
+      <EventSetter Event="PreviewMouseWheel" Handler="ComboBox_PreviewMouseWheel"/>
       <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
       <Setter Property="Background" Value="{DynamicResource OperatorInputBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>

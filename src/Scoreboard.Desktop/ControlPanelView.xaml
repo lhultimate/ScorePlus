@@ -192,16 +192,49 @@
           </DockPanel>
 
           <!-- Football -->
-          <Grid x:Name="FootballDetail" Grid.Row="1" Margin="0,4,0,0" VerticalAlignment="Top">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <ContentControl x:Name="DownHost" Grid.Column="0"/>
-            <ContentControl x:Name="ToGoHost" Grid.Column="1"/>
-            <ContentControl x:Name="BallOnHost" Grid.Column="2"/>
-          </Grid>
+          <StackPanel x:Name="FootballDetail" Grid.Row="1" Margin="0,4,0,0" VerticalAlignment="Top">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <ContentControl x:Name="DownHost" Grid.Column="0"/>
+              <ContentControl x:Name="ToGoHost" Grid.Column="1"/>
+              <ContentControl x:Name="BallOnHost" Grid.Column="2"/>
+            </Grid>
+            <!-- The down-line type is stepped with arrows rather than opened as a list, so the
+                 operator can move Yards → Goal → PAT → 2 PT without leaving the console row. -->
+            <Grid x:Name="FootballModePicker" Margin="0,4,0,0" Height="38" MinHeight="38">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <Button x:Name="FootballModePrevButton" Grid.Column="0" Style="{StaticResource Tiny}"
+                      Margin="0" MinWidth="42" Height="38" MinHeight="38" Padding="0"
+                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                      VerticalAlignment="Stretch" Click="FootballModePrev_Click" ToolTip="Previous down-line type">
+                <Path Width="11" Height="14" Stretch="Fill"
+                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                      Data="M 11,0 L 0,7 L 11,14 Z"/>
+              </Button>
+              <Border Grid.Column="1" Background="#0B1118" CornerRadius="5" Margin="4,0"
+                      BorderBrush="#2C3745" BorderThickness="1">
+                <TextBlock x:Name="FootballModeLabel" Text="Yards" FontSize="13" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           ToolTip="How the down line prints: yards to go, Goal, PAT, 2 PT ATT, or no line"/>
+              </Border>
+              <Button x:Name="FootballModeNextButton" Grid.Column="2" Style="{StaticResource Tiny}"
+                      Margin="0" MinWidth="42" Height="38" MinHeight="38" Padding="0"
+                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                      VerticalAlignment="Stretch" Click="FootballModeNext_Click" ToolTip="Next down-line type">
+                <Path Width="11" Height="14" Stretch="Fill"
+                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                      Data="M 0,0 L 11,7 L 0,14 Z"/>
+              </Button>
+            </Grid>
+          </StackPanel>
 
           <!-- Every sport's own values — balls, bases, power play, overs, sets — as compact
                steppers and switches. Built in code from the game's sport controls. -->
@@ -239,6 +272,17 @@
                it no longer costs a whole row of its own. -->
           <DockPanel>
             <ContentControl x:Name="QuarterHost" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+            <!-- The audience-clock message lives in the header, not over the clock value. -->
+            <ComboBox x:Name="ClockMessageBox" DockPanel.Dock="Right" Width="132" Height="28"
+                      Margin="8,0,24,0" FontSize="11"
+                      SelectionChanged="ClockMessage_Changed"
+                      ToolTip="What the game clock prints on the graphic">
+              <ComboBoxItem Content="Game clock" Tag="Clock"/>
+              <ComboBoxItem Content="Final" Tag="Final"/>
+              <ComboBoxItem Content="End of Reg." Tag="EndOfRegulation"/>
+            </ComboBox>
+            <TextBlock Text="CLOCK SHOWS" DockPanel.Dock="Right" Style="{StaticResource Caption}"
+                       Margin="10,0,6,0"/>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
               <Border Style="{StaticResource AccentBar}"/>
               <TextBlock Text="TIMING" Style="{StaticResource CardTitle}"/>

@@ -8,14 +8,25 @@ public enum MotionKind { Transition, Animation }
 
 /// <summary>
 /// What a keyframe moves. X and Y are design pixels, ScaleX/ScaleY and Scale are factors,
-/// Rotate and SkewX/SkewY are degrees, Opacity is 0–1 and Blur is a pixel radius.
+/// Rotate and SkewX/SkewY are degrees, Opacity is 0–1 and Blur is a pixel radius. The extra
+/// targets let a timeline change an item's box, text size or outline as well as its transform.
 /// </summary>
-public enum MotionTarget { X, Y, Scale, ScaleX, ScaleY, Rotate, Opacity, Blur, SkewX, SkewY }
+public enum MotionTarget
+{
+    X, Y, Scale, ScaleX, ScaleY, Rotate, Opacity, Blur, SkewX, SkewY,
+    Width, Height, FontSize, BorderThickness, TextOpacity, BackgroundOpacity, BorderOpacity
+}
 
 public enum MotionEase { Linear, In, Out, InOut, Back, Bounce, Elastic }
 
 /// <summary>Which part of an element a colour keyframe paints.</summary>
 public enum MotionColorRole { Text, Background, Border }
+
+/// <summary>Which side a score-triggered take belongs to.</summary>
+public enum MotionScoreSide { Any, Home, Away }
+
+/// <summary>What kind of temporary art a timeline piece draws.</summary>
+public enum MotionPieceKind { Text, Logo, Shape }
 
 /// <summary>One keyframe on a numeric track: at <see cref="Time"/> seconds, the value is <see cref="Value"/>.</summary>
 public sealed class MotionKey
@@ -191,6 +202,7 @@ public sealed class MotionPiece
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "Piece";
+    public MotionPieceKind Kind { get; set; } = MotionPieceKind.Text;
     public double X { get; set; }
     public double Y { get; set; }
     public double Width { get; set; } = 240;
@@ -202,11 +214,19 @@ public sealed class MotionPiece
     public string TextColor { get; set; } = "#FFFFFFFF";
     public double FontSize { get; set; } = 28;
     public double Opacity { get; set; } = 1;
+    /// <summary>A logo piece follows this side's logo from the game, exactly like a logo element.</summary>
+    public ScorebugLogoSide Logo { get; set; } = ScorebugLogoSide.None;
+    /// <summary>A shape piece's silhouette.</summary>
+    public ScorebugShape Shape { get; set; } = ScorebugShape.Rectangle;
+    /// <summary>Only show this piece for a score of this size. 0 means every score.</summary>
+    public int TriggerAmount { get; set; }
+    public MotionScoreSide TriggerSide { get; set; }
 
     public MotionPiece Copy() => new()
     {
         Id = Id,
         Name = Name,
+        Kind = Kind,
         X = X,
         Y = Y,
         Width = Width,
@@ -217,13 +237,20 @@ public sealed class MotionPiece
         Text = Text,
         TextColor = TextColor,
         FontSize = FontSize,
-        Opacity = Opacity
+        Opacity = Opacity,
+        Logo = Logo,
+        Shape = Shape,
+        TriggerAmount = TriggerAmount,
+        TriggerSide = TriggerSide
     };
 
     public void Normalize()
     {
         if (string.IsNullOrWhiteSpace(Id)) Id = Guid.NewGuid().ToString("N");
         if (string.IsNullOrWhiteSpace(Name)) Name = "Piece";
+        if (!Enum.IsDefined(Kind)) Kind = MotionPieceKind.Text;
+        if (!Enum.IsDefined(Logo)) Logo = ScorebugLogoSide.None;
+        if (!Enum.IsDefined(Shape)) Shape = ScorebugShape.Rectangle;
         X = Math.Clamp(double.IsFinite(X) ? X : 0, -7680, 7680);
         Y = Math.Clamp(double.IsFinite(Y) ? Y : 0, -7680, 7680);
         Width = Math.Clamp(double.IsFinite(Width) ? Width : 240, 4, 7680);
@@ -234,8 +261,14 @@ public sealed class MotionPiece
         Fill = string.IsNullOrWhiteSpace(Fill) ? "#FF0B6B50" : Fill;
         Border = string.IsNullOrWhiteSpace(Border) ? "#FF38D7A3" : Border;
         TextColor = string.IsNullOrWhiteSpace(TextColor) ? "#FFFFFFFF" : TextColor;
+        TriggerAmount = Math.Clamp(TriggerAmount, 0, 999);
+        if (!Enum.IsDefined(TriggerSide)) TriggerSide = MotionScoreSide.Any;
         Name = Name.Trim();
     }
+
+    public bool MatchesTrigger(int amount, bool home) =>
+        (TriggerAmount == 0 || TriggerAmount == Math.Abs(amount))
+        && (TriggerSide == MotionScoreSide.Any || TriggerSide == (home ? MotionScoreSide.Home : MotionScoreSide.Away));
 }
 
 /// <summary>
@@ -247,6 +280,12 @@ public sealed class MotionPhase
     public string Name { get; set; } = "Enter";
     public bool Enabled { get; set; } = true;
     public double Seconds { get; set; } = 0.4;
+    /// <summary>
+    /// Animations only: this take plays when a score of this size is pressed. 0 is the normal take.
+    /// A clip can carry a +3 take, a +6 take and a normal fallback in one file.
+    /// </summary>
+    public int TriggerAmount { get; set; }
+    public MotionScoreSide TriggerSide { get; set; }
     public List<MotionTrack> Tracks { get; set; } = [];
     public List<ColorTrack> Colors { get; set; } = [];
 
@@ -260,11 +299,23 @@ public sealed class MotionPhase
 
     public bool IsEmpty => Tracks.Count == 0 && Colors.Count == 0;
 
+    public bool IsTriggered => TriggerAmount > 0 || TriggerSide != MotionScoreSide.Any;
+
+    public bool MatchesTrigger(int amount, bool home) =>
+        (TriggerAmount == 0 || TriggerAmount == Math.Abs(amount))
+        && (TriggerSide == MotionScoreSide.Any || TriggerSide == (home ? MotionScoreSide.Home : MotionScoreSide.Away));
+
+    public string TriggerLabel => TriggerAmount > 0
+        ? $"{TriggerSide switch { MotionScoreSide.Home => "Home ", MotionScoreSide.Away => "Away ", _ => "" }}+{TriggerAmount}"
+        : TriggerSide == MotionScoreSide.Any ? "Any score" : $"{TriggerSide} score";
+
     public MotionPhase Copy() => new()
     {
         Name = Name,
         Enabled = Enabled,
         Seconds = Seconds,
+        TriggerAmount = TriggerAmount,
+        TriggerSide = TriggerSide,
         Tracks = Tracks.Select(track => track.Copy()).ToList(),
         Colors = Colors.Select(track => track.Copy()).ToList()
     };
@@ -295,6 +346,8 @@ public sealed class MotionPhase
         Tracks ??= [];
         Colors ??= [];
         Seconds = Math.Clamp(double.IsFinite(Seconds) ? Seconds : 0.4, 0, 30);
+        TriggerAmount = Math.Clamp(TriggerAmount, 0, 999);
+        if (!Enum.IsDefined(TriggerSide)) TriggerSide = MotionScoreSide.Any;
         if (string.IsNullOrWhiteSpace(Name)) Name = "Phase";
         Tracks = Tracks.Take(24).Where(track => track is not null).ToList();
         foreach (var track in Tracks)
@@ -334,9 +387,13 @@ public sealed class MotionClip
     public bool PingPong { get; set; }
     /// <summary>Animations: play this when the element's value changes, rather than all the time.</summary>
     public bool UseOnValueChange { get; set; }
+    /// <summary>The layout this timeline was authored against; the editor reopens on it.</summary>
+    public string TimelineLayoutId { get; set; } = "";
+    /// <summary>How far apart ordered items start inside one leg of the timeline, in seconds.</summary>
+    public double ItemStagger { get; set; } = 0.08;
     public List<MotionPhase> Phases { get; set; } = [];
 
-    /// <summary>Pieces that exist only while this clip runs; empty for animations.</summary>
+    /// <summary>Text, logos and shapes that exist only while this clip runs.</summary>
     public List<MotionPiece> Pieces { get; set; } = [];
 
     /// <summary>
@@ -367,6 +424,29 @@ public sealed class MotionClip
 
     /// <summary>The phase that plays as the graphic leaves; transitions only.</summary>
     public MotionPhase? ExitPhase => Phase("Exit");
+
+    /// <summary>
+    /// The take a value change should play. A triggered take wins for the exact score and side;
+    /// otherwise the untriggered take is the fallback. This is what keeps a +3 pop-up off a +6.
+    /// </summary>
+    public MotionPhase? ValuePhaseFor(int amount, bool home)
+    {
+        var takes = Phases.Where(phase => phase.Enabled && !phase.IsEmpty).ToList();
+        if (amount != 0)
+        {
+            var exact = takes.FirstOrDefault(phase => phase.TriggerAmount > 0
+                && phase.TriggerAmount == Math.Abs(amount) && phase.MatchesTrigger(amount, home));
+            if (exact is not null) return exact;
+        }
+        return takes.FirstOrDefault(phase => !phase.IsTriggered) ?? takes.FirstOrDefault();
+    }
+
+    public MotionPhase? ValuePhaseFor(GameState? state) =>
+        ValuePhaseFor(state?.LastScoreAmount ?? 0, state?.LastScoreHome ?? true);
+
+    /// <summary>Pieces that belong in a score-triggered take. Untriggered pieces appear in every take.</summary>
+    public List<MotionPiece> PiecesForTrigger(int amount, bool home) =>
+        Pieces.Where(piece => piece.MatchesTrigger(amount, home)).ToList();
 
     public bool IsEmpty => (Phases.Count == 0 || Phases.All(phase => phase.IsEmpty)) && Pieces.Count == 0;
 
@@ -401,10 +481,12 @@ public sealed class MotionClip
         if (string.IsNullOrWhiteSpace(Id)) Id = Guid.NewGuid().ToString("N");
         if (!Enum.IsDefined(Kind)) Kind = MotionKind.Transition;
         Notes ??= "";
+        TimelineLayoutId = (TimelineLayoutId ?? "").Trim();
+        ItemStagger = Math.Clamp(double.IsFinite(ItemStagger) ? ItemStagger : 0.08, 0, 1.5);
         PieceOrder ??= [];
         PieceOrder = PieceOrder.Take(60).Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
         Pieces ??= [];
-        Pieces = Pieces.Take(12).Where(piece => piece is not null).ToList();
+        Pieces = Pieces.Take(24).Where(piece => piece is not null).ToList();
         var seenPieces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var piece in Pieces)
         {
@@ -439,6 +521,13 @@ public sealed class MotionClip
         MotionTarget.Blur => "Blur (px)",
         MotionTarget.SkewX => "Skew X (degrees)",
         MotionTarget.SkewY => "Skew Y (degrees)",
+        MotionTarget.Width => "Width (px)",
+        MotionTarget.Height => "Height (px)",
+        MotionTarget.FontSize => "Text size (px)",
+        MotionTarget.BorderThickness => "Border width (px)",
+        MotionTarget.TextOpacity => "Text opacity (0–1)",
+        MotionTarget.BackgroundOpacity => "Background opacity (0–1)",
+        MotionTarget.BorderOpacity => "Border opacity (0–1)",
         _ => target.ToString()
     };
 

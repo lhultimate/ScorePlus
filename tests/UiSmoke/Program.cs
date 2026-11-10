@@ -1,7 +1,10 @@
-﻿using System.IO;
+﻿using System.Globalization;
+using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Ink;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -89,6 +92,284 @@ internal static class Program
             if (smokeTarget.TransitionDown != ScorebugTransition.SlideUp)
                 throw new Exception($"FAIL: the down transition did not stick ({smokeTarget.TransitionDown})");
             smokeEditor.Close();
+            // The rebuilt motion makers are code-built windows, so opening them is itself a smoke
+            // test: the layout timeline must draw, and a temporary piece must join the clip.
+            var motionCatalogPath = Path.Combine(Path.GetTempPath(), $"smoke-motion-{Guid.NewGuid():N}.json");
+            var motionCatalog = new ScorebugCatalog(motionCatalogPath);
+            var motionEngine = new GameEngine();
+            motionEngine.NewGame("basketball");
+            motionEngine.Score(true, 3);
+            var transitionMaker = new MotionMakerWindow(MotionKind.Transition, motionCatalog, motionEngine, "Dark");
+            transitionMaker.Show();
+            transitionMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(180));
+            var layoutTimeline = FindAll<Canvas>(transitionMaker)
+                .FirstOrDefault(canvas => Math.Abs(canvas.Width - 1040) < 0.5);
+            if (layoutTimeline is null || layoutTimeline.Children.Count < 4)
+                throw new Exception("FAIL: the transition builder did not draw its layout-wide timeline");
+            var addTemporaryText = FindAll<Button>(transitionMaker).FirstOrDefault(button => (button.Content as string) == "+ Text")
+                ?? throw new Exception("FAIL: the timeline has no add-text action");
+            addTemporaryText.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            transitionMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(80));
+            var clipField = typeof(MotionMakerWindow).GetField("_clip", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (clipField?.GetValue(transitionMaker) is not MotionClip transitionClip || transitionClip.Pieces.Count != 1)
+                throw new Exception("FAIL: adding a temporary item did not add it to the transition clip");
+            // The reorder commit is the same one a row drop uses: a temporary piece can move to
+            // the front or the end, while the whole-graphic row stays pinned first.
+            var drop = typeof(MotionMakerWindow).GetMethod("CommitTimelineDrop", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: the timeline has no drop commit");
+            var pieceId = transitionClip.Pieces[0].Id;
+            if ((bool)drop.Invoke(transitionMaker, ["", 1])!)
+                throw new Exception("FAIL: the whole-graphic row was allowed to move");
+            if (!(bool)drop.Invoke(transitionMaker, [pieceId, 1])!
+                || !string.Equals(transitionClip.PieceOrder.FirstOrDefault(), pieceId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("FAIL: dropping a temporary piece at the top did not reorder the timeline");
+            if (!(bool)drop.Invoke(transitionMaker, [pieceId, 99])!
+                || !string.Equals(transitionClip.PieceOrder.LastOrDefault(), pieceId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("FAIL: dropping a temporary piece at the bottom did not reorder the timeline");
+
+            // A saved clip remembers its layout. Loading it while a different layout is active
+            // must reopen the authored layout, not the one that happened to be on screen.
+            transitionClip.Name = "Smoke timeline clip";
+            var authoredLayoutId = motionCatalog.Layout.Id;
+            transitionClip.TimelineLayoutId = authoredLayoutId;
+            motionCatalog.SaveTransition(transitionClip);
+            transitionMaker.Close();
+            motionCatalog.AddLayout("Smoke second layout");
+            if (string.Equals(motionCatalog.Layout.Id, authoredLayoutId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("FAIL: the smoke catalog did not switch to its second layout");
+            var reloadMaker = new MotionMakerWindow(MotionKind.Transition, motionCatalog, motionEngine, "Dark");
+            reloadMaker.Show();
+            reloadMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(180));
+            var libraryList = (ListBox?)typeof(MotionMakerWindow)
+                .GetField("_libraryList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(reloadMaker)
+                ?? throw new Exception("FAIL: the transition maker has no saved-clip list");
+            var savedRow = libraryList.Items.OfType<object>()
+                .FirstOrDefault(row => (row.ToString() ?? "").Contains("Smoke timeline clip", StringComparison.Ordinal));
+            if (savedRow is null) throw new Exception("FAIL: the saved transition did not reach the library");
+            libraryList.SelectedItem = savedRow;
+            typeof(MotionMakerWindow).GetMethod("LoadFromLibrary", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(reloadMaker, null);
+            reloadMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(80));
+            var smokeTimelinePicker = (ComboBox?)typeof(MotionMakerWindow)
+                .GetField("_timelineLayoutPicker", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(reloadMaker);
+            var pickedChoice = smokeTimelinePicker?.SelectedItem;
+            var pickedLayout = pickedChoice?.GetType().GetProperty("Layout")?.GetValue(pickedChoice) as ScorebugLayout;
+            if (!string.Equals(pickedLayout?.Id, authoredLayoutId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception($"FAIL: loading a clip reopened “{pickedLayout?.Name ?? "none"}” instead of its authored layout");
+            if (!string.Equals((clipField.GetValue(reloadMaker) as MotionClip)?.TimelineLayoutId, authoredLayoutId, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("FAIL: loading a clip did not restore its timeline layout id");
+            reloadMaker.Close();
+            Console.WriteLine("PASS: dragging a timeline row reorders the clip, and loading it reopens the authored layout");
+
+            // A delayed row still owns keys at its own times. The row used to clamp every key to
+            // the phase boundary, which made late keys look pinned to the switch break, impossible
+            // to drag past it and easy to overwrite with the wrong value.
+            {
+                var keyCatalogPath = Path.Combine(Path.GetTempPath(), $"smoke-keys-{Guid.NewGuid():N}.json");
+                var keyCatalog = new ScorebugCatalog(keyCatalogPath);
+                keyCatalog.Update(layout =>
+                {
+                    layout.Elements.Clear();
+                    for (var index = 0; index < 4; index++)
+                        layout.Elements.Add(new ScorebugElement
+                        {
+                            Name = $"Key item {index + 1}", Content = $"ITEM {index + 1}",
+                            X = 40 + index * 24, Y = 60, Width = 210, Height = 64, FontSize = 24
+                        });
+                });
+                var keyClip = MotionClip.NewTransition("Smoke key clip");
+                keyClip.TimelineLayoutId = keyCatalog.Layout.Id;
+                keyClip.ItemStagger = 0.08;
+                keyClip.PieceOrder = keyCatalog.Layout.Elements.Select(element => element.Id).ToList();
+                var keyMaker = new MotionMakerWindow(MotionKind.Transition, keyCatalog, motionEngine, "Dark", keyClip);
+                keyMaker.Show();
+                keyMaker.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(180));
+                var liveClip = (MotionClip?)clipField?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no clip");
+                var lateId = keyCatalog.Layout.Elements[^1].Id;
+                var exitPhase = liveClip.Phases[0];
+                exitPhase.Tracks.RemoveAll(track => string.Equals(track.PieceId, lateId, StringComparison.OrdinalIgnoreCase));
+                var lateTrack = new MotionTrack(MotionTarget.Opacity, (0, 1), (exitPhase.Seconds, 0)) { PieceId = lateId };
+                exitPhase.Tracks.Add(lateTrack);
+                var lateColor = new ColorTrack(MotionColorRole.Text, (0, "#FFFFFFFF"), (exitPhase.Seconds, "#FF000000")) { PieceId = lateId };
+                exitPhase.Colors.Add(lateColor);
+                var refreshAll = typeof(MotionMakerWindow).GetMethod("RefreshAll", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the maker cannot refresh its timeline");
+                refreshAll.Invoke(keyMaker, null);
+                var probeTimelineList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_timelineList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no timeline list");
+                probeTimelineList.SelectedIndex = probeTimelineList.Items.Count - 1;
+                var probePhaseList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_phaseList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no phase list");
+                probePhaseList.SelectedIndex = 0;
+                typeof(MotionMakerWindow).GetMethod("LoadPhase", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(keyMaker, null);
+                var probeTrackList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_trackList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no track list");
+                probeTrackList.SelectedIndex = 0;
+                var probeKeyList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_keyList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no key list");
+                probeKeyList.SelectedIndex = 0;
+                keyMaker.UpdateLayout();
+                var probeKeyTime = (TextBox?)typeof(MotionMakerWindow)
+                    .GetField("_keyTime", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no time box");
+                var probeKeyValue = (TextBox?)typeof(MotionMakerWindow)
+                    .GetField("_keyValue", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no value box");
+                var updateKey = typeof(MotionMakerWindow).GetMethod("UpdateKey", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot update a key");
+                probeKeyTime.Text = "0.1";
+                probeKeyValue.Text = "0.42";
+                updateKey.Invoke(keyMaker, null);
+                var editedKey = lateTrack.Keys.FirstOrDefault(key => Math.Abs(key.Time - 0.1) < 0.001)
+                    ?? throw new Exception("FAIL: updating a key did not retime it");
+                if (Math.Abs(editedKey.Value - 0.42) > 0.001)
+                    throw new Exception($"FAIL: updating a key did not apply its value ({editedKey.Value})");
+                if (probeKeyList.SelectedIndex < 0)
+                    throw new Exception("FAIL: updating a key threw the selection away");
+                // Enter must commit the value box, not just drop focus.
+                probeKeyTime.Text = "0.12";
+                probeKeyValue.Text = "0.77";
+                var keySource = PresentationSource.FromVisual(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no presentation source");
+                probeKeyValue.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, keySource, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
+                Pump(TimeSpan.FromMilliseconds(60));
+                editedKey = lateTrack.Keys.FirstOrDefault(key => Math.Abs(key.Time - 0.12) < 0.005)
+                    ?? throw new Exception("FAIL: Enter did not commit the key's time");
+                if (Math.Abs(editedKey.Value - 0.77) > 0.001)
+                    throw new Exception($"FAIL: Enter did not commit the key's value ({editedKey.Value})");
+                // The value must reach the picture, not just the model: the selected item's host is
+                // left at this key's value because PreviewAt put the preview on the edited frame.
+                var keyPreview = typeof(MotionMakerWindow)
+                    .GetField("_transitionPreview", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker);
+                var keyHosts = keyPreview?.GetType().GetProperty("Hosts")?.GetValue(keyPreview) as System.Collections.IDictionary;
+                if (keyHosts is null || keyHosts[lateId] is not FrameworkElement keyedHost)
+                    throw new Exception("FAIL: the keyframe probe could not find the previewed item");
+                if (Math.Abs(keyedHost.Opacity - 0.77) > 0.01)
+                    throw new Exception($"FAIL: the edited key did not reach the preview ({keyedHost.Opacity:0.###})");
+
+                // The last row starts 0.24s after the phase. A click on its own key must map back
+                // to that key's time, and its dot must sit where the value is, not at the boundary.
+                var xForGlobal = typeof(MotionMakerWindow).GetMethod("XForGlobal", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot place a time");
+                var timeAt = typeof(MotionMakerWindow).GetMethod("TimeAt", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot read a time");
+                var delay = (keyCatalog.Layout.Elements.Count - 1) * keyClip.ItemStagger;
+                var timelineCanvas = FindAll<Canvas>(keyMaker).First(canvas => Math.Abs(canvas.Width - 1040) < 0.5);
+                var keyY = 34 + (probeTimelineList.Items.Count - 1) * 34 + 18;
+                var keyPoint = new Point((double)xForGlobal.Invoke(keyMaker, [delay + 0.12])!, keyY);
+                var mapped = (double)timeAt.Invoke(keyMaker, [keyPoint, null])!;
+                if (Math.Abs(mapped - 0.12) > 0.01)
+                    throw new Exception($"FAIL: a delayed key mapped back to {mapped:0.###}s instead of 0.12s");
+                var keyDot = timelineCanvas.Children.OfType<System.Windows.Shapes.Ellipse>()
+                    .FirstOrDefault(dot => ReferenceEquals(dot.Tag, editedKey));
+                if (keyDot is null) throw new Exception("FAIL: the edited key has no dot on the timeline");
+                var dotCentre = Canvas.GetLeft(keyDot) + keyDot.Width / 2;
+                var expectedCentre = (double)xForGlobal.Invoke(keyMaker, [delay + 0.12])!;
+                if (Math.Abs(dotCentre - expectedCentre) > 1)
+                    throw new Exception($"FAIL: the key dot is drawn at {dotCentre:0.#} instead of {expectedCentre:0.#}");
+                var retimeKey = typeof(MotionMakerWindow).GetMethod("RetimeKey", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot retime a key");
+                var retimePoint = new Point((double)xForGlobal.Invoke(keyMaker, [delay + 0.16])!, keyY);
+                retimeKey.Invoke(keyMaker, [lateTrack, editedKey, retimePoint]);
+                if (Math.Abs(editedKey.Time - 0.16) > 0.01)
+                    throw new Exception($"FAIL: dragging a delayed key retimed it to {editedKey.Time:0.###}s instead of 0.16s");
+
+                // Colour keys sit below the numeric dots and follow the same delayed clock.
+                var probeColorList = (ListBox?)typeof(MotionMakerWindow)
+                    .GetField("_colorList", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no color key list");
+                var firstColorKey = lateColor.Keys.OrderBy(key => key.Time).First();
+                var colorRow = probeColorList.Items.OfType<object>().FirstOrDefault(item =>
+                    ReferenceEquals(item.GetType().GetProperty("Key")?.GetValue(item), firstColorKey));
+                if (colorRow is null) throw new Exception("FAIL: the color key never reached the timeline inspector");
+                probeColorList.SelectedItem = colorRow;
+                var probeColorTime = (TextBox?)typeof(MotionMakerWindow)
+                    .GetField("_colorTime", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no color time box");
+                var probeColorValue = (TextBox?)typeof(MotionMakerWindow)
+                    .GetField("_colorValue", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(keyMaker)
+                    ?? throw new Exception("FAIL: the keyframe probe has no color value box");
+                probeColorTime.Text = "0.05";
+                probeColorValue.Text = "#FF112233";
+                var updateColor = typeof(MotionMakerWindow).GetMethod("UpdateColor", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot update a color key");
+                updateColor.Invoke(keyMaker, null);
+                var editedColor = lateColor.Keys.FirstOrDefault(key => Math.Abs(key.Time - 0.05) < 0.001)
+                    ?? throw new Exception("FAIL: updating a color key did not retime it");
+                if (!string.Equals(editedColor.Color, "#FF112233", StringComparison.OrdinalIgnoreCase))
+                    throw new Exception($"FAIL: updating a color key did not apply its colour ({editedColor.Color})");
+                var retimeColor = typeof(MotionMakerWindow).GetMethod("RetimeColorKey", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new Exception("FAIL: the keyframe probe cannot retime a color key");
+                var colorPoint = new Point((double)xForGlobal.Invoke(keyMaker, [delay + 0.09])!, keyY + 9);
+                retimeColor.Invoke(keyMaker, [lateColor, editedColor, colorPoint]);
+                if (Math.Abs(editedColor.Time - 0.09) > 0.01)
+                    throw new Exception($"FAIL: dragging a delayed color key retimed it to {editedColor.Time:0.###}s instead of 0.09s");
+
+                // A colour key must repaint what is actually drawn, including a gradient plate that
+                // cannot hold a single Colour animation. Scrub first, then play, then restore.
+                var colourPhase = new MotionPhase("Colour probe", 0.4);
+                colourPhase.Colors.Add(new ColorTrack(MotionColorRole.Text, (0, "#FF000000"), (0.4, "#FFFF0000")));
+                colourPhase.Colors.Add(new ColorTrack(MotionColorRole.Background, (0, "#FF000000"), (0.4, "#FF00FF00")));
+                var colourText = new TextBlock { Text = "COLOUR", Foreground = new SolidColorBrush(Colors.White), FontSize = 24 };
+                var colourPlate = new Border
+                {
+                    Width = 180, Height = 70,
+                    Background = new LinearGradientBrush(Colors.Blue, Colors.White, 0),
+                    Child = colourText
+                };
+                var colourWindow = new Window
+                {
+                    Content = colourPlate, Width = 220, Height = 110,
+                    WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+                    ShowActivated = false, Left = -2000, Top = -2000
+                };
+                colourWindow.Show();
+                colourWindow.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(50));
+                var playbackType = typeof(MotionMakerWindow).Assembly.GetType("Scoreboard.Desktop.MotionPlayback")
+                    ?? throw new Exception("FAIL: the colour probe cannot find the motion player");
+                var applyAt = playbackType.GetMethod("ApplyAt", BindingFlags.Public | BindingFlags.Static)
+                    ?? throw new Exception("FAIL: the colour probe cannot scrub a phase");
+                var playPhase = playbackType.GetMethod("PlayPhase", BindingFlags.Public | BindingFlags.Static)
+                    ?? throw new Exception("FAIL: the colour probe cannot play a phase");
+                var stopMotion = playbackType.GetMethod("Stop", BindingFlags.Public | BindingFlags.Static)
+                    ?? throw new Exception("FAIL: the colour probe cannot stop a phase");
+                applyAt.Invoke(null, [colourPlate, colourPhase, 0.2, null]);
+                if (colourText.Foreground is not SolidColorBrush scrubbedText || scrubbedText.Color.R < 90 || scrubbedText.Color.G > 40)
+                    throw new Exception($"FAIL: a colour key did not reach the text brush ({colourText.Foreground})");
+                if (colourPlate.Background is not SolidColorBrush scrubbedPlate || scrubbedPlate.Color.G < 90 || scrubbedPlate.Color.R > 40)
+                    throw new Exception($"FAIL: a colour key did not reach a gradient plate ({colourPlate.Background})");
+                stopMotion.Invoke(null, [colourPlate]);
+                if (colourPlate.Background is not LinearGradientBrush)
+                    throw new Exception("FAIL: stopping a colour key did not restore the plate's gradient");
+                playPhase.Invoke(null, [colourPlate, colourPhase, 1.0, null, 1.0, false, false, null]);
+                Pump(TimeSpan.FromMilliseconds(180));
+                if (colourText.Foreground is not SolidColorBrush playedText || playedText.Color.R < 90 || playedText.Color.G > 60)
+                    throw new Exception($"FAIL: a played colour key did not animate the text ({colourText.Foreground})");
+                stopMotion.Invoke(null, [colourPlate]);
+                colourWindow.Close();
+                keyMaker.Close();
+                Console.WriteLine("PASS: delayed keyframes and colour keys keep their own times, can be retimed, and accept keyed values");
+            }
+
+            var animationMaker = new MotionMakerWindow(MotionKind.Animation, motionCatalog, motionEngine, "Dark");
+            animationMaker.Show();
+            animationMaker.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(180));
+            if (!FindAll<Button>(animationMaker).Any(button => (button.Content as string) == "+3 take"))
+                throw new Exception("FAIL: the animation maker does not offer score-specific takes");
+            animationMaker.Close();
+            Console.WriteLine("PASS: the transition timeline draws every item and adds temporary pieces; the animation maker offers score takes");
             GameEngine.NewSeriesLiveEnabled = true;
             smokeEngine.NewSeries();
             if (!smokeEngine.TakePublishRequest()) throw new Exception("FAIL: New series did not ask to publish");
@@ -235,6 +516,34 @@ internal static class Program
             // The top row is icon-only now; the name lives in the tooltip.
             if (!FindAll<Button>(shell).Any(b => (b.ToolTip as string ?? string.Empty).StartsWith("Event log", StringComparison.OrdinalIgnoreCase)))
                 throw new Exception("FAIL: the event log button is missing from the top row");
+            // The phone's media card must separate a paused clip from playing media, and speakers
+            // are their own on-air row rather than being reported as playing clips.
+            Directory.CreateDirectory(appDataPath);
+            var remoteMediaPath = Path.Combine(appDataPath, $"remote-paused-{Guid.NewGuid():N}.wav");
+            WriteSilentWav(remoteMediaPath, 1);
+            var mediaSession = (MediaSession?)typeof(MainWindow)
+                .GetField("_session", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(shell);
+            if (mediaSession is null) throw new Exception("FAIL: the shell has no media session");
+            var pausedClip = new MediaEntry(remoteMediaPath, "Ads", Name: "Paused test clip");
+            mediaSession.Library.Add(pausedClip);
+            mediaSession.Play(pausedClip);
+            mediaSession.TogglePlayPause();
+            mediaSession.Library.Add(new MediaEntry(MediaLibrary.SpeakerPath(0), Name: "Test speaker"));
+            var snapshotMethod = typeof(MainWindow).GetMethod("MediaSnapshotJson", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var snapshotJson = (string?)snapshotMethod?.Invoke(shell, null);
+            using var snapshot = System.Text.Json.JsonDocument.Parse(snapshotJson!);
+            bool SnapshotHas(string property, string? value) => snapshot.RootElement.GetProperty(property)
+                .EnumerateArray().Any(item => item.GetString() == value);
+            if (SnapshotHas("live", "Paused test clip"))
+                throw new Exception("FAIL: the remote calls a paused clip live");
+            if (!SnapshotHas("paused", "Paused test clip"))
+                throw new Exception("FAIL: the remote lost the paused clip");
+            if (!SnapshotHas("speakers", "Test speaker"))
+                throw new Exception("FAIL: the remote lost the speaker on-air row");
+            if (!snapshot.RootElement.GetProperty("clips").EnumerateArray().Any(item =>
+                    item.GetProperty("label").GetString() == "Test speaker" && item.GetProperty("onAir").GetBoolean()))
+                throw new Exception("FAIL: the remote speaker row does not say ON AIR");
             shell.Close();
             Console.WriteLine("PASS: dock holds one media library with tiles, transport and tags; event log moved to the top row");
 
@@ -303,7 +612,81 @@ internal static class Program
             Console.WriteLine("PASS: studio edits apply to the selected element only");
 
             editor.Close();
-            Console.WriteLine("PASS: scorebug studio loads");
+            Console.WriteLine("PASS: Display Studio loads");
+
+            // ---------- Display Studio: another layout is a live, resizeable feed ----------
+            {
+                var nestedPath = Path.Combine(Path.GetTempPath(), $"smoke-live-layout-{Guid.NewGuid():N}.json");
+                ScorebugEditorWindow? nestedEditor = null;
+                try
+                {
+                    var nestedCatalog = new ScorebugCatalog(nestedPath);
+                    var liveSourceId = nestedCatalog.Layout.Id;
+                    nestedCatalog.Update(layout =>
+                    {
+                        layout.Elements.Clear();
+                        layout.Elements.Add(new ScorebugElement
+                        {
+                            Name = "Live score", Kind = ScorebugElementKind.Text, Content = "{{HOME_SCORE}}",
+                            X = 30, Y = 30, Width = 260, Height = 90, FontSize = 56
+                        });
+                    });
+                    nestedCatalog.AddLayout("Feed host");
+                    var feedElement = new ScorebugElement
+                    {
+                        Name = "Live layout", Kind = ScorebugElementKind.Layout, Content = "",
+                        NestedLayoutId = liveSourceId, NestedPreserveAspect = true,
+                        X = 140, Y = 100, Width = 480, Height = 270
+                    };
+                    nestedCatalog.Update(layout => { layout.Elements.Clear(); layout.Elements.Add(feedElement); });
+                    var nestedEngine = new GameEngine();
+                    nestedEngine.NewGame("football");
+                    nestedEditor = new ScorebugEditorWindow(nestedCatalog, nestedEngine);
+                    nestedEditor.Show();
+                    nestedEditor.UpdateLayout();
+                    if (!nestedEditor.Title.Contains("Display Studio", StringComparison.Ordinal))
+                        throw new Exception($"FAIL: the editor is still titled '{nestedEditor.Title}'");
+                    var nestedCanvas = (Canvas)nestedEditor.FindName("DesignCanvas")!;
+                    var feedHost = nestedCanvas.Children.OfType<Border>()
+                        .SingleOrDefault(border => (border.Tag as ScorebugElement)?.Id == feedElement.Id)
+                        ?? throw new Exception("FAIL: the live layout has no element on the studio canvas");
+                    var feed = FindAll<ScorebugLayoutFeed>(feedHost).SingleOrDefault()
+                        ?? throw new Exception("FAIL: the live layout did not build a nested canvas");
+                    var nestedView = feed.Children.OfType<ScorebugCanvasView>().SingleOrDefault()
+                        ?? throw new Exception("FAIL: the live layout has no live feed view");
+                    if (nestedView.Layout.Id != liveSourceId)
+                        throw new Exception("FAIL: the live layout is not drawing its source layout");
+                    nestedEngine.Score(true, 7);
+                    Pump(TimeSpan.FromMilliseconds(650));
+                    nestedEditor.UpdateLayout();
+                    if (!FindAll<TextBlock>(nestedView).Any(text => text.Text.Trim() == "7"))
+                        throw new Exception("FAIL: a score change did not reach the live nested layout");
+                    var nestedLayers = (ListBox)nestedEditor.FindName("Layers")!;
+                    nestedLayers.SelectedIndex = 0;
+                    nestedEditor.UpdateLayout();
+                    var nestedAspect = (CheckBox)nestedEditor.FindName("NestedAspectInput")!;
+                    var nestedPicker = (ComboBox)nestedEditor.FindName("NestedLayoutInput")!;
+                    var pickedId = nestedPicker.SelectedItem?.GetType().GetProperty("Id")?.GetValue(nestedPicker.SelectedItem) as string;
+                    if (nestedAspect.IsChecked != true || pickedId != liveSourceId)
+                        throw new Exception("FAIL: the live layout panel does not show its source and fit mode");
+                    var resizeHandle = FindAll<Border>(feedHost)
+                        .FirstOrDefault(border => border.Cursor == Cursors.SizeNWSE && border.Visibility == Visibility.Visible)
+                        ?? throw new Exception("FAIL: a selected live layout has no resize handle");
+                    var nestedWidth = (TextBox)nestedEditor.FindName("WidthInput")!;
+                    nestedWidth.Text = "360";
+                    Pump(TimeSpan.FromMilliseconds(650));
+                    nestedEditor.UpdateLayout();
+                    if (Math.Abs(nestedCatalog.Layout.Elements.Single().Width - 360) > 0.5
+                        || Math.Abs(feedHost.Width - 360) > 0.5)
+                        throw new Exception($"FAIL: the live layout did not resize ({nestedCatalog.Layout.Elements.Single().Width:0}, {feedHost.Width:0})");
+                    Console.WriteLine("PASS: Display Studio embeds another layout as a live, resizeable feed");
+                }
+                finally
+                {
+                    nestedEditor?.Close();
+                    if (File.Exists(nestedPath)) File.Delete(nestedPath);
+                }
+            }
 
             // ---------- studio multi-select: Ctrl/Shift rows and Delete ----------
             {
@@ -332,6 +715,55 @@ internal static class Program
                             && Equals(border.BorderBrush, System.Windows.Media.Brushes.DeepSkyBlue));
                     if (highlighted != 2)
                         throw new Exception($"FAIL: {highlighted} of 2 selected objects were highlighted in the studio");
+                    // Multiple selected objects share one outer frame and one resize handle. Their own
+                    // handles are hidden so the drag scales the group, not one item at a time.
+                    var groupBox = (Border)multiEditor.FindName("GroupSelectionBox")!;
+                    var groupHandle = (Border)multiEditor.FindName("GroupResizeHandle")!;
+                    if (groupBox.Visibility != Visibility.Visible || groupHandle.Visibility != Visibility.Visible)
+                        throw new Exception("FAIL: a multi-selection has no group resize box and handle");
+                    if (groupBox.Background is SolidColorBrush groupFill && groupFill.Color.A != 0)
+                        throw new Exception("FAIL: the group resize box tints the artwork instead of only outlining it");
+                    var groupElements = multiCatalog.Layout.Elements.Where(element => selectedIds.Contains(element.Id)).ToArray();
+                    var expectedGroupWidth = groupElements.Max(element => element.X + element.Width) - groupElements.Min(element => element.X);
+                    var expectedGroupHeight = groupElements.Max(element => element.Y + element.Height) - groupElements.Min(element => element.Y);
+                    if (Math.Abs(groupBox.ActualWidth - expectedGroupWidth) > 0.5 || Math.Abs(groupBox.ActualHeight - expectedGroupHeight) > 0.5)
+                        throw new Exception($"FAIL: the group box is {groupBox.ActualWidth:0}×{groupBox.ActualHeight:0}, expected {expectedGroupWidth:0}×{expectedGroupHeight:0}");
+                    var individualHandles = FindAll<Border>((Canvas)multiEditor.FindName("DesignCanvas")!)
+                        .Count(handle => handle.Tag is ScorebugElement && handle.Width == 16 && handle.Height == 16
+                            && handle.Visibility == Visibility.Visible);
+                    if (individualHandles != 0)
+                        throw new Exception($"FAIL: {individualHandles} individual resize handles are still visible inside a group selection");
+                    var scaleGroup = typeof(ScorebugEditorWindow).GetMethod("ScaleGroupElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+                    var groupItems = new[]
+                    {
+                        new ScorebugElement { X = 100, Y = 100, Width = 100, Height = 50, FontSize = 20 },
+                        new ScorebugElement { X = 200, Y = 150, Width = 60, Height = 40, FontSize = 20 }
+                    };
+                    scaleGroup.Invoke(null, new object[] { groupItems, new Rect(100, 100, 160, 90), 2.0, 0.5, true });
+                    if (Math.Abs(groupItems[0].Width - 200) > 0.01 || Math.Abs(groupItems[0].Height - 25) > 0.01
+                        || Math.Abs(groupItems[1].X - 300) > 0.01 || Math.Abs(groupItems[1].Y - 125) > 0.01
+                        || Math.Abs(groupItems[1].Width - 120) > 0.01 || Math.Abs(groupItems[1].Height - 20) > 0.01
+                        || Math.Abs(groupItems[0].FontSize - 10) > 0.01)
+                        throw new Exception("FAIL: group resize did not scale every selected item around the group box");
+                    // A panel save that was queued before the drag must not write one rounded width
+                    // onto the whole selection while the resize is still finishing.
+                    var widthField = (TextBox)multiEditor.FindName("WidthInput")!;
+                    var widthsBeforeStaleSave = groupElements.ToDictionary(element => element.Id, element => element.Width);
+                    var resizingField = typeof(ScorebugEditorWindow).GetField("_resizing", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    var settlingField = typeof(ScorebugEditorWindow).GetField("_resizeSettling", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    var saveProperties = typeof(ScorebugEditorWindow).GetMethod("SaveProperties", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    resizingField.SetValue(multiEditor, true);
+                    widthField.Text = "999";
+                    saveProperties.Invoke(multiEditor, null);
+                    resizingField.SetValue(multiEditor, false);
+                    settlingField.SetValue(multiEditor, true);
+                    widthField.Text = "998";
+                    saveProperties.Invoke(multiEditor, null);
+                    settlingField.SetValue(multiEditor, false);
+                    if (groupElements.Any(element => Math.Abs(element.Width - widthsBeforeStaleSave[element.Id]) > 0.001))
+                        throw new Exception("FAIL: a delayed property save overwrote the group's finished sizes");
+                    widthField.Text = groupElements[0].Width.ToString("0.##");
+                    Console.WriteLine("PASS: a multi-selection has one group box whose handle scales every item together");
                     RaiseKey(multiEditor, PresentationSource.FromVisual(multiEditor), Key.Delete);
                     multiEditor.UpdateLayout();
                     if (multiCatalog.Layout.Elements.Count != multiBefore - 2)
@@ -340,6 +772,74 @@ internal static class Program
                 }
                 finally { if (File.Exists(multiPath)) File.Delete(multiPath); }
                 Console.WriteLine("PASS: the studio keeps a multi-selection and Delete removes every selected object");
+            }
+
+            // ---------- layout hand-over that slides matching items between their old and new spots ----------
+            {
+                var movePath = Path.Combine(Path.GetTempPath(), $"smoke-move-{Guid.NewGuid():N}.json");
+                ScorebugCanvasView? moveView = null;
+                Window? moveWindow = null;
+                try
+                {
+                    var moveCatalog = new ScorebugCatalog(movePath);
+                    moveCatalog.Update(layout =>
+                    {
+                        layout.Elements.Clear();
+                        layout.Elements.Add(new ScorebugElement
+                        {
+                            Name = "Mover", Content = "MOVE", Kind = ScorebugElementKind.Text,
+                            X = 120, Y = 100, Width = 240, Height = 90, FontSize = 36
+                        });
+                        layout.Transition = LayoutTransition.Cut;
+                        layout.TransitionSeconds = 0;
+                    });
+                    var originalId = moveCatalog.Layout.Elements[0].Id;
+                    var movedIndex = moveCatalog.AddLayout("Moved", copyActive: true);
+                    var movedId = moveCatalog.Layouts[movedIndex].Elements[0].Id;
+                    if (movedId == originalId)
+                        throw new Exception("FAIL: the duplicate layout did not get independent element identity");
+                    moveCatalog.SelectLayout(movedIndex);
+                    moveCatalog.Update(layout =>
+                    {
+                        layout.Elements[0].X = 620;
+                        layout.Elements[0].Y = 340;
+                        layout.Transition = LayoutTransition.Move;
+                        layout.TransitionSeconds = 0.5;
+                    });
+                    moveCatalog.SelectLayout(0);
+                    moveView = new ScorebugCanvasView(moveCatalog, engine, stateProvider: () => engine.State,
+                        layoutProvider: () => moveCatalog.Layout);
+                    moveWindow = new Window
+                    {
+                        Width = 800, Height = 450, Content = moveView, ShowInTaskbar = false,
+                        WindowStyle = WindowStyle.None, Left = -32000, Top = -32000
+                    };
+                    moveWindow.Show();
+                    moveWindow.UpdateLayout();
+                    Pump(TimeSpan.FromMilliseconds(60));
+                    moveCatalog.SelectLayout(movedIndex);
+                    var canvasField = typeof(ScorebugCanvasView).GetField("_canvas", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                    var moveCanvas = (Canvas)canvasField.GetValue(moveView)!;
+                    var movingHost = moveCanvas.Children.OfType<Border>().Single();
+                    var movingGroup = movingHost.RenderTransform as TransformGroup;
+                    var movingSlide = movingGroup?.Children.OfType<TranslateTransform>().LastOrDefault();
+                    if (movingSlide is null || movingSlide.X > -490 || movingSlide.X < -510)
+                        throw new Exception($"FAIL: the moved duplicate did not start at its old position ({movingSlide?.X})");
+                    Pump(TimeSpan.FromMilliseconds(120));
+                    if (movingSlide.X <= -489)
+                        throw new Exception("FAIL: the moved duplicate did not travel toward its new position");
+                    Pump(TimeSpan.FromMilliseconds(520));
+                    if (movingHost.RenderTransform is TransformGroup leftover
+                        && leftover.Children.OfType<TranslateTransform>().Any(slide => Math.Abs(slide.X) > 0.5))
+                        throw new Exception("FAIL: the move hand-over left the item offset after it finished");
+                    Console.WriteLine("PASS: a duplicate's moved item slides from its old position to its new one");
+                }
+                finally
+                {
+                    moveView?.Dispose();
+                    moveWindow?.Close();
+                    if (File.Exists(movePath)) File.Delete(movePath);
+                }
             }
 
             var keybinds = new KeybindsWindow(new KeybindSettings());
@@ -435,8 +935,8 @@ internal static class Program
                 ((TextBox)profileWindow.FindName("TimeoutsInput")!).Text = "6";
                 ((Button)profileWindow.FindName("SaveButton")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 profileWindow.UpdateLayout();
-                if (sports.Find("football")!.Timeouts != 6 || !sports.IsOverridden("football"))
-                    throw new Exception("FAIL: sport profile edits were not saved");
+                if (sports.Find("football")!.Timeouts != 3 || !sports.IsOverridden("football"))
+                    throw new Exception($"FAIL: football profile timeouts were not capped at three ({sports.Find("football")!.Timeouts})");
                 profileWindow.Close();
                 Console.WriteLine("PASS: editing a built-in sport profile saves the timeout count");
             }
@@ -515,8 +1015,15 @@ internal static class Program
             ((ComboBox)saveWindow.FindName("ThemeSelector")!).SelectedItem = "Light";
             saveWindow.FindName("ThemeSelector");
             var saveButton = FindAll<Button>(saveWindow).First(b => (b.Content as string) == "Save");
+            var capsBox = FindAll<CheckBox>(saveWindow).FirstOrDefault(box => (box.Content as string) == "Down line prints in full caps")
+                ?? throw new Exception("FAIL: preferences have no full-caps down line option");
+            if (capsBox.IsChecked == true)
+                throw new Exception("FAIL: the full-caps down line is on by default");
+            capsBox.IsChecked = true;
             saveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (prefsProbe.Theme != "Light") throw new Exception("FAIL: saving preferences did not apply the theme");
+            if (!prefsProbe.UppercaseDownWords || !GameEngine.UppercaseDownWordsEnabled)
+                throw new Exception("FAIL: the full-caps down line preference did not save or apply");
             // System is offered alongside the pinned themes and can be saved.
             var systemChoices = ((ComboBox)saveWindow.FindName("ThemeSelector")!).ItemsSource as string[];
             if (systemChoices is null || !systemChoices.Contains("System"))
@@ -525,10 +1032,16 @@ internal static class Program
             systemWindow.Show();
             systemWindow.UpdateLayout();
             ((ComboBox)systemWindow.FindName("ThemeSelector")!).SelectedItem = "System";
+            var capsOff = FindAll<CheckBox>(systemWindow).First(box => (box.Content as string) == "Down line prints in full caps");
+            if (capsOff.IsChecked != true)
+                throw new Exception("FAIL: the saved full-caps down line did not reload");
+            capsOff.IsChecked = false;
             FindAll<Button>(systemWindow).First(b => (b.Content as string) == "Save")
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (prefsProbe.Theme != "System")
                 throw new Exception($"FAIL: the System theme saved as '{prefsProbe.Theme}'");
+            if (prefsProbe.UppercaseDownWords || GameEngine.UppercaseDownWordsEnabled)
+                throw new Exception("FAIL: turning the full-caps down line off did not save or apply");
             Console.WriteLine("PASS: preferences only apply when saved, and System is a saved option");
 
             // Enter while typing in a preference field saves the value but keeps the page open:
@@ -767,6 +1280,45 @@ internal static class Program
                     throw new Exception($"FAIL: a property change reached {applied} of {group.Length} selected elements");
                 Console.WriteLine("PASS: a property change lands on every selected element at once");
 
+                // History and the object clipboard use the same saves as the rest of the studio.
+                var beforeAdd = freshCatalog.Layout.Elements.Count;
+                var addButton = FindAll<Button>(addEditor).First(b => (b.Content as string) == "TEXT +");
+                addButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                addEditor.UpdateLayout();
+                if (freshCatalog.Layout.Elements.Count != beforeAdd + 1)
+                    throw new Exception("FAIL: adding an element did not change the layout");
+                var undoButton = (Button)addEditor.FindName("UndoButton")!;
+                var redoButton = (Button)addEditor.FindName("RedoButton")!;
+                if (!undoButton.IsEnabled) throw new Exception("FAIL: undo did not enable after an edit");
+                undoButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                addEditor.UpdateLayout();
+                if (freshCatalog.Layout.Elements.Count != beforeAdd)
+                    throw new Exception("FAIL: undo did not restore the layout before the add");
+                if (!redoButton.IsEnabled) throw new Exception("FAIL: redo did not enable after an undo");
+                redoButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                addEditor.UpdateLayout();
+                if (freshCatalog.Layout.Elements.Count != beforeAdd + 1)
+                    throw new Exception("FAIL: redo did not restore the added element");
+                // A redo rebuilds the canvas and clears the layer selection; pick a row again, as
+                // the operator would, before exercising the object clipboard.
+                studioLayers.SelectedItems.Clear();
+                studioLayers.SelectedItems.Add(studioLayers.Items[studioLayers.Items.Count - 1]);
+                addEditor.UpdateLayout();
+                var copyMethod = typeof(ScorebugEditorWindow).GetMethod("CopySelection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                var pasteMethod = typeof(ScorebugEditorWindow).GetMethod("PasteSelection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                copyMethod.Invoke(addEditor, null);
+                pasteMethod.Invoke(addEditor, null);
+                addEditor.UpdateLayout();
+                if (freshCatalog.Layout.Elements.Count != beforeAdd + 2)
+                    throw new Exception("FAIL: copy and paste did not add an independent element");
+                var photoButton = FindAll<Button>(addEditor).First(b => (b.Content as string) == "PLAYER PHOTO +");
+                photoButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                addEditor.UpdateLayout();
+                var portrait = freshCatalog.Layout.Elements[^1];
+                if (portrait.Kind != ScorebugElementKind.Image || portrait.PlayerPhotoSide != ScorebugPlayerPhotoSide.Home)
+                    throw new Exception("FAIL: the studio's player-photo button did not add a home portrait element");
+                Console.WriteLine("PASS: studio undo/redo, object copy/paste and the player-photo element work");
+
                 addEditor.Close();
                 Console.WriteLine("PASS: new studio artwork starts without a background box");
             }
@@ -794,6 +1346,130 @@ internal static class Program
             var view = fitPanel.Panel;
             view.UpdateLayout();
             double Left(FrameworkElement element) => element.TransformToAncestor(view).Transform(new Point(0, 0)).X;
+            Rect Bounds(FrameworkElement element)
+            {
+                var topLeft = element.TransformToAncestor(view).Transform(new Point(0, 0));
+                return new Rect(topLeft, new Size(element.ActualWidth, element.ActualHeight));
+            }
+            Border FootballCardFor(DependencyObject node)
+            {
+                var cardStyle = (Style)view.FindResource("Card");
+                for (var current = node; current is not null && current != view; current = VisualTreeHelper.GetParent(current))
+                    if (current is Border border && border.Style == cardStyle) return border;
+                throw new Exception("FAIL: a console control is not inside a card");
+            }
+            void AssertInsideCard(FrameworkElement element, string label)
+            {
+                if (!element.IsVisible) throw new Exception($"FAIL: {label} is hidden at this window size");
+                var bounds = Bounds(element);
+                var cardBounds = Bounds(FootballCardFor(element));
+                if (bounds.Left < cardBounds.Left - 0.5 || bounds.Top < cardBounds.Top - 0.5 ||
+                    bounds.Right > cardBounds.Right + 0.5 || bounds.Bottom > cardBounds.Bottom + 0.5)
+                    throw new Exception($"FAIL: {label} is outside its card ({bounds:0.#} inside {cardBounds:0.#})");
+            }
+            void AssertFootballCardFits()
+            {
+                foreach (var name in new[]
+                         {
+                             "NewSeriesButton", "RecallDownButton", "FootballModePicker", "PenaltyStrip"
+                         })
+                {
+                    var control = view.FindName(name) as FrameworkElement
+                        ?? throw new Exception($"FAIL: {name} is missing from the console");
+                    AssertInsideCard(control, name);
+                }
+                var modeLabel = view.FindName("FootballModeLabel") as TextBlock
+                    ?? throw new Exception("FAIL: the football down-line label is missing");
+                var modeNext = view.FindName("FootballModeNextButton") as Button
+                    ?? throw new Exception("FAIL: the next down-line arrow is missing");
+                var modePrev = view.FindName("FootballModePrevButton") as Button
+                    ?? throw new Exception("FAIL: the previous down-line arrow is missing");
+                // The whole arrow button must be inside its card, not just the row around it.
+                AssertInsideCard(modeNext, "FootballModeNextButton");
+                AssertInsideCard(modePrev, "FootballModePrevButton");
+                // The glyph is drawn as a vector, so no font's overhang can clip half the arrow,
+                // and the fixed row must give the full button its 38 pixels rather than shrinking
+                // it through the shared button margin.
+                if (modeNext.ActualHeight < 37 || modePrev.ActualHeight < 37 ||
+                    modeNext.Margin != new Thickness(0) || modePrev.Margin != new Thickness(0))
+                    throw new Exception($"FAIL: the down-line arrows are squeezed ({modePrev.ActualHeight:0.#} / {modeNext.ActualHeight:0.#} px)");
+                var nextGlyph = FindAll<System.Windows.Shapes.Path>(modeNext).FirstOrDefault()
+                    ?? throw new Exception("FAIL: the next down-line arrow has no vector glyph");
+                var prevGlyph = FindAll<System.Windows.Shapes.Path>(modePrev).FirstOrDefault()
+                    ?? throw new Exception("FAIL: the previous down-line arrow has no vector glyph");
+                void AssertGlyphInside(Button button, System.Windows.Shapes.Path glyph, string label)
+                {
+                    var glyphBounds = glyph.TransformToAncestor(button)
+                        .TransformBounds(new Rect(glyph.RenderSize));
+                    if (glyphBounds.Left < -0.5 || glyphBounds.Top < -0.5 ||
+                        glyphBounds.Right > button.ActualWidth + 0.5 || glyphBounds.Bottom > button.ActualHeight + 0.5)
+                        throw new Exception($"FAIL: the {label} arrow glyph is clipped ({glyphBounds:0.#} inside {button.ActualWidth:0.#}x{button.ActualHeight:0.#})");
+                }
+                AssertGlyphInside(modeNext, nextGlyph, "next");
+                AssertGlyphInside(modePrev, prevGlyph, "previous");
+                if (modeLabel.Text != "Yards")
+                    throw new Exception($"FAIL: the down-line arrows start on {modeLabel.Text}, not Yards");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "Goal" || engine.State.FootballDownMode != FootballDownMode.Goal)
+                    throw new Exception($"FAIL: next from Yards did not reach Goal ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "PAT" || engine.State.FootballDownMode != FootballDownMode.Pat)
+                    throw new Exception($"FAIL: next from Goal did not reach PAT ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "2 PT ATT" || engine.State.FootballDownMode != FootballDownMode.TwoPoint)
+                    throw new Exception($"FAIL: the arrows did not reach 2 PT ATT ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "No line" || engine.State.FootballDownMode != FootballDownMode.None)
+                    throw new Exception($"FAIL: the arrows did not reach No line ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "Yards" || engine.State.FootballDownMode != FootballDownMode.Normal)
+                    throw new Exception($"FAIL: the arrows did not wrap back to Yards ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modePrev.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "No line" || engine.State.FootballDownMode != FootballDownMode.None)
+                    throw new Exception($"FAIL: previous from Yards did not wrap to No line ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                engine.SetFootballDownMode(FootballDownMode.Normal);
+                view.Refresh();
+                var ballSide = FindAll<Button>(view).FirstOrDefault(b => (b.Tag as string) == "football.ball.side")
+                    ?? throw new Exception("FAIL: the ball-side switch is missing from the console");
+                AssertInsideCard(ballSide, "the ball-side switch");
+                // The compact step row runs minus / value / plus, and the ball-side switch has its
+                // own clear line above those arrows instead of touching the Ball On controls.
+                Button StepButton(string hostName, string content)
+                {
+                    var host = view.FindName(hostName) as ContentControl
+                        ?? throw new Exception($"FAIL: {hostName} is missing from the console");
+                    return FindAll<Button>(host).FirstOrDefault(button => Equals(button.Content, content))
+                        ?? throw new Exception($"FAIL: {hostName} has no {content} step button");
+                }
+                foreach (var hostName in new[] { "DownHost", "ToGoHost", "BallOnHost" })
+                {
+                    if (Left(StepButton(hostName, "−")) >= Left(StepButton(hostName, "+")))
+                        throw new Exception($"FAIL: {hostName} puts + before − instead of − on the left and + on the right");
+                }
+                var ballMinus = StepButton("BallOnHost", "−");
+                var ballPlus = StepButton("BallOnHost", "+");
+                var ballSideBounds = Bounds(ballSide);
+                var ballStepTop = Math.Min(Bounds(ballMinus).Top, Bounds(ballPlus).Top);
+                if (ballSideBounds.Bottom > ballStepTop - 0.5)
+                    throw new Exception($"FAIL: the ball-side switch clips into the Ball On step arrows ({ballSideBounds.Bottom:0.#} vs {ballStepTop:0.#})");
+                var clockValue = (FrameworkElement)view.FindName("ClockValue")!;
+                var clockMessage = (FrameworkElement)view.FindName("ClockMessageBox")!;
+                AssertInsideCard(clockValue, "ClockValue");
+                AssertInsideCard(clockMessage, "ClockMessageBox");
+                if (Bounds(clockValue).IntersectsWith(Bounds(clockMessage)))
+                    throw new Exception("FAIL: the clock-message picker overlaps the game-clock value");
+                var quarter = (FrameworkElement)view.FindName("QuarterHost")!;
+                var clockGap = Bounds(quarter).Left - Bounds(clockMessage).Right;
+                if (clockGap < 16)
+                    throw new Exception($"FAIL: the clock-message picker is only {clockGap:0}px from Quarter");
+                var downValue = FindAll<TextBox>((DependencyObject)view.FindName("DownHost")!).First();
+                var toGoValue = FindAll<TextBox>((DependencyObject)view.FindName("ToGoHost")!).First();
+                var ballValue = FindAll<TextBox>((DependencyObject)view.FindName("BallOnHost")!).First();
+                var downTop = Bounds(downValue).Top;
+                if (Math.Abs(Bounds(toGoValue).Top - downTop) > 0.5 || Math.Abs(Bounds(ballValue).Top - downTop) > 0.5)
+                    throw new Exception("FAIL: the Down, To Go and Ball On value rows are not aligned");
+            }
+            AssertFootballCardFits();
             var awayBox = (TextBox)view.FindName("AwayName")!;
             var homeBox = (TextBox)view.FindName("HomeName")!;
             if (Left(awayBox) >= Left(homeBox)) throw new Exception("FAIL: visitors are not left of home");
@@ -817,6 +1493,7 @@ internal static class Program
             fitPanel.Height = 1280;
             fitPanel.UpdateLayout();
             view.UpdateLayout();
+            AssertFootballCardFits();
             if (Left(awayBox) >= Left(homeBox))
                 throw new Exception("FAIL: visitors are not left of home on a portrait window");
             var portraitScrollers = FindAll<ScrollViewer>(view).Where(s => s.IsVisible && s.ScrollableHeight > 0).ToArray();
@@ -899,7 +1576,7 @@ internal static class Program
             profileShell.Engine.Sports.SaveProfile(profileShell.Engine.Sports.Find("football")! with { Timeouts = 4, ScoringOptions = [1, 2, 3, 6] });
             profileShell.StartNewGame("football");
             profileShell.UpdateLayout();
-            if (profileShell.Engine.State.HomeTimeouts != 4)
+            if (profileShell.Engine.State.HomeTimeouts != 3)
                 throw new Exception($"FAIL: an edited profile still gives {profileShell.Engine.State.HomeTimeouts} timeouts to a new game");
             if (!FindAll<Button>(profileShell.Panel.HomeScore).Any(b => (b.Content as string) == "+6"))
                 throw new Exception("FAIL: the console kept the old scoring buttons after a profile edit");
@@ -917,7 +1594,7 @@ internal static class Program
             ((TextBox)profileDialog.FindName("ScoringInput")!).Text = "2, 3, 7";
             ((Button)profileDialog.FindName("SaveButton")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var savedProfile = dialogCatalog.Find(dialogTarget.Id)!;
-            if (savedProfile.Timeouts != 6 || !savedProfile.ScoringOptions.SequenceEqual([2, 3, 7]))
+            if (savedProfile.Timeouts != 3 || !savedProfile.ScoringOptions.SequenceEqual([2, 3, 7]))
                 throw new Exception($"FAIL: the profile dialog saved {savedProfile.Timeouts} timeouts and {string.Join('/', savedProfile.ScoringOptions)} scoring");
             profileDialog.Close();
             Console.WriteLine("PASS: saving from the sport profile window reaches the running catalog immediately");
@@ -928,8 +1605,8 @@ internal static class Program
             var barsItem = new ScorebugElement { Name = "Timeouts", Content = "", Kind = ScorebugElementKind.Text, Icon = ScorebugIcon.TimeoutBars, Width = 160, Height = 60 };
             var iconsView = new ScorebugIconView(barsItem, () => iconEngine.State);
             var barCount = FindAll<System.Windows.Shapes.Rectangle>(iconsView).Count();
-            if (barCount != iconEngine.State.HomeTimeouts)
-                throw new Exception($"FAIL: timeout icon drew {barCount} bars for {iconEngine.State.HomeTimeouts} timeouts");
+            if (barCount != iconEngine.State.HomeTimeoutLimit)
+                throw new Exception($"FAIL: timeout icon drew {barCount} bars for {iconEngine.State.HomeTimeoutLimit} timeouts");
             foreach (var line in FindAll<System.Windows.Shapes.Rectangle>(iconsView))
                 if (line.Width <= line.Height * 2)
                     throw new Exception($"FAIL: timeout bar is not a horizontal line ({line.Width:0}x{line.Height:0})");
@@ -939,8 +1616,20 @@ internal static class Program
                 throw new Exception("FAIL: timeout lines are not in a row");
             iconEngine.Timeout(true);
             iconsView.Update();
-            if (FindAll<System.Windows.Shapes.Rectangle>(iconsView).Count() != iconEngine.State.HomeTimeouts)
-                throw new Exception("FAIL: the timeout icon did not follow a used timeout");
+            if (FindAll<System.Windows.Shapes.Rectangle>(iconsView).Count() != iconEngine.State.HomeTimeoutLimit)
+                throw new Exception("FAIL: a used timeout should keep its bar, greyed out, for the full allotment");
+            var usedBar = FindAll<System.Windows.Shapes.Rectangle>(iconsView).Last();
+            if (usedBar.Fill is not SolidColorBrush usedBrush || usedBrush.Color != Color.FromRgb(0x9A, 0xA5, 0xB2))
+                throw new Exception("FAIL: a used timeout bar did not switch to the light-grey out colour");
+            barsItem.IconVertical = true;
+            iconsView.Update();
+            var verticalStack = FindAll<StackPanel>(iconsView).FirstOrDefault();
+            if (verticalStack?.Orientation != Orientation.Vertical)
+                throw new Exception("FAIL: the vertical timeout option did not stack the bars");
+            barsItem.IconVertical = false;
+            var iconName = new IconNameConverter().Convert(ScorebugIcon.PossessionDot, typeof(string), null, CultureInfo.InvariantCulture) as string;
+            if (iconName != "Possession Dot")
+                throw new Exception($"FAIL: the icon picker still shows compact enum names ('{iconName}')");
             var dotItem = new ScorebugElement { Name = "Possession", Content = "{{POSSESSION}}", Kind = ScorebugElementKind.Text, Icon = ScorebugIcon.PossessionDot, Width = 200, Height = 60 };
             var dotView = new ScorebugIconView(dotItem, () => iconEngine.State);
             var dot = FindAll<System.Windows.Shapes.Ellipse>(dotView).Single();
@@ -957,7 +1646,27 @@ internal static class Program
             dotView.Update();
             if (dot.HorizontalAlignment != HorizontalAlignment.Right)
                 throw new Exception("FAIL: flipping the possession dot had no effect");
+            // A layout rebuild creates a fresh arrow view. Its first paint must be a still so the
+            // mark does not replay its entrance just because the operator changed layouts.
+            var arrowEngine = new GameEngine();
+            arrowEngine.NewGame("football");
+            arrowEngine.SetPossession(true);
+            var arrowItem = new ScorebugElement
+            {
+                Name = "Possession arrow", Kind = ScorebugElementKind.Text, Width = 80, Height = 40,
+                Icon = ScorebugIcon.PossessionArrow, FontSize = 26,
+                Transition = ScorebugTransition.WheelUp, TransitionSeconds = 0.6
+            };
+            var arrowView = new ScorebugIconView(arrowItem, () => arrowEngine.State);
+            var arrowMark = FindAll<System.Windows.Shapes.Polygon>(arrowView).Single();
+            if (arrowMark.Opacity < 0.999 || arrowMark.RenderTransform is TranslateTransform)
+                throw new Exception("FAIL: the possession arrow plays an entrance on its first paint");
+            arrowEngine.SetPossession(false);
+            arrowView.Update();
+            if (arrowMark.RenderTransform is not TranslateTransform)
+                throw new Exception("FAIL: the possession arrow stopped animating when possession actually changed");
             Console.WriteLine("PASS: timeout bars and the possession dot follow live data, and the dot can be flipped");
+            Console.WriteLine("PASS: the possession arrow paints its first frame still and only animates a real possession change");
 
             // The same icons render on a real scorebug canvas, and the studio offers the property.
             var iconCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"icons-{Guid.NewGuid():N}.json"));
@@ -981,10 +1690,107 @@ internal static class Program
             iconStudio.UpdateLayout();
             if (((FrameworkElement)iconStudio.FindName("IconSection")!).Visibility != Visibility.Visible)
                 throw new Exception("FAIL: the studio hides the icon properties for a text element");
-            if (((ComboBox)iconStudio.FindName("IconInput")!).SelectedItem is not (ScorebugIcon.TimeoutBars or ScorebugIcon.PossessionDot))
+            var studioIcon = ((ComboBox)iconStudio.FindName("IconInput")!).SelectedItem;
+            if (studioIcon is not (ScorebugIcon.TimeoutBars or ScorebugIcon.PossessionDot))
                 throw new Exception("FAIL: the studio did not show the selected element's icon");
+            if (((FrameworkElement)iconStudio.FindName("IconCustomInput")!).Visibility != Visibility.Collapsed)
+                throw new Exception("FAIL: the made-icon picker appears on a built-in icon");
+            var verticalVisibility = ((FrameworkElement)iconStudio.FindName("IconVerticalInput")!).Visibility;
+            var expectedVerticalVisibility = studioIcon is ScorebugIcon.TimeoutBars ? Visibility.Visible : Visibility.Collapsed;
+            if (verticalVisibility != expectedVerticalVisibility)
+                throw new Exception($"FAIL: the vertical-bar property visibility is {verticalVisibility} for {studioIcon}");
+            var iconColourSwatch = (Border)iconStudio.FindName("IconColorSwatch")!;
+            if (!iconColourSwatch.IsVisible || iconColourSwatch.ActualWidth < 20)
+                throw new Exception("FAIL: the studio's icon colour row has no visible swatch");
+            ((TextBox)iconStudio.FindName("IconColorInput")!).Text = "#FFFF0000";
+            iconStudio.UpdateLayout();
+            if (iconColourSwatch.Background is not SolidColorBrush iconColourBrush || iconColourBrush.Color != Colors.Red)
+                throw new Exception($"FAIL: the studio's icon colour swatch did not follow the typed colour (found={iconColourSwatch.Background})");
             iconStudio.Close();
             Console.WriteLine("PASS: icon elements draw on the scorebug canvas and edit from the studio");
+
+            // The window is named Icon Creator, and the optional state label is separated from the
+            // condition that actually decides when a design applies.
+            {
+                var creator = new IconMakerWindow("Dark");
+                creator.Show();
+                creator.UpdateLayout();
+                if (creator.Title != "ScorePlus — Icon Creator")
+                    throw new Exception($"FAIL: the icon window is still titled {creator.Title}");
+                if (!FindAll<TextBlock>(creator).Any(text => text.Text == "ICON CREATOR"))
+                    throw new Exception("FAIL: the icon window heading is not ICON CREATOR");
+                if (!FindAll<TextBlock>(creator).Any(text => text.Text == "STATE NAME (OPTIONAL)")
+                    || !FindAll<TextBlock>(creator).Any(text => text.Text == "WHEN THIS DATA IS TRUE"))
+                    throw new Exception("FAIL: the state name and its condition still share one heading");
+                if (!FindAll<Button>(creator).Any(button => (button.Content as string) == "Import .spi…")
+                    || !FindAll<Button>(creator).Any(button => (button.Content as string) == "Export .spi…"))
+                    throw new Exception("FAIL: the Icon Creator does not offer .spi import and export");
+                var colourInput = FindAll<TextBox>(creator).FirstOrDefault(box => box.Name == "IconColor");
+                var colourSwatch = FindAll<Border>(creator).FirstOrDefault(border => border.Name == "IconColorSwatch");
+                if (colourInput is null || colourSwatch is null)
+                    throw new Exception("FAIL: the Icon Creator has no colour thumbnail beside its colour field");
+                colourInput.Text = "#FFFF0000";
+                creator.UpdateLayout();
+                if (colourSwatch.Background is not SolidColorBrush colourBrush || colourBrush.Color != Colors.Red)
+                    throw new Exception($"FAIL: the Icon Creator colour thumbnail did not follow the typed colour (found={colourSwatch.Background})");
+                creator.Close();
+                Console.WriteLine("PASS: the Icon Creator labels state names separately and offers .spi import and export");
+            }
+
+            // A made icon must stay selected after the picker writes it, and a wheel over a
+            // closed drop-down must not silently move to the next value.
+            {
+                var madeIconPath = Path.Combine(appDataPath, $"made-icons-{Guid.NewGuid():N}.json");
+                CustomIconStore.UsePath(madeIconPath);
+                var made = CustomIconStore.Save(new CustomIcon
+                {
+                    Name = "Smoke crest", Glyph = "★", Color = "#FFFFFFFF"
+                });
+                var madeCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"made-{Guid.NewGuid():N}.json"));
+                madeCatalog.Update(layout =>
+                {
+                    layout.Elements.Clear();
+                    layout.Elements.Add(new ScorebugElement
+                    {
+                        Name = "Icon target", Kind = ScorebugElementKind.Text, Content = "",
+                        Icon = ScorebugIcon.None
+                    });
+                });
+                var madeStudio = new ScorebugEditorWindow(madeCatalog, iconEngine, null, "Dark");
+                madeStudio.Show();
+                madeStudio.UpdateLayout();
+                ((ListBox)madeStudio.FindName("Layers")!).SelectedIndex = 0;
+                madeStudio.UpdateLayout();
+                var iconType = (ComboBox)madeStudio.FindName("IconInput")!;
+                iconType.SelectedItem = ScorebugIcon.Custom;
+                madeStudio.UpdateLayout();
+                var madeChoice = (ComboBox)madeStudio.FindName("IconCustomInput")!;
+                if (madeChoice.Visibility != Visibility.Visible)
+                    throw new Exception("FAIL: the Made icon picker stayed hidden after choosing Custom");
+                var choice = madeChoice.Items.Cast<object>().FirstOrDefault(item => item.ToString() == made.Name);
+                if (choice is null)
+                    throw new Exception("FAIL: the Made icon picker does not list the saved icon");
+                madeChoice.SelectedItem = choice;
+                madeStudio.UpdateLayout();
+                var target = madeCatalog.Layout.Elements[0];
+                if (target.Icon != ScorebugIcon.Custom || !string.Equals(target.CustomIconId, made.Id, StringComparison.Ordinal))
+                    throw new Exception($"FAIL: selecting a made icon saved {target.Icon}/{target.CustomIconId}");
+                if (madeChoice.SelectedItem is null)
+                    throw new Exception("FAIL: the Made icon picker went blank after choosing an icon");
+                var contentSite = madeChoice.Template.FindName("ContentSite", madeChoice) as ContentPresenter;
+                if (contentSite?.Content?.ToString() != made.Name)
+                    throw new Exception("FAIL: the Made icon picker does not show the chosen icon's name");
+                var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, 0, -120)
+                {
+                    RoutedEvent = UIElement.PreviewMouseWheelEvent
+                };
+                iconType.RaiseEvent(wheel);
+                if (!wheel.Handled || !Equals(iconType.SelectedItem, ScorebugIcon.Custom))
+                    throw new Exception("FAIL: a mouse wheel over a closed drop-down changed its value");
+                madeStudio.Close();
+                CustomIconStore.UsePath(null);
+                Console.WriteLine("PASS: a made icon stays selected and a closed drop-down ignores the mouse wheel");
+            }
 
             // The possession dot is the whole icon — no value printed beside it — and its mark keeps
             // its size when the box is resized, growing only with the element's own type size.
@@ -1145,9 +1951,17 @@ internal static class Program
                 if (playback.ActiveFor("Highlights") is not null) throw new Exception("FAIL: the wrong tag reached a video element");
                 if (playback.ActiveFor("")?.Path != ad.Path) throw new Exception("FAIL: an element with no tag should accept any playing video");
                 playback.Start(anthem);
-                if (playback.ActiveFor("") is not null) throw new Exception("FAIL: an audio cue filled a video element");
+                if (playback.ActiveFor("")?.Path != ad.Path) throw new Exception("FAIL: an audio cue cleared the video element");
                 playback.Start(highlight);
-                if (playback.ActiveFor("Ads") is not null) throw new Exception("FAIL: a highlight reel played in the ad box");
+                if (playback.ActiveFor("Ads")?.Path != ad.Path) throw new Exception("FAIL: a different tag replaced the ad box");
+                if (playback.ActiveFor("Highlights")?.Path != highlight.Path) throw new Exception("FAIL: the new tag did not reach its own video element");
+                var sameFileNewTag = new MediaEntry(ad.Path, "Highlights");
+                playback.Start(sameFileNewTag);
+                if (playback.ActiveFor("Ads")?.Path != ad.Path || playback.ActiveFor("Highlights")?.Path != ad.Path)
+                    throw new Exception("FAIL: the same file under another tag replaced its other tag");
+                playback.Stop(sameFileNewTag);
+                if (playback.ActiveFor("Ads")?.Path != ad.Path)
+                    throw new Exception("FAIL: stopping one tag stopped the same file under another tag");
                 playback.Stop();
                 if (playback.ActiveFor("Ads") is not null) throw new Exception("FAIL: stopping media left the overlay cued");
                 videoView.Dispose();
@@ -1164,6 +1978,33 @@ internal static class Program
                     throw new Exception("FAIL: a live camera did not route into an ANY video box");
                 playback.Start(ad);
                 Console.WriteLine("PASS: ANY plays whatever is cued, and a live camera routes like a clip");
+
+                // Cameras route by tag: a new camera replaces the one already on air under the same
+                // tag, while cameras carrying other tags remain live. This is what lets a wide and
+                // a tight camera feed separate scorebug boxes, without two cameras fighting over
+                // one box.
+                var cameraCue = new MediaPlayback();
+                var wideCamera = new MediaEntry(MediaLibrary.CameraPath(0), "Camera");
+                var benchCamera = new MediaEntry(MediaLibrary.CameraPath(1), "Bench");
+                var tightCamera = new MediaEntry(MediaLibrary.CameraPath(2), "camera");
+                var afterCameraCue = MediaLibrary.CueCamera([wideCamera, benchCamera], tightCamera);
+                if (afterCameraCue.Count != 2
+                    || afterCameraCue.Any(camera => camera.Path == wideCamera.Path)
+                    || !afterCameraCue.Any(camera => camera.Path == benchCamera.Path)
+                    || !afterCameraCue.Any(camera => camera.Path == tightCamera.Path))
+                    throw new Exception("FAIL: a same-tag camera did not replace the previous camera while keeping another tag live");
+                cameraCue.SetLiveCameras(afterCameraCue);
+                if (cameraCue.ActiveFor("Camera")?.Path != tightCamera.Path
+                    || cameraCue.ActiveFor("Bench")?.Path != benchCamera.Path)
+                    throw new Exception("FAIL: the tag-matched cameras did not route to their own boxes");
+                // A caller handing in a flat list must get the same replacement, not two cameras
+                // fighting over the first matching tag.
+                cameraCue.SetLiveCameras([wideCamera, benchCamera, tightCamera]);
+                if (cameraCue.LiveCameras.Count != 2
+                    || cameraCue.LiveCameras.Count(camera => camera.Tag.Equals("Camera", StringComparison.OrdinalIgnoreCase)) != 1
+                    || cameraCue.ActiveFor("Camera")?.Path != tightCamera.Path)
+                    throw new Exception("FAIL: the playback list kept two cameras on the same tag");
+                Console.WriteLine("PASS: a camera replaces only its own tag; different tags stay on air together");
 
                 // A microphone is a live source like a camera: its own library item, audio only.
                 var micPath = MediaLibrary.MicrophonePath(1);
@@ -1411,21 +2252,24 @@ internal static class Program
             }
             Console.WriteLine("PASS: the dock's speaker picker sticks to the chosen device");
 
-            // Clear empties the media side and blanks whatever was on air.
+            // Clear takes the media side off air without deleting the library.
             var clearSession = new MediaSession(new UserPreferences());
             try
             {
-                clearSession.Library.Add(new MediaEntry(Path.Combine(Path.GetTempPath(), "smoke-clear.mp4"), "Ads"));
-                clearSession.Playback.Start(new MediaEntry(Path.Combine(Path.GetTempPath(), "smoke-clear.mp4"), "Ads"));
-                clearSession.ClearAll();
-                if (clearSession.Library.Count != 0 || clearSession.Playlists.Count != 0 || clearSession.Playback.NowPlaying is not null)
-                    throw new Exception("FAIL: Clear left media or a cued clip behind");
+                var clearEntry = new MediaEntry(Path.Combine(Path.GetTempPath(), "smoke-clear.mp4"), "Ads");
+                clearSession.Library.Add(clearEntry);
+                clearSession.Playlists.Add(new MediaPlaylist { Name = "Clear test", Paths = [clearEntry.Path] });
+                clearSession.Playback.Start(clearEntry);
+                clearSession.ClearOnAir();
+                if (clearSession.Library.Count != 1 || clearSession.Playlists.Count != 1
+                    || clearSession.Playback.NowPlaying is not null || clearSession.Current is not null)
+                    throw new Exception("FAIL: Clear deleted library media or left something on air");
                 // Replay opens frozen at the live edge and waits for Start replay.
                 if (clearSession.IsReplaying || clearSession.PlayReplay())
                     throw new Exception("FAIL: Start replay ran without an open replay");
             }
             finally { clearSession.Dispose(); }
-            Console.WriteLine("PASS: Clear blanks the media side, and Start replay refuses with nothing open");
+            Console.WriteLine("PASS: Clear takes media off air but keeps the library, and Start replay refuses with nothing open");
 
             // F11 on an audience window is Broadcast Fullscreen; Escape gives it back.
             var fsEngine = new GameEngine();
@@ -1463,6 +2307,304 @@ internal static class Program
             Pump(TimeSpan.FromMilliseconds(200));
             fsOutput.Close();
             Console.WriteLine("PASS: F11 fills the screen on an audience window and Escape restores it");
+
+            // The audience window can be opened with its annotation tools already showing, and the
+            // toolbar never edits the underlying graphic. The node runtime is checked by applying a
+            // temporary colour and switching a layout without touching the saved artwork.
+            var annotateCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"smoke-annotation-{Guid.NewGuid():N}.json"));
+            var annotateEngine = new GameEngine();
+            annotateEngine.NewGame("football");
+            var annotateOutput = new OutputWindow(annotateEngine, annotateCatalog, "Dark", annotations: true);
+            annotateOutput.Show();
+            annotateOutput.UpdateLayout();
+            if (!annotateOutput.AnnotationToolsOpen || annotateOutput.FindName("ScorebugHost") is null)
+                throw new Exception("FAIL: the audience annotation toolbar did not open");
+            if (!annotateOutput.Title.StartsWith("Operator Draw Window", StringComparison.Ordinal))
+                throw new Exception($"FAIL: the draw window is titled {annotateOutput.Title}");
+            var widthBox = FindAll<TextBox>(annotateOutput).FirstOrDefault(box =>
+                (box.ToolTip as string ?? "").StartsWith("Pen width", StringComparison.Ordinal))
+                ?? throw new Exception("FAIL: the annotation toolbar has no typeable pen-width box");
+            widthBox.Text = "9";
+            annotateOutput.UpdateLayout();
+            if (Math.Abs(annotateOutput.AnnotationWidth - 9) > 0.001)
+                throw new Exception($"FAIL: typing a pen width produced {annotateOutput.AnnotationWidth}");
+            var fadePicker = FindAll<ComboBox>(annotateOutput).FirstOrDefault(box =>
+                (box.ToolTip as string ?? "").Contains("fades", StringComparison.Ordinal))
+                ?? throw new Exception("FAIL: the annotation toolbar has no fade-time picker");
+            if ((fadePicker.SelectedItem as string) != "1 s")
+                throw new Exception($"FAIL: the default annotation fade is {fadePicker.SelectedItem}, not 1 s");
+            var ink = FindAll<InkCanvas>(annotateOutput).SingleOrDefault()
+                ?? throw new Exception("FAIL: the draw window has no ink surface");
+            void AddInkStroke() => ink.Strokes.Add(new Stroke(new StylusPointCollection
+            {
+                new StylusPoint(10, 10), new StylusPoint(100, 100)
+            }));
+            AddInkStroke();
+            Pump(TimeSpan.FromMilliseconds(1400));
+            if (ink.Strokes.Count != 0)
+                throw new Exception("FAIL: the default 1 s ink hold did not fade the stroke away");
+            fadePicker.SelectedItem = "Permanent";
+            AddInkStroke();
+            Pump(TimeSpan.FromMilliseconds(1200));
+            if (ink.Strokes.Count != 1)
+                throw new Exception("FAIL: permanent ink was cleared by the fade timer");
+            fadePicker.SelectedItem = "0.5 s";
+            Pump(TimeSpan.FromMilliseconds(900));
+            if (ink.Strokes.Count != 0)
+                throw new Exception("FAIL: the 0.5 s ink hold did not fade the stroke away");
+            var savedAnnotation = PreferencesStore.Load();
+            if (Math.Abs(savedAnnotation.AnnotationWidth - 9) > 0.001
+                || Math.Abs(savedAnnotation.AnnotationFadeSeconds - 0.5) > 0.001)
+                throw new Exception($"FAIL: annotation settings did not save ({savedAnnotation.AnnotationWidth}, {savedAnnotation.AnnotationFadeSeconds})");
+            annotateOutput.CloseAnnotationTools();
+            if (annotateOutput.AnnotationToolsOpen
+                || !annotateOutput.Title.StartsWith("ScorePlus —", StringComparison.Ordinal))
+                throw new Exception("FAIL: Done did not close the annotation toolbar and restore the audience title");
+            annotateOutput.Close();
+
+            // The pen must be on the real audience window, not a second duplicate window. Opening
+            // annotation for a display that already has output should reuse that output.
+            var annotationMain = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+            annotationMain.Show();
+            annotationMain.UpdateLayout();
+            var audienceWindow = annotationMain.OpenOutputWindow();
+            var secondAudience = annotationMain.OpenOutputWindow();
+            var drawWindow = annotationMain.OpenOutputWindow(annotations: true);
+            if (audienceWindow is null || secondAudience is null || !ReferenceEquals(audienceWindow, drawWindow)
+                || drawWindow is null || !drawWindow.AnnotationToolsOpen
+                || !drawWindow.Title.StartsWith("Operator Draw Window", StringComparison.Ordinal))
+                throw new Exception("FAIL: annotation opened a duplicate instead of putting the pen on the audience window");
+            if (secondAudience.AnnotationToolsOpen)
+                throw new Exception("FAIL: the second audience window received the operator toolbar");
+            var drawInk = FindAll<InkCanvas>(drawWindow).Single();
+            var audienceInk = FindAll<InkCanvas>(secondAudience).Single();
+            drawInk.Strokes.Add(new Stroke(new StylusPointCollection
+            {
+                new StylusPoint(12, 12), new StylusPoint(120, 80)
+            }));
+            Pump(TimeSpan.FromMilliseconds(80));
+            if (audienceInk.Strokes.Count != 1)
+                throw new Exception("FAIL: the pen did not reach the second audience window");
+            annotationMain.Close();
+            Pump(TimeSpan.FromMilliseconds(250));
+
+            // The in-progress stroke belongs to the shared collection from the first point, and the
+            // fade hold is held back until the stroke is released. This is the exact ordering the
+            // operator sees when drawing on one output and watching another.
+            var liveBoard = new AnnotationBoard(TimeSpan.FromSeconds(0.5));
+            var livePath = Path.Combine(appDataPath, $"smoke-live-ink-{Guid.NewGuid():N}.json");
+            var inkEngine = new GameEngine();
+            inkEngine.NewGame("football");
+            try
+            {
+                var liveCatalog = new ScorebugCatalog(livePath);
+                var liveOperator = new OutputWindow(inkEngine, liveCatalog, "Dark", annotations: true, annotationBoard: liveBoard);
+                var liveAudience = new OutputWindow(inkEngine, liveCatalog, "Dark", annotationBoard: liveBoard);
+                liveOperator.Show();
+                liveAudience.Show();
+                liveAudience.ShowAudienceInk();
+                liveOperator.UpdateLayout();
+                liveAudience.UpdateLayout();
+                var liveAudienceInk = FindAll<InkCanvas>(liveAudience).Single();
+                var liveStroke = new Stroke(new StylusPointCollection { new StylusPoint(10, 10) });
+                liveBoard.BeginStroke();
+                liveBoard.Strokes.Add(liveStroke);
+                Pump(TimeSpan.FromMilliseconds(750));
+                if (liveBoard.Strokes.Count != 1)
+                    throw new Exception("FAIL: ink started fading before the operator released the pen");
+                liveStroke.StylusPoints.Add(new StylusPoint(100, 100));
+                Pump(TimeSpan.FromMilliseconds(60));
+                if (liveAudienceInk.Strokes.Count != 1 || liveAudienceInk.Strokes[0].StylusPoints.Count != 2)
+                    throw new Exception("FAIL: the audience did not receive the in-progress stroke points");
+                liveBoard.EndStroke();
+                Pump(TimeSpan.FromMilliseconds(850));
+                if (liveBoard.Strokes.Count != 0)
+                    throw new Exception("FAIL: the fade hold did not start after the stroke finished");
+                liveOperator.Close();
+                liveAudience.Close();
+                Console.WriteLine("PASS: live ink reaches the audience during the stroke, and its fade starts on release");
+            }
+            finally { if (File.Exists(livePath)) File.Delete(livePath); }
+
+            // The pen draws in the scorebug's design space, so its surface sits exactly on the
+            // artwork. On a tall, vertical monitor the graphic is letterboxed; a window-sized ink
+            // canvas put the pen in the black bars above it.
+            var alignPath = Path.Combine(appDataPath, $"smoke-annotation-align-{Guid.NewGuid():N}.json");
+            try
+            {
+                var alignCatalog = new ScorebugCatalog(alignPath);
+                var alignEngine = new GameEngine();
+                alignEngine.NewGame("football");
+                var alignOutput = new OutputWindow(alignEngine, alignCatalog, "Dark", annotations: true)
+                {
+                    Width = 760, Height = 1100
+                };
+                alignOutput.Show();
+                alignOutput.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(80));
+                alignOutput.UpdateLayout();
+                var alignRoot = (FrameworkElement)alignOutput.Content;
+                var alignInk = FindAll<InkCanvas>(alignOutput).Single();
+                var alignView = FindAll<ScorebugCanvasView>(alignOutput).Single();
+                var alignViewbox = alignView.Children.OfType<Viewbox>().Single();
+                var alignSurface = (FrameworkElement)alignInk.Parent;
+                if (Math.Abs(alignOutput.AnnotationSurfaceSize.Width - alignCatalog.Layout.Width) > 0.5
+                    || Math.Abs(alignOutput.AnnotationSurfaceSize.Height - alignCatalog.Layout.Height) > 0.5)
+                    throw new Exception($"FAIL: the pen surface is {alignOutput.AnnotationSurfaceSize}, not the layout's design size");
+                var alignScale = Math.Min(alignViewbox.ActualWidth / alignSurface.Width,
+                    alignViewbox.ActualHeight / alignSurface.Height);
+                var drawn = new Rect((alignViewbox.ActualWidth - alignSurface.Width * alignScale) / 2,
+                    (alignViewbox.ActualHeight - alignSurface.Height * alignScale) / 2,
+                    alignSurface.Width * alignScale, alignSurface.Height * alignScale);
+                var graphicRect = alignViewbox.TransformToAncestor(alignRoot).TransformBounds(drawn);
+                var inkRect = alignInk.TransformToAncestor(alignRoot).TransformBounds(
+                    new Rect(0, 0, alignInk.ActualWidth, alignInk.ActualHeight));
+                if (Math.Abs(graphicRect.Left - inkRect.Left) > 1 || Math.Abs(graphicRect.Top - inkRect.Top) > 1
+                    || Math.Abs(graphicRect.Width - inkRect.Width) > 1 || Math.Abs(graphicRect.Height - inkRect.Height) > 1)
+                    throw new Exception($"FAIL: the pen surface {inkRect} does not sit on the graphic {graphicRect}");
+                if (inkRect.Top <= 0 || inkRect.Bottom >= alignRoot.ActualHeight - 1)
+                    throw new Exception("FAIL: the pen surface fills the window instead of the letterboxed graphic");
+                alignOutput.Close();
+                Console.WriteLine("PASS: the pen surface follows the scorebug onto a tall, letterboxed window");
+            }
+            finally { if (File.Exists(alignPath)) File.Delete(alignPath); }
+
+            // A bypass rule follows the live game and patches the output without publishing; the same
+            // rule with the switch off waits for the published copy, as it always did.
+            var bypassPath = Path.Combine(appDataPath, $"smoke-bypass-{Guid.NewGuid():N}.json");
+            try
+            {
+                var bypassCatalog = new ScorebugCatalog(bypassPath);
+                var bypassDisplay = bypassCatalog.ActiveDisplay;
+                var bypassTarget = bypassCatalog.Layout.Elements.First(element => element.Name == "Home team");
+                const string bypassColor = "#FF12AB34";
+                var onAir = new GameEngine();
+                onAir.NewGame("football");
+                onAir.SetPlayClock(9);
+                var working = new GameEngine();
+                working.NewGame("football");
+                working.SetPlayClock(2);
+                var bypassRule = new AutomationRule { Name = "Live flag", BypassOutputUpdate = true };
+                bypassRule.Conditions.Add(new AutomationCondition { Field = AutomationField.PlayClock, Operator = AutomationOperator.Less, Value = 5 });
+                bypassRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SetTextColor, LayoutId = bypassDisplay.Layouts[0].Id, ElementId = bypassTarget.Id, Value = bypassColor });
+                bypassCatalog.UpdateAutomations(bypassDisplay.Id, [bypassRule]);
+                using var bypassRuntime = new AutomationRuntime(bypassCatalog, onAir, working);
+                ScorebugLayout LiveLayout() => bypassRuntime.Effective(bypassDisplay.Id, bypassCatalog.PublishedCompositeOf(bypassDisplay.Id));
+                if (LiveLayout().Elements.First(element => element.Id == bypassTarget.Id).Foreground != bypassColor)
+                    throw new Exception("FAIL: the bypass rule did not use the live game state");
+                bypassRule.BypassOutputUpdate = false;
+                bypassCatalog.UpdateAutomations(bypassDisplay.Id, [bypassRule]);
+                if (LiveLayout().Elements.First(element => element.Id == bypassTarget.Id).Foreground == bypassColor)
+                    throw new Exception("FAIL: a non-bypass rule applied without Update Output");
+                bypassRule.BypassOutputUpdate = true;
+                bypassCatalog.UpdateAutomations(bypassDisplay.Id, [bypassRule]);
+                working.SetPlayClock(8);
+                if (LiveLayout().Elements.First(element => element.Id == bypassTarget.Id).Foreground == bypassColor)
+                    throw new Exception("FAIL: the bypass rule ignored its live condition");
+                Console.WriteLine("PASS: a bypass rule applies from live state, while an ordinary rule still waits for Update Output");
+            }
+            finally { if (File.Exists(bypassPath)) File.Delete(bypassPath); }
+
+            // A rule can hold after it matches (wait until), then run after-wait actions, with an
+            // else branch while it is not matching. This is the flag-down layout round trip.
+            var flowPath = Path.Combine(appDataPath, $"smoke-flow-{Guid.NewGuid():N}.json");
+            try
+            {
+                var flowCatalog = new ScorebugCatalog(flowPath);
+                var flowDisplay = flowCatalog.ActiveDisplay;
+                var flowEngine = new GameEngine();
+                flowEngine.NewGame("football");
+                var flagIndex = flowCatalog.AddLayout("Flag layout");
+                var normalId = flowCatalog.Layouts[0].Id;
+                const string elseColor = "#FF445566";
+                var elseTarget = flowCatalog.Layouts[0].Elements.First(element => element.Name == "Home team");
+                var flowRule = new AutomationRule { Name = "Flag layout round trip" };
+                flowRule.Conditions.Add(new AutomationCondition { Field = AutomationField.PenaltyActive, Operator = AutomationOperator.IsTrue });
+                flowRule.Conditions.Add(new AutomationCondition { Field = AutomationField.PenaltyActive, Operator = AutomationOperator.IsFalse, WaitUntil = true });
+                flowRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SwitchLayout, LayoutId = flowCatalog.Layouts[flagIndex].Id, Phase = AutomationActionPhase.OnMatch });
+                flowRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SwitchLayout, LayoutId = normalId, Phase = AutomationActionPhase.AfterWait });
+                flowRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SetTextColor, Phase = AutomationActionPhase.Else, ElementId = elseTarget.Id, Value = elseColor });
+                flowCatalog.UpdateAutomations(flowDisplay.Id, [flowRule]);
+                using var flowRuntime = new AutomationRuntime(flowCatalog, flowEngine);
+                ScorebugLayout ProgramLayout() => flowRuntime.Effective(flowDisplay.Id, flowCatalog.Layouts[0]);
+                if (flowCatalog.PublishedIndex != 0)
+                    throw new Exception("FAIL: the wait rule switched layouts before its trigger matched");
+                if (ProgramLayout().Elements.First(element => element.Id == elseTarget.Id).Foreground != elseColor)
+                    throw new Exception("FAIL: the else action did not apply while the rule was not matching");
+                flowEngine.SetPenalty(true, "Holding", true);
+                if (flowCatalog.PublishedIndex != flagIndex)
+                    throw new Exception($"FAIL: the flag rule did not switch to the flag layout (published {flowCatalog.PublishedIndex})");
+                if (ProgramLayout().Elements.First(element => element.Id == elseTarget.Id).Foreground == elseColor)
+                    throw new Exception("FAIL: the else action kept applying while the flag rule was matching");
+                if (!flowRuntime.IsRuleActive(flowDisplay.Id, flowRule.Id))
+                    throw new Exception("FAIL: the flag rule is not reported active while it waits");
+                flowEngine.SetPenalty(false, "Holding", true);
+                if (flowCatalog.PublishedIndex != 0)
+                    throw new Exception($"FAIL: the wait-until step did not switch back to the program layout (published {flowCatalog.PublishedIndex})");
+                flowEngine.SetPenalty(true, "Holding", true);
+                if (flowCatalog.PublishedIndex != flagIndex)
+                    throw new Exception("FAIL: the flag rule did not fire again after it returned to its start");
+                flowEngine.SetPenalty(false, "Holding", true);
+                Console.WriteLine("PASS: a rule can wait until a condition changes and switch layouts on match, after the wait, and else");
+            }
+            finally { if (File.Exists(flowPath)) File.Delete(flowPath); }
+
+            var rulePath = Path.Combine(appDataPath, $"smoke-rules-{Guid.NewGuid():N}.json");
+            var ruleCatalog = new ScorebugCatalog(rulePath);
+            var ruleEngine = new GameEngine();
+            ruleEngine.NewGame("football");
+            ruleEngine.SetPlayClock(3);
+            var ruleDisplay = ruleCatalog.ActiveDisplay;
+            var ruleTarget = ruleCatalog.Layout.Elements.First(element => element.Name == "Home team");
+            var rule = new AutomationRule { Name = "Smoke rule" };
+            rule.Conditions.Add(new AutomationCondition { Field = AutomationField.PlayClock, Operator = AutomationOperator.Less, Value = 5 });
+            rule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SetTextColor, LayoutId = ruleDisplay.Layouts[0].Id, ElementId = ruleTarget.Id, Value = "#FFFF3B30" });
+            ruleCatalog.UpdateAutomations(ruleDisplay.Id, [rule]);
+            using (var runtime = new AutomationRuntime(ruleCatalog, ruleEngine))
+            {
+                var effective = runtime.Effective(ruleDisplay.Id, ruleCatalog.PublishedCompositeOf(ruleDisplay.Id));
+                var changed = effective.Elements.First(element => element.Id == ruleTarget.Id);
+                if (changed.Foreground != "#FFFF3B30" || ruleTarget.Foreground == "#FFFF3B30")
+                    throw new Exception("FAIL: a node rule did not recolour the temporary layout without changing the design");
+                var second = ruleCatalog.AddLayout("Automated layout");
+                var switchRule = new AutomationRule { Name = "Switch" };
+                switchRule.Conditions.Add(new AutomationCondition { Field = AutomationField.PlayClock, Operator = AutomationOperator.Less, Value = 5 });
+                switchRule.Actions.Add(new AutomationAction { Kind = AutomationActionKind.SwitchLayout, LayoutId = ruleCatalog.Layouts[second].Id });
+                ruleCatalog.UpdateAutomations(ruleDisplay.Id, [rule, switchRule]);
+                if (ruleCatalog.PublishedIndex != second)
+                    throw new Exception($"FAIL: a node rule did not switch layouts (published {ruleCatalog.PublishedIndex}, wanted {second})");
+                // The node editor is a real window with trigger, condition and action cards. Open it
+                // on the same graph and make sure its add-rule path persists another rule.
+                var nodeWindow = new AutomationWindow(ruleCatalog, ruleEngine, "Dark", ruleDisplay.Id, runtime);
+                nodeWindow.Show();
+                nodeWindow.UpdateLayout();
+                if (nodeWindow.Title != "Conditionals" || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITIONALS"))
+                    throw new Exception($"FAIL: the node editor is still titled {nodeWindow.Title}");
+                if (nodeWindow.Rules.Count != 2 || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "TRIGGER")
+                    || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITION 1")
+                    || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "ACTION 1"))
+                    throw new Exception("FAIL: the node editor did not draw its trigger, condition and action cards");
+                var ruleCombos = FindAll<ComboBox>(nodeWindow).Where(combo => combo.SelectedItem is not null).ToArray();
+                if (ruleCombos.Any(combo => combo.SelectedItem.ToString()?.Contains("Choice", StringComparison.Ordinal) == true))
+                    throw new Exception("FAIL: a node dropdown is showing its CLR type name");
+                if (!ruleCombos.Any(combo => combo.SelectedItem.ToString() == "Play clock"))
+                    throw new Exception("FAIL: the node field dropdown is not showing the field label");
+                if (!FindAll<Button>(nodeWindow).Any(button => (button.Content as string) == "Export…")
+                    || !FindAll<Button>(nodeWindow).Any(button => (button.Content as string) == "Import…"))
+                    throw new Exception("FAIL: the node editor has no .spr export/import actions");
+                var bypassBox = FindAll<CheckBox>(nodeWindow).FirstOrDefault(box => (box.Content as string) == "Bypass having to update output")
+                    ?? throw new Exception("FAIL: the node editor has no Bypass having to update output option");
+                bypassBox.IsChecked = true;
+                nodeWindow.UpdateLayout();
+                if (!nodeWindow.Rules.Any(rule => rule.BypassOutputUpdate))
+                    throw new Exception("FAIL: the bypass checkbox did not reach the rule");
+                nodeWindow.AddRule();
+                nodeWindow.UpdateLayout();
+                if (nodeWindow.Rules.Count != 3)
+                    throw new Exception("FAIL: the node editor did not add a rule");
+                nodeWindow.Close();
+            }
+            Console.WriteLine("PASS: annotation toolbar opens; conditionals recolor the live layout, switch layouts, and draw in the conditionals editor");
 
             // A typed play clock must hand the box back to the clock, or the display freezes on the
             // typed value and never counts down to 0.
@@ -1674,6 +2816,71 @@ internal static class Program
             MainWindow.PromptOnExit = false;
             dirty.Close();
 
+            // End Game has to show its confirmation and settle the result. This is a modal test, not
+            // just a call to the engine: the reported bug was that the dialog never appeared.
+            {
+                var ending = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+                ending.Show();
+                ending.UpdateLayout();
+                ending.StartNewGame("football", announce: false);
+                ending.Engine.SetTeamIdentity(true, "Restart Home", "RST", null, "#FF112233", "#FF445566", mascot: "Eagles", record: "2-0", ranking: "#7", divisionRecord: "1-0");
+                ending.Engine.Score(true, 3);
+                var restartTeam = ending.Engine.State.HomeTeam;
+                var restartColor = ending.Engine.State.HomePrimaryColor;
+                ending.UpdateLayout();
+                var endButton = FindAll<Button>(ending).FirstOrDefault(button => (button.Content as string) == "End Game")
+                    ?? throw new Exception("FAIL: the main window has no End Game button");
+                var endTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+                var sawEndConfirm = false;
+                endTimer.Tick += (_, _) =>
+                {
+                    var confirm = Application.Current.Windows.OfType<ConfirmWindow>().FirstOrDefault();
+                    if (confirm is null) return;
+                    endTimer.Stop();
+                    sawEndConfirm = true;
+                    var finish = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "End game")
+                        ?? throw new Exception("FAIL: the End Game confirmation has no End game action");
+                    finish.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                };
+                endTimer.Start();
+                endButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump(TimeSpan.FromMilliseconds(250));
+                if (!sawEndConfirm || !ending.Engine.State.GameEnded || !ending.Engine.State.RecordSettled)
+                    throw new Exception("FAIL: End Game did not show its confirmation and settle the result");
+                if ((endButton.Content as string) != "Restart Game")
+                    throw new Exception($"FAIL: the final game still offers “{endButton.Content}” instead of Restart Game");
+                if (ending.Engine.State.HomeRecord != "3-0")
+                    throw new Exception($"FAIL: End Game did not settle the record before the restart ({ending.Engine.State.HomeRecord})");
+                var sawRestartConfirm = false;
+                var restartTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+                restartTimer.Tick += (_, _) =>
+                {
+                    var confirm = Application.Current.Windows.OfType<ConfirmWindow>().FirstOrDefault();
+                    if (confirm is null) return;
+                    restartTimer.Stop();
+                    sawRestartConfirm = true;
+                    var restart = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "Restart game")
+                        ?? throw new Exception("FAIL: the Restart Game confirmation has no Restart game action");
+                    restart.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                };
+                restartTimer.Start();
+                endButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump(TimeSpan.FromMilliseconds(250));
+                if (!sawRestartConfirm || ending.Engine.State.GameEnded
+                    || ending.Engine.State.HomeScore != 0 || ending.Engine.State.AwayScore != 0
+                    || ending.Engine.State.Period != 1)
+                    throw new Exception("FAIL: Restart Game did not clear the final and start a fresh game");
+                if (ending.Engine.State.HomeTeam != restartTeam
+                    || ending.Engine.State.HomePrimaryColor != restartColor
+                    || ending.Engine.State.HomeRecord != "3-0")
+                    throw new Exception("FAIL: Restart Game did not keep the team details and settled record");
+                if ((endButton.Content as string) != "End Game")
+                    throw new Exception("FAIL: the Restart Game button did not become End Game again");
+                ending.Close();
+                Pump(TimeSpan.FromMilliseconds(200));
+                Console.WriteLine("PASS: End Game settles the result, then Restart Game resets the score and keeps the teams");
+            }
+
             // Choosing Exit without saving must actually close, and must do so after OnClosing
             // has finished (calling Close from inside it is what raised the WPF error).
             MainWindow.PromptOnExit = true;
@@ -1855,6 +3062,49 @@ internal static class Program
             Console.WriteLine($"PASS: the studio offers {FontCatalog.All.Count} font families and imports your own");
             if (Enum.GetValues<ScorebugTransition>().Length < 10)
                 throw new Exception($"FAIL: only {Enum.GetValues<ScorebugTransition>().Length} text-change animations exist");
+            // The output refreshes all values while a clock runs. Repeating the value that is
+            // already crossing must not snap the transition to its end.
+            {
+                var transitionItem = new ScorebugElement
+                {
+                    Name = "Transition probe", Content = "0", Kind = ScorebugElementKind.Text,
+                    Width = 120, Height = 80, FontSize = 48,
+                    Transition = ScorebugTransition.Fade, TransitionSeconds = 0.8
+                };
+                var transitionBlock = new ScorebugTextBlock(transitionItem);
+                transitionBlock.UpdateText("0", ScorebugTransition.Cut);
+                var transitionHost = new Window
+                {
+                    Width = 220, Height = 140, Content = transitionBlock,
+                    ShowInTaskbar = false, WindowStyle = WindowStyle.None, Left = -32000, Top = -32000
+                };
+                transitionHost.Show();
+                Pump(TimeSpan.FromMilliseconds(80));
+                transitionBlock.UpdateText("1", ScorebugTransition.Fade, 0.8);
+                transitionBlock.ApplyStyle(transitionItem, null);
+                transitionBlock.UpdateText("1", ScorebugTransition.Fade, 0.8);
+                Pump(TimeSpan.FromMilliseconds(80));
+                if (transitionBlock.Text != "0")
+                    throw new Exception("FAIL: refreshing the same value cut its text transition short");
+                // A genuinely newer value must also wait its turn instead of snapping the running
+                // crossing to its final frame.
+                transitionBlock.UpdateText("2", ScorebugTransition.Fade, 0.8);
+                if (transitionBlock.Text != "0")
+                    throw new Exception("FAIL: a newer value snapped the running text transition");
+                Pump(TimeSpan.FromMilliseconds(1700));
+                if (transitionBlock.Text != "2")
+                    throw new Exception($"FAIL: the newest queued value did not arrive ({transitionBlock.Text})");
+                // Returning to the value already crossing in cancels the detour queued behind it.
+                transitionBlock.UpdateText("3", ScorebugTransition.Fade, 0.8);
+                Pump(TimeSpan.FromMilliseconds(40));
+                transitionBlock.UpdateText("4", ScorebugTransition.Fade, 0.8);
+                transitionBlock.UpdateText("3", ScorebugTransition.Fade, 0.8);
+                Pump(TimeSpan.FromMilliseconds(1700));
+                if (transitionBlock.Text != "3")
+                    throw new Exception($"FAIL: a stale queued value won after the state returned ({transitionBlock.Text})");
+                transitionHost.Close();
+                Console.WriteLine("PASS: a repeated or newer value refresh leaves a running text transition alone");
+            }
 
             var stylePath = Path.Combine(Path.GetTempPath(), $"smoke-style-{Guid.NewGuid():N}.json");
             try
@@ -1956,6 +3206,25 @@ internal static class Program
                 });
                 layoutMain.Scorebug.SelectLayout(0);
                 var preview = FindAll<ScorebugCanvasView>(layoutMain).First();
+                // The program preview is the staging desk: it must show the staged down-line type,
+                // not the copy that is still on air. Add the value to layout one and cycle it.
+                layoutMain.Scorebug.Update(layout => layout.Elements.Add(new ScorebugElement
+                {
+                    Name = "Preview down", Content = "{{DOWNS}}", X = 40, Y = 40,
+                    Width = 400, Height = 60, FontSize = 30
+                }));
+                layoutMain.Engine.SetFootballDownMode(FootballDownMode.Pat);
+                layoutMain.UpdateLayout();
+                if (!FindAll<TextBlock>(preview).Any(t => t.Text == "PAT"))
+                    throw new Exception("FAIL: the program preview did not show the staged PAT down line");
+                layoutMain.Engine.SetFootballDownMode(FootballDownMode.TwoPoint);
+                layoutMain.UpdateLayout();
+                if (!FindAll<TextBlock>(preview).Any(t => t.Text == "2 PT ATT"))
+                    throw new Exception("FAIL: the program preview did not show the staged two-point down line");
+                layoutMain.Engine.SetFootballDownMode(FootballDownMode.Normal);
+                layoutMain.UpdateLayout();
+                if (!FindAll<TextBlock>(preview).Any(t => t.Text == "1st & 10"))
+                    throw new Exception("FAIL: the program preview did not return to the staged yards down line");
                 if (FindAll<TextBlock>(preview).Any(t => t.Text == "SLIDE TWO"))
                     throw new Exception("FAIL: the preview already shows the second layout before the arrow is used");
                 layoutMain.ShiftLayout(1);
@@ -2157,18 +3426,53 @@ internal static class Program
                     PreserveVideoAspect = true, VideoAspect = 16.0 / 9.0, Width = 1600, Height = 900
                 };
                 var surface = new VideoSurface(video, null, true);
-                var picture = FindAll<MediaElement>(surface).FirstOrDefault()
-                    ?? throw new Exception("FAIL: a video element has no picture");
-                if (picture.Stretch != Stretch.Uniform)
-                    throw new Exception($"FAIL: a preserved-aspect video letterboxes with {picture.Stretch}");
+                var picture = FindAll<System.Windows.Shapes.Rectangle>(surface).FirstOrDefault(rect => rect.Fill is DrawingBrush)
+                    ?? throw new Exception("FAIL: a video element has no decoded picture surface");
+                var pictureBrush = (DrawingBrush)picture.Fill;
+                if (pictureBrush.Drawing is not VideoDrawing)
+                    throw new Exception("FAIL: the video picture is not drawn through a VideoDrawing, so effects cannot reach the frames");
+                if (pictureBrush.Stretch != Stretch.Uniform)
+                    throw new Exception($"FAIL: a preserved-aspect video letterboxes with {pictureBrush.Stretch}");
                 video.PreserveVideoAspect = false;
                 surface.SetElement(video);
-                if (picture.Stretch != Stretch.UniformToFill)
-                    throw new Exception($"FAIL: a free video box should fill its frame, not {picture.Stretch}");
+                if (pictureBrush.Stretch != Stretch.UniformToFill)
+                    throw new Exception($"FAIL: a free video box should fill its frame, not {pictureBrush.Stretch}");
                 if (Math.Abs(video.Width / video.Height - video.VideoAspect) > 0.001)
                     throw new Exception("FAIL: the preserved-aspect box does not match its picture");
+                // Chroma key: the selected green disappears, while another colour survives. Rendering
+                // the shader here catches a missing or uncompiled .ps before a show depends on it.
+                var keyed = new Border
+                {
+                    Width = 8, Height = 8, Background = Brushes.Lime,
+                    Effect = new ChromaKeyEffect { KeyColor = Colors.Lime, Tolerance = 0.1 }
+                };
+                // Render it over magenta: checking alpha alone missed the original bug, where the
+                // shader left green in RGB and compositing added the green back over the scorebug.
+                var keyedStage = new Grid
+                {
+                    Width = 8, Height = 8, Background = Brushes.Magenta,
+                    Children = { keyed }
+                };
+                keyedStage.Measure(new Size(8, 8));
+                keyedStage.Arrange(new Rect(0, 0, 8, 8));
+                var keyedBitmap = new RenderTargetBitmap(8, 8, 96, 96, PixelFormats.Pbgra32);
+                keyedBitmap.Render(keyedStage);
+                var keyedPixels = new byte[8 * 8 * 4];
+                keyedBitmap.CopyPixels(keyedPixels, 8 * 4, 0);
+                var center = (4 * 8 + 4) * 4;
+                if (keyedPixels[center] < 240 || keyedPixels[center + 1] > 15 || keyedPixels[center + 2] < 240)
+                    throw new Exception($"FAIL: the chroma-key shader did not leave the background showing through ({keyedPixels[center]},{keyedPixels[center + 1]},{keyedPixels[center + 2]})");
+                video.ChromaKeyColor = "#FF00FF00";
+                video.ChromaKeyTolerance = 0.1;
+                surface.SetElement(video);
+                if (picture.Effect is not ChromaKeyEffect)
+                    throw new Exception("FAIL: a keyed video box did not receive the chroma-key effect");
+                video.ChromaKeyColor = "";
+                surface.SetElement(video);
+                if (picture.Effect is not null)
+                    throw new Exception("FAIL: clearing the chroma key left the effect on the video");
                 surface.Dispose();
-                Console.WriteLine("PASS: video boxes honour the preserved aspect ratio, and each element carries its own audio output");
+                Console.WriteLine("PASS: video boxes honour the preserved aspect ratio and chroma key, and each element carries its own audio output");
             }
 
             // ---------- team pop-up: name, abbreviation, logo and colours from the console ----------
@@ -2267,11 +3571,14 @@ internal static class Program
                     Pump(TimeSpan.FromMilliseconds(40));
                     block.UpdateText("24", transition);
                     Pump(TimeSpan.FromMilliseconds(80));
+                    if (block.Text == "24")
+                        throw new Exception("FAIL: a newer value cut the running value animation short");
+                    Pump(TimeSpan.FromMilliseconds(600));
                     if (block.Text != "24")
-                        throw new Exception($"FAIL: a value changed mid-animation showed '{block.Text}' instead of the newest value");
+                        throw new Exception($"FAIL: a value changed mid-animation settled on '{block.Text}' instead of the newest value");
                     transitionHost.Close();
                 }
-                Console.WriteLine("PASS: any colour can point at a team's primary or secondary colour, team logos reach the graphic, and value animations land on the newest value");
+                Console.WriteLine("PASS: any colour can point at a team's primary or secondary colour, team logos reach the graphic, and the newest value lands without cutting the crossing");
             }
             finally { if (File.Exists(colorPath)) File.Delete(colorPath); }
 
@@ -3384,15 +4691,19 @@ internal static class Program
                     var barsView = FindAll<ScorebugIconView>(artCanvas).FirstOrDefault();
                     if (barsView is null)
                         throw new Exception("FAIL: switching an element to timeout bars draws no live artwork in the studio");
-                    if (FindAll<System.Windows.Shapes.Rectangle>(barsView).Count() != 2)
-                        throw new Exception($"FAIL: timeout bars show {FindAll<System.Windows.Shapes.Rectangle>(barsView).Count()} bars for two timeouts");
+                    if (FindAll<System.Windows.Shapes.Rectangle>(barsView).Count() != artEngine.State.HomeTimeoutLimit)
+                        throw new Exception($"FAIL: timeout bars show {FindAll<System.Windows.Shapes.Rectangle>(barsView).Count()} bars for {artEngine.State.HomeTimeoutLimit} timeouts");
                     if (FindAll<ScorebugTextBlock>(artCanvas).Any(t => t.Text.Contains("POSSESSION", StringComparison.Ordinal)))
                         throw new Exception("FAIL: the old text is still drawn under the artwork");
-                    // Live: another timeout removes a bar without any studio edit.
+                    // Live: taking another timeout greys more bars without shrinking the allotment.
                     artEngine.SetTimeoutCount(true, 1);
                     Pump(TimeSpan.FromMilliseconds(200));
-                    if (FindAll<System.Windows.Shapes.Rectangle>(barsView).Count() != 1)
-                        throw new Exception("FAIL: the timeout bars did not follow the game");
+                    var artBars = FindAll<System.Windows.Shapes.Rectangle>(barsView);
+                    if (artBars.Count() != artEngine.State.HomeTimeoutLimit)
+                        throw new Exception("FAIL: a used timeout removed a bar from the allotment");
+                    var expectedUsed = Math.Max(0, artEngine.State.HomeTimeoutLimit - artEngine.State.HomeTimeouts);
+                    if (artBars.Count(bar => bar.Fill is SolidColorBrush brush && brush.Color == Color.FromRgb(0x9A, 0xA5, 0xB2)) != expectedUsed)
+                        throw new Exception($"FAIL: expected {expectedUsed} greyed timeout bars, got {artBars.Count(bar => bar.Fill is SolidColorBrush brush && brush.Color == Color.FromRgb(0x9A, 0xA5, 0xB2))}");
                     // Switching to a different icon builds that artwork instead of keeping the bars.
                     ((ComboBox)artStudio.FindName("IconInput")!).SelectedItem = ScorebugIcon.PossessionDot;
                     Pump(TimeSpan.FromMilliseconds(250));
@@ -3462,6 +4773,10 @@ internal static class Program
                     var panelHtml = WaitWithPump(http.GetStringAsync(baseUrl + "/"));
                     if (!panelHtml.Contains("src=\"/logo.png\"", StringComparison.Ordinal))
                         throw new Exception("FAIL: the remote page does not show the brand mark");
+                    if (!panelHtml.Contains("Experimental:", StringComparison.Ordinal)
+                        || !panelHtml.Contains("speakerNow", StringComparison.Ordinal)
+                        || !panelHtml.Contains("PAUSED ·", StringComparison.Ordinal))
+                        throw new Exception("FAIL: the remote media card is missing its paused state, speaker row or experimental warning");
                     var action = WaitWithPump(http.PostAsync(baseUrl + "/api/action", new System.Net.Http.StringContent("a=away.score.plus2", System.Text.Encoding.UTF8, "application/x-www-form-urlencoded")));
                     if ((int)action.StatusCode != 200 || remoteEngine.State.AwayScore != 2)
                         throw new Exception($"FAIL: a remote score button did not reach the game ({(int)action.StatusCode}, {remoteEngine.State.AwayScore})");

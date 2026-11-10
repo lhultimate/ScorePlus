@@ -17,6 +17,8 @@ public partial class MainWindow : Window, IControlPanelHost
     readonly GameEngine _engine = new();
     readonly GameEngine _publishedEngine = new();
     readonly ScorebugCatalog _scorebug = new();
+    // Node rules run against the published state unless a rule explicitly bypasses Update Output.
+    readonly AutomationRuntime _automation;
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(40) };
     // Every fifteen seconds, not five: a recovery point that overwrites the newest file within the
     // minute gains nothing from being written three times as often, and each write is a stall.
@@ -37,6 +39,9 @@ public partial class MainWindow : Window, IControlPanelHost
     // Every audience window ever opened this session. Opening the output again adds another one
     // instead of focusing the old window, so a show can spread the graphic over several displays.
     readonly List<OutputWindow> _outputs = [];
+    // One ink board per display, shared by every output window for that display. The pen then shows
+    // on the projector and on the operator's copy rather than existing inside a single window.
+    readonly Dictionary<string, AnnotationBoard> _annotationBoards = new(StringComparer.OrdinalIgnoreCase);
     EventLogWindow? _log;
     RemoteControlServer? _remote;
     // What /watch is showing, one frame per display, and a counter the page watches so a wall
@@ -141,14 +146,19 @@ public partial class MainWindow : Window, IControlPanelHost
         _autosave.Tick += (_, _) => AutoSave();
         _autosave.Start();
 
+        _automation = new AutomationRuntime(_scorebug, _publishedEngine, _engine);
         _program = new ProgramSelection(_scorebug);
         _program.Changed += ProgramChanged;
-        _preview = new ScorebugCanvasView(_scorebug, _publishedEngine, playback: _playback, layoutProvider: () => _program.Layout, displayId: _program.DisplayId);
+        // The preview is the staging desk: it must show the values the operator is about to put on
+        // air, including the Yards/Goal/PAT choice, while the monitor below stays on the published
+        // copy. Reading the published engine here made the preview lag one Update Output behind.
+        _preview = new ScorebugCanvasView(_scorebug, _engine, stateProvider: () => _engine.State, playback: _playback, layoutProvider: () => _program.Layout, displayId: _program.DisplayId, automation: _automation);
         PreviewHost.Content = _preview;
         // The monitor reads the published engine and the published layout, so it is a real
         // reflection of the audience window rather than another staged preview.
-        _audience = new AudiencePreview(_scorebug, _publishedEngine, _playback, _program.DisplayId);
+        _audience = new AudiencePreview(_scorebug, _publishedEngine, _playback, _program.DisplayId, _automation);
         AudienceHost.Content = _audience;
+        RefreshEndGameButton();
         SyncDisplayPicker();
         RefreshLayoutIndicators();
         ShowTab(GameControlWindow.ConsoleTab.Control);
@@ -351,18 +361,47 @@ public partial class MainWindow : Window, IControlPanelHost
     /// touches no layout, so a detached panel can publish its own display right after it.
     /// </summary>
     /// <summary>The library as the phone's Media tab lists it.</summary>
-    string MediaSnapshotJson() => JsonSerializer.Serialize(new
+    string MediaSnapshotJson()
     {
-        current = _session.Current?.Label ?? string.Empty,
-        clips = _session.Library.Select(entry => new
+        // Every independent source can be live at once — clips, cameras and microphones — so the
+        // phone lists them all. A paused clip is reported as paused, not as live; speakers are a
+        // separate on-air row because a speaker bus is a route, not a playing clip.
+        var live = new List<string>();
+        var paused = new List<string>();
+        void Add(List<string> list, string? label)
         {
-            id = entry.Path,
-            label = entry.Label,
-            onAir = ReferenceEquals(_session.Current, entry)
-                || _session.IsCameraOnAir(entry)
-                || _session.IsMicrophoneOnAir(entry)
-        }).ToList()
-    });
+            if (!string.IsNullOrWhiteSpace(label) && !live.Contains(label) && !paused.Contains(label)) list.Add(label);
+        }
+        if (_session.IsCurrentPlaying) Add(live, _session.Current?.Label);
+        else Add(paused, _session.Current?.Label);
+        if (_session.IsBackgroundPlaying) Add(live, _session.BackgroundAudio?.Label);
+        else Add(paused, _session.BackgroundAudio?.Label);
+        if (_session.Playback.IsPlaying)
+            foreach (var file in _session.Playback.ActiveFiles) Add(live, file.Label);
+        else
+            foreach (var file in _session.Playback.ActiveFiles) Add(paused, file.Label);
+        foreach (var camera in _session.LiveCameras)
+            if (!Same(_session.Current, camera)) Add(live, camera.Label);
+        foreach (var microphone in _session.LiveMicrophones)
+            if (!Same(_session.Current, microphone)) Add(live, microphone.Label);
+        var speakers = _session.LiveSpeakers.Select(speaker => speaker.Label).ToList();
+        static bool Same(MediaEntry? left, MediaEntry right) =>
+            left is not null && string.Equals(left.Path, right.Path, StringComparison.OrdinalIgnoreCase);
+        return JsonSerializer.Serialize(new
+        {
+            current = string.Join(" + ", live.Count > 0 ? live : paused),
+            live,
+            paused,
+            speakers,
+            clips = _session.Library.Select(entry => new
+            {
+                id = entry.Path,
+                label = entry.Label,
+                kind = entry.KindLabel,
+                onAir = _session.IsOnAir(entry)
+            }).ToList()
+        });
+    }
 
     /// <summary>The three media buttons a phone can reach: on air, play/pause, and back off air.</summary>
     bool MediaAction(string action, string id)
@@ -418,7 +457,12 @@ public partial class MainWindow : Window, IControlPanelHost
         switch (action)
         {
             case "roster": _engine.AssignRoster(home, string.IsNullOrWhiteSpace(id) ? null : id); return true;
-            case "player": _engine.SelectPlayer(home, id); return true;
+            case "player":
+                // No player id is the phone's off-air button: nobody on the graphic for that side.
+                if (string.IsNullOrWhiteSpace(id)) _engine.ClearSelectedPlayer(home);
+                else _engine.SelectPlayer(home, id);
+                return true;
+            case "clear": _engine.ClearSelectedPlayer(home); return true;
             case "stat":
             {
                 if (string.IsNullOrWhiteSpace(stat) || !int.TryParse(value, out var number)) return false;
@@ -493,7 +537,22 @@ public partial class MainWindow : Window, IControlPanelHost
     {
         SyncDisplayPicker();
         RefreshLayoutIndicators();
+        // Arm the hand-over video while the operator is still looking at the preview. If they wait
+        // a beat before Update Output, the first frame is decoded and the cut does not start with a
+        // three-second black gap. The preview is armed before its own rebuild so its swap can
+        // consume the prepared player too.
+        PrepareTransitionForStagedLayout();
         _preview?.Rebuild();
+    }
+
+    void PrepareTransitionForStagedLayout()
+    {
+        _preview?.PrepareTransition(_program.Layout);
+        // A link stages more than the previewed display. Arm every visible output for the layout
+        // it will actually publish, so a linked screen gets the same preloaded hand-over.
+        foreach (var output in _outputs.Where(output => output.IsVisible))
+            if (_program.LayoutFor(output.DisplayId) is { } layout)
+                output.PrepareTransition(layout);
     }
 
     /// <summary>Fills the display picker without treating the sync as the operator's choice.</summary>
@@ -502,7 +561,7 @@ public partial class MainWindow : Window, IControlPanelHost
         _displaySync = true;
         try
         {
-            var names = _scorebug.Displays.Select(display => display.Name).ToArray();
+            var names = _scorebug.Displays.Select((display, index) => $"{index + 1} · {display.Name}").ToArray();
             if (DisplaySelector.ItemsSource is not IEnumerable<string> existing || !existing.SequenceEqual(names))
                 DisplaySelector.ItemsSource = names;
             var index = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
@@ -581,6 +640,7 @@ public partial class MainWindow : Window, IControlPanelHost
     void Refresh()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(Refresh); return; }
+        RefreshEndGameButton();
         var s = _engine.State;
         if (SportSelector.SelectedValue is not string selectedId || selectedId != s.SportId)
         {
@@ -692,7 +752,7 @@ public partial class MainWindow : Window, IControlPanelHost
         var displayIndex = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
         if (displayIndex >= 0) _scorebug.SelectDisplay(displayIndex);
         _scorebug.SelectLayout(_program.LayoutIndex);
-        var maker = new MotionMakerWindow(kind, _scorebug, _engine, _preferences.Theme) { Owner = this };
+        var maker = new MotionMakerWindow(kind, _scorebug, _engine, _preferences.Theme, layoutId: _program.Layout.Id) { Owner = this };
         maker.ShowDialog();
         _preview?.Rebuild();
         RefreshLayoutIndicators();
@@ -783,7 +843,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
     /// <summary>What a browser watching /watch should see: the program layout and the published game.</summary>
     (ScorebugLayout Layout, GameState State)? WatchSnapshot() =>
-        (_scorebug.PublishedCompositeOf(_program.DisplayId), _publishedEngine.State);
+        (_automation.Effective(_program.DisplayId, _scorebug.PublishedCompositeOf(_program.DisplayId)), _publishedEngine.State);
 
     /// <summary>
     /// The program graphic as a PNG, drawn by the same view the audience window draws. A wall board
@@ -796,7 +856,7 @@ public partial class MainWindow : Window, IControlPanelHost
         if (display is null) return null;
         // The wall board shows what the audience output is actually sending, not the layout that is
         // still being staged in the studio preview.
-        var layout = _scorebug.PublishedCompositeOf(display.Id);
+        var layout = _automation.Effective(display.Id, _scorebug.PublishedCompositeOf(display.Id));
         var state = _publishedEngine.State;
         var signature = JsonSerializer.Serialize(layout) + "|" + GameEngine.StagedSignature(state);
         if (!_watchFrames.TryGetValue(display.Id, out var cached) || !string.Equals(cached.Signature, signature, StringComparison.Ordinal))
@@ -900,7 +960,7 @@ public partial class MainWindow : Window, IControlPanelHost
     public void OpenControlPanel()
     {
         var panel = new GameControlWindow(_engine, _publishedEngine, _scorebug, PublishGameState, HasStagedGameState,
-            SetLiveScoreClock, () => _liveScoreClock, _session, _preferences.Theme);
+            SetLiveScoreClock, () => _liveScoreClock, _session, _preferences.Theme, _automation);
         panel.NewPanelRequested += OpenControlPanel;
         panel.Closed += (_, _) => _controlPanels.Remove(panel);
         panel.ApplyTheme(_preferences.Theme);
@@ -952,8 +1012,24 @@ public partial class MainWindow : Window, IControlPanelHost
                 return;
             }
         }
-        StartNewGame(id, announce: false);
+        // A sport switch changes the sport, not the show: the artwork and the teams carry over.
+        StartNewGame(id, announce: false, keepDesign: true);
         StatusText.Text = $"NEW {_engine.Sport.Name.ToUpperInvariant()} GAME";
+    }
+
+    /// <summary>
+    /// The header's game button follows the game: End Game until the final, then Restart Game,
+    /// which starts the same fixture over without losing the teams.
+    /// </summary>
+    void RefreshEndGameButton()
+    {
+        if (EndGameButton is null) return;
+        var final = _engine.State.GameEnded;
+        var content = final ? "Restart Game" : "End Game";
+        if (!Equals(EndGameButton.Content, content)) EndGameButton.Content = content;
+        EndGameButton.ToolTip = final
+            ? "Start the same game over: the score, clocks and game stats reset; the teams, their records and the design stay"
+            : "Stop every clock, mark the game final and add the result to each team's record";
     }
 
     void NewGame_Click(object sender, RoutedEventArgs e)
@@ -965,14 +1041,55 @@ public partial class MainWindow : Window, IControlPanelHost
     }
 
     /// <summary>
+    /// Ends the game on command, for a game called before the clock expires. It stops every clock
+    /// and adds the result to the records that are set; the confirmation says that plainly.
+    /// </summary>
+    void EndGame_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine.State.GameEnded)
+        {
+            // A final game restarts the same fixture instead of ending it a second time.
+            // The score and clocks start over; the teams, their details and the design stay.
+            if (!ConfirmWindow.Ask(this, _preferences.Theme, "RESTART GAME",
+                "This starts the same game over. The score, clocks, period and this game's stats are cleared. The teams — names, colours, logos, records and selected players — and the scorebug design stay.",
+                "Restart game")) return;
+            StartNewGame(_engine.State.SportId, announce: false, keepDesign: true, restart: true);
+            StatusText.Text = "GAME RESTARTED · same teams, fresh score and clock";
+            AutoSave();
+            return;
+        }
+        var detail = "This stops every clock and marks the game final. The result is added to each team's record that is already set — a win, loss or tie. A team with no record is left alone.";
+        if (!ConfirmWindow.Ask(this, _preferences.Theme, "END GAME", detail, "End game")) return;
+        var homeRecord = _engine.State.HomeRecord;
+        var awayRecord = _engine.State.AwayRecord;
+        var wasSettled = _engine.State.RecordSettled;
+        if (!_engine.EndGame())
+        {
+            StatusText.Text = "GAME ENDED · start a New Game to play again";
+            return;
+        }
+        StatusText.Text = homeRecord != _engine.State.HomeRecord || awayRecord != _engine.State.AwayRecord
+            ? "GAME ENDED · team records updated"
+            : wasSettled ? "GAME ENDED · records were already updated" : "GAME ENDED · no team records were set";
+        // Keep the final state in the recovery point immediately, not at the next autosave tick.
+        AutoSave();
+    }
+
+    /// <summary>
     /// A new game resets every piece of game state and takes the audience output with it, so nothing
     /// from the previous game survives on air. Operator settings that are not part of a game — sport
     /// profiles, keybinds, preferences, the media library and the scorebug design — are untouched.
     /// </summary>
-    public void StartNewGame(string sportId, bool announce = true)
+    public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false, bool restart = false)
     {
         _autoHornReady = false;
-        _engine.NewGame(sportId);
+        // keepDesign is the sport switch: the teams, their rosters and the scorebug layout stay.
+        if (restart)
+        {
+            // A restart keeps the fixture and the design; only the game itself starts over.
+            if (!_engine.RestartGame()) return;
+        }
+        else _engine.NewGame(sportId, keepTeamIdentity: keepDesign);
         _projectPath = null;
         _startNewAutosavePoint = true;
         _savedStateJson = _engine.ExportJson();
@@ -980,13 +1097,13 @@ public partial class MainWindow : Window, IControlPanelHost
         try { PreferencesStore.Save(_preferences); } catch { }
         // A new game really starts over: one factory layout and no folder/playlist organisation.
         // Imported media files stay in the library; the game's design and shelves begin blank.
-        _scorebug.ResetToDefault();
+        if (!keepDesign) _scorebug.ResetToDefault();
         _savedDesignJson = DesignJson();
         _program.Sync();
         SyncDisplayPicker();
-        _session.ResetOrganization();
-        MediaControl.ResetView();
-        foreach (var panel in _controlPanels.Where(panel => panel.IsVisible)) panel.Media.ResetView();
+        if (!restart) _session.ResetOrganization();
+        if (!restart) MediaControl.ResetView();
+        if (!restart) foreach (var panel in _controlPanels.Where(panel => panel.IsVisible)) panel.Media.ResetView();
         ResetOutputToCurrentGame();
         RefreshLayoutIndicators();
         if (announce) StatusText.Text = $"NEW {_engine.Sport.Name.ToUpperInvariant()} GAME";
@@ -1018,6 +1135,7 @@ public partial class MainWindow : Window, IControlPanelHost
             // A file written by an older build has no design; the current scorebug then stays as it
             // is rather than being replaced by a factory layout.
             if (design is not null) _scorebug.ApplyDocument(design);
+            ApplySavedQuickButtons();
             _projectPath = path;
             _startNewAutosavePoint = true;
             // Point the picker at the loaded sport without letting that look like a sport change,
@@ -1051,28 +1169,84 @@ public partial class MainWindow : Window, IControlPanelHost
     // ---------- output ----------
     void Output_Click(object sender, RoutedEventArgs e) => OpenOutputWindow();
 
+    void Annotate_Click(object sender, RoutedEventArgs e) => OpenOutputWindow(annotations: true);
+
+    void Automation_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new AutomationWindow(_scorebug, _publishedEngine, _preferences.Theme, _program.DisplayId, _automation, _engine)
+        {
+            Owner = this
+        };
+        window.ShowDialog();
+        _preview?.Rebuild();
+        RefreshLayoutIndicators();
+    }
+
+    AnnotationBoard BoardFor(string displayId)
+    {
+        if (_annotationBoards.TryGetValue(displayId, out var board)) return board;
+        var seconds = PreferencesStore.Load().AnnotationFadeSeconds;
+        var hold = seconds <= 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Clamp(seconds, 0.5, 10));
+        board = new AnnotationBoard(hold);
+        _annotationBoards[displayId] = board;
+        return board;
+    }
+
     /// <summary>
     /// Asks which display this audience window is for, then opens a brand-new window for it. With
-    /// only one display there is nothing to ask, so the question is skipped.
+    /// only one display there is nothing to ask, so the question is skipped. Annotation reuses an
+    /// audience window already open for that display, and mirrors its strokes to every other output
+    /// on the same display, so the pen is genuinely on the audience picture.
     /// </summary>
-    public OutputWindow? OpenOutputWindow(string? displayId = null)
+    public OutputWindow? OpenOutputWindow(string? displayId = null, bool annotations = false)
     {
         if (displayId is null)
         {
             if (_scorebug.Displays.Count == 1) displayId = _scorebug.Displays[0].Id;
             else
             {
-                displayId = DisplayPickerWindow.Ask(this, _scorebug, _preferences.Theme, _program.DisplayId);
+                displayId = annotations
+                    ? DisplayPickerWindow.Ask(this, _scorebug, _preferences.Theme, _program.DisplayId,
+                        title: "Operator Draw Window",
+                        heading: "Which display are you drawing on?",
+                        detail: "The pen and highlighter appear on this display's audience picture. Opening the draw window again reuses an output already showing that display.",
+                        confirm: "Open draw window")
+                    : DisplayPickerWindow.Ask(this, _scorebug, _preferences.Theme, _program.DisplayId);
                 if (displayId is null) return null;
             }
         }
-        var output = new OutputWindow(_publishedEngine, _scorebug, _preferences.Theme, _playback, displayId)
+        var board = BoardFor(displayId);
+        if (annotations)
         {
-            Title = $"ScorePlus — {_scorebug.FindDisplay(displayId)?.Name ?? "Program"} Audience Output"
-        };
+            var existing = _outputs.FirstOrDefault(output => output.IsVisible
+                && string.Equals(output.DisplayId, displayId, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+            {
+                board.Open();
+                foreach (var other in _outputs.Where(output => output.IsVisible
+                    && string.Equals(output.DisplayId, displayId, StringComparison.OrdinalIgnoreCase)))
+                    other.ShowAudienceInk();
+                existing.OpenAnnotationTools();
+                existing.Activate();
+                return existing;
+            }
+        }
+        var output = new OutputWindow(_publishedEngine, _scorebug, _preferences.Theme, _playback, displayId, _automation, annotations, board);
         _outputs.Add(output);
         output.Closed += (_, _) => _outputs.Remove(output);
         output.Show();
+        if (string.Equals(displayId, _program.DisplayId, StringComparison.OrdinalIgnoreCase))
+            output.PrepareTransition(_program.Layout);
+        if (annotations)
+        {
+            foreach (var other in _outputs.Where(candidate => !ReferenceEquals(candidate, output) && candidate.IsVisible
+                && string.Equals(candidate.DisplayId, displayId, StringComparison.OrdinalIgnoreCase)))
+                other.ShowAudienceInk();
+        }
+        else if (board.IsOpen)
+        {
+            output.ShowAudienceInk();
+        }
         // Cascade each new window instead of stacking it exactly on top of the last one, so every
         // output opened this session stays visibly on screen. Position is only known after Show.
         var step = 32 * (_outputs.Count - 1);
@@ -1181,6 +1355,50 @@ public partial class MainWindow : Window, IControlPanelHost
         SaveGameTo(dialog.FileName);
     }
 
+    /// <summary>Copies the live quick buttons into the game state so they travel with the save.</summary>
+    void CaptureQuickButtons()
+    {
+        var preferences = PreferencesStore.Load();
+        _engine.State.QuickLayouts = (preferences.QuickLayouts ?? []).Select(binding => new SavedQuickLayout
+        {
+            Label = binding.Label,
+            DisplayId = binding.DisplayId,
+            LayoutId = binding.LayoutId
+        }).ToList();
+        _engine.State.QuickMedia = (preferences.QuickMedia ?? []).Select(binding => new SavedQuickMedia
+        {
+            Label = binding.Label,
+            Path = binding.Path
+        }).ToList();
+        _engine.State.QuickButtonsSaved = true;
+    }
+
+    /// <summary>Restores the quick buttons a loaded game carried, and refreshes both bars.</summary>
+    void ApplySavedQuickButtons()
+    {
+        var layouts = _engine.State.QuickLayouts ?? [];
+        var media = _engine.State.QuickMedia ?? [];
+        // A save from before this feature carries neither list; keep the operator's current buttons.
+        if (!_engine.State.QuickButtonsSaved && layouts.Count == 0 && media.Count == 0) return;
+        var preferences = PreferencesStore.Load();
+        preferences.QuickLayouts = layouts.Select(binding => new QuickLayoutBinding
+        {
+            Label = binding.Label,
+            DisplayId = binding.DisplayId,
+            LayoutId = binding.LayoutId
+        }).ToList();
+        preferences.QuickMedia = media.Select(binding => new QuickMediaBinding
+        {
+            Label = binding.Label,
+            Path = binding.Path
+        }).ToList();
+        PreferencesStore.Save(preferences);
+        _preferences.QuickLayouts = preferences.QuickLayouts;
+        _preferences.QuickMedia = preferences.QuickMedia;
+        _quickLayouts?.Refresh();
+        _quickMedia?.Refresh();
+    }
+
     /// <summary>Writes the game and remembers that this is now the saved state.</summary>
     bool SaveGameTo(string path)
     {
@@ -1188,6 +1406,7 @@ public partial class MainWindow : Window, IControlPanelHost
         {
             // The game travels with its screens: every display, every layout and what each one has
             // on air, so opening the file puts the show back exactly where it was left.
+            CaptureQuickButtons();
             _engine.Save(path, _scorebug.ExportDocument());
             _projectPath = path;
             _savedStateJson = _engine.ExportJson();
@@ -1272,6 +1491,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
         try
         {
+            CaptureQuickButtons();
             AutosaveStore.Save(_engine, _startNewAutosavePoint, _scorebug.ExportDocument());
             _startNewAutosavePoint = false;
             _lastAutosaveAt = now;
@@ -1304,18 +1524,28 @@ public partial class MainWindow : Window, IControlPanelHost
 
     protected override void OnClosed(EventArgs e)
     {
-        _engine.Changed -= Refresh;
-        _engine.Changed -= EngineChanged;
-        _hardware.Dispose();
-        HornPlayer.Stop();
-        _remote?.Dispose();
+        // Every timer belongs to this window. Leaving one running after the window is gone is a
+        // common reason a WPF process stays in Task Manager, so stop them before tearing anything
+        // else down.
+        _timer.Stop();
+        _autosave.Stop();
         _meterTimer.Stop();
-        _program.Dispose();
-        _preview?.Dispose();
-        _session.Dispose();
-        foreach (var panel in _controlPanels.ToArray()) panel.Close();
-        foreach (var output in _outputs.ToArray()) output.Close();
-        _log?.Close();
+        try { if (_gameStarted) AutoSave(); } catch { }
+
+        // Each cleanup is independent: one native media or capture component failing must not skip
+        // the rest and leave the process behind.
+        try { _engine.Changed -= Refresh; _engine.Changed -= EngineChanged; } catch { }
+        try { _hardware.Dispose(); } catch { }
+        try { HornPlayer.Stop(); } catch { }
+        try { _remote?.Dispose(); } catch { }
+        try { _automation.Dispose(); } catch { }
+        try { _program.Dispose(); } catch { }
+        try { _preview?.Dispose(); } catch { }
+        try { _session.Dispose(); } catch { }
+        foreach (var panel in _controlPanels.ToArray()) try { panel.Close(); } catch { }
+        foreach (var output in _outputs.ToArray()) try { output.Close(); } catch { }
+        try { _log?.Close(); } catch { }
+        _annotationBoards.Clear();
         base.OnClosed(e);
     }
 }

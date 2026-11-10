@@ -51,7 +51,7 @@ internal sealed class DisplayPickerWindow : Window
         var targets = catalog.Displays
             .Where(display => !string.Equals(display.Id, excludeDisplayId, StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        _list.ItemsSource = targets.Select(display => new DisplayChoice(display)).ToArray();
+        _list.ItemsSource = targets.Select(display => new DisplayChoice(display, catalog.Displays.IndexOf(display) + 1)).ToArray();
         _list.DisplayMemberPath = "Label";
         _list.FontSize = 13;
         _list.MinHeight = 96;
@@ -83,9 +83,13 @@ internal sealed class DisplayPickerWindow : Window
     }
 
     /// <summary>The chosen display id, or null when the operator cancelled.</summary>
-    public static string? Ask(Window owner, ScorebugCatalog catalog, string theme, string? preferredDisplayId)
+    public static string? Ask(Window owner, ScorebugCatalog catalog, string theme, string? preferredDisplayId,
+        string title = "Audience output",
+        string heading = "Which display is this window for?",
+        string detail = "Each display has its own audience window and its own layout. Opening one again adds another window rather than replacing the first.",
+        string confirm = "Open output")
     {
-        var window = new DisplayPickerWindow(catalog, theme, preferredDisplayId) { Owner = owner };
+        var window = new DisplayPickerWindow(catalog, theme, preferredDisplayId, title, heading, detail, confirm) { Owner = owner };
         return window.ShowDialog() == true ? window._result : null;
     }
 
@@ -108,7 +112,7 @@ internal sealed class DisplayPickerWindow : Window
 
     sealed class DisplayChoice
     {
-        public DisplayChoice(ScorebugDisplay display)
+        public DisplayChoice(ScorebugDisplay display, int number)
         {
             Display = display;
             var liveNames = new List<string>();
@@ -120,7 +124,7 @@ internal sealed class DisplayPickerWindow : Window
                 if (pinned is not null && !liveNames.Contains(pinned.Name)) liveNames.Add(pinned.Name);
             }
             var live = liveNames.Count == 0 ? "no layouts" : string.Join(" + ", liveNames);
-            Label = $"{display.Name}   ·   on air: {live}   ·   {display.Layouts.Count} layout{(display.Layouts.Count == 1 ? "" : "s")}";
+            Label = $"{number} · {display.Name}   ·   on air: {live}   ·   {display.Layouts.Count} layout{(display.Layouts.Count == 1 ? "" : "s")}";
         }
 
         public ScorebugDisplay Display { get; }

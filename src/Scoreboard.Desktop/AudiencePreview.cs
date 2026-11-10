@@ -22,15 +22,17 @@ public sealed class AudiencePreview : Grid
     readonly ScorebugCatalog _catalog;
     readonly GameEngine _publishedEngine;
     readonly MediaPlayback? _playback;
+    readonly AutomationRuntime? _automation;
     ScorebugCanvasView? _view;
     string? _displayId;
     bool _sync;
 
-    public AudiencePreview(ScorebugCatalog catalog, GameEngine publishedEngine, MediaPlayback? playback, string? displayId = null)
+    public AudiencePreview(ScorebugCatalog catalog, GameEngine publishedEngine, MediaPlayback? playback, string? displayId = null, AutomationRuntime? automation = null)
     {
         _catalog = catalog;
         _publishedEngine = publishedEngine;
         _playback = playback;
+        _automation = automation;
         // The backdrop belongs to the artwork; the operator theme must not repaint it.
         ThemeManager.SetSkipTheme(this, true);
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -91,7 +93,7 @@ public sealed class AudiencePreview : Grid
         _sync = true;
         try
         {
-            var names = _catalog.Displays.Select(display => display.Name).ToArray();
+            var names = _catalog.Displays.Select((display, index) => $"{index + 1} · {display.Name}").ToArray();
             if (_displayPicker.ItemsSource is not IEnumerable<string> existing || !existing.SequenceEqual(names))
                 _displayPicker.ItemsSource = names;
             var resolved = _catalog.FindDisplay(wanted) ?? _catalog.Displays.FirstOrDefault();
@@ -114,7 +116,8 @@ public sealed class AudiencePreview : Grid
         // Muted so it never doubles the clip's sound, but marked as on-air so a replay that is only
         // staged in the preview stays invisible here until Start replay puts it on air.
         _view = new ScorebugCanvasView(_catalog, _publishedEngine, playback: _playback, muteVideo: true,
-            layoutProvider: () => _catalog.PublishedCompositeOf(_displayId), onAirVideo: true, displayId: _displayId);
+            layoutProvider: () => _catalog.PublishedCompositeOf(_displayId), onAirVideo: true, displayId: _displayId,
+            automation: _automation);
         _host.Content = _view;
     }
 

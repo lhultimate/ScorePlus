@@ -15,6 +15,9 @@ public sealed class RosterPlayer
     public string Name { get; set; } = "";
     public string Position { get; set; } = "";
 
+    /// <summary>A portrait uploaded from the roster desk, copied into the app's PlayerPhotos folder.</summary>
+    public string PhotoPath { get; set; } = "";
+
     /// <summary>
     /// Which squad section this player sits in — "Defence", "Bench", "U12" — so a long roster can
     /// be folded and read in pieces. Empty means ungrouped.
@@ -364,6 +367,7 @@ public sealed class SelectedPlayer
     public int Number { get; set; }
     public string Name { get; set; } = "";
     public string Position { get; set; } = "";
+    public string PhotoPath { get; set; } = "";
     public List<GameStat> Stats { get; set; } = [];
 
     public static SelectedPlayer From(Roster roster, RosterPlayer player) => new()
@@ -373,6 +377,7 @@ public sealed class SelectedPlayer
         Number = player.Number,
         Name = player.Name,
         Position = player.Position,
+        PhotoPath = player.PhotoPath,
         Stats = player.Stats.Select(s => s with { Id = Guid.NewGuid().ToString("N") }).ToList()
     };
 

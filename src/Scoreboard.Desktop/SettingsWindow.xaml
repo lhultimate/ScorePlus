@@ -25,12 +25,22 @@
                    ToolTip="Any value from 0 to 5, for example 0.35"/>
         </DockPanel>
         <TextBlock Text="How long every graphic holds an old value before it switches to the new one. Type any value from 0 to 5; 0 prints instantly and is the default." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
+        <TextBlock Text="Game clock format" Foreground="#93A0B2" FontSize="11" Margin="4,10,0,2"/>
+        <ComboBox x:Name="ClockFormatInput" SelectionChanged="ClockFormat_Changed">
+          <ComboBoxItem Content="09:59 — leading zero on the minutes"/>
+          <ComboBoxItem Content="9:59 — no leading zero, :59 under a minute"/>
+        </ComboBox>
+        <TextBlock Text="Padded prints 10:00, 09:59 and 0:59. Compact prints 10:00, 9:59 and :59. It reaches every clock on the graphic, the console and the remote." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
+        <CheckBox x:Name="AutoRecordInput" Content="Update team records when the game ends" Checked="AutoRecord_Changed" Unchecked="AutoRecord_Changed"/>
+        <TextBlock Text="Off by default. When the final period expires — or full time in soccer — the winner's record gets a win and the loser's a loss; a tie adds one tie. Records use win-loss-tie, such as 4-0 or 5-7-1. A side with no record is left alone." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <CheckBox x:Name="QuickPublishInput" Content="Quick layout buttons also update output" Checked="QuickLayout_Changed" Unchecked="QuickLayout_Changed"/>
         <TextBlock Text="Off by default: the four buttons above the sound meter only stage a layout, and Update Output sends it as usual. On, the same press puts the layout on air — faster, but it changes the audience picture without a second confirmation." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <CheckBox x:Name="DownPreviewInput" Content="Next down shows &quot;2nd Down&quot; until the distance is set" Checked="DownPreview_Changed" Unchecked="DownPreview_Changed"/>
         <TextBlock Text="Off by default. Pressing Next down prints just the new down, so the graphic never shows the old series' distance beside it; setting the distance (or Update Output) turns it into 2nd &amp; 4." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <CheckBox x:Name="NewSeriesInput" Content="New series updates output immediately" Checked="NewSeries_Changed" Unchecked="NewSeries_Changed"/>
         <TextBlock Text="Off by default. Pressing New series puts 1st &amp; 10 on air at once instead of waiting for Update Output." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
+        <CheckBox x:Name="UppercaseDownInput" Content="Down line prints in full caps" Checked="UppercaseDown_Changed" Unchecked="UppercaseDown_Changed"/>
+        <TextBlock Text="Off by default. With this on, the down line reads 1st &amp; GOAL or 2nd DOWN instead of 1st &amp; Goal or 2nd Down. The ordinal, the distance and the PAT labels stay as they are." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <Separator/>
         <TextBlock Text="CLOCK HORNS" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="GameClockHornInput" Content="Sound the horn when the game clock reaches zero" Checked="ClockHorn_Changed" Unchecked="ClockHorn_Changed"/>

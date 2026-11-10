@@ -1198,62 +1198,15 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>
-    /// The panic button: stop everything, release the camera (so its last frame cannot stay on the
-    /// scorebug) and blank every video box. Clearing the library is the operator's choice.
+    /// The panic button: take every video, camera and microphone off air and blank every video box,
+    /// so a camera holding its last frame cannot stay on the scorebug. The library, its folders and
+    /// playlists are deliberately kept — Clear is not a delete.
     /// </summary>
     void Clear_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        if (_session.Library.Count > 0 && !ConfirmClear()) return;
-        _session.ClearAll();
+        _session.ClearOnAir();
         Refresh();
-    }
-
-    /// <summary>A themed confirmation, because a system message box breaks the operator's dark UI.</summary>
-    bool ConfirmClear()
-    {
-        var owner = Window.GetWindow(this);
-        var window = new Window
-        {
-            Title = "Clear media",
-            Width = 430,
-            SizeToContent = SizeToContent.Height,
-            ResizeMode = ResizeMode.NoResize,
-            WindowStartupLocation = owner is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
-            ShowInTaskbar = false,
-            FontFamily = new FontFamily("Segoe UI")
-        };
-        if (owner is not null) window.Owner = owner;
-        var root = new StackPanel { Margin = new Thickness(20, 18, 20, 16) };
-        root.Children.Add(new TextBlock
-        {
-            Text = "Clear all media?\n\nEvery clip, folder and playlist is removed from the library, the camera is released and the scorebug video boxes go blank.",
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 4)
-        });
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
-        var cancel = new Button { Content = "Cancel", IsCancel = true, MinHeight = 34, Padding = new Thickness(13, 6, 13, 6), Margin = new Thickness(4, 0, 0, 0) };
-        var clear = new Button
-        {
-            Content = "Clear media",
-            IsDefault = true,
-            MinHeight = 34,
-            Padding = new Thickness(13, 6, 13, 6),
-            Margin = new Thickness(4, 0, 0, 0),
-            Background = Frozen("#5A2222"),
-            BorderBrush = Frozen("#A33B3B"),
-            Foreground = Brushes.White
-        };
-        ThemeManager.SetSkipTheme(clear, true);
-        clear.Click += (_, _) => window.DialogResult = true;
-        cancel.Click += (_, _) => window.DialogResult = false;
-        buttons.Children.Add(cancel);
-        buttons.Children.Add(clear);
-        root.Children.Add(buttons);
-        window.Content = root;
-        ThemeManager.Apply(window, _theme);
-        return window.ShowDialog() == true;
     }
 
     /// <summary>

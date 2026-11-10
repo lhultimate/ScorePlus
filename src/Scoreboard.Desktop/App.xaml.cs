@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Input;
 using System.IO;
+using System.Windows.Controls;
+using System.Windows.Media;
 using System.Threading;
 using Scoreboard.Core;
 
@@ -89,6 +91,42 @@ public partial class App : Application
         // look like it had been returned to a window at the side of the screen.
         WindowFullscreen.Toggle(window);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// A wheel over a closed picker should not change its value. Forward the scroll to the
+    /// surrounding panel so the editor still scrolls as the operator expects.
+    /// </summary>
+    void ComboBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ComboBox { IsDropDownOpen: false } combo || e.Handled) return;
+        e.Handled = true;
+        // Raising the bubbling event on the scroller (rather than the closed combo) lets the
+        // ScrollViewer treat it as a normal wheel gesture.
+        for (var parent = VisualTreeHelper.GetParent(combo); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+        {
+            if (parent is not ScrollViewer scroller) continue;
+            scroller.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+            {
+                RoutedEvent = UIElement.MouseWheelEvent,
+                Source = scroller
+            });
+            return;
+        }
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        base.OnExit(e);
+#if DEBUG
+        // The smoke harness shares this App but creates and closes windows all run; don't terminate
+        // it before its own cleanup and result reporting.
+        if (SuppressStartupForSmoke) return;
+#endif
+        // A native codec, capture driver or audio endpoint can keep a thread alive after WPF has
+        // closed every window. The operator closed ScorePlus, so the process must leave Task Manager
+        // too, rather than sitting there with no window.
+        Environment.Exit(0);
     }
 
     /// <summary>Appends a timestamped error to <c>%LOCALAPPDATA%\ScorePlus\logs\errors.log</c>.</summary>

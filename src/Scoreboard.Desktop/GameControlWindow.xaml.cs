@@ -70,17 +70,18 @@ public partial class GameControlWindow : Window
     /// </summary>
     public GameControlWindow(GameEngine engine, GameEngine previewEngine, ScorebugCatalog catalog,
         Action publishGameState, Func<bool> hasStagedGame, Action<bool> setLiveScoreClock, Func<bool> getLiveScoreClock,
-        MediaSession? media, string theme)
+        MediaSession? media, string theme, AutomationRuntime? automation = null)
     {
         InitializeComponent();
         ScreenFit.Track(this);
         _engine = engine;
         _catalog = catalog;
         Program = new ProgramSelection(catalog);
-        _preview = new ScorebugCanvasView(catalog, previewEngine, playback: media?.Playback, layoutProvider: () => Program!.Layout, displayId: Program!.DisplayId);
+        // The preview is staged; the small audience monitor below reads the published copy.
+        _preview = new ScorebugCanvasView(catalog, engine, stateProvider: () => engine.State, playback: media?.Playback, layoutProvider: () => Program!.Layout, displayId: Program!.DisplayId, automation: automation);
         PreviewHost.Content = _preview;
         // The monitor reads the published engine and layout, so it reflects a real audience window.
-        _audience = new AudiencePreview(catalog, previewEngine, media?.Playback, Program.DisplayId);
+        _audience = new AudiencePreview(catalog, previewEngine, media?.Playback, Program.DisplayId, automation);
         AudienceHost.Content = _audience;
         var host = new WindowHost(Program, publishGameState, hasStagedGame, setLiveScoreClock, getLiveScoreClock, () => NewPanelRequested?.Invoke());
         Panel = new ControlPanelView(engine, host);
@@ -165,6 +166,7 @@ public partial class GameControlWindow : Window
         ProgramHint.Text = Program.HasStagedChanges
             ? "Preview only — press Update Output to put this display on air."
             : "This display is on air with the layout shown here.";
+        _preview?.PrepareTransition(Program.Layout);
         _preview?.Rebuild();
         Panel.Refresh();
         RefreshMeterStatus();
@@ -193,7 +195,7 @@ public partial class GameControlWindow : Window
         _displaySync = true;
         try
         {
-            var names = _catalog.Displays.Select(display => display.Name).ToArray();
+            var names = _catalog.Displays.Select((display, index) => $"{index + 1} · {display.Name}").ToArray();
             if (DisplaySelector.ItemsSource is not IEnumerable<string> existing || !existing.SequenceEqual(names))
                 DisplaySelector.ItemsSource = names;
             var index = _catalog.Displays.FindIndex(display => string.Equals(display.Id, Program.DisplayId, StringComparison.OrdinalIgnoreCase));

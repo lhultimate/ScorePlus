@@ -2,9 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Scoreboard.Desktop"
-        Title="ScorePlus — Scorebug Studio" Width="1360" Height="900" MinWidth="1120" MinHeight="720"
+        Title="ScorePlus — Display Studio" Width="1360" Height="900" MinWidth="1120" MinHeight="720"
         WindowStartupLocation="CenterOwner" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <Window.Resources>
+    <local:IconNameConverter x:Key="IconNameConverter"/>
     <Style x:Key="ToolButton" TargetType="Button">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Padding" Value="12,8"/>
@@ -64,12 +65,20 @@
           <Button Content="VIDEO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddVideo_Click"/>
           <Button Content="HTML +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddHtml_Click"
                   ToolTip="A live HTML/CSS widget, drawn by a browser engine on every screen"/>
+          <Button Content="PLAYER PHOTO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddPlayerPhoto_Click"
+                  ToolTip="A picture element that follows the selected player's uploaded portrait"/>
+          <Button Content="LAYOUT +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddLayoutFeed_Click"
+                  ToolTip="Put another layout inside this one as a resizeable live feed"/>
           <Button Content="PARTS +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="ImportParts_Click"
                   ToolTip="Copy elements from another layout instead of rebuilding them"/>
+          <Button x:Name="UndoButton" Content="UNDO" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Undo_Click"
+                  IsEnabled="False" ToolTip="Undo the last studio edit (Ctrl+Z)"/>
+          <Button x:Name="RedoButton" Content="REDO" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Redo_Click"
+                  IsEnabled="False" ToolTip="Redo the last undone edit (Ctrl+Y or Ctrl+Shift+Z)"/>
           <Button Content="REMOVE" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="Remove_Click" ToolTip="Delete the selected element"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal">
-          <TextBlock Text="SCOREPLUS · SCOREBUG STUDIO" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
+          <TextBlock Text="SCOREPLUS · DISPLAY STUDIO" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
           <TextBlock x:Name="HeaderHint" Text="   Arrange audience graphics · edits save automatically" Foreground="#93A0B2" VerticalAlignment="Center"/>
         </StackPanel>
       </DockPanel>
@@ -110,6 +119,24 @@
               <Button x:Name="TransitionVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0"
                       Click="TransitionVideoClear_Click" Visibility="Collapsed"
                       ToolTip="Go back to the preset transition"/>
+              <TextBlock x:Name="TransitionVideoCutLabel" Text="CUT AT" FontSize="10" FontWeight="Bold"
+                         Foreground="#5C6B7E" VerticalAlignment="Center" Margin="8,0,3,0" Visibility="Collapsed"/>
+              <TextBox x:Name="TransitionVideoCutInput" Width="38" Height="24" FontSize="10" Padding="3,1"
+                       TextAlignment="Center" VerticalContentAlignment="Center" Margin="0"
+                       TextChanged="TransitionVideoCut_Changed" Visibility="Collapsed"
+                       ToolTip="Seconds after the video starts before the new layout cuts in; 0 cuts on its first frame"/>
+              <TextBlock x:Name="TransitionVideoCutUnit" Text="s" FontSize="10" Foreground="#5C6B7E"
+                         VerticalAlignment="Center" Margin="2,0,0,0" Visibility="Collapsed"/>
+              <Button x:Name="TransitionKeyButton" Content="Key…" FontSize="10" Padding="8,3" Margin="4,0,0,0"
+                      Click="TransitionChromaKey_Click" Visibility="Collapsed"
+                      ToolTip="Choose the green or blue backdrop to remove from this hand-over video"/>
+              <Button x:Name="TransitionKeyClearButton" Content="Clear key" FontSize="10" Padding="8,3" Margin="4,0,0,0"
+                      Click="TransitionChromaKeyClear_Click" Visibility="Collapsed"
+                      ToolTip="Leave the hand-over video untouched"/>
+              <TextBlock x:Name="TransitionKeyToleranceLabel" Text="Tol" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="8,0,3,0"/>
+              <TextBox x:Name="TransitionKeyToleranceInput" Width="38" FontSize="10" Padding="4,2" Visibility="Collapsed"
+                       TextChanged="TransitionChromaTolerance_Changed"
+                       ToolTip="How different a pixel may be from the key colour and still disappear (0–1)"/>
               <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
@@ -280,6 +307,16 @@
                        never hit-test or become part of the exported layout. -->
                   <Canvas x:Name="GridCanvas" Width="1280" Height="720" IsHitTestVisible="False"
                           Visibility="Collapsed"/>
+                  <!-- One frame around a multi-selection. Its corner handle scales the whole group;
+                       individual elements keep their own handle only when selected alone. -->
+                  <Canvas x:Name="SelectionCanvas" Width="1280" Height="720">
+                    <Border x:Name="GroupSelectionBox" BorderBrush="#FF00BFFF" BorderThickness="2"
+                            CornerRadius="2" IsHitTestVisible="False"
+                            Visibility="Collapsed"/>
+                    <Border x:Name="GroupResizeHandle" Width="18" Height="18" Background="#FF00BFFF"
+                            BorderBrush="White" BorderThickness="1" Cursor="SizeNWSE" Focusable="False"
+                            Visibility="Collapsed" ToolTip="Drag to resize the whole selection"/>
+                  </Canvas>
                 </Grid>
               </Viewbox>
             </Border>
@@ -466,6 +503,28 @@
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
         </StackPanel>
 
+        <StackPanel x:Name="PlayerPhotoSection">
+          <TextBlock Text="PLAYER PHOTO" Style="{StaticResource SectionTitle}"/>
+          <TextBlock Text="Follow the selected player on one side. Upload the portrait on the Rosters tab; switching the selected player changes the picture without a rebuild."
+                     Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,4"/>
+          <ComboBox x:Name="PlayerPhotoSideInput" Margin="10,0,10,6" SelectionChanged="Property_Changed"
+                    ToolTip="Follow the selected home player, the selected visitors player, or use a fixed image instead"/>
+        </StackPanel>
+
+        <StackPanel x:Name="LayoutSection">
+          <TextBlock Text="LIVE LAYOUT" Style="{StaticResource SectionTitle}"/>
+          <TextBlock Text="Source layout" Style="{StaticResource FieldLabel}"/>
+          <ComboBox x:Name="NestedLayoutInput" Margin="10,0,10,4" SelectionChanged="NestedLayout_Changed"
+                    ToolTip="The layout this box shows live"/>
+          <TextBlock x:Name="NestedLayoutHint" Text="Choose a layout. The feed follows its artwork and values and can be resized like any other element."
+                     Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
+          <CheckBox x:Name="NestedAspectInput" Content="Keep the source layout's shape" Margin="10,2,10,4"
+                    Checked="Property_Changed" Unchecked="Property_Changed"
+                    ToolTip="On: letterbox the feed to the source's proportions. Off: stretch it to this box."/>
+          <TextBlock Text="Tip: drag the corner handle to resize the feed. Open the source layout above to edit its artwork; this box follows automatically."
+                     Foreground="#5C6B7E" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,8"/>
+        </StackPanel>
+
         <StackPanel x:Name="ShapePanel">
           <TextBlock Text="SHAPE" Style="{StaticResource SectionTitle}"/>
           <TextBlock Text="Shape type" Style="{StaticResource FieldLabel}"/>
@@ -476,14 +535,20 @@
           <TextBlock Text="ICON" Style="{StaticResource SectionTitle}"/>
           <TextBlock Text="Live artwork instead of (or beside) typed text" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="IconInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="Timeout bars, a dot on the side of the team with the ball, or an icon you made"/>
-          <!-- Icons made in the icon maker: pick one, or open the maker to draw a new one. -->
+                    ToolTip="Timeout bars, a dot on the side of the team with the ball, or an icon you made">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Converter={StaticResource IconNameConverter}}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <!-- Icons made in the Icon Creator: pick one, or open it to draw a new one. -->
           <StackPanel x:Name="IconCustomPanel">
-            <TextBlock Text="Made icon" Style="{StaticResource FieldLabel}"/>
+            <TextBlock x:Name="IconCustomLabel" Text="Made icon" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,0,10,8">
-              <Button DockPanel.Dock="Right" Content="Icon maker…" Margin="4,0,0,0" Click="IconMaker_Click"
-                      ToolTip="Make an icon: a glyph, its colour and its plate, saved to the icon library"/>
-              <ComboBox x:Name="IconCustomInput" Margin="10,0,0,0" SelectionChanged="Property_Changed"
+              <Button DockPanel.Dock="Right" Content="Icon creator…" Margin="4,0,0,0" Click="IconMaker_Click"
+                      ToolTip="Open the Icon Creator to make an icon, or import or export a ScorePlus Icon (.spi) file"/>
+              <ComboBox x:Name="IconCustomInput" Margin="10,0,0,0"
                         ToolTip="Which made icon this element draws"/>
             </DockPanel>
           </StackPanel>
@@ -504,6 +569,9 @@
             <DockPanel Margin="0,0,10,8">
               <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconColor_Click"
                       ToolTip="Pick the icon's own colour"/>
+              <Border x:Name="IconColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                      BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                      local:ThemeManager.SkipTheme="True" ToolTip="The colour this icon actually draws"/>
               <TextBox x:Name="IconColorInput" TextChanged="Property_Changed"
                        ToolTip="Leave empty to use the element's text colour"/>
             </DockPanel>
@@ -517,6 +585,9 @@
             <TextBlock Text="Timeout bar size (0.25–3)" Style="{StaticResource FieldLabel}"/>
             <TextBox x:Name="IconScaleInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                      ToolTip="Make the timeout bars smaller or larger; 1 is the natural size"/>
+            <CheckBox x:Name="IconVerticalInput" Content="Stack the timeout bars vertically" Margin="10,2,10,8"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="Keep each bar horizontal but stack them down the box instead of across it"/>
           </StackPanel>
           <!-- Baseball's bases: the inside can be its own color, separate from the outline. -->
           <StackPanel x:Name="BaseFillPanel">
@@ -548,6 +619,21 @@
           <TextBlock Text="Aspect (width ÷ height)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="AspectInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="16:9 is 1.7778 · 4:3 is 1.3333 · vertical 9:16 is 0.5625"/>
+          <TextBlock Text="Chroma key color" Style="{StaticResource FieldLabel}"/>
+          <DockPanel Margin="0,0,10,2">
+            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="ChromaKeyColor_Click"
+                    ToolTip="Pick the green or blue backdrop color to make transparent"/>
+            <Border x:Name="ChromaKeySwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                    BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                    local:ThemeManager.SkipTheme="True" ToolTip="Pixels of this color become transparent in this video box"/>
+            <TextBox x:Name="ChromaKeyInput" Margin="0" TextChanged="Property_Changed"
+                     ToolTip="Leave empty to turn chroma key off"/>
+          </DockPanel>
+          <TextBlock Text="Key tolerance (0–1)" Style="{StaticResource FieldLabel}"/>
+          <TextBox x:Name="ChromaKeyToleranceInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                   ToolTip="0 keys only the exact color; 0.15–0.25 tolerates uneven lighting and compression"/>
+          <TextBlock x:Name="ChromaKeyHintText" Text="Tolerance is how different a pixel can be from the key color and still disappear: 0 keys only the exact color. Raise it if green edges remain; lower it if the subject starts disappearing."
+                     Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
           <TextBlock Text="Audio output for this element" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="AudioDeviceInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
                     ToolTip="Each video element can play through its own speaker, so two clips never share one output"/>
@@ -670,7 +756,7 @@
 
         <TextBlock x:Name="CanvasFitTipText" Text="Scroll over the canvas to zoom in and out; the framed edge is the artwork. The optional grid snaps moved and resized items to 20 px."
                    Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,10,10,2"/>
-        <TextBlock x:Name="ResizeTipText" Text="Resize: select an element, then drag the blue corner handle on the canvas. Hold Ctrl to scale the text with the box, Shift to keep its shape."
+        <TextBlock x:Name="ResizeTipText" Text="Resize: select one element and drag its corner, or select several to get one blue group box and drag its corner. The group scales as a whole. Hold Ctrl to scale the text with the box, Shift to keep its shape."
                    Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,4,10,12"/>
       </StackPanel>
     </ScrollViewer>

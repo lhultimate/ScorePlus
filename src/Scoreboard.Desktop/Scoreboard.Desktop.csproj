@@ -34,6 +34,8 @@
     <Resource Include="Assets\horn-air.mp3" />
     <Resource Include="Assets\horn-buzzer.mp3" />
     <Resource Include="Assets\horn-siren.mp3" />
+    <!-- Compiled PS 2.0 shader: makes the selected chroma-key colour transparent. -->
+    <Resource Include="Assets\ChromaKey.ps" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
