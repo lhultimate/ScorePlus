@@ -46,6 +46,9 @@ public sealed class ScorebugCanvasView : Grid
     // clip, temporary pieces sit above the layout, and both are cleared when the event ends.
     Canvas? _scorePieces;
     DispatcherTimer? _scoreTimer;
+    // Whole-graphic tracks run once on the canvas, not once per item, so a scale or spin keeps
+    // the scorebug together. The flag distinguishes that transform from the layout hand-over.
+    bool _scoreCanvasAnimated;
     readonly List<(ScorebugElement Item, FrameworkElement Host)> _scoreAnimated = [];
     // The last scoring action this view has already celebrated.
     long _lastScoreSequence;
@@ -1190,7 +1193,9 @@ public sealed class ScorebugCanvasView : Grid
         if(!string.Equals(state.SportId,"football",StringComparison.OrdinalIgnoreCase)||state.LastScoreAmount<=0)return;
         var clip=state.LastScoreAmount switch
         {
-            6=>Layout.TouchdownAnimation,
+            // A seven- or eight-point football score still contains a touchdown; the extra point
+            // or conversion is part of the same scoring play on the console.
+            6 or 7 or 8=>Layout.TouchdownAnimation,
             3=>Layout.FieldGoalAnimation,
             _=>null
         };
@@ -1202,12 +1207,20 @@ public sealed class ScorebugCanvasView : Grid
         if(phase is null)return;
         ClearScoreAnimation();
         var steps=new List<(string Id,Action Play)>();
+        var canvasPhase=ScoreCanvasPhase(phase);
+        if(canvasPhase is not null)
+        {
+            _scoreCanvasAnimated=true;
+            MotionPlayback.PlayPhaseRootOnly(_canvas,canvasPhase,1);
+        }
         foreach(var item in Layout.Elements)
         {
             if(!item.Visible||!_visuals.TryGetValue(item.Id,out var visual))continue;
+            var itemPhase=ScoreItemPhase(phase,item.Id);
+            if(itemPhase is null)continue;
             var host=visual.Host;var id=item.Id;var opacity=Math.Clamp(item.Opacity,0,1);
             _scoreAnimated.Add((item,host));
-            steps.Add((id,()=>MotionPlayback.PlayPhase(host,phase,opacity,pieceId:id)));
+            steps.Add((id,()=>MotionPlayback.PlayPhase(host,itemPhase,opacity,pieceId:id)));
         }
         Canvas? overlay=null;
         var pieces=clip.PiecesForTrigger(state.LastScoreAmount,state.LastScoreHome);
@@ -1219,19 +1232,70 @@ public sealed class ScorebugCanvasView : Grid
             {
                 var host=BuildTemporaryPiece(piece);
                 overlay.Children.Add(host);
+                var piecePhase=ScoreItemPhase(phase,piece.Id);
+                if(piecePhase is null)continue;
                 var pieceId=piece.Id;var opacity=Math.Clamp(piece.Opacity,0,1);
-                steps.Add((pieceId,()=>MotionPlayback.PlayPhase(host,phase,opacity,pieceId:pieceId)));
+                steps.Add((pieceId,()=>MotionPlayback.PlayPhase(host,piecePhase,opacity,pieceId:pieceId)));
             }
-            _stage.Children.Add(overlay);
+            // The overlay lives inside the animated canvas so a whole-graphic scale, spin or slide
+            // carries the temporary card with it instead of leaving it behind.
+            _canvas.Children.Add(overlay);
             _scorePieces=overlay;
         }
-        if(steps.Count==0)return;
-        PlayStaggered(steps,phase.Seconds,clip);
+        if(canvasPhase is null&&steps.Count==0&&overlay is null)return;
+        if(steps.Count>0)PlayStaggered(steps,phase.Seconds,clip);
         var timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(Math.Max(0.05,phase.Seconds+StaggerFor(steps,clip)))};
         _scoreTimer=timer;
         timer.Tick+=(_,_)=>{timer.Stop();if(ReferenceEquals(_scoreTimer,timer))ClearScoreAnimation();};
         timer.Start();
     }
+
+    /// <summary>
+    /// Whole-graphic motion belongs on the canvas once. Its background colour paints the layout
+    /// backdrop, not every item plate. Text and border colours stay item-scoped and are applied
+    /// by <see cref="ScoreItemPhase"/> instead.
+    /// </summary>
+    static MotionPhase? ScoreCanvasPhase(MotionPhase phase)
+    {
+        var tracks=phase.Tracks
+            .Where(track=>string.IsNullOrWhiteSpace(track.PieceId)&&IsCanvasMotion(track.Target))
+            .ToList();
+        var colors=phase.Colors
+            .Where(track=>string.IsNullOrWhiteSpace(track.PieceId)&&track.Role==MotionColorRole.Background)
+            .ToList();
+        return tracks.Count==0&&colors.Count==0
+            ? null
+            : new MotionPhase(phase.Name,phase.Seconds){Tracks=tracks,Colors=colors,Enabled=true};
+    }
+
+    /// <summary>
+    /// The keys a single item or temporary piece follows: whole-graphic keys that need to reach
+    /// descendant content, plus keys authored for that piece. Whole-graphic motion is deliberately
+    /// absent because it already runs on the canvas.
+    /// </summary>
+    static MotionPhase? ScoreItemPhase(MotionPhase phase,string pieceId)
+    {
+        var tracks=phase.Tracks
+            .Where(track=>string.Equals(track.PieceId,pieceId,StringComparison.OrdinalIgnoreCase)
+                ||(string.IsNullOrWhiteSpace(track.PieceId)&&IsItemContent(track.Target)))
+            .ToList();
+        var colors=phase.Colors
+            .Where(track=>string.Equals(track.PieceId,pieceId,StringComparison.OrdinalIgnoreCase)
+                ||(string.IsNullOrWhiteSpace(track.PieceId)&&track.Role!=MotionColorRole.Background))
+            .ToList();
+        return tracks.Count==0&&colors.Count==0
+            ? null
+            : new MotionPhase(phase.Name,phase.Seconds){Tracks=tracks,Colors=colors,Enabled=true};
+    }
+
+    static bool IsCanvasMotion(MotionTarget target)=>target is
+        MotionTarget.X or MotionTarget.Y or MotionTarget.Scale or MotionTarget.ScaleX or MotionTarget.ScaleY
+        or MotionTarget.Rotate or MotionTarget.Opacity or MotionTarget.Blur or MotionTarget.SkewX or MotionTarget.SkewY
+        or MotionTarget.Width or MotionTarget.Height;
+
+    static bool IsItemContent(MotionTarget target)=>target is
+        MotionTarget.TextOpacity or MotionTarget.BackgroundOpacity or MotionTarget.BorderOpacity
+        or MotionTarget.FontSize or MotionTarget.BorderThickness;
 
     void ClearScoreAnimation()
     {
@@ -1240,8 +1304,20 @@ public sealed class ScorebugCanvasView : Grid
         if(_scorePieces is not null)
         {
             foreach(var host in _scorePieces.Children.OfType<FrameworkElement>()) MotionPlayback.Stop(host);
-            _stage.Children.Remove(_scorePieces);
+            _canvas.Children.Remove(_scorePieces);
             _scorePieces=null;
+        }
+        if(_scoreCanvasAnimated)
+        {
+            MotionPlayback.StopRootOnly(_canvas);
+            _canvas.BeginAnimation(UIElement.OpacityProperty,null);
+            _canvas.Opacity=1;
+            _canvas.RenderTransform=Transform.Identity;
+            _canvas.RenderTransformOrigin=new Point(0.5,0.5);
+            _canvas.Effect=null;
+            if(double.IsFinite(_stage.Width)&&_stage.Width>0)_canvas.Width=_stage.Width;
+            if(double.IsFinite(_stage.Height)&&_stage.Height>0)_canvas.Height=_stage.Height;
+            _scoreCanvasAnimated=false;
         }
         foreach(var (item,host) in _scoreAnimated)
         {

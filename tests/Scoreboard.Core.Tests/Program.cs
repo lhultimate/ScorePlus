@@ -638,6 +638,10 @@ try
     reloadedScoreMotion.ApplyScoreAnimationToLayout(true,null);
     Check(reloadedScoreMotion.Layout.TouchdownAnimation is null&&reloadedScoreMotion.Layout.FieldGoalAnimation is not null,
         "the touchdown and field-goal animations switch off independently");
+    var shimmerPreset=MotionClip.AnimationPreset("Shimmer");
+    var colourCyclePreset=MotionClip.AnimationPreset("Color cycle");
+    Check(shimmerPreset.Phases[0].Tracks.Count==0&&colourCyclePreset.Phases[0].Tracks.Count==0,
+        "colour-only animation presets do not inherit the default pop scale");
 }
 finally { if(File.Exists(scoreMotionPath))File.Delete(scoreMotionPath); }
 

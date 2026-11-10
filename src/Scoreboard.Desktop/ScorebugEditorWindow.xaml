@@ -147,7 +147,7 @@
               <TextBlock Text="SCORE ANIMATIONS" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
               <TextBlock Text="Touchdown" FontSize="10" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,4,0"/>
               <ComboBox x:Name="TouchdownAnimationBox" Width="145" FontSize="11" SelectionChanged="ScoreAnimation_Changed"
-                        ToolTip="Played once when a six-point football score is recorded"/>
+                        ToolTip="Played once when a touchdown is recorded — 6, 7 or 8 points"/>
               <TextBlock Text="Field goal" FontSize="10" Foreground="#93A0B2" VerticalAlignment="Center" Margin="12,0,4,0"/>
               <ComboBox x:Name="FieldGoalAnimationBox" Width="145" FontSize="11" SelectionChanged="ScoreAnimation_Changed"
                         ToolTip="Played once when a three-point football score is recorded"/>
@@ -708,6 +708,13 @@
           </DockPanel>
         </StackPanel>
 
+        <TextBlock Text="ANIMATION" Style="{StaticResource SectionTitle}"/>
+        <TextBlock Text="Element animation" Style="{StaticResource FieldLabel}"/>
+        <ComboBox x:Name="AnimationInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
+                  ToolTip="Choose a built-in motion preset or any animation saved in the show library"/>
+        <Button Content="Animation maker…" Margin="10,0,10,8" Padding="10,5" FontSize="11" Click="MotionMakerAnimation_Click"
+                ToolTip="Key motion this element follows while it is up, or when its value changes"/>
+
         <TextBlock Text="BEHAVIOUR" Style="{StaticResource SectionTitle}"/>
         <!-- Only printed values change; a logo, shape or video has nothing to cross to. -->
         <StackPanel x:Name="TransitionSection">
@@ -727,8 +734,6 @@
           <TextBox x:Name="TransitionDownSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="0 is an instant swap, 5 a very slow dissolve. Blank follows the up time."/>
         </StackPanel>
-        <TextBlock Text="Motion preset" Style="{StaticResource FieldLabel}"/>
-        <ComboBox x:Name="AnimationInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"/>
         <!-- The value keeps the hidden box the property writer already understands; the slider is
              what the operator actually sees, and each layer has its own. -->
         <TextBox x:Name="OpacityInput" Visibility="Collapsed" Text="1"/>
@@ -764,8 +769,6 @@
                 ToolTip="Gradients with any number of stops on the text and plate, plus metal, glass, grain and the other finishes"/>
         <Button Content="Transition builder…" Margin="10,0,10,3" Padding="10,5" FontSize="11" Click="MotionMakerTransition_Click"
                 ToolTip="Key how this element's value leaves and arrives"/>
-        <Button Content="Animation maker…" Margin="10,0,10,8" Padding="10,5" FontSize="11" Click="MotionMakerAnimation_Click"
-                ToolTip="Key motion this element follows while it is up, or when its value changes"/>
         <CheckBox x:Name="VisibleInput" Content="Visible on output" Margin="10,4,10,8" Checked="Property_Changed" Unchecked="Property_Changed"/>
 
         <TextBlock x:Name="CanvasFitTipText" Text="Scroll over the canvas to zoom in and out; the framed edge is the artwork. The optional grid snaps moved and resized items to 20 px."

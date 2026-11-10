@@ -3648,24 +3648,105 @@ internal static class Program
                 };
                 eventWindow.Show();
                 eventWindow.UpdateLayout();
+                var eventCanvas = (Canvas)(typeof(ScorebugCanvasView)
+                    .GetField("_canvas", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(eventView)
+                    ?? throw new Exception("FAIL: the score-event probe could not find the graphic canvas"));
+                bool CanvasScaleStarted() => eventCanvas.RenderTransform is TransformGroup group
+                    && group.Children.OfType<ScaleTransform>().Any(scale => scale.ScaleX > 1.005);
+                bool CanvasRotationStarted() => eventCanvas.RenderTransform is TransformGroup group
+                    && group.Children.OfType<RotateTransform>().Any(rotate => Math.Abs(rotate.Angle) > 0.1);
                 scoreEventEngine.Score(true, 6);
                 Pump(TimeSpan.FromMilliseconds(220));
-                if (!FindAll<Border>(eventView).Any(border => border.RenderTransform is TransformGroup group
-                    && group.Children.OfType<ScaleTransform>().Any(scale => scale.ScaleX > 1.005)))
-                    throw new Exception("FAIL: a touchdown did not start its layout animation");
+                if (!CanvasScaleStarted())
+                    throw new Exception("FAIL: a touchdown did not animate the whole graphic");
                 Pump(TimeSpan.FromMilliseconds(1300));
-                if (FindAll<Border>(eventView).Any(border => border.RenderTransform is TransformGroup group
-                    && group.Children.OfType<ScaleTransform>().Any(scale => Math.Abs(scale.ScaleX - 1) > 0.01)))
+                if (eventCanvas.RenderTransform is TransformGroup settled
+                    && settled.Children.OfType<ScaleTransform>().Any(scale => Math.Abs(scale.ScaleX - 1) > 0.01))
                     throw new Exception("FAIL: the touchdown animation did not settle back to the layout");
+                // A seven- or eight-point press is still a touchdown; it must use the same clip.
+                scoreEventEngine.Score(true, 7);
+                Pump(TimeSpan.FromMilliseconds(220));
+                if (!CanvasScaleStarted())
+                    throw new Exception("FAIL: a seven-point touchdown did not play the touchdown celebration");
+                Pump(TimeSpan.FromMilliseconds(1300));
                 scoreEventEngine.Score(true, 3);
                 Pump(TimeSpan.FromMilliseconds(180));
-                if (!FindAll<Border>(eventView).Any(border => border.RenderTransform is TransformGroup group
-                    && group.Children.OfType<RotateTransform>().Any(rotate => Math.Abs(rotate.Angle) > 0.1)))
-                    throw new Exception("FAIL: a field goal did not start its own layout animation");
+                if (!CanvasRotationStarted())
+                    throw new Exception("FAIL: a field goal did not animate the whole graphic");
                 eventWindow.Close();
-                Console.WriteLine("PASS: touchdown and field-goal clips play once on the graphic and settle");
+                Console.WriteLine("PASS: touchdown (including seven-point) and field-goal clips animate the whole graphic and settle");
             }
             finally { if (File.Exists(scoreEventPath)) File.Delete(scoreEventPath); }
+
+            // ---------- a whole-graphic colour key paints the backdrop, never every item plate ----------
+            var colourEventPath = Path.Combine(Path.GetTempPath(), $"smoke-score-colour-{Guid.NewGuid():N}.json");
+            try
+            {
+                var colourCatalog = new ScorebugCatalog(colourEventPath);
+                colourCatalog.Update(layout =>
+                {
+                    layout.Elements.Clear();
+                    layout.Background = "#FF05080C";
+                    layout.Elements.Add(new ScorebugElement
+                    {
+                        Name = "Home plate", Content = "HOME", X = 40, Y = 40, Width = 360, Height = 110,
+                        Background = "#FF102030", Foreground = "#FFE0E8F0", BorderColor = "#FF35C79A",
+                        BorderThickness = 4, FontSize = 42
+                    });
+                    layout.Elements.Add(new ScorebugElement
+                    {
+                        Name = "Clock", Content = "12:00", X = 440, Y = 40, Width = 300, Height = 110,
+                        Background = "#FF301020", Foreground = "#FFFFE090", BorderColor = "#FFE8B23A",
+                        BorderThickness = 4, FontSize = 42
+                    });
+                });
+                var colourEngine = new GameEngine();
+                colourEngine.NewGame("football");
+                var colourClip = new MotionClip { Name = "Colour probe", Kind = MotionKind.Animation };
+                var colourPhase = new MotionPhase("Motion", 0.7);
+                colourPhase.Colors.Add(new ColorTrack(MotionColorRole.Background, (0, "#FF05080C"), (0.7, "#FF0B6B50")));
+                colourPhase.Colors.Add(new ColorTrack(MotionColorRole.Text, (0, "#FFE0E8F0"), (0.35, "#FF38D7A3"), (0.7, "#FFE0E8F0")));
+                colourClip.Phases.Add(colourPhase);
+                colourClip.Normalize();
+                colourCatalog.ApplyScoreAnimationToLayout(true, colourClip);
+                var colourView = new ScorebugCanvasView(colourCatalog, colourEngine,
+                    stateProvider: () => colourEngine.State, layoutProvider: () => colourCatalog.Layout);
+                var colourWindow = new Window
+                {
+                    Width = 960, Height = 540, Content = colourView, WindowStyle = WindowStyle.None,
+                    ShowInTaskbar = false, Left = -20000, Top = -20000
+                };
+                colourWindow.Show();
+                colourWindow.UpdateLayout();
+                var colourCanvas = (Canvas)(typeof(ScorebugCanvasView)
+                    .GetField("_canvas", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(colourView)
+                    ?? throw new Exception("FAIL: the colour probe could not find the graphic canvas"));
+                var colourPlates = FindAll<Border>(colourView).Where(border => border.Child is ScorebugTextBlock).ToList();
+                string[] PlateColours() => colourPlates.Select(border => border.Background switch
+                {
+                    SolidColorBrush solid => solid.Color.ToString(),
+                    _ => "not-solid"
+                }).ToArray();
+                var beforePlates = PlateColours();
+                var beforeBackdrop = (colourCanvas.Background as SolidColorBrush)?.Color.ToString();
+                colourEngine.Score(true, 6);
+                Pump(TimeSpan.FromMilliseconds(350));
+                var duringPlates = PlateColours();
+                var homeText = FindAll<TextBlock>(colourView).FirstOrDefault(text => text.Text == "HOME");
+                if (homeText?.Foreground is not SolidColorBrush textBrush
+                    || textBrush.Color.G < 100 || textBrush.Color.R > 100)
+                    throw new Exception($"FAIL: a whole-graphic text colour key did not reach item text ({homeText?.Foreground})");
+                if ((colourCanvas.Background as SolidColorBrush)?.Color.ToString() == beforeBackdrop)
+                    throw new Exception("FAIL: a whole-graphic background key did not reach the layout backdrop");
+                if (!beforePlates.SequenceEqual(duringPlates))
+                    throw new Exception($"FAIL: a celebration recoloured item plates ({string.Join(",", beforePlates)} → {string.Join(",", duringPlates)})");
+                Pump(TimeSpan.FromMilliseconds(800));
+                if (!beforePlates.SequenceEqual(PlateColours()))
+                    throw new Exception("FAIL: item plate colours did not return after the celebration");
+                colourWindow.Close();
+                Console.WriteLine("PASS: a celebration's whole-graphic background key paints the backdrop and leaves every item plate alone");
+            }
+            finally { if (File.Exists(colourEventPath)) File.Delete(colourEventPath); }
 
             // ---------- rotation, borders, drift and a configurable transition speed ----------
             var decorPath = Path.Combine(Path.GetTempPath(), $"smoke-decor-{Guid.NewGuid():N}.json");
