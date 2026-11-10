@@ -471,12 +471,12 @@
             <Button DockPanel.Dock="Right" Style="{StaticResource Tiny}" Content="＋ Add" Click="AddStat_Click"/>
             <StackPanel Orientation="Horizontal">
               <Border Style="{StaticResource AccentBar}"/>
-              <TextBlock Text="CUSTOM STATS" Style="{StaticResource CardTitle}"/>
+              <TextBlock Text="CUSTOM VALUES" Style="{StaticResource CardTitle}"/>
             </StackPanel>
           </DockPanel>
           <!-- The stat list is the one thing that can outgrow its card, so it scrolls in place and never pushes the page. -->
           <ScrollViewer x:Name="StatsScroller" Grid.Row="1" Margin="0,3,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <WrapPanel x:Name="StatsHost"/>
+            <UniformGrid x:Name="StatsHost" Columns="2" VerticalAlignment="Top"/>
           </ScrollViewer>
         </Grid>
       </Border>

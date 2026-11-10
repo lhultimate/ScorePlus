@@ -5,7 +5,7 @@ namespace Scoreboard.Core;
 
 /// <summary>
 /// The printable record of a game: the score, every value the console holds, the sport's own
-/// controls, the custom stats, both rosters in full (zeroes included) and the event timeline.
+/// controls, the custom values, both rosters in full (zeroes included) and the event timeline.
 /// Written as one self-contained HTML page so it can be printed, saved as PDF or e-mailed after
 /// the game. <see cref="Build"/> takes the rosters so a report shows every player, not just the
 /// two who happened to be on the graphic.
@@ -70,7 +70,7 @@ public static class GameReport
             $"Sport: {E(SportName(state))}",
             $"Saved: {state.SavedAt:yyyy-MM-dd HH:mm}",
             $"Events logged: {state.Events.Count}",
-            $"Custom stats: {state.Stats.Count}"));
+            $"Custom values: {state.Stats.Count}"));
         html.AppendLine("</div>");
 
         // ---------- the sport's own detail ----------
@@ -97,8 +97,8 @@ public static class GameReport
         html.AppendLine(ActivePlayerCard("Visitors", state.AwayTeam, state.AwayPlayerCleared, state.AwayPlayer));
         html.AppendLine("</div>");
 
-        // ---------- custom stats ----------
-        html.AppendLine("<h2>Custom stats</h2>");
+        // ---------- custom values ----------
+        html.AppendLine("<h2>Custom values</h2>");
         if (state.Stats is { Count: > 0 })
         {
             // Printed as "name: value" lines rather than table cells, so a stat reads the same on
@@ -110,7 +110,7 @@ public static class GameReport
         }
         else
         {
-            html.AppendLine("<p class=\"empty\">This game has no custom stats.</p>");
+            html.AppendLine("<p class=\"empty\">This game has no custom values.</p>");
         }
 
         // ---------- rosters ----------

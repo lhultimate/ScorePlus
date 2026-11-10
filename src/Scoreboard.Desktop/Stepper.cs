@@ -33,7 +33,7 @@ public sealed class Stepper : Grid
     public event Action<string>? TextCommitted;
 
     /// <summary>
-    /// Let the middle box hold any text, not just a number — a custom stat can be "N/A" or "3rd".
+    /// Let the middle box hold any text, not just a number — a custom value can be "N/A" or "3rd".
     /// Off by default, so every other stepper keeps its numeric behaviour.
     /// </summary>
     public bool AcceptText { get; set; }

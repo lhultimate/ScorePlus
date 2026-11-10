@@ -27,7 +27,7 @@ public interface IControlPanelHost
 
 /// <summary>
 /// The whole operator surface: team panels, down &amp; distance, clocks, timeouts, possession,
-/// and custom stats. Used full-size in the main window and inside a popped-out panel, so both
+/// and custom values. Used full-size in the main window and inside a popped-out panel, so both
 /// always behave identically.
 /// </summary>
 public partial class ControlPanelView : UserControl
@@ -41,7 +41,7 @@ public partial class ControlPanelView : UserControl
     readonly Stepper _awayScore, _homeScore, _down, _toGo, _ballOn, _awayTimeouts, _homeTimeouts;
     readonly TextBox _quarterValue = new();
     readonly Button _ballSide;
-    readonly Dictionary<string, Stepper> _statValues = [];
+    readonly Dictionary<string, TextBox> _statValues = [];
     // The sport's own values: a typed-over number per counter, a switch per flag.
     readonly Dictionary<string, TextBox> _sportValueBoxes = [];
     readonly Dictionary<string, ToggleButton> _sportFlagButtons = [];
@@ -689,35 +689,103 @@ public partial class ControlPanelView : UserControl
             foreach (var stat in stats) StatsHost.Children.Add(BuildStatRow(stat));
         }
         foreach (var stat in stats)
-            if (_statValues.TryGetValue(stat.Id, out var value)) value.Text = stat.Display;
+            if (_statValues.TryGetValue(stat.Id, out var value) && !value.IsKeyboardFocused) value.Text = stat.Display;
     }
 
-    /// <summary>Custom stats use the same add-above / value / subtract-below shape as scores, two per row.</summary>
+    /// <summary>
+    /// Custom values use a compact one-line stepper, two per row. The full score-style stack was
+    /// too tall to show a useful starter set without turning the card into a scroll box.
+    /// </summary>
     FrameworkElement BuildStatRow(GameStat stat)
     {
-        // A custom stat accepts any text, not just a number: "N/A", "3rd" and "TBD" are all values.
-        var stepper = new Stepper(stat.Name, 18) { Width = 104, Margin = new Thickness(0, 0, 4, 4), AcceptText = true };
-        stepper.SetButtons
-        (
-            [new("＋ 1", 1, null, $"{stat.Name} +1")],
-            [new("− 1", -1, null, $"{stat.Name} −1")]
-        );
-        stepper.Stepped += button => _engine.AdjustStat(stat.Id, button.Delta);
-        stepper.Committed += value => _engine.SetStat(stat.Id, value);
-        stepper.TextCommitted += text => _engine.SetStatText(stat.Id, text);
-        stepper.Text = stat.Display;
+        // The row grows to its content: a fixed 36px row clipped the value boxes because the
+        // caption and the implicit button margins together need 37px. The list still reserves
+        // equal cells, and the ScrollViewer handles anything that no longer fits the card.
+        var host = new Grid { MinHeight = 37, Margin = new Thickness(0, 0, 3, 2), HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Top, ClipToBounds = true, ToolTip = stat.Name };
+        host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var host = new Grid { Width = 110, Margin = new Thickness(0, 0, 4, 2), ToolTip = $"Remove {stat.Name}" };
-        host.Children.Add(stepper);
+        var caption = new TextBlock
+        {
+            Text = stat.Name.ToUpperInvariant(), FontSize = 9, FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)),
+            TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(1, 0, 0, 0), ToolTip = stat.Name
+        };
+        host.Children.Add(caption);
+
         var remove = new Button
         {
-            Content = "×", Width = 16, Height = 16, Padding = new Thickness(0), FontSize = 10,
-            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, ToolTip = $"Remove {stat.Name}"
+            Content = "×", Width = 14, Height = 14, MinWidth = 0, MinHeight = 0, Padding = new Thickness(0),
+            Margin = new Thickness(0),
+            FontSize = 9, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0), ToolTip = $"Remove {stat.Name}"
         };
         remove.Click += (_, _) => _engine.RemoveStat(stat.Id);
+        Grid.SetColumn(remove, 1);
         host.Children.Add(remove);
 
-        _statValues[stat.Id] = stepper;
+        var controls = new Grid { Margin = new Thickness(0, 1, 0, 0) };
+        controls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        controls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetRow(controls, 1);
+        Grid.SetColumnSpan(controls, 2);
+        host.Children.Add(controls);
+
+        Button Step(string text, int delta)
+        {
+            var button = new Button
+            {
+                Content = text, Width = 20, Height = 22, MinWidth = 0, MinHeight = 0, Padding = new Thickness(0),
+                Margin = new Thickness(0),
+                FontSize = 13, FontWeight = FontWeights.Bold, ToolTip = $"{stat.Name} {(delta > 0 ? "+1" : "−1")}"
+            };
+            button.Click += (_, _) => _engine.AdjustStat(stat.Id, delta);
+            return button;
+        }
+
+        var minus = Step("−", -1);
+        var plus = Step("+", 1);
+        var box = new TextBox
+        {
+            Text = stat.Display, Height = 22, MinHeight = 22, FontSize = 12, FontWeight = FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(0), Margin = new Thickness(2, 0, 2, 0),
+            ToolTip = $"{stat.Name}: type a number or text, then press Enter"
+        };
+        box.GotKeyboardFocus += (_, _) => box.SelectAll();
+        void Commit()
+        {
+            var current = _engine.State.Stats.FirstOrDefault(candidate => candidate.Id == stat.Id);
+            if (current is null || string.Equals(box.Text, current.Display, StringComparison.Ordinal)) return;
+            _engine.SetStatText(stat.Id, box.Text);
+        }
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                Commit();
+                Keyboard.ClearFocus();
+            }
+            else if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                box.Text = _engine.State.Stats.FirstOrDefault(candidate => candidate.Id == stat.Id)?.Display ?? "";
+                Keyboard.ClearFocus();
+            }
+        };
+        box.LostKeyboardFocus += (_, _) => Commit();
+        controls.Children.Add(minus);
+        Grid.SetColumn(box, 1);
+        controls.Children.Add(box);
+        Grid.SetColumn(plus, 2);
+        controls.Children.Add(plus);
+
+        _statValues[stat.Id] = box;
         return host;
     }
 

@@ -33,6 +33,7 @@ public partial class ScorebugEditorWindow : Window
     // artwork they were drawn from, so a thumbnail is only re-rendered when that artwork changed.
     readonly Dictionary<string,(string Signature,ImageSource Image)> _layoutThumbs = [];
     bool _displayLoading;
+    bool _scoreAnimationLoading;
     bool _linkLoading;
     // Set while the player-data pickers are being filled for an element, so the sync is not
     // mistaken for the operator choosing a different player or value.
@@ -158,6 +159,14 @@ public partial class ScorebugEditorWindow : Window
         public string Name => name;
         public override string ToString() => $"Preset · {name}";
     }
+
+    /// <summary>The empty choice for a score-event animation.</summary>
+    sealed record ScoreAnimationOff
+    {
+        public override string ToString() => "None";
+    }
+
+    static readonly ScoreAnimationOff NoScoreAnimation = new();
 
     static readonly LayoutTransitionOption[] LayoutTransitions =
     [
@@ -702,6 +711,11 @@ public partial class ScorebugEditorWindow : Window
             TransitionCaption.Text=layout.TransitionClip is { } custom
                 ? $"  Custom “{custom.Name}” — the transition maker's hand-over, saved with {layout.Name}."
                 : $"  Saved with {layout.Name} — every layout can arrive differently.";
+            SelectScoreAnimation(TouchdownAnimationBox,layout.TouchdownAnimation);
+            SelectScoreAnimation(FieldGoalAnimationBox,layout.FieldGoalAnimation);
+            ScoreAnimationHintText.Text=layout.TouchdownAnimation is null&&layout.FieldGoalAnimation is null
+                ? "Choose a clip for each scoring play; None leaves it still."
+                : "Played once when the score lands; saved with this layout.";
         }
         finally { _displayLoading=false; }
     }
@@ -1316,6 +1330,61 @@ public partial class ScorebugEditorWindow : Window
         AnimationInput.SelectedItem=KeepMotionChoice(AnimationInput,animation);
         TransitionInput.SelectedItem=KeepMotionChoice(TransitionInput,transition);
         RefreshLayoutTransitionChoices();
+        RefreshScoreAnimationChoices();
+    }
+
+    /// <summary>Offers every animation the maker can save, plus the built-in styles, for a score event.</summary>
+    void RefreshScoreAnimationChoices()
+    {
+        _scoreAnimationLoading=true;
+        try
+        {
+            var touchdown=TouchdownAnimationBox.SelectedItem;
+            var fieldGoal=FieldGoalAnimationBox.SelectedItem;
+            TouchdownAnimationBox.ItemsSource=BuildScoreAnimationChoices();
+            FieldGoalAnimationBox.ItemsSource=BuildScoreAnimationChoices();
+            TouchdownAnimationBox.SelectedItem=KeepScoreAnimationChoice(TouchdownAnimationBox,touchdown);
+            FieldGoalAnimationBox.SelectedItem=KeepScoreAnimationChoice(FieldGoalAnimationBox,fieldGoal);
+        }
+        finally { _scoreAnimationLoading=false; }
+    }
+
+    object[] BuildScoreAnimationChoices()=>new object[]{NoScoreAnimation}
+        .Concat(MotionClip.AnimationPresets.Select(name=>new AnimationPresetChoice(name)))
+        .Concat(_catalog.Animations.Select(clip=>new MotionClipChoice(clip,"Saved · "+clip.Name)))
+        .ToArray();
+
+    static object KeepScoreAnimationChoice(ComboBox box,object? previous)
+    {
+        if(previous is AnimationPresetChoice preset)
+        {
+            var match=box.Items.OfType<AnimationPresetChoice>()
+                .FirstOrDefault(candidate=>string.Equals(candidate.Name,preset.Name,StringComparison.OrdinalIgnoreCase));
+            return match is null?NoScoreAnimation:match;
+        }
+        if(previous is MotionClipChoice choice)
+        {
+            var match=box.Items.OfType<MotionClipChoice>()
+                .FirstOrDefault(candidate=>string.Equals(candidate.Clip.Id,choice.Clip.Id,StringComparison.OrdinalIgnoreCase));
+            return match is null?NoScoreAnimation:match;
+        }
+        return NoScoreAnimation;
+    }
+
+    void SelectScoreAnimation(ComboBox box,MotionClip? clip)
+    {
+        if(clip is null){box.SelectedItem=NoScoreAnimation;return;}
+        box.SelectedItem=MotionChoice(box,clip,"on this layout");
+    }
+
+    void ScoreAnimation_Changed(object sender,SelectionChangedEventArgs e)
+    {
+        if(_displayLoading||_scoreAnimationLoading)return;
+        var box=(ComboBox)sender;
+        MotionClip? clip=null;
+        if(box.SelectedItem is MotionClipChoice choice)clip=choice.Clip;
+        else if(box.SelectedItem is AnimationPresetChoice preset)clip=MotionClip.AnimationPreset(preset.Name);
+        _catalog.ApplyScoreAnimationToLayout(ReferenceEquals(box,TouchdownAnimationBox),clip);
     }
 
     static object? KeepMotionChoice(ComboBox box,object? previous)
@@ -1329,11 +1398,11 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>The combo item for a clip on the element; a clip no longer in the library still shows by name.</summary>
-    static MotionClipChoice MotionChoice(ComboBox box,MotionClip clip)
+    static MotionClipChoice MotionChoice(ComboBox box,MotionClip clip,string suffix="on this element")
     {
         foreach(var item in box.Items)
             if(item is MotionClipChoice choice&&string.Equals(choice.Clip.Id,clip.Id,StringComparison.OrdinalIgnoreCase))return choice;
-        var orphan=new MotionClipChoice(clip,(string.IsNullOrWhiteSpace(clip.Name)?"Untitled":clip.Name)+" · on this element");
+        var orphan=new MotionClipChoice(clip,(string.IsNullOrWhiteSpace(clip.Name)?"Untitled":clip.Name)+$" · {suffix}");
         box.ItemsSource=box.Items.Cast<object>().Append(orphan).ToArray();
         return orphan;
     }
@@ -2273,8 +2342,8 @@ public partial class ScorebugEditorWindow : Window
         // The sport's own values, first: bases, count, power play, overs and wickets all belong here.
         foreach(var control in _engine.State.Controls)
             choices.Add(($"{_engine.Sport.Name} · {control.Label}",$"{{{{SPORT:{control.Id}}}}}"));
-        foreach(var stat in _engine.State.Stats)choices.Add(($"Custom stat · {stat.Name}",$"{{{{STAT:{stat.Name}}}}}"));
-        choices.Add(("Custom stat · any name","{{STAT:Name}}"));
+        foreach(var stat in _engine.State.Stats)choices.Add(($"Custom value · {stat.Name}",$"{{{{STAT:{stat.Name}}}}}"));
+        choices.Add(("Custom value · any name","{{STAT:Name}}"));
         var picker=new Window{Title="Add sport data",Width=380,Height=470,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner};
         var list=new ListBox{ItemsSource=choices.Select(x=>x.Item1).ToArray(),Margin=new Thickness(10)};
         var add=new Button{Content="Add selected data",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right};
@@ -2343,7 +2412,7 @@ public partial class ScorebugEditorWindow : Window
         };
         var note=new TextBlock
         {
-            Text="Need a value that is not listed? Add it as a stat column in the ROSTERS tab, or as a custom stat on the console — every one of those appears here.",
+            Text="Need a value that is not listed? Add it as a stat column in the ROSTERS tab, or as a custom value on the console — every one of those appears here.",
             TextWrapping=TextWrapping.Wrap,FontSize=10,Opacity=0.7,Margin=new Thickness(10,0,10,8)
         };
         var intro=new TextBlock{Text="Pick the value this element prints. Name, Number and Position come with every roster; the rest are that team's stat columns.",TextWrapping=TextWrapping.Wrap,FontSize=11,Opacity=0.8,Margin=new Thickness(10,10,10,2)};

@@ -51,7 +51,7 @@ public sealed record SportDefinition(string Id, string Name, string Unit, int Pe
 }
 
 /// <summary>
-/// A single user-defined statistic such as Turnovers or Penalties. A stat is either a number (the
+/// A single custom value such as Turnovers or Penalties. A value is either a number (the
 /// steppers work on it) or any free text — "N/A", "3rd", "TBD" — which is what the graphic prints.
 /// </summary>
 public sealed record GameStat(string Id, string Name, int Value = 0, string? Text = null)
@@ -65,12 +65,34 @@ public sealed record GameStat(string Id, string Name, int Value = 0, string? Tex
 
 public static class CommonStats
 {
-    /// <summary>Suggested stat names offered when adding a custom stat.</summary>
+    /// <summary>Suggested value names offered when adding a custom value.</summary>
     public static IReadOnlyList<string> Names { get; } =
     [
-        "Turnovers", "Penalties", "Penalty yards", "Shots", "Shots on goal", "Saves", "Corners",
-        "Rebounds", "Assists", "Steals", "Blocks", "Fouls", "Hits", "Errors", "Faceoff wins", "Possessions"
+        "Field goal attempts", "Field goal yards", "Turnovers", "Penalties", "Penalty yards",
+        "Shots", "Shots on goal", "Saves", "Corners", "Rebounds", "Assists", "Steals", "Blocks",
+        "Fouls", "Hits", "Errors", "Faceoff wins", "Possessions"
     ];
+
+    /// <summary>
+    /// The values a new game starts with. They are ordinary custom values: the operator can change,
+    /// remove or add to them, and they are saved with the game like every other value.
+    /// </summary>
+    public static IReadOnlyList<string> DefaultsFor(string? sportId) => (sportId ?? "").Trim().ToLowerInvariant() switch
+    {
+        "football" => ["Field goal attempts", "Field goal yards", "Turnovers", "Penalties", "Penalty yards"],
+        "australian-football" => ["Inside 50s", "Clearances", "Turnovers"],
+        "basketball" => ["Turnovers", "Rebounds", "Assists", "Steals"],
+        "baseball" => ["Errors", "Left on base", "Double plays"],
+        "cricket" => ["Fours", "Sixes", "Extras"],
+        "hockey" => ["Shots", "Power play goals", "Faceoff wins"],
+        "lacrosse" => ["Shots", "Saves", "Faceoff wins"],
+        "rugby" => ["Tries", "Conversions", "Turnovers"],
+        "soccer" => ["Shots", "Shots on goal", "Corners", "Fouls"],
+        "tennis" => ["Aces", "Double faults", "Break points"],
+        "volleyball" => ["Aces", "Blocks", "Digs"],
+        "wrestling" => ["Takedowns", "Escapes", "Near falls"],
+        _ => ["Turnovers", "Penalties"]
+    };
 }
 
 /// <summary>A quick-layout button captured with a saved game: its label and the layout it points at.</summary>
@@ -144,6 +166,12 @@ public sealed class GameState
     /// </summary>
     public int LastScoreAmount { get; set; }
     public bool LastScoreHome { get; set; } = true;
+    /// <summary>
+    /// Increases once for every scoring action. The graphic watches this instead of the score
+    /// itself, so a clock update cannot replay the touchdown celebration and a score correction
+    /// does not pretend to be one.
+    /// </summary>
+    public long LastScoreSequence { get; set; }
     [JsonIgnore]
     public int LastScoreMagnitude => Math.Abs(LastScoreAmount);
     [JsonIgnore]
@@ -433,6 +461,9 @@ public sealed class GameEngine
         // Soccer alone opens at 0:00 (it counts to 90:00); every other sport keeps its clock preset.
         ClockSeconds = sport.Id == "soccer" ? 0 : sport.PeriodSeconds,
         PeriodSeconds = sport.PeriodSeconds, TotalPeriods = sport.Periods, PeriodLabel = sport.Unit, ScoringOptions = sport.ScoringOptions.ToArray(), HomeTimeouts = timeouts, AwayTimeouts = timeouts, HomeTimeoutLimit = timeouts, AwayTimeoutLimit = timeouts, PlayClockSeconds = 40, TimeoutClockSeconds = 60, Controls = sport.Controls.Select(c => c with { }).ToList() };
+        // New games open with useful custom values, so the console is not an empty card every time.
+        foreach (var name in CommonStats.DefaultsFor(sport.Id))
+            State.Stats.Add(new GameStat(Guid.NewGuid().ToString("N"), name));
         // A profile's starting values (a full count of balls to start, a power play already on) are
         // what a new game opens with; stepping them afterwards changes only this game.
         foreach (var control in State.Controls)
@@ -572,6 +603,7 @@ public sealed class GameEngine
         var after = home ? State.HomeScore : State.AwayScore;
         State.LastScoreAmount = after - before;
         State.LastScoreHome = home;
+        State.LastScoreSequence++;
         Log("Score", $"{(home ? State.HomeTeam : State.AwayTeam)} {(amount >= 0 ? "+" : "−")}{Math.Abs(amount)}"); Changed?.Invoke();
     }
 
@@ -1115,7 +1147,7 @@ public sealed class GameEngine
         Log(stat.Name, $"{updated.Name}: {updated.Display}"); Changed?.Invoke();
     }
 
-    /// <summary>Sets a custom stat to an exact value, for the typed override in the control panel.</summary>
+    /// <summary>Sets a custom value to an exact number, for the typed override in the control panel.</summary>
     public void SetStat(string id, int value)
     {
         var stat = State.Stats.FirstOrDefault(s => s.Id == id); if (stat is null) return;
@@ -1128,7 +1160,7 @@ public sealed class GameEngine
     }
 
     /// <summary>
-    /// Sets a custom stat to whatever the operator typed. A plain number becomes the stat's value
+    /// Sets a custom value to whatever the operator typed. A plain number becomes the value
     /// (so the steppers keep working); anything else is stored as text and prints as-is.
     /// </summary>
     public void SetStatText(string id, string text)
@@ -1352,6 +1384,7 @@ public sealed class GameEngine
             if (home) State.HomeScore = next; else State.AwayScore = next;
             State.LastScoreAmount = next - before;
             State.LastScoreHome = home;
+            State.LastScoreSequence++;
             changed = notable = true;
         }
 
@@ -1527,7 +1560,7 @@ public sealed class GameEngine
             // The new down goes on air at once when the preview is on; the distance waits for publish.
             (!source.DownPending || (State.Down == source.Down && State.DownPending))) return false;
         State.HomeScore=source.HomeScore;State.AwayScore=source.AwayScore;
-        State.LastScoreAmount=source.LastScoreAmount;State.LastScoreHome=source.LastScoreHome;
+        State.LastScoreAmount=source.LastScoreAmount;State.LastScoreHome=source.LastScoreHome;State.LastScoreSequence=source.LastScoreSequence;
         State.HomeTeam=source.HomeTeam;State.AwayTeam=source.AwayTeam;
         State.HomeAbbreviation=source.HomeAbbreviation;State.AwayAbbreviation=source.AwayAbbreviation;
         State.HomeLogoPath=source.HomeLogoPath;State.AwayLogoPath=source.AwayLogoPath;

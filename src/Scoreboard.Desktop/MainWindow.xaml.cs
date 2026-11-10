@@ -1002,7 +1002,7 @@ public partial class MainWindow : Window, IControlPanelHost
         if (WarnOnSportSwitch && _engine.HasSportSpecificData())
         {
             var next = _engine.Sports.Find(id)?.Name ?? id;
-            var detail = $"Switching to {next} starts a new game. The {_engine.Sport.Name} values this game is tracking — its counts, flags and figures — are cleared with it, along with the score, clocks and custom stats. The roster library, sport profiles, media and your layouts stay.";
+            var detail = $"Switching to {next} starts a new game. The {_engine.Sport.Name} values this game is tracking — its counts, flags and figures — are cleared with it, along with the score, clocks and custom values. The roster library, sport profiles, media and your layouts stay.";
             if (!ConfirmWindow.Ask(this, _preferences.Theme, "SWITCH SPORT", detail, "Switch sport", destructive: true))
             {
                 // Put the picker back on the sport being played; nothing has been touched yet.

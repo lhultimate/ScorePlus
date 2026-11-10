@@ -946,14 +946,34 @@ internal static class Program
             var statsPanel = new GameControlWindow(engine, () => { }, _ => { }, () => true);
             statsPanel.Show();
             statsPanel.UpdateLayout();
-            var statsHost = (WrapPanel)statsPanel.Panel.FindName("StatsHost")!;
-            if (statsHost.Children.Count != 1) throw new Exception("FAIL: custom stat row was not created");
-            var stat2 = engine.State.Stats[0];
+            var statsHost = (Panel)statsPanel.Panel.FindName("StatsHost")!;
+            if (statsHost.Children.Count != engine.State.Stats.Count) throw new Exception("FAIL: custom value rows were not created");
+            // The starter set must fit the supported minimum window without its value controls
+            // being cut off by the row or the card. A fixed row used to clip the input wells while
+            // reporting a larger ActualHeight, so check the row's explicit height too.
+            statsPanel.Width = 1040;
+            statsPanel.Height = 915;
+            statsPanel.UpdateLayout();
+            Pump(TimeSpan.FromMilliseconds(80));
+            var statsViewport = (ScrollViewer)statsPanel.Panel.FindName("StatsScroller")!;
+            if (statsViewport.ScrollableHeight > 0.5)
+                throw new Exception($"FAIL: the default custom values need scrolling at the minimum window size ({statsViewport.ScrollableHeight:0.#}px)");
+            foreach (Grid row in statsHost.Children)
+            {
+                var controls = row.Children.OfType<Grid>().Last();
+                var caption = row.Children.OfType<TextBlock>().First();
+                var bottom = controls.TransformToAncestor(row)
+                    .TransformBounds(new Rect(0, 0, controls.ActualWidth, controls.ActualHeight)).Bottom;
+                var clipHeight = double.IsNaN(row.Height) ? row.ActualHeight : row.Height;
+                if (caption.ActualHeight <= 0 || controls.ActualHeight < 22 || bottom > clipHeight + 0.5)
+                    throw new Exception($"FAIL: a custom value row clips its controls (caption {caption.ActualHeight:0.#}, controls {controls.ActualHeight:0.#}, bottom {bottom:0.#}, row {clipHeight:0.#})");
+            }
+            var stat2 = engine.State.Stats.First(s => s.Name == "Turnovers");
             engine.AdjustStat(stat2.Id, 3);
             statsPanel.UpdateLayout();
             if (!statsPanel.Panel.HomeScoreText.Equals(engine.State.HomeScore.ToString()))
-                throw new Exception("FAIL: control panel did not refresh after a stat change");
-            Console.WriteLine("PASS: custom stats render and update in the control panel");
+                throw new Exception("FAIL: control panel did not refresh after a value change");
+            Console.WriteLine("PASS: custom values render and update in the control panel");
 
             var panelA = new GameControlWindow(engine, () => { }, _ => { }, () => true);
             var panelB = new GameControlWindow(engine, () => { }, _ => { }, () => true);
@@ -2736,10 +2756,12 @@ internal static class Program
             ((TextBox)freshDock.FindName("SearchBox")!).Text = "old";
             freshGame.Engine.Score(true, 21);
             freshGame.Engine.AdvanceDown();
-            freshGame.Engine.AddStat("Penalties");
+            freshGame.Engine.AddStat("Old custom value");
             freshGame.PublishOutput();
             freshGame.StartNewGame("football");
-            if (freshGame.Engine.State.HomeScore != 0 || freshGame.Engine.State.AwayScore != 0 || freshGame.Engine.State.Down != 1 || freshGame.Engine.State.Stats.Count != 0)
+            if (freshGame.Engine.State.HomeScore != 0 || freshGame.Engine.State.AwayScore != 0 || freshGame.Engine.State.Down != 1
+                || freshGame.Engine.State.Stats.Any(s => s.Name == "Old custom value")
+                || !freshGame.Engine.State.Stats.Any(s => s.Name == "Field goal attempts"))
                 throw new Exception("FAIL: New Game left the previous game's state behind");
             if (freshGame.Engine.State.HomeTeam == "Old Home" || freshGame.PublishedState.HomeScore != 0 || freshGame.PublishedState.HomeTeam == "Old Home" || freshGame.PublishedState.Down != 1)
                 throw new Exception("FAIL: New Game left the previous game on air");
@@ -3282,6 +3304,22 @@ internal static class Program
                     throw new Exception($"FAIL: picking a transition did not save it on this layout ({layoutMain.Scorebug.Layouts[1].Transition})");
                 if (layoutMain.Scorebug.Layouts[0].Transition == LayoutTransition.SlideLeft)
                     throw new Exception("FAIL: the transition was written onto the display's other layout");
+                // Each layout also owns its touchdown and field-goal celebrations.
+                var touchdownBox = (ComboBox)layoutStudio.FindName("TouchdownAnimationBox")!;
+                var fieldGoalBox = (ComboBox)layoutStudio.FindName("FieldGoalAnimationBox")!;
+                if (touchdownBox.SelectedItem is null || fieldGoalBox.SelectedItem is null)
+                    throw new Exception("FAIL: a score-animation picker is empty when the studio opens");
+                touchdownBox.SelectedItem = touchdownBox.Items.OfType<object>()
+                    .First(item => item.ToString()!.Contains("Pulse", StringComparison.Ordinal));
+                fieldGoalBox.SelectedItem = fieldGoalBox.Items.OfType<object>()
+                    .First(item => item.ToString()!.Contains("Pop in", StringComparison.Ordinal));
+                Pump(TimeSpan.FromMilliseconds(250));
+                if (layoutMain.Scorebug.Layouts[1].TouchdownAnimation?.Name != "Pulse"
+                    || layoutMain.Scorebug.Layouts[1].FieldGoalAnimation?.Name != "Pop in")
+                    throw new Exception("FAIL: the score-event animations were not saved on this layout");
+                if (layoutMain.Scorebug.Layouts[0].TouchdownAnimation is not null
+                    || layoutMain.Scorebug.Layouts[0].FieldGoalAnimation is not null)
+                    throw new Exception("FAIL: a score-event animation leaked onto the display's other layout");
                 layoutMain.Scorebug.SelectLayout(0);
                 layoutStudio.UpdateLayout();
                 if (transitionBox.SelectedItem.ToString()!.Contains("Swing left", StringComparison.Ordinal))
@@ -3581,6 +3619,53 @@ internal static class Program
                 Console.WriteLine("PASS: any colour can point at a team's primary or secondary colour, team logos reach the graphic, and the newest value lands without cutting the crossing");
             }
             finally { if (File.Exists(colorPath)) File.Delete(colorPath); }
+
+            // ---------- touchdown and field-goal clips actually play on the graphic ----------
+            var scoreEventPath = Path.Combine(Path.GetTempPath(), $"smoke-score-event-{Guid.NewGuid():N}.json");
+            try
+            {
+                var scoreEventCatalog = new ScorebugCatalog(scoreEventPath);
+                var scoreEventEngine = new GameEngine();
+                scoreEventEngine.NewGame("football");
+                var touchdown = new MotionClip { Name = "Probe touchdown", Kind = MotionKind.Animation };
+                var touchdownPhase = new MotionPhase("Motion", 1.2);
+                touchdownPhase.Tracks.Add(new MotionTrack(MotionTarget.Scale, (0, 1), (1.2, 1.35)));
+                touchdown.Phases.Add(touchdownPhase);
+                touchdown.Normalize();
+                var fieldGoal = new MotionClip { Name = "Probe field goal", Kind = MotionKind.Animation };
+                var fieldGoalPhase = new MotionPhase("Motion", 0.8);
+                fieldGoalPhase.Tracks.Add(new MotionTrack(MotionTarget.Rotate, (0, 0), (0.8, 6)));
+                fieldGoal.Phases.Add(fieldGoalPhase);
+                fieldGoal.Normalize();
+                scoreEventCatalog.ApplyScoreAnimationToLayout(true, touchdown);
+                scoreEventCatalog.ApplyScoreAnimationToLayout(false, fieldGoal);
+                var eventView = new ScorebugCanvasView(scoreEventCatalog, scoreEventEngine,
+                    stateProvider: () => scoreEventEngine.State, layoutProvider: () => scoreEventCatalog.Layout);
+                var eventWindow = new Window
+                {
+                    Width = 960, Height = 540, Content = eventView, WindowStyle = WindowStyle.None,
+                    ShowInTaskbar = false, Left = -20000, Top = -20000
+                };
+                eventWindow.Show();
+                eventWindow.UpdateLayout();
+                scoreEventEngine.Score(true, 6);
+                Pump(TimeSpan.FromMilliseconds(220));
+                if (!FindAll<Border>(eventView).Any(border => border.RenderTransform is TransformGroup group
+                    && group.Children.OfType<ScaleTransform>().Any(scale => scale.ScaleX > 1.005)))
+                    throw new Exception("FAIL: a touchdown did not start its layout animation");
+                Pump(TimeSpan.FromMilliseconds(1300));
+                if (FindAll<Border>(eventView).Any(border => border.RenderTransform is TransformGroup group
+                    && group.Children.OfType<ScaleTransform>().Any(scale => Math.Abs(scale.ScaleX - 1) > 0.01)))
+                    throw new Exception("FAIL: the touchdown animation did not settle back to the layout");
+                scoreEventEngine.Score(true, 3);
+                Pump(TimeSpan.FromMilliseconds(180));
+                if (!FindAll<Border>(eventView).Any(border => border.RenderTransform is TransformGroup group
+                    && group.Children.OfType<RotateTransform>().Any(rotate => Math.Abs(rotate.Angle) > 0.1)))
+                    throw new Exception("FAIL: a field goal did not start its own layout animation");
+                eventWindow.Close();
+                Console.WriteLine("PASS: touchdown and field-goal clips play once on the graphic and settle");
+            }
+            finally { if (File.Exists(scoreEventPath)) File.Delete(scoreEventPath); }
 
             // ---------- rotation, borders, drift and a configurable transition speed ----------
             var decorPath = Path.Combine(Path.GetTempPath(), $"smoke-decor-{Guid.NewGuid():N}.json");
@@ -4078,7 +4163,7 @@ internal static class Program
             }
             finally { try { if (File.Exists(gradientStudioPath)) File.Delete(gradientStudioPath); } catch { } }
 
-            // ---------- custom stats accept any text, straight from the console ----------
+            // ---------- custom values accept any text, straight from the console ----------
             {
                 var textPanelEngine = new GameEngine();
                 textPanelEngine.NewGame("football");
@@ -4087,25 +4172,25 @@ internal static class Program
                 textPanel.UpdateLayout();
                 var penalties = textPanelEngine.AddStat("Penalties");
                 textPanel.UpdateLayout();
-                var statHost = (WrapPanel)textPanel.Panel.FindName("StatsHost")!;
-                var statBoxes = FindAll<TextBox>(statHost).ToArray();
-                if (statBoxes.Length != 1)
-                    throw new Exception($"FAIL: the custom stat row has {statBoxes.Length} value boxes");
+                var statHost = (Panel)textPanel.Panel.FindName("StatsHost")!;
+                var penaltyIndex = textPanelEngine.State.Stats.ToList().FindIndex(s => s.Id == penalties.Id);
+                var penaltyRow = (FrameworkElement)statHost.Children[penaltyIndex];
+                var statBox = FindAll<TextBox>(penaltyRow).Single();
                 textPanelEngine.SetStatText(penalties.Id, "3rd");
                 textPanel.UpdateLayout();
-                if (statBoxes[0].Text != "3rd")
-                    throw new Exception($"FAIL: the console shows '{statBoxes[0].Text}' for a text stat");
+                if (statBox.Text != "3rd")
+                    throw new Exception($"FAIL: the console shows '{statBox.Text}' for a text value");
                 // Typing free text into the middle box commits it.
-                statBoxes[0].RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, 0, null, statBoxes[0]) { RoutedEvent = Keyboard.GotKeyboardFocusEvent });
-                statBoxes[0].Text = "N/A";
-                statBoxes[0].RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(textPanel), 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
+                statBox.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, 0, null, statBox) { RoutedEvent = Keyboard.GotKeyboardFocusEvent });
+                statBox.Text = "N/A";
+                statBox.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(textPanel), 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
                 textPanel.UpdateLayout();
-                if (textPanelEngine.State.Stats.Single().Display != "N/A")
-                    throw new Exception($"FAIL: typing text into a stat stored '{textPanelEngine.State.Stats.Single().Display}'");
-                if (statBoxes[0].Text != "N/A")
-                    throw new Exception("FAIL: the stat box did not keep the typed text");
+                if (textPanelEngine.State.Stats.First(s => s.Id == penalties.Id).Display != "N/A")
+                    throw new Exception($"FAIL: typing text into a value stored '{textPanelEngine.State.Stats.First(s => s.Id == penalties.Id).Display}'");
+                if (statBox.Text != "N/A")
+                    throw new Exception("FAIL: the value box did not keep the typed text");
                 textPanel.Close();
-                Console.WriteLine("PASS: custom stats on the console take any text, not only numbers");
+                Console.WriteLine("PASS: custom values on the console take any text, not only numbers");
             }
 
             // ---------- studio: the artwork backdrop and pinning one player ----------

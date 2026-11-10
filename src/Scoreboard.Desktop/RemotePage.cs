@@ -580,7 +580,7 @@ public static class RemotePage
         </div>
 
         <div class="card">
-          <div class="title">CUSTOM STATS</div>
+          <div class="title">CUSTOM VALUES</div>
           <div class="grid" id="stats"></div>
           <div class="row">
             <input id="statName" placeholder="New stat name" style="flex:1 1 auto;padding:8px" />

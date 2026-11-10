@@ -376,6 +376,18 @@ public sealed class ScorebugLayout
     public MotionClip? TransitionClip { get; set; }
 
     /// <summary>
+    /// Played when American football records a six-point score. The clip animates the layout's
+    /// items and any temporary pieces it carries; null leaves touchdowns still.
+    /// </summary>
+    public MotionClip? TouchdownAnimation { get; set; }
+
+    /// <summary>
+    /// Played when American football records a three-point score. It is independent of the
+    /// touchdown clip, so a field goal can be a small pulse while a touchdown fills the frame.
+    /// </summary>
+    public MotionClip? FieldGoalAnimation { get; set; }
+
+    /// <summary>
     /// A video file played as this layout's hand-over, instead of the preset or a motion clip. It
     /// runs full-frame over the outgoing picture and ends with the new layout showing underneath.
     /// </summary>
@@ -477,6 +489,8 @@ public sealed class ScorebugLayout
             Remap(element.MotionAnimation);
         }
         Remap(TransitionClip);
+        Remap(TouchdownAnimation);
+        Remap(FieldGoalAnimation);
         foreach (var entry in Handover ?? [])
             entry.ElementId = Map(entry.ElementId);
     }
@@ -690,6 +704,8 @@ public sealed class ScorebugCatalog
             TransitionSeconds = first.TransitionSeconds,
             OnlyAnimateChanges = first.OnlyAnimateChanges,
             TransitionClip = first.TransitionClip,
+            TouchdownAnimation = first.TouchdownAnimation,
+            FieldGoalAnimation = first.FieldGoalAnimation,
             TransitionVideoPath = first.TransitionVideoPath,
             TransitionVideoChromaKeyColor = first.TransitionVideoChromaKeyColor,
             TransitionVideoChromaKeyTolerance = first.TransitionVideoChromaKeyTolerance,
@@ -974,6 +990,8 @@ public sealed class ScorebugCatalog
                 layout.TransitionSeconds = Math.Clamp(double.IsFinite(layout.TransitionSeconds) ? layout.TransitionSeconds : 0.5, 0, 5);
                 if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Cut;
                 layout.TransitionClip?.Normalize();
+                layout.TouchdownAnimation?.Normalize();
+                layout.FieldGoalAnimation?.Normalize();
                 layout.TransitionVideoChromaKeyColor = (layout.TransitionVideoChromaKeyColor ?? "").Trim();
                 if (!string.IsNullOrWhiteSpace(layout.TransitionVideoChromaKeyColor) && !IsColor(layout.TransitionVideoChromaKeyColor))
                     layout.TransitionVideoChromaKeyColor = "";
@@ -1401,6 +1419,20 @@ public sealed class ScorebugCatalog
     public void ApplyTransitionToLayout(MotionClip? clip)
     {
         Update(layout => layout.TransitionClip = clip is null || clip.IsEmpty ? null : clip.Snapshot());
+    }
+
+    /// <summary>
+    /// Assigns the clip played for a football score event. Empty or null clears it, so the
+    /// touchdown and field-goal animations can each be switched off independently.
+    /// </summary>
+    public void ApplyScoreAnimationToLayout(bool touchdown, MotionClip? clip)
+    {
+        Update(layout =>
+        {
+            var stored = clip is null || clip.IsEmpty ? null : clip.Snapshot();
+            if (touchdown) layout.TouchdownAnimation = stored;
+            else layout.FieldGoalAnimation = stored;
+        });
     }
 
     /// <summary>Puts a hand-over on one element, played as its value changes.</summary>

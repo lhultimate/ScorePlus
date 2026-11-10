@@ -248,7 +248,7 @@ public static class AutomationRules
         (AutomationField.ClockRunning, "Game clock running"),
         (AutomationField.PlayClockRunning, "Play clock running"),
         (AutomationField.Sport, "Sport"),
-        (AutomationField.CustomStat, "Custom stat"),
+        (AutomationField.CustomStat, "Custom value"),
         (AutomationField.StoppageClock, "Added time"),
         (AutomationField.StoppageRunning, "Added time running"),
         (AutomationField.ShotClockRunning, "Shot clock running"),

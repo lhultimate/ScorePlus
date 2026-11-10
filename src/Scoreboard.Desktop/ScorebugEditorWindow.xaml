@@ -140,6 +140,20 @@
               <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
+          <!-- Football's two scoring plays can each have their own celebration. -->
+          <DockPanel Margin="0,7,0,0">
+            <StackPanel Orientation="Horizontal">
+              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
+              <TextBlock Text="SCORE ANIMATIONS" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock Text="Touchdown" FontSize="10" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <ComboBox x:Name="TouchdownAnimationBox" Width="145" FontSize="11" SelectionChanged="ScoreAnimation_Changed"
+                        ToolTip="Played once when a six-point football score is recorded"/>
+              <TextBlock Text="Field goal" FontSize="10" Foreground="#93A0B2" VerticalAlignment="Center" Margin="12,0,4,0"/>
+              <ComboBox x:Name="FieldGoalAnimationBox" Width="145" FontSize="11" SelectionChanged="ScoreAnimation_Changed"
+                        ToolTip="Played once when a three-point football score is recorded"/>
+              <TextBlock x:Name="ScoreAnimationHintText" Text="Saves with this layout; choose None to leave a play still." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
+          </DockPanel>
           <DockPanel Margin="0,7,0,0">
             <Button DockPanel.Dock="Right" Content="Clear link" Style="{StaticResource LayoutButton}" Click="LinkClear_Click" ToolTip="Stop this layout, and the layout it links to, from switching the other display"/>
             <StackPanel Orientation="Horizontal">
@@ -763,7 +777,7 @@
 
     <DockPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,12,0,0">
       <Button DockPanel.Dock="Right" Content="Done" Padding="16,8" Click="Done_Click" ToolTip="Close the studio (Enter only commits the value you are editing)"/>
-      <TextBlock x:Name="AllValuesHintText" Text="Every value can go on the graphic: team names and abbreviations, scores, period, game clock, play clock, timeout clock, timeouts left, possession, down, to go, down &amp; distance, ball on, sport, yards, turnovers, fouls, shot clock, baseball count and outs, hits, cards, shots, corners, date, time, and custom stats such as {{STAT:Turnovers}}. Use Add sport data for the full list. Player values such as {{PLAYER:HOME:Yards}} come from whoever is on the graphic — switch the selected player in the Rosters tab and every one of them follows."
+      <TextBlock x:Name="AllValuesHintText" Text="Every value can go on the graphic: team names and abbreviations, scores, period, game clock, play clock, timeout clock, timeouts left, possession, down, to go, down &amp; distance, ball on, sport, yards, turnovers, fouls, shot clock, baseball count and outs, hits, cards, shots, corners, date, time, and custom values such as {{STAT:Turnovers}}. Use Add sport data for the full list. Player values such as {{PLAYER:HOME:Yards}} come from whoever is on the graphic — switch the selected player in the Rosters tab and every one of them follows."
                  Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
     </DockPanel>
   </Grid>

@@ -126,8 +126,8 @@ var ordinalPath=Path.Combine(Path.GetTempPath(),$"ordinal-{Guid.NewGuid():N}.jso
 var shapeLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Parallelogram};var shapeCatalogPath=Path.Combine(Path.GetTempPath(),$"shape-{Guid.NewGuid():N}.json");try{var catalog=new ScorebugCatalog(shapeCatalogPath);catalog.Update(layout=>layout.Elements.Add(shapeLayout));var reloaded=new ScorebugCatalog(shapeCatalogPath);Check(reloaded.Layout.Elements[^1].Shape==ScorebugShape.Parallelogram,"scorebug shapes persist in the studio layout, including the parallelogram");}finally{if(File.Exists(shapeCatalogPath))File.Delete(shapeCatalogPath);}
 Check(ClockFormat.TryParse("10:30",out var parsedClock)&&parsedClock==630,"MM:SS clock entry parses minutes and seconds");Check(ClockFormat.TryParse("1:05",out var shortClock)&&shortClock==65,"single-digit minutes parse correctly");Check(ClockFormat.TryParse("720",out var rawClock)&&rawClock==720,"plain seconds still parse");Check(!ClockFormat.TryParse("10:75",out _)&&!ClockFormat.TryParse("abc",out _),"invalid clock entry is rejected");Check(ClockFormat.Format(630)=="10:30"&&ClockFormat.Format(0)=="00:00","clock formatting round trips");
 engine.NewGame("football");Check(engine.State.HomeTimeouts==3&&engine.State.AwayTimeouts==3,"new games take the timeout count from the sport profile");var timeoutCatalogPath=Path.Combine(Path.GetTempPath(),$"timeouts-{Guid.NewGuid():N}.json");try{var timeouts=new SportCatalog(timeoutCatalogPath);timeouts.SaveProfile(timeouts.Find("football")! with { Timeouts=7 });var reloaded=new SportCatalog(timeoutCatalogPath);Check(reloaded.Find("football")!.Timeouts==3,"editing a football profile clamps its timeout override to three");var overrideGame=new GameEngine(reloaded);overrideGame.NewGame("football");Check(overrideGame.State.HomeTimeouts==3&&overrideGame.State.HomeTimeoutLimit==3,"football timeouts never exceed three in a new game");Check(reloaded.ResetOverride("football")&&reloaded.Find("football")!.Timeouts==3,"resetting an override restores the preset");}finally{if(File.Exists(timeoutCatalogPath))File.Delete(timeoutCatalogPath);}
-engine.NewGame("soccer");var stat=engine.AddStat("Turnovers");engine.AdjustStat(stat.Id,2);engine.AdjustStat(stat.Id,1);Check(engine.State.Stats.Single().Value==3,"custom stats track a single value");Check(ScoreboardTemplates.Bind("{{STAT:Turnovers}}",engine.State)=="3"&&ScoreboardTemplates.Bind("{{stat:turnovers}}",engine.State)=="3","custom stat tokens display the value");Check(ScoreboardTemplates.Bind("{{STAT:Missing}}",engine.State)=="","missing custom stat tokens render empty");Check(engine.Undo()&&engine.State.Stats.Single().Value==2,"custom stat changes are undoable");var statsReport=GameReport.Build(engine.State);Check(statsReport.Contains("Custom stats")&&statsReport.Contains("Turnovers: 2"),"game report lists custom stats");engine.RemoveStat(stat.Id);Check(engine.State.Stats.Count==0,"custom stats can be removed");
-engine.NewGame("football");var exact=engine.AddStat("Penalties");engine.SetStat(exact.Id,4);Check(engine.State.Stats.Single().Value==4,"typed custom stat values set the exact count");engine.SetStat(exact.Id,1);Check(engine.Undo()&&engine.State.Stats.Single().Value==4,"typed custom stat values are undoable");var stagedBefore=GameEngine.StagedSignature(engine.State);engine.Score(true,6);engine.SetClock(42);engine.SetPlayClock(12);Check(GameEngine.StagedSignature(engine.State)==stagedBefore,"score and clocks are published live instead of staged");engine.SetTeams("Home","Away");Check(GameEngine.StagedSignature(engine.State)==stagedBefore,"team name changes publish live like scores");engine.AdvanceDown();Check(GameEngine.StagedSignature(engine.State)!=stagedBefore,"down and distance wait for an explicit output update");
+engine.NewGame("soccer");var stat=engine.AddStat("Turnovers");engine.AdjustStat(stat.Id,2);engine.AdjustStat(stat.Id,1);Check(engine.State.Stats.First(s=>s.Id==stat.Id).Value==3,"custom values track a single value");Check(ScoreboardTemplates.Bind("{{STAT:Turnovers}}",engine.State)=="3"&&ScoreboardTemplates.Bind("{{stat:turnovers}}",engine.State)=="3","custom value tokens display the value");Check(ScoreboardTemplates.Bind("{{STAT:Missing}}",engine.State)=="","missing custom value tokens render empty");Check(engine.Undo()&&engine.State.Stats.First(s=>s.Id==stat.Id).Value==2,"custom value changes are undoable");var statsReport=GameReport.Build(engine.State);Check(statsReport.Contains("Custom values")&&statsReport.Contains("Turnovers: 2"),"game report lists custom values");engine.RemoveStat(stat.Id);Check(engine.State.Stats.All(s=>s.Id!=stat.Id)&&engine.State.Stats.Count>0,"custom values can be removed without clearing the starters");
+engine.NewGame("football");Check(CommonStats.DefaultsFor("football").Contains("Field goal attempts")&&CommonStats.DefaultsFor("football").Contains("Turnovers")&&engine.State.Stats.Select(s=>s.Name).SequenceEqual(CommonStats.DefaultsFor("football")),"new football games start with useful custom values");var exact=engine.AddStat("Penalties");engine.SetStat(exact.Id,4);Check(engine.State.Stats.First(s=>s.Name=="Penalties").Value==4,"typed custom values set the exact count");engine.SetStat(exact.Id,1);Check(engine.Undo()&&engine.State.Stats.First(s=>s.Name=="Penalties").Value==4,"typed custom values are undoable");var scoreSequenceBefore=engine.State.LastScoreSequence;engine.Score(true,6);Check(engine.State.LastScoreSequence==scoreSequenceBefore+1&&engine.State.LastScoreAmount==6,"a scoring action carries a sequence the graphic can react to");engine.SetClock(42);Check(engine.State.LastScoreSequence==scoreSequenceBefore+1,"clock updates do not fire another score event");engine.SetScore(true,7);Check(engine.State.LastScoreSequence==scoreSequenceBefore+1,"a score correction is not treated as a scoring play");var stagedBefore=GameEngine.StagedSignature(engine.State);engine.Score(true,6);engine.SetClock(42);engine.SetPlayClock(12);Check(GameEngine.StagedSignature(engine.State)==stagedBefore,"score and clocks are published live instead of staged");engine.SetTeams("Home","Away");Check(GameEngine.StagedSignature(engine.State)==stagedBefore,"team name changes publish live like scores");engine.AdvanceDown();Check(GameEngine.StagedSignature(engine.State)!=stagedBefore,"down and distance wait for an explicit output update");
 var liveNames=new GameEngine();liveNames.NewGame("football");var nameTarget=new GameEngine();nameTarget.LoadFromState(liveNames.CloneState());liveNames.SetTeams("Home Team","Away Team");nameTarget.UpdateLiveScoreClock(liveNames.State);Check(nameTarget.State.HomeTeam=="Home Team"&&nameTarget.State.HomeAbbreviation=="HT","live publishing carries renamed teams to the output");
 var typedNames=new GameEngine();typedNames.NewGame("football");var typedTarget=new GameEngine();typedTarget.LoadFromState(typedNames.CloneState());typedNames.SetTeams("New England","ny giants");Check(ScoreboardTemplates.Bind("{{HOME_TEAM}} vs {{AWAY_TEAM}}",typedNames.State)=="New England vs ny giants","scorebug renders the full team name in the case the operator typed");Check(ScoreboardTemplates.Bind("{{HOME_ABBR}}/{{AWAY_ABBR}}",typedNames.State)=="NE/NG","abbreviation tokens still render initials for compact labels");typedTarget.UpdateLiveScoreClock(typedNames.State);Check(ScoreboardTemplates.Bind("{{HOME_TEAM}} vs {{AWAY_TEAM}}",typedTarget.State)=="New England vs ny giants","live publishing carries the typed team name to the on-air graphic");
 engine.NewGame("football");engine.SetFootballDistance(3,74);Check(engine.State.YardsToGoal==50,"the ball spot stops at the 50-yard line");engine.SetPossession(false);Check(engine.State.YardsToGoal==50&&ScoreboardTemplates.Bind("{{BALL_ON}}",engine.State)=="50","the ball spot is not tied to possession");engine.SetFootballDistance(3,-6);Check(engine.State.YardsToGoal==0,"the ball spot stops at the goal line");
@@ -457,19 +457,19 @@ try
 }
 finally { RosterStore.UsePath(null); try { if(File.Exists(rosterPath)) File.Delete(rosterPath); } catch { } }
 
-// ---------- custom stats can hold any text ----------
+// ---------- custom values can hold any text ----------
 var textStatEngine=new GameEngine();textStatEngine.NewGame("football");
 var textStat=textStatEngine.AddStat("Penalties");
 var textBefore=GameEngine.StagedSignature(textStatEngine.State);
 textStatEngine.SetStatText(textStat.Id,"3rd");
-Check(textStatEngine.State.Stats.Single().Display=="3rd"&&textStatEngine.State.Stats.Single().Text=="3rd","a custom stat keeps free text instead of only a number");
-Check(ScoreboardTemplates.Bind("{{STAT:Penalties}}",textStatEngine.State)=="3rd","a text stat prints on the graphic exactly as typed");
-Check(GameReport.Build(textStatEngine.State).Contains("Penalties: 3rd"),"a text stat appears in the game report");
-Check(GameEngine.StagedSignature(textStatEngine.State)!=textBefore,"a text stat waits for Update Output like any other value");
+Check(textStatEngine.State.Stats.First(s=>s.Id==textStat.Id).Display=="3rd"&&textStatEngine.State.Stats.First(s=>s.Id==textStat.Id).Text=="3rd","a custom value keeps free text instead of only a number");
+Check(ScoreboardTemplates.Bind("{{STAT:Penalties}}",textStatEngine.State)=="3rd","a text value prints on the graphic exactly as typed");
+Check(GameReport.Build(textStatEngine.State).Contains("Penalties: 3rd"),"a text value appears in the game report");
+Check(GameEngine.StagedSignature(textStatEngine.State)!=textBefore,"a text value waits for Update Output like any other value");
 textStatEngine.SetStatText(textStat.Id,"412");
-Check(textStatEngine.State.Stats.Single().Value==412&&textStatEngine.State.Stats.Single().Text is null&&textStatEngine.State.Stats.Single().Display=="412","numeric text becomes the stat's number again");
+Check(textStatEngine.State.Stats.First(s=>s.Id==textStat.Id).Value==412&&textStatEngine.State.Stats.First(s=>s.Id==textStat.Id).Text is null&&textStatEngine.State.Stats.First(s=>s.Id==textStat.Id).Display=="412","numeric text becomes the value's number again");
 textStatEngine.AdjustStat(textStat.Id,1);
-Check(textStatEngine.State.Stats.Single().Value==413&&textStatEngine.State.Stats.Single().IsNumber,"stepping a stat works after it held text");
+Check(textStatEngine.State.Stats.First(s=>s.Id==textStat.Id).Value==413&&textStatEngine.State.Stats.First(s=>s.Id==textStat.Id).IsNumber,"stepping a value works after it held text");
 var textStatGame=Path.Combine(Path.GetTempPath(),$"text-stat-{Guid.NewGuid():N}.spg");
 textStatEngine.SetStatText(textStat.Id,"N/A");textStatEngine.Save(textStatGame);
 var textStatLoaded=new GameEngine();textStatLoaded.Load(textStatGame);
@@ -617,6 +617,29 @@ try
     Check(Enum.GetValues<LayoutTransition>().Length>=5,"at least five layout hand-overs are offered");
 }
 finally { if(File.Exists(transitionPath))File.Delete(transitionPath); }
+
+// ---------- touchdown and field-goal clips belong to the layout ----------
+var scoreMotionPath=Path.Combine(Path.GetTempPath(),$"score-motion-{Guid.NewGuid():N}.json");
+try
+{
+    var scoreMotion=new ScorebugCatalog(scoreMotionPath);
+    var touchdownClip=MotionClip.AnimationPreset("Pulse");touchdownClip.Name="Touchdown celebration";
+    var fieldGoalClip=MotionClip.AnimationPreset("Pop in");fieldGoalClip.Name="Field goal pop";
+    scoreMotion.ApplyScoreAnimationToLayout(true,touchdownClip);
+    scoreMotion.ApplyScoreAnimationToLayout(false,fieldGoalClip);
+    var reloadedScoreMotion=new ScorebugCatalog(scoreMotionPath);
+    Check(reloadedScoreMotion.Layout.TouchdownAnimation?.Name=="Touchdown celebration"
+        &&reloadedScoreMotion.Layout.FieldGoalAnimation?.Name=="Field goal pop",
+        "touchdown and field-goal animations persist with the layout");
+    var copiedScoreMotion=reloadedScoreMotion.Layout.Copy();
+    Check(copiedScoreMotion.TouchdownAnimation?.Name=="Touchdown celebration"
+        &&copiedScoreMotion.FieldGoalAnimation?.Name=="Field goal pop",
+        "a copied layout carries both score-event animations");
+    reloadedScoreMotion.ApplyScoreAnimationToLayout(true,null);
+    Check(reloadedScoreMotion.Layout.TouchdownAnimation is null&&reloadedScoreMotion.Layout.FieldGoalAnimation is not null,
+        "the touchdown and field-goal animations switch off independently");
+}
+finally { if(File.Exists(scoreMotionPath))File.Delete(scoreMotionPath); }
 
 var exportLayoutPath=Path.Combine(Path.GetTempPath(),$"layout-{Guid.NewGuid():N}.spl");
 var displayPath=Path.Combine(Path.GetTempPath(),$"display-{Guid.NewGuid():N}.spd");

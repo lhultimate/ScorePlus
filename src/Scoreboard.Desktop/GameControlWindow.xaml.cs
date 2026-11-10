@@ -366,30 +366,30 @@ internal sealed class AddStatDialog : Window
 
     public AddStatDialog(IReadOnlyCollection<string> existing)
     {
-        Title = "Add custom stat";
+        Title = "Add custom value";
         Width = 380; SizeToContent = SizeToContent.Height; ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(23, 28, 37));
         Foreground = Brushes.White;
 
         var panel = new StackPanel { Margin = new Thickness(16) };
-        panel.Children.Add(new TextBlock { Text = "Choose a common stat or type your own", Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)), Margin = new Thickness(4, 0, 0, 6) });
+        panel.Children.Add(new TextBlock { Text = "Choose a common value or type your own", Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)), Margin = new Thickness(4, 0, 0, 6) });
         _presets.ItemsSource = CommonStats.Names.Where(n => !existing.Contains(n, StringComparer.OrdinalIgnoreCase)).ToArray();
         _presets.SelectedIndex = 0;
         panel.Children.Add(_presets);
-        panel.Children.Add(new TextBlock { Text = "Custom name (overrides the choice above)", Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)), Margin = new Thickness(4, 8, 0, 6) });
+        panel.Children.Add(new TextBlock { Text = "Custom value name (overrides the choice above)", Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)), Margin = new Thickness(4, 8, 0, 6) });
         panel.Children.Add(_custom);
         var error = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(255, 114, 114)), Margin = new Thickness(4, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
         panel.Children.Add(error);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        var add = new Button { Content = "Add stat", IsDefault = true };
+        var add = new Button { Content = "Add value", IsDefault = true };
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         add.Click += (_, _) =>
         {
             var name = _custom.Text.Trim();
             if (name.Length == 0) name = (_presets.SelectedItem as string ?? "").Trim();
-            if (name.Length == 0) { error.Text = "Choose a stat or type a name."; return; }
-            if (existing.Contains(name, StringComparer.OrdinalIgnoreCase)) { error.Text = "That stat already exists."; return; }
+            if (name.Length == 0) { error.Text = "Choose a value or type a name."; return; }
+            if (existing.Contains(name, StringComparer.OrdinalIgnoreCase)) { error.Text = "That value already exists."; return; }
             StatName = name;
             DialogResult = true;
             Close();

@@ -581,7 +581,7 @@ public partial class OutputWindow : Window
     public void UpdateLiveController(GameState source)
     {
         _displayState.HomeScore=source.HomeScore;_displayState.AwayScore=source.AwayScore;
-        _displayState.LastScoreAmount=source.LastScoreAmount;_displayState.LastScoreHome=source.LastScoreHome;
+        _displayState.LastScoreAmount=source.LastScoreAmount;_displayState.LastScoreHome=source.LastScoreHome;_displayState.LastScoreSequence=source.LastScoreSequence;
         _displayState.ClockSeconds=source.ClockSeconds;_displayState.ClockRunning=source.ClockRunning;
         _displayState.Period=source.Period;_displayState.HomeTimeouts=source.HomeTimeouts;
         _displayState.AwayTimeouts=source.AwayTimeouts;_displayState.HomePossession=source.HomePossession;
@@ -608,7 +608,7 @@ public partial class OutputWindow : Window
     public void UpdateLiveScoreClock(GameState source)
     {
         _displayState.HomeScore=source.HomeScore;_displayState.AwayScore=source.AwayScore;
-        _displayState.LastScoreAmount=source.LastScoreAmount;_displayState.LastScoreHome=source.LastScoreHome;
+        _displayState.LastScoreAmount=source.LastScoreAmount;_displayState.LastScoreHome=source.LastScoreHome;_displayState.LastScoreSequence=source.LastScoreSequence;
         _displayState.HomeTeam=source.HomeTeam;_displayState.AwayTeam=source.AwayTeam;
         _displayState.HomeAbbreviation=source.HomeAbbreviation;_displayState.AwayAbbreviation=source.AwayAbbreviation;
         _displayState.HomeLogoPath=source.HomeLogoPath;_displayState.AwayLogoPath=source.AwayLogoPath;
