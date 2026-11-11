@@ -312,11 +312,13 @@ try
     video.Update(layout=>layout.Elements.Add(new ScorebugElement
     {
         Name="Ad",Kind=ScorebugElementKind.Video,MediaTag="Ads",PreserveVideoAspect=true,
-        VideoAspect=4.0/3.0,Width=800,Height=600,AudioDevice="speaker-two"
+        VideoAspect=4.0/3.0,Width=800,Height=600,AudioDevice="speaker-two",
+        ChromaKeyColor="#FF00FF00",ChromaKeyTolerance=0.11
     }));
     var reopenedVideo=new ScorebugCatalog(videoPath);
     var ad=reopenedVideo.Layout.Elements.First(x=>x.Kind==ScorebugElementKind.Video);
     Check(ad.PreserveVideoAspect&&Math.Abs(ad.VideoAspect-4.0/3.0)<0.001&&ad.AudioDevice=="speaker-two","a video element keeps its preserved aspect ratio and its own audio output");
+    Check(ad.ChromaKeyColor=="#FF00FF00"&&Math.Abs(ad.ChromaKeyTolerance-0.11)<0.001,"a video element keeps its chroma key colour and tolerance across a save");
 }
 finally{if(File.Exists(videoPath))File.Delete(videoPath);}
 
@@ -638,6 +640,29 @@ try
     reloadedScoreMotion.ApplyScoreAnimationToLayout(true,null);
     Check(reloadedScoreMotion.Layout.TouchdownAnimation is null&&reloadedScoreMotion.Layout.FieldGoalAnimation is not null,
         "the touchdown and field-goal animations switch off independently");
+    var touchdownVideo=new ScoreVideo{Path=@"C:\\clips\\touchdown.mp4",ChromaKeyColor="#FF00B140",ChromaKeyTolerance=0.21};
+    var fieldGoalVideo=new ScoreVideo{Path=@"C:\\clips\\field-goal.mp4",ChromaKeyColor="#FF2020FF",ChromaKeyTolerance=0.17};
+    reloadedScoreMotion.ApplyScoreVideoToLayout(true,touchdownVideo);
+    reloadedScoreMotion.ApplyScoreVideoToLayout(false,fieldGoalVideo);
+    Check(reloadedScoreMotion.Layout.TouchdownVideo?.Path==touchdownVideo.Path
+        &&reloadedScoreMotion.Layout.FieldGoalVideo?.Path==fieldGoalVideo.Path
+        &&reloadedScoreMotion.Layout.TouchdownAnimation is null
+        &&reloadedScoreMotion.Layout.FieldGoalAnimation is null,
+        "score videos replace the touchdown and field-goal animations independently");
+    var reloadedScoreVideo=new ScorebugCatalog(scoreMotionPath);
+    Check(reloadedScoreVideo.Layout.TouchdownVideo?.ChromaKeyColor=="#FF00B140"
+        &&Math.Abs(reloadedScoreVideo.Layout.TouchdownVideo.ChromaKeyTolerance-0.21)<0.001
+        &&reloadedScoreVideo.Layout.FieldGoalVideo?.ChromaKeyColor=="#FF2020FF",
+        "score videos keep their file and chroma key across a save");
+    var copiedScoreVideo=reloadedScoreVideo.Layout.Copy();
+    Check(copiedScoreVideo.TouchdownVideo?.Path==touchdownVideo.Path
+        &&copiedScoreVideo.FieldGoalVideo?.Path==fieldGoalVideo.Path,
+        "a copied layout carries both score videos");
+    reloadedScoreVideo.ApplyScoreVideoToLayout(true,null);
+    Check(reloadedScoreVideo.Layout.TouchdownVideo is null&&reloadedScoreVideo.Layout.FieldGoalVideo is not null,
+        "the touchdown and field-goal videos switch off independently");
+    reloadedScoreVideo.ClearScoreCelebration(false);
+    Check(reloadedScoreVideo.Layout.FieldGoalVideo is null,"a score celebration can be cleared completely");
     var shimmerPreset=MotionClip.AnimationPreset("Shimmer");
     var colourCyclePreset=MotionClip.AnimationPreset("Color cycle");
     Check(shimmerPreset.Phases[0].Tracks.Count==0&&colourCyclePreset.Phases[0].Tracks.Count==0,

@@ -3513,6 +3513,42 @@ internal static class Program
                 Console.WriteLine("PASS: video boxes honour the preserved aspect ratio and chroma key, and each element carries its own audio output");
             }
 
+            // ---------- a video element's chroma key survives the studio's own save path ----------
+            var chromaVideoPath = Path.Combine(Path.GetTempPath(), $"smoke-video-key-{Guid.NewGuid():N}.json");
+            try
+            {
+                var chromaVideoCatalog = new ScorebugCatalog(chromaVideoPath);
+                var chromaVideo = new ScorebugElement
+                {
+                    Name = "Keyed ad", Kind = ScorebugElementKind.Video, MediaTag = "Ads",
+                    X = 40, Y = 40, Width = 480, Height = 270
+                };
+                chromaVideoCatalog.Update(layout => layout.Elements.Add(chromaVideo));
+                var chromaTarget = chromaVideoCatalog.Layout.Elements.First(item => item.Id == chromaVideo.Id);
+                var chromaEditor = new ScorebugEditorWindow(chromaVideoCatalog, engine);
+                chromaEditor.Show();
+                chromaEditor.UpdateLayout();
+                var chromaLayers = (ListBox)chromaEditor.FindName("Layers")!;
+                var chromaElements = chromaVideoCatalog.Layout.Elements.ToArray();
+                chromaLayers.SelectedIndex = chromaElements.Length - 1 - Array.IndexOf(chromaElements, chromaTarget);
+                chromaEditor.UpdateLayout();
+                var chromaKeyInput = (TextBox)chromaEditor.FindName("ChromaKeyInput")!;
+                chromaKeyInput.Text = "#FF00FF00";
+                var chromaTolerance = (TextBox)chromaEditor.FindName("ChromaKeyToleranceInput")!;
+                chromaTolerance.Text = "0.09";
+                Pump(TimeSpan.FromMilliseconds(500));
+                var savedChroma = chromaVideoCatalog.Layout.Elements.First(item => item.Id == chromaVideo.Id);
+                if (savedChroma.ChromaKeyColor != "#FF00FF00" || Math.Abs(savedChroma.ChromaKeyTolerance - 0.09) > 0.001)
+                    throw new Exception($"FAIL: the studio did not save the video chroma key ({savedChroma.ChromaKeyColor}, {savedChroma.ChromaKeyTolerance:0.00})");
+                chromaEditor.Close();
+                var reopenedChroma = new ScorebugCatalog(chromaVideoPath);
+                var reopenedKeyedVideo = reopenedChroma.Layout.Elements.First(item => item.Id == chromaVideo.Id);
+                if (reopenedKeyedVideo.ChromaKeyColor != "#FF00FF00" || Math.Abs(reopenedKeyedVideo.ChromaKeyTolerance - 0.09) > 0.001)
+                    throw new Exception("FAIL: a video element's chroma key did not survive reopening the layout");
+            }
+            finally { if (File.Exists(chromaVideoPath)) File.Delete(chromaVideoPath); }
+            Console.WriteLine("PASS: a video element's chroma key and tolerance save through the studio and survive reopening");
+
             // ---------- team pop-up: name, abbreviation, logo and colours from the console ----------
             var teamEngine = new GameEngine();
             teamEngine.NewGame("football");

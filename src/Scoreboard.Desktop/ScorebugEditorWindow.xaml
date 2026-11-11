@@ -140,7 +140,7 @@
               <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
-          <!-- Football's two scoring plays can each have their own celebration. -->
+          <!-- Football's two scoring plays can each have their own celebration: a made animation or a keyed video. -->
           <DockPanel Margin="0,7,0,0">
             <StackPanel Orientation="Horizontal">
               <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
@@ -148,10 +148,50 @@
               <TextBlock Text="Touchdown" FontSize="10" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,4,0"/>
               <ComboBox x:Name="TouchdownAnimationBox" Width="145" FontSize="11" SelectionChanged="ScoreAnimation_Changed"
                         ToolTip="Played once when a touchdown is recorded — 6, 7 or 8 points"/>
+              <Button x:Name="TouchdownVideoButton" Content="Video…" FontSize="10" Padding="8,3" Margin="6,0,0,0" Click="ScoreVideo_Click"
+                      ToolTip="Play a video instead of the animation when a touchdown is recorded"/>
               <TextBlock Text="Field goal" FontSize="10" Foreground="#93A0B2" VerticalAlignment="Center" Margin="12,0,4,0"/>
               <ComboBox x:Name="FieldGoalAnimationBox" Width="145" FontSize="11" SelectionChanged="ScoreAnimation_Changed"
                         ToolTip="Played once when a three-point football score is recorded"/>
-              <TextBlock x:Name="ScoreAnimationHintText" Text="Saves with this layout; choose None to leave a play still." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+              <Button x:Name="FieldGoalVideoButton" Content="Video…" FontSize="10" Padding="8,3" Margin="6,0,0,0" Click="ScoreVideo_Click"
+                      ToolTip="Play a video instead of the animation when a field goal is recorded"/>
+              <TextBlock x:Name="ScoreAnimationHintText" Text="Choose an animation or video; None leaves it still."
+                         Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
+          </DockPanel>
+          <!-- Key controls appear only after a score video is chosen, so the normal toolbar stays compact. -->
+          <DockPanel x:Name="ScoreVideoKeyRow" Margin="0,5,0,0" Visibility="Collapsed">
+            <StackPanel x:Name="TouchdownVideoKeyGroup" Orientation="Horizontal" Visibility="Collapsed">
+              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
+              <TextBlock Text="TD VIDEO" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,6,0"/>
+              <TextBlock x:Name="TouchdownVideoCaption" Width="110" Text="No video" FontSize="10" Foreground="#93A0B2"
+                         TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,6,0"/>
+              <Button x:Name="TouchdownVideoKeyButton" Content="Key…" FontSize="10" Padding="8,3" Click="ScoreVideoKey_Click"
+                      ToolTip="Choose the green or blue backdrop to remove from the touchdown video"/>
+              <Button x:Name="TouchdownVideoKeyClearButton" Content="Clear key" FontSize="10" Padding="8,3" Margin="4,0,0,0" Click="ScoreVideoKeyClear_Click" Visibility="Collapsed"
+                      ToolTip="Leave the touchdown video untouched"/>
+              <TextBlock x:Name="TouchdownVideoToleranceLabel" Text="Tol" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="8,0,3,0"/>
+              <TextBox x:Name="TouchdownVideoToleranceInput" Width="38" FontSize="10" Padding="4,2"
+                       TextChanged="ScoreVideoTolerance_Changed"
+                       ToolTip="How different a pixel may be from the key colour and still disappear (0–1)"/>
+              <Button x:Name="TouchdownVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0" Click="ScoreVideoClear_Click"
+                      ToolTip="Remove the touchdown video and go back to no celebration"/>
+            </StackPanel>
+            <StackPanel x:Name="FieldGoalVideoKeyGroup" Orientation="Horizontal" Margin="14,0,0,0" Visibility="Collapsed">
+              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
+              <TextBlock Text="FG VIDEO" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,6,0"/>
+              <TextBlock x:Name="FieldGoalVideoCaption" Width="110" Text="No video" FontSize="10" Foreground="#93A0B2"
+                         TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,6,0"/>
+              <Button x:Name="FieldGoalVideoKeyButton" Content="Key…" FontSize="10" Padding="8,3" Click="ScoreVideoKey_Click"
+                      ToolTip="Choose the green or blue backdrop to remove from the field-goal video"/>
+              <Button x:Name="FieldGoalVideoKeyClearButton" Content="Clear key" FontSize="10" Padding="8,3" Margin="4,0,0,0" Click="ScoreVideoKeyClear_Click" Visibility="Collapsed"
+                      ToolTip="Leave the field-goal video untouched"/>
+              <TextBlock x:Name="FieldGoalVideoToleranceLabel" Text="Tol" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="8,0,3,0"/>
+              <TextBox x:Name="FieldGoalVideoToleranceInput" Width="38" FontSize="10" Padding="4,2"
+                       TextChanged="ScoreVideoTolerance_Changed"
+                       ToolTip="How different a pixel may be from the key colour and still disappear (0–1)"/>
+              <Button x:Name="FieldGoalVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0" Click="ScoreVideoClear_Click"
+                      ToolTip="Remove the field-goal video and go back to no celebration"/>
             </StackPanel>
           </DockPanel>
           <DockPanel Margin="0,7,0,0">

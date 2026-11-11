@@ -46,6 +46,11 @@ public sealed class ScorebugCanvasView : Grid
     // clip, temporary pieces sit above the layout, and both are cleared when the event ends.
     Canvas? _scorePieces;
     DispatcherTimer? _scoreTimer;
+    // A score celebration can also be a full-frame video. The player is owned by this view so a
+    // rebuild, a new score or closing the feed can stop it and release the decoder.
+    MediaPlayer? _scoreVideoPlayer;
+    FrameworkElement? _scoreVideoOverlay;
+    DispatcherTimer? _scoreVideoTimer;
     // Whole-graphic tracks run once on the canvas, not once per item, so a scale or spin keeps
     // the scorebug together. The flag distinguishes that transform from the layout hand-over.
     bool _scoreCanvasAnimated;
@@ -1181,7 +1186,61 @@ public sealed class ScorebugCanvasView : Grid
     }
 
     /// <summary>
-    /// Plays this layout's touchdown or field-goal clip when a new football score lands. The
+    /// Plays a score celebration video over the whole graphic. The same chroma shader used by
+    /// video boxes and hand-overs reaches the decoded frames, so a green-screen celebration shows
+    /// the scorebug underneath instead of a solid backdrop.
+    /// </summary>
+    bool TryPlayScoreVideo(ScoreVideo video)
+    {
+        var path=(video.Path??"").Trim();
+        if(path.Length==0||!System.IO.File.Exists(path))return false;
+        var extension=System.IO.Path.GetExtension(path).ToLowerInvariant();
+        if(extension is not (".mp4" or ".m4v" or ".wmv" or ".avi" or ".mov" or ".mkv" or ".webm"))return false;
+        ClearScoreAnimation();
+        var width=Math.Max(1,_canvas.Width);
+        var height=Math.Max(1,_canvas.Height);
+        var player=new MediaPlayer{IsMuted=true,ScrubbingEnabled=false};
+        var drawing=new VideoDrawing{Player=player,Rect=new Rect(0,0,1,1)};
+        var brush=new DrawingBrush(drawing){Stretch=Stretch.Fill};
+        var picture=new Rectangle{Width=width,Height=height,Fill=brush,IsHitTestVisible=false};
+        if(TryParseColor(video.ChromaKeyColor,out var keyColour))
+            picture.Effect=new ChromaKeyEffect{KeyColor=keyColour,Tolerance=video.ChromaKeyTolerance};
+        var overlay=new Grid{Width=width,Height=height,IsHitTestVisible=false};
+        overlay.Children.Add(picture);
+        Panel.SetZIndex(overlay,12000);
+        _canvas.Children.Add(overlay);
+        _scoreVideoPlayer=player;
+        _scoreVideoOverlay=overlay;
+        var guard=new DispatcherTimer{Interval=TimeSpan.FromSeconds(30)};
+        _scoreVideoTimer=guard;
+        void Finish()
+        {
+            if(ReferenceEquals(_scoreVideoOverlay,overlay))ClearScoreAnimation();
+        }
+        guard.Tick+=(_,_)=>{
+            guard.Stop();
+            if(ReferenceEquals(_scoreVideoTimer,guard))Finish();
+        };
+        guard.Start();
+        player.MediaOpened+=(_,_)=>{
+            if(!ReferenceEquals(_scoreVideoPlayer,player))return;
+            // A clip that opens successfully should run to its own end; the timer is only the
+            // fallback for a decoder that opens but never reports the end of the file.
+            if(player.NaturalDuration.HasTimeSpan)
+            {
+                var seconds=player.NaturalDuration.TimeSpan.TotalSeconds;
+                if(seconds>0)guard.Interval=TimeSpan.FromSeconds(Math.Clamp(seconds+0.75,1,65));
+            }
+            try{player.Play();}catch{Finish();}
+        };
+        player.MediaEnded+=(_,_)=>Finish();
+        player.MediaFailed+=(_,_)=>Finish();
+        try{player.Open(new Uri(path));}catch{Finish();return false;}
+        return true;
+    }
+
+    /// <summary>
+    /// Plays this layout's touchdown or field-goal celebration when a new football score lands. The
     /// sequence, not the score itself, is the trigger: clock ticks and score corrections leave it
     /// alone, and a second touchdown at the same score still celebrates exactly once.
     /// </summary>
@@ -1191,14 +1250,21 @@ public sealed class ScorebugCanvasView : Grid
         if(sequence<=_lastScoreSequence){_lastScoreSequence=sequence;return;}
         _lastScoreSequence=sequence;
         if(!string.Equals(state.SportId,"football",StringComparison.OrdinalIgnoreCase)||state.LastScoreAmount<=0)return;
-        var clip=state.LastScoreAmount switch
+        ScoreVideo? video=null;
+        MotionClip? clip=null;
+        // A seven- or eight-point football score still contains a touchdown; the extra point or
+        // conversion is part of the same scoring play on the console.
+        if(state.LastScoreAmount is 6 or 7 or 8)
         {
-            // A seven- or eight-point football score still contains a touchdown; the extra point
-            // or conversion is part of the same scoring play on the console.
-            6 or 7 or 8=>Layout.TouchdownAnimation,
-            3=>Layout.FieldGoalAnimation,
-            _=>null
-        };
+            video=Layout.TouchdownVideo;
+            clip=Layout.TouchdownAnimation;
+        }
+        else if(state.LastScoreAmount==3)
+        {
+            video=Layout.FieldGoalVideo;
+            clip=Layout.FieldGoalAnimation;
+        }
+        if(video is not null&&TryPlayScoreVideo(video))return;
         if(clip is null||clip.IsEmpty)return;
         // A score event has its own name, so it uses the clip's normal take. Triggered takes remain
         // available for per-value flourishes, but they cannot accidentally replace the event clip.
@@ -1299,6 +1365,18 @@ public sealed class ScorebugCanvasView : Grid
 
     void ClearScoreAnimation()
     {
+        _scoreVideoTimer?.Stop();
+        _scoreVideoTimer=null;
+        if(_scoreVideoPlayer is { } videoPlayer)
+        {
+            _scoreVideoPlayer=null;
+            try{videoPlayer.Stop();videoPlayer.Close();}catch{}
+        }
+        if(_scoreVideoOverlay is not null)
+        {
+            _canvas.Children.Remove(_scoreVideoOverlay);
+            _scoreVideoOverlay=null;
+        }
         _scoreTimer?.Stop();
         _scoreTimer=null;
         if(_scorePieces is not null)

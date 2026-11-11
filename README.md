@@ -265,7 +265,9 @@ Apply it to an element and it replaces the two motion presets for that element; 
 
 The layout bar's **SCORE ANIMATIONS** row gives American football's two scoring plays their own celebration. **Touchdown** plays for a six-, seven- or eight-point score, and **Field goal** for a three-point score. Each picker offers **None**, the built-in Animation Maker styles, or any animation saved in the show's library. A saved clip keeps its per-item keys and temporary pieces, so a touchdown can pop the score plates, flash a full-frame card and fade it away without changing the layout. Whole-graphic keys animate the scorebug together; per-item keys move only the items they name, and a whole-graphic background key paints the layout backdrop rather than recolouring every item plate.
 
-The clips are stored on the layout, so different scorebugs can celebrate differently and an exported `.spl`, `.spd` or `.spg` carries the motion with it. Clock updates, score corrections and non-football sports do not trigger a score animation; only a real scoring action does. Choose **None** to leave a play completely still.
+Either scoring play can instead be a **video**. **Video…** chooses a clip that plays full-frame over the scorebug; **Key…** removes its green or blue backdrop with the same chroma shader used by video elements and video hand-overs, and **Tol** controls how close a pixel must be to the key colour. The clip, its key colour and its tolerance are stored on the layout, so an exported `.spl`, `.spd` or `.spg` carries them with the design. A video and a made animation are alternatives: choosing one clears the other for that scoring play. **Clear video** removes the clip, and **None** clears the whole celebration.
+
+Clock updates, score corrections and non-football sports do not trigger a score celebration; only a real scoring action does. Choose **None** to leave a play completely still.
 
 ### Per-Window Layout Choice
 

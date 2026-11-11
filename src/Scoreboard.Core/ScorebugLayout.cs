@@ -38,6 +38,35 @@ public enum ScorebugTransition
     Drop
 }
 
+/// <summary>
+/// A video played as a football score celebration. It is stored on the layout, so a touchdown or
+/// field goal can be a green-screen clip instead of a made animation, and the clip keeps its own
+/// chroma key when the layout is exported or the game is reopened.
+/// </summary>
+public sealed class ScoreVideo
+{
+    public string Path { get; set; } = "";
+    public string ChromaKeyColor { get; set; } = "";
+    public double ChromaKeyTolerance { get; set; } = 0.16;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsEmpty => string.IsNullOrWhiteSpace(Path);
+
+    public ScoreVideo Copy() => new()
+    {
+        Path = Path,
+        ChromaKeyColor = ChromaKeyColor,
+        ChromaKeyTolerance = ChromaKeyTolerance
+    };
+
+    public void Normalize()
+    {
+        Path = (Path ?? "").Trim();
+        ChromaKeyColor = (ChromaKeyColor ?? "").Trim();
+        ChromaKeyTolerance = Math.Clamp(double.IsFinite(ChromaKeyTolerance) ? ChromaKeyTolerance : 0.16, 0, 1);
+    }
+}
+
 public enum ScorebugShape { Rectangle, Circle, Triangle, Parallelogram }
 
 /// <summary>Where an element's colour comes from: a fixed colour, or one of the team palette slots.</summary>
@@ -388,6 +417,18 @@ public sealed class ScorebugLayout
     public MotionClip? FieldGoalAnimation { get; set; }
 
     /// <summary>
+    /// A video played when American football records a six-, seven- or eight-point score. It is
+    /// shown full-frame over the layout and replaces the touchdown animation while it is set.
+    /// </summary>
+    public ScoreVideo? TouchdownVideo { get; set; }
+
+    /// <summary>
+    /// A video played when American football records a three-point score. It is independent of the
+    /// touchdown video, so each scoring play can have its own clip and chroma key.
+    /// </summary>
+    public ScoreVideo? FieldGoalVideo { get; set; }
+
+    /// <summary>
     /// A video file played as this layout's hand-over, instead of the preset or a motion clip. It
     /// runs full-frame over the outgoing picture and ends with the new layout showing underneath.
     /// </summary>
@@ -706,6 +747,8 @@ public sealed class ScorebugCatalog
             TransitionClip = first.TransitionClip,
             TouchdownAnimation = first.TouchdownAnimation,
             FieldGoalAnimation = first.FieldGoalAnimation,
+            TouchdownVideo = first.TouchdownVideo,
+            FieldGoalVideo = first.FieldGoalVideo,
             TransitionVideoPath = first.TransitionVideoPath,
             TransitionVideoChromaKeyColor = first.TransitionVideoChromaKeyColor,
             TransitionVideoChromaKeyTolerance = first.TransitionVideoChromaKeyTolerance,
@@ -992,6 +1035,8 @@ public sealed class ScorebugCatalog
                 layout.TransitionClip?.Normalize();
                 layout.TouchdownAnimation?.Normalize();
                 layout.FieldGoalAnimation?.Normalize();
+                layout.TouchdownVideo = NormalizeScoreVideo(layout.TouchdownVideo);
+                layout.FieldGoalVideo = NormalizeScoreVideo(layout.FieldGoalVideo);
                 layout.TransitionVideoChromaKeyColor = (layout.TransitionVideoChromaKeyColor ?? "").Trim();
                 if (!string.IsNullOrWhiteSpace(layout.TransitionVideoChromaKeyColor) && !IsColor(layout.TransitionVideoChromaKeyColor))
                     layout.TransitionVideoChromaKeyColor = "";
@@ -1089,6 +1134,16 @@ public sealed class ScorebugCatalog
                 }
             }
         }
+    }
+
+    /// <summary>Keeps only usable score videos and stores the chroma key as typed.</summary>
+    static ScoreVideo? NormalizeScoreVideo(ScoreVideo? video)
+    {
+        if (video is null) return null;
+        video.Normalize();
+        if (!string.IsNullOrWhiteSpace(video.ChromaKeyColor) && !IsColor(video.ChromaKeyColor))
+            video.ChromaKeyColor = "";
+        return video.IsEmpty ? null : video;
     }
 
     /// <summary>#RGB, #ARGB, #RRGGBB or #AARRGGBB, so a bad entry can never blank the canvas.</summary>
@@ -1430,8 +1485,57 @@ public sealed class ScorebugCatalog
         Update(layout =>
         {
             var stored = clip is null || clip.IsEmpty ? null : clip.Snapshot();
-            if (touchdown) layout.TouchdownAnimation = stored;
-            else layout.FieldGoalAnimation = stored;
+            if (touchdown)
+            {
+                layout.TouchdownAnimation = stored;
+                if (stored is not null) layout.TouchdownVideo = null;
+            }
+            else
+            {
+                layout.FieldGoalAnimation = stored;
+                if (stored is not null) layout.FieldGoalVideo = null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Assigns a video celebration to one scoring play. A video and a made animation are
+    /// alternatives, so setting a video clears the animation for that play. Null clears only the
+    /// video, leaving any animation that was set elsewhere alone.
+    /// </summary>
+    public void ApplyScoreVideoToLayout(bool touchdown, ScoreVideo? video)
+    {
+        Update(layout =>
+        {
+            var stored = video is null || video.IsEmpty ? null : video.Copy();
+            if (touchdown)
+            {
+                layout.TouchdownVideo = stored;
+                if (stored is not null) layout.TouchdownAnimation = null;
+            }
+            else
+            {
+                layout.FieldGoalVideo = stored;
+                if (stored is not null) layout.FieldGoalAnimation = null;
+            }
+        });
+    }
+
+    /// <summary>Clears both possible celebrations for one scoring play.</summary>
+    public void ClearScoreCelebration(bool touchdown)
+    {
+        Update(layout =>
+        {
+            if (touchdown)
+            {
+                layout.TouchdownAnimation = null;
+                layout.TouchdownVideo = null;
+            }
+            else
+            {
+                layout.FieldGoalAnimation = null;
+                layout.FieldGoalVideo = null;
+            }
         });
     }
 

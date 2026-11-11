@@ -34,6 +34,7 @@ public partial class ScorebugEditorWindow : Window
     readonly Dictionary<string,(string Signature,ImageSource Image)> _layoutThumbs = [];
     bool _displayLoading;
     bool _scoreAnimationLoading;
+    bool _scoreVideoLoading;
     bool _linkLoading;
     // Set while the player-data pickers are being filled for an element, so the sync is not
     // mistaken for the operator choosing a different player or value.
@@ -261,6 +262,111 @@ public partial class ScorebugEditorWindow : Window
             : hasKey
                 ? $"  Video hand-over · {System.IO.Path.GetFileName(path)} · key {_catalog.Layout.TransitionVideoChromaKeyColor}"
                 : $"  Video hand-over · {System.IO.Path.GetFileName(path)}";
+    }
+
+    /// <summary>
+    /// Fills the score-video rows. The rows stay tied to the layout being designed, just like the
+    /// animation pickers, so switching layouts never leaves the previous clip's key on screen.
+    /// </summary>
+    void SyncScoreVideos()
+    {
+        if(TouchdownVideoButton is null)return;
+        _scoreVideoLoading=true;
+        try
+        {
+            var layout=_catalog.Layout;
+            var hasTouchdown=layout.TouchdownVideo is not null&&!layout.TouchdownVideo.IsEmpty;
+            var hasFieldGoal=layout.FieldGoalVideo is not null&&!layout.FieldGoalVideo.IsEmpty;
+            TouchdownVideoKeyGroup.Visibility=hasTouchdown?Visibility.Visible:Visibility.Collapsed;
+            FieldGoalVideoKeyGroup.Visibility=hasFieldGoal?Visibility.Visible:Visibility.Collapsed;
+            ScoreVideoKeyRow.Visibility=hasTouchdown||hasFieldGoal?Visibility.Visible:Visibility.Collapsed;
+            SyncScoreVideo(TouchdownVideoCaption,TouchdownVideoKeyButton,TouchdownVideoKeyClearButton,
+                TouchdownVideoClearButton,TouchdownVideoToleranceLabel,TouchdownVideoToleranceInput,layout.TouchdownVideo);
+            SyncScoreVideo(FieldGoalVideoCaption,FieldGoalVideoKeyButton,FieldGoalVideoKeyClearButton,
+                FieldGoalVideoClearButton,FieldGoalVideoToleranceLabel,FieldGoalVideoToleranceInput,layout.FieldGoalVideo);
+            var hasVideo=hasTouchdown||hasFieldGoal;
+            ScoreAnimationHintText.Text=hasVideo
+                ? "Video celebrations play full-frame over the scorebug; Key removes the backdrop, saved with this layout."
+                : "Choose an animation or video for each scoring play; None leaves it still.";
+        }
+        finally { _scoreVideoLoading=false; }
+    }
+
+    void SyncScoreVideo(TextBlock caption,Button keyButton,Button clearKey,Button clearVideo,
+        TextBlock toleranceLabel,TextBox toleranceInput,ScoreVideo? video)
+    {
+        var hasVideo=video is not null&&!video.IsEmpty;
+        var hasKey=hasVideo&&!string.IsNullOrWhiteSpace(video!.ChromaKeyColor);
+        clearVideo.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        keyButton.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        clearKey.Visibility=hasKey?Visibility.Visible:Visibility.Collapsed;
+        toleranceLabel.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        toleranceInput.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
+        var name=hasVideo?System.IO.Path.GetFileName(video!.Path):"No video";
+        caption.Text=hasKey?$"{name}  ·  key {video!.ChromaKeyColor}":name;
+        caption.ToolTip=hasVideo?video!.Path:null;
+        var tolerance=(hasVideo?video!.ChromaKeyTolerance:0.16).ToString("0.00");
+        if(toleranceInput.Text!=tolerance)toleranceInput.Text=tolerance;
+    }
+
+    bool IsTouchdownVideo(object sender)=>ReferenceEquals(sender,TouchdownVideoButton);
+
+    ScoreVideo? ScoreVideoFor(bool touchdown)=>touchdown?_catalog.Layout.TouchdownVideo:_catalog.Layout.FieldGoalVideo;
+
+    void UpdateScoreVideo(bool touchdown,Action<ScoreVideo> edit)
+    {
+        if(ScoreVideoFor(touchdown) is not { } current)return;
+        var copy=current.Copy();
+        edit(copy);
+        _catalog.ApplyScoreVideoToLayout(touchdown,copy);
+        SyncScoreVideos();
+    }
+
+    /// <summary>Chooses a video celebration for one scoring play, keeping any key already set.</summary>
+    void ScoreVideo_Click(object sender,RoutedEventArgs e)
+    {
+        var touchdown=IsTouchdownVideo(sender);
+        var current=ScoreVideoFor(touchdown);
+        var dialog=new Microsoft.Win32.OpenFileDialog
+        {
+            Title=touchdown?"Choose a touchdown video":"Choose a field-goal video",
+            Filter="Video (*.mp4;*.wmv;*.avi;*.mov;*.mkv;*.webm)|*.mp4;*.wmv;*.avi;*.mov;*.mkv;*.webm|All files (*.*)|*.*"
+        };
+        if(dialog.ShowDialog(this)!=true)return;
+        _catalog.ApplyScoreVideoToLayout(touchdown,new ScoreVideo
+        {
+            Path=dialog.FileName,
+            ChromaKeyColor=current?.ChromaKeyColor??"",
+            ChromaKeyTolerance=current?.ChromaKeyTolerance??0.16
+        });
+        SyncScoreVideos();
+    }
+
+    void ScoreVideoKey_Click(object sender,RoutedEventArgs e)
+    {
+        var touchdown=IsTouchdownVideo(sender);
+        var current=ScoreVideoFor(touchdown);
+        if(current is null)return;
+        var chosen=ColorPickerWindow.Pick(this,string.IsNullOrWhiteSpace(current.ChromaKeyColor)?"#FF00B140":current.ChromaKeyColor);
+        if(chosen is null)return;
+        UpdateScoreVideo(touchdown,video=>video.ChromaKeyColor=chosen);
+    }
+
+    void ScoreVideoKeyClear_Click(object sender,RoutedEventArgs e)
+        =>UpdateScoreVideo(IsTouchdownVideo(sender),video=>video.ChromaKeyColor="");
+
+    void ScoreVideoClear_Click(object sender,RoutedEventArgs e)
+    {
+        _catalog.ApplyScoreVideoToLayout(IsTouchdownVideo(sender),null);
+        SyncScoreVideos();
+    }
+
+    void ScoreVideoTolerance_Changed(object sender,TextChangedEventArgs e)
+    {
+        if(_loading||_scoreVideoLoading)return;
+        var touchdown=ReferenceEquals(sender,TouchdownVideoToleranceInput);
+        if(!double.TryParse(touchdown?TouchdownVideoToleranceInput.Text:FieldGoalVideoToleranceInput.Text,out var tolerance))return;
+        UpdateScoreVideo(touchdown,video=>video.ChromaKeyTolerance=Math.Clamp(tolerance,0,1));
     }
 
     /// <summary>Where the value sits inside its box, offered beside the text content.</summary>
@@ -502,6 +608,7 @@ public partial class ScorebugEditorWindow : Window
         RefreshMotionLists();
         SyncLayoutPicker();
         SyncDisplayPicker();
+        SyncScoreVideos();
         SyncLinkPicker();
         var previousVideos=new Dictionary<string,VideoSurface>(_videoSurfaces);
         var previousVisuals=new Dictionary<string,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind)>(_visuals);
@@ -1381,10 +1488,15 @@ public partial class ScorebugEditorWindow : Window
     {
         if(_displayLoading||_scoreAnimationLoading)return;
         var box=(ComboBox)sender;
+        var touchdown=ReferenceEquals(box,TouchdownAnimationBox);
         MotionClip? clip=null;
         if(box.SelectedItem is MotionClipChoice choice)clip=choice.Clip;
         else if(box.SelectedItem is AnimationPresetChoice preset)clip=MotionClip.AnimationPreset(preset.Name);
-        _catalog.ApplyScoreAnimationToLayout(ReferenceEquals(box,TouchdownAnimationBox),clip);
+        // None means no celebration at all; choosing a made animation also drops a video that was
+        // attached to the same play, because the two are alternatives rather than layers.
+        if(clip is null)_catalog.ClearScoreCelebration(touchdown);
+        else _catalog.ApplyScoreAnimationToLayout(touchdown,clip);
+        SyncScoreVideos();
     }
 
     static object? KeepMotionChoice(ComboBox box,object? previous)
@@ -1562,6 +1674,10 @@ public partial class ScorebugEditorWindow : Window
         var preserveAspect=PreserveAspectInput.IsChecked==true;
         var aspectOk=double.TryParse(AspectInput.Text,out var aspect)&&aspect>0.05;
         var chromaKey=ChromaKeyInput.Text.Trim();
+        // Accept a bare hex string, the way an operator usually types one. The model always stores
+        // a colour the video surface can parse, and the save is immediate for this field.
+        if(chromaKey.Length>0&&chromaKey[0]!='#'&&chromaKey.All(Uri.IsHexDigit)
+            &&chromaKey.Length is 3 or 4 or 6 or 8)chromaKey="#"+chromaKey;
         var chromaKeyOk=chromaKey.Length==0||TryColor(chromaKey,out _);
         var chromaToleranceOk=double.TryParse(ChromaKeyToleranceInput.Text,out var chromaTolerance);
         chromaTolerance=Math.Clamp(chromaToleranceOk?chromaTolerance:0.16,0,1);
