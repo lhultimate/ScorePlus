@@ -91,6 +91,10 @@
               <Button Content="New display…" Style="{StaticResource LayoutButton}" Click="DisplayNew_Click" ToolTip="Add another screen, for example a lower-thirds display"/>
               <Button Content="Import .spd…" Style="{StaticResource LayoutButton}" Click="DisplayImport_Click" ToolTip="Add a whole ScorePlus Display file — every layout it holds — to this game"/>
               <Button Content="Export .spd…" Style="{StaticResource LayoutButton}" Click="DisplayExport_Click" ToolTip="Write this display and all its layouts to a ScorePlus Display file"/>
+              <Button x:Name="ConditionalsButton" Content="Conditionals…" Style="{StaticResource LayoutButton}" Click="Conditionals_Click"
+                      ToolTip="Edit this display's automation rules in their own window"/>
+              <Button Content="Motions…" Style="{StaticResource LayoutButton}" Click="MotionWindow_Click"
+                      ToolTip="Open transitions and score celebrations in their own window"/>
               <Button Content="Rename…" Style="{StaticResource LayoutButton}" Click="DisplayRename_Click"/>
               <Button Content="Delete" Style="{StaticResource LayoutButton}" Click="DisplayDelete_Click" ToolTip="Remove this display and its layouts (the last one cannot be deleted)"/>
             </StackPanel>
@@ -101,6 +105,9 @@
               <TextBlock x:Name="DisplayHintText" Text="  Each display gets its own audience window." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
+          <!-- Transitions and score celebrations live in their own window; this hidden host is
+               reparented when the operator opens Motions… so the normal studio bar stays compact. -->
+          <StackPanel x:Name="MotionRows" Visibility="Collapsed">
           <!-- How this layout lands on air: dissolve, slide or swing, over 0–5 seconds. -->
           <DockPanel Margin="0,7,0,0">
             <StackPanel Orientation="Horizontal">
@@ -140,60 +147,22 @@
               <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
-          <!-- Football's two scoring plays can each have their own celebration: a made animation or a keyed video. -->
-          <DockPanel Margin="0,7,0,0">
+          <!-- One clip per exact signed score change. The rows are built in code so any value, from
+               +6 and +3 to a correction such as -6 or -2, can have its own keyed video. -->
+          <DockPanel x:Name="ScoreVideoPanel" Margin="0,7,0,0">
             <StackPanel Orientation="Horizontal">
               <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
-              <TextBlock Text="SCORE ANIMATIONS" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
-              <TextBlock Text="Touchdown" FontSize="10" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,4,0"/>
-              <ComboBox x:Name="TouchdownAnimationBox" Width="145" FontSize="11" SelectionChanged="ScoreAnimation_Changed"
-                        ToolTip="Played once when a touchdown is recorded — 6, 7 or 8 points"/>
-              <Button x:Name="TouchdownVideoButton" Content="Video…" FontSize="10" Padding="8,3" Margin="6,0,0,0" Click="ScoreVideo_Click"
-                      ToolTip="Play a video instead of the animation when a touchdown is recorded"/>
-              <TextBlock Text="Field goal" FontSize="10" Foreground="#93A0B2" VerticalAlignment="Center" Margin="12,0,4,0"/>
-              <ComboBox x:Name="FieldGoalAnimationBox" Width="145" FontSize="11" SelectionChanged="ScoreAnimation_Changed"
-                        ToolTip="Played once when a three-point football score is recorded"/>
-              <Button x:Name="FieldGoalVideoButton" Content="Video…" FontSize="10" Padding="8,3" Margin="6,0,0,0" Click="ScoreVideo_Click"
-                      ToolTip="Play a video instead of the animation when a field goal is recorded"/>
-              <TextBlock x:Name="ScoreAnimationHintText" Text="Choose an animation or video; None leaves it still."
-                         Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+              <TextBlock Text="SCORE VIDEOS" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock x:Name="ScoreVideoHintText" Text="One clip for each score change; key the background so the scorebug shows through."
+                         Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="0,0,10,0"/>
+              <Button Content="Add score video…" FontSize="10" Padding="8,3" Click="ScoreVideoAdd_Click"
+                      ToolTip="Choose a signed score change such as +6, -6, +3 or -2, then choose its video"/>
             </StackPanel>
           </DockPanel>
-          <!-- Key controls appear only after a score video is chosen, so the normal toolbar stays compact. -->
-          <DockPanel x:Name="ScoreVideoKeyRow" Margin="0,5,0,0" Visibility="Collapsed">
-            <StackPanel x:Name="TouchdownVideoKeyGroup" Orientation="Horizontal" Visibility="Collapsed">
-              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
-              <TextBlock Text="TD VIDEO" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,6,0"/>
-              <TextBlock x:Name="TouchdownVideoCaption" Width="110" Text="No video" FontSize="10" Foreground="#93A0B2"
-                         TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,6,0"/>
-              <Button x:Name="TouchdownVideoKeyButton" Content="Key…" FontSize="10" Padding="8,3" Click="ScoreVideoKey_Click"
-                      ToolTip="Choose the green or blue backdrop to remove from the touchdown video"/>
-              <Button x:Name="TouchdownVideoKeyClearButton" Content="Clear key" FontSize="10" Padding="8,3" Margin="4,0,0,0" Click="ScoreVideoKeyClear_Click" Visibility="Collapsed"
-                      ToolTip="Leave the touchdown video untouched"/>
-              <TextBlock x:Name="TouchdownVideoToleranceLabel" Text="Tol" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="8,0,3,0"/>
-              <TextBox x:Name="TouchdownVideoToleranceInput" Width="38" FontSize="10" Padding="4,2"
-                       TextChanged="ScoreVideoTolerance_Changed"
-                       ToolTip="How different a pixel may be from the key colour and still disappear (0–1)"/>
-              <Button x:Name="TouchdownVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0" Click="ScoreVideoClear_Click"
-                      ToolTip="Remove the touchdown video and go back to no celebration"/>
-            </StackPanel>
-            <StackPanel x:Name="FieldGoalVideoKeyGroup" Orientation="Horizontal" Margin="14,0,0,0" Visibility="Collapsed">
-              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
-              <TextBlock Text="FG VIDEO" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,6,0"/>
-              <TextBlock x:Name="FieldGoalVideoCaption" Width="110" Text="No video" FontSize="10" Foreground="#93A0B2"
-                         TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,6,0"/>
-              <Button x:Name="FieldGoalVideoKeyButton" Content="Key…" FontSize="10" Padding="8,3" Click="ScoreVideoKey_Click"
-                      ToolTip="Choose the green or blue backdrop to remove from the field-goal video"/>
-              <Button x:Name="FieldGoalVideoKeyClearButton" Content="Clear key" FontSize="10" Padding="8,3" Margin="4,0,0,0" Click="ScoreVideoKeyClear_Click" Visibility="Collapsed"
-                      ToolTip="Leave the field-goal video untouched"/>
-              <TextBlock x:Name="FieldGoalVideoToleranceLabel" Text="Tol" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="8,0,3,0"/>
-              <TextBox x:Name="FieldGoalVideoToleranceInput" Width="38" FontSize="10" Padding="4,2"
-                       TextChanged="ScoreVideoTolerance_Changed"
-                       ToolTip="How different a pixel may be from the key colour and still disappear (0–1)"/>
-              <Button x:Name="FieldGoalVideoClearButton" Content="Clear video" FontSize="10" Padding="8,3" Margin="4,0,0,0" Click="ScoreVideoClear_Click"
-                      ToolTip="Remove the field-goal video and go back to no celebration"/>
-            </StackPanel>
-          </DockPanel>
+          <TextBlock x:Name="ScoreVideoEmptyText" Text="No score videos yet. Add +6, +3, or a correction such as -6."
+                     Foreground="#5C6B7E" FontSize="10" Margin="3,5,0,0"/>
+          <StackPanel x:Name="ScoreVideoRows" Margin="3,5,0,0"/>
+          </StackPanel>
           <DockPanel Margin="0,7,0,0">
             <Button DockPanel.Dock="Right" Content="Clear link" Style="{StaticResource LayoutButton}" Click="LinkClear_Click" ToolTip="Stop this layout, and the layout it links to, from switching the other display"/>
             <StackPanel Orientation="Horizontal">
@@ -673,6 +642,18 @@
           <TextBlock Text="Aspect (width ÷ height)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="AspectInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="16:9 is 1.7778 · 4:3 is 1.3333 · vertical 9:16 is 0.5625"/>
+          <TextBlock Text="Crop from each edge (percent)" Style="{StaticResource FieldLabel}"/>
+          <Grid Margin="10,0,10,2">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel><TextBlock Text="Left" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropLeftInput" TextChanged="Property_Changed" ToolTip="Percent removed from the left edge"/></StackPanel>
+            <StackPanel Grid.Column="1" Margin="4,0,0,0"><TextBlock Text="Top" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropTopInput" TextChanged="Property_Changed" ToolTip="Percent removed from the top edge"/></StackPanel>
+            <StackPanel Grid.Column="2" Margin="4,0,0,0"><TextBlock Text="Right" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropRightInput" TextChanged="Property_Changed" ToolTip="Percent removed from the right edge"/></StackPanel>
+            <StackPanel Grid.Column="3" Margin="4,0,0,0"><TextBlock Text="Bottom" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropBottomInput" TextChanged="Property_Changed" ToolTip="Percent removed from the bottom edge"/></StackPanel>
+          </Grid>
+          <TextBlock x:Name="VideoCropHintText" Text="Crop keeps only the center you choose; 0 shows the whole picture. Left and right together must stay below 90%."
+                     Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
           <TextBlock Text="Chroma key color" Style="{StaticResource FieldLabel}"/>
           <DockPanel Margin="0,0,10,2">
             <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="ChromaKeyColor_Click"

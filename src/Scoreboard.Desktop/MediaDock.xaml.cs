@@ -109,6 +109,8 @@ public partial class MediaDock : UserControl
         Set("DockInput", light ? "#FFFFFF" : "#050505");
         Set("DockTrack", light ? "#C9D2DC" : "#26313D");
         Set("DockThumb", light ? "#FFFFFF" : "#EAF0F7");
+        Set("DockRail", light ? "#F2F5F9" : "#10151D");
+        Set("DockAccent", UiPalette.Accent(PreferencesStore.Load()));
         _tilePanel = Frozen(light ? "#F2F5F9" : "#10151D");
         _tileBorderIdle = Frozen(light ? "#C9D2DC" : "#1E2630");
         _thumbBackground = Frozen(light ? "#E2E8EF" : "#0A0F16");
@@ -119,6 +121,7 @@ public partial class MediaDock : UserControl
     }
 
     void Set(string key, string hex) => Resources[key] = Frozen(hex);
+    void Set(string key, Color color) => Resources[key] = UiPalette.Frozen(color);
 
     public void Attach(MediaSession session)
     {
@@ -330,9 +333,11 @@ public partial class MediaDock : UserControl
     public void SetLargeMode(bool large)
     {
         _large = large;
-        _tileWidth = large ? 176 : 132;
-        _tileHeight = large ? 168 : 116;
-        _thumbHeight = large ? 106 : 70;
+        // A tab is wide rather than tall: slightly smaller cards pack another column or two into
+        // the same height, while the title and kind still fit under the thumbnail.
+        _tileWidth = large ? 146 : 132;
+        _tileHeight = large ? 140 : 116;
+        _thumbHeight = large ? 88 : 70;
         ApplyControlSize(this);
         Refresh();
     }

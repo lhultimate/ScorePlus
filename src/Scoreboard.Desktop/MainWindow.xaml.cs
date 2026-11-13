@@ -73,6 +73,7 @@ public partial class MainWindow : Window, IControlPanelHost
     // Set while the sport picker is being filled in for the operator, so syncing the control cannot
     // be mistaken for the operator choosing a sport (which starts a new game).
     bool _sportSync;
+    bool _gameNameSync;
     // The next autosave starts a fresh recoverable point instead of updating the newest one. Set
     // when a new game starts or a game is loaded, so the previous game keeps its own autosave.
     bool _startNewAutosavePoint = true;
@@ -88,6 +89,7 @@ public partial class MainWindow : Window, IControlPanelHost
     bool _lastPlayClockRunning;
     bool _autoHornReady;
     GameControlWindow.ConsoleTab _tab = GameControlWindow.ConsoleTab.Control;
+    MacroDock? _macroDock;
 
     /// <summary>
     /// The exit prompt is on for operators. The UI checks turn it off because they create and close
@@ -178,6 +180,9 @@ public partial class MainWindow : Window, IControlPanelHost
         RosterControl.Attach(_engine);
         RosterControl.ApplyTheme(_preferences.Theme);
         RosterControl.SetHintVisibility(_preferences.ShowHeadingHints);
+        _macroDock = new MacroDock(_engine, _session, _preferences.Theme, _panel.Execute);
+        _macroDock.Status += message => StatusText.Text = message;
+        MacroHost.Content = _macroDock;
         MediaControl.Attach(_session);
         MediaControl.ApplyTheme(_preferences.Theme);
         // The dock now lives in a full-width tab instead of a narrow rail, so its controls are the
@@ -597,16 +602,24 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void RosterTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Rosters);
 
-    /// <summary>Switches the operator surface between the console, the media desk and the roster desk.</summary>
+    void MacrosTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Macros);
+
+    /// <summary>Switches the operator surface between the console, media, roster and macros.</summary>
     void ShowTab(GameControlWindow.ConsoleTab tab)
     {
+        // Leaving the macro editor is a natural save point; the operator should not lose the
+        // name or step they just typed by clicking another tab.
+        if (_tab == GameControlWindow.ConsoleTab.Macros && tab != GameControlWindow.ConsoleTab.Macros)
+            _macroDock?.CommitPendingEdits();
         _tab = tab;
         ControlHost.Visibility = tab == GameControlWindow.ConsoleTab.Control ? Visibility.Visible : Visibility.Collapsed;
         MediaControl.Visibility = tab == GameControlWindow.ConsoleTab.Media ? Visibility.Visible : Visibility.Collapsed;
         RosterControl.Visibility = tab == GameControlWindow.ConsoleTab.Rosters ? Visibility.Visible : Visibility.Collapsed;
+        MacroHost.Visibility = tab == GameControlWindow.ConsoleTab.Macros ? Visibility.Visible : Visibility.Collapsed;
         ApplyTabVisuals();
         if (tab == GameControlWindow.ConsoleTab.Media) MediaControl.RefreshView();
         if (tab == GameControlWindow.ConsoleTab.Rosters) RosterControl.RefreshView();
+        if (tab == GameControlWindow.ConsoleTab.Macros) _macroDock?.RefreshView();
     }
 
     /// <summary>
@@ -615,20 +628,24 @@ public partial class MainWindow : Window, IControlPanelHost
     /// </summary>
     void ApplyTabVisuals()
     {
-        // Active-tab colours follow the operator's accent from Preferences.
+        // Active-tab colours follow the operator's accent from Preferences and the active theme.
+        var light = ThemeManager.Resolve(_preferences.Theme) == "Light";
         var accent = UiPalette.Accent(_preferences);
-        var on = UiPalette.Frozen(UiPalette.Soft(accent));
-        var off = (Brush)new BrushConverter().ConvertFromString("#141A23")!;
+        var on = light
+            ? UiPalette.Frozen(UiPalette.Mix(accent, Colors.White, 0.78))
+            : UiPalette.Frozen(UiPalette.Soft(accent));
+        var off = (Brush)new BrushConverter().ConvertFromString(light ? "#F3F5F8" : "#141A23")!;
         var onBorder = UiPalette.Frozen(accent);
-        var offBorder = (Brush)new BrushConverter().ConvertFromString("#28323F")!;
-        var muted = (Brush)new BrushConverter().ConvertFromString("#93A0B2")!;
-        Button[] tabs = [ControlTab, MediaTab, RosterTab];
+        var offBorder = (Brush)new BrushConverter().ConvertFromString(light ? "#C9D2DC" : "#28323F")!;
+        var muted = (Brush)new BrushConverter().ConvertFromString(light ? "#586576" : "#93A0B2")!;
+        var onText = (Brush)new BrushConverter().ConvertFromString(light ? "#18202B" : "#F4F7FB")!;
+        Button[] tabs = [ControlTab, MediaTab, RosterTab, MacrosTab];
         var active = (int)_tab;
         for (var i = 0; i < tabs.Length; i++)
         {
             tabs[i].Background = i == active ? on : off;
             tabs[i].BorderBrush = i == active ? onBorder : offBorder;
-            tabs[i].Foreground = i == active ? Brushes.White : muted;
+            tabs[i].Foreground = i == active ? onText : muted;
         }
     }
 
@@ -647,6 +664,13 @@ public partial class MainWindow : Window, IControlPanelHost
             _sportSync = true;
             try { SportSelector.SelectedValue = s.SportId; }
             finally { _sportSync = false; }
+        }
+        // Follow a new or loaded game without overwriting a name the operator is currently typing.
+        if (GameNameBox is not null && !GameNameBox.IsKeyboardFocusWithin && GameNameBox.Text != s.GameName)
+        {
+            _gameNameSync = true;
+            try { GameNameBox.Text = s.GameName; }
+            finally { _gameNameSync = false; }
         }
         _eventCount = s.Events.Count;
     }
@@ -732,7 +756,7 @@ public partial class MainWindow : Window, IControlPanelHost
         var displayIndex = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
         if (displayIndex >= 0) _scorebug.SelectDisplay(displayIndex);
         _scorebug.SelectLayout(_program.LayoutIndex);
-        var studio = new ScorebugEditorWindow(_scorebug, _engine, _playback, _preferences.Theme) { Owner = this };
+        var studio = new ScorebugEditorWindow(_scorebug, _engine, _playback, _preferences.Theme, _automation) { Owner = this };
         studio.ShowDialog();
         // The studio can add, delete or switch layouts; the preview and every panel follow.
         _preview?.Rebuild();
@@ -804,6 +828,7 @@ public partial class MainWindow : Window, IControlPanelHost
         ApplyTabVisuals();
         MediaControl.ApplyTheme(_preferences.Theme);
         RosterControl.ApplyTheme(_preferences.Theme);
+        _macroDock?.ApplyTheme(_preferences.Theme);
         foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.ApplyTheme(_preferences.Theme);
         foreach (var output in _outputs) output.SetBroadcastTheme(_preferences.Theme);
         ApplyHintVisibility();
@@ -994,6 +1019,12 @@ public partial class MainWindow : Window, IControlPanelHost
         StatusText.Text = $"SPORT PROFILES SAVED · {_engine.Sport.Name} · start a new game to use the new rules";
     }
 
+    void GameName_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_initializing || _gameNameSync) return;
+        _engine.SetGameName(GameNameBox.Text);
+    }
+
     void Sport_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (_initializing || _sportSync || SportSelector.SelectedValue is not string id) return;
@@ -1106,6 +1137,7 @@ public partial class MainWindow : Window, IControlPanelHost
         if (!restart) foreach (var panel in _controlPanels.Where(panel => panel.IsVisible)) panel.Media.ResetView();
         ResetOutputToCurrentGame();
         RefreshLayoutIndicators();
+        _macroDock?.RefreshView(force: true);
         if (announce) StatusText.Text = $"NEW {_engine.Sport.Name.ToUpperInvariant()} GAME";
     }
 
@@ -1154,6 +1186,7 @@ public partial class MainWindow : Window, IControlPanelHost
             // element built while the teams had no crests) must take the loaded values.
             _preview?.Rebuild();
             foreach (var output in _outputs) output.Rebuild();
+            _macroDock?.RefreshView(force: true);
             _savedStateJson = _engine.ExportJson();
             _savedDesignJson = DesignJson();
             StatusText.Text = $"GAME LOADED · {System.IO.Path.GetFileName(path)}";
@@ -1170,17 +1203,6 @@ public partial class MainWindow : Window, IControlPanelHost
     void Output_Click(object sender, RoutedEventArgs e) => OpenOutputWindow();
 
     void Annotate_Click(object sender, RoutedEventArgs e) => OpenOutputWindow(annotations: true);
-
-    void Automation_Click(object sender, RoutedEventArgs e)
-    {
-        var window = new AutomationWindow(_scorebug, _publishedEngine, _preferences.Theme, _program.DisplayId, _automation, _engine)
-        {
-            Owner = this
-        };
-        window.ShowDialog();
-        _preview?.Rebuild();
-        RefreshLayoutIndicators();
-    }
 
     AnnotationBoard BoardFor(string displayId)
     {
@@ -1358,6 +1380,9 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>Copies the live quick buttons into the game state so they travel with the save.</summary>
     void CaptureQuickButtons()
     {
+        // A macro edit is part of the game too. Commit the visible editor before writing the file,
+        // otherwise a name, colour or step added since the last Save macro would be left behind.
+        _macroDock?.CommitPendingEdits();
         var preferences = PreferencesStore.Load();
         _engine.State.QuickLayouts = (preferences.QuickLayouts ?? []).Select(binding => new SavedQuickLayout
         {
@@ -1443,6 +1468,9 @@ public partial class MainWindow : Window, IControlPanelHost
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        // Make pending macro edits visible to the unsaved-changes check. A close prompt can then
+        // offer to save them instead of silently dropping the operator's last macro change.
+        if (!_closingAfterPrompt) _macroDock?.CommitPendingEdits();
         if (PromptOnExit && _gameStarted && !_closingAfterPrompt && HasUnsavedChanges())
         {
             e.Cancel = true;
@@ -1462,7 +1490,7 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>Opens the multiview: every camera live, with the replay preview beside it.</summary>
     void Multiview_Click(object sender, RoutedEventArgs e)
     {
-        var window = new MultiviewWindow(_session, _preferences.Theme) { Owner = this };
+        var window = new MultiviewWindow(_session, _preferences, _scorebug, _engine, _publishedEngine, _program, _automation, _playback) { Owner = this };
         window.Show();
     }
 

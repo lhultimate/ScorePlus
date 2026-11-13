@@ -355,7 +355,7 @@ public sealed class MediaPlayback
 
     public event Action? Changed;
 
-    public void Start(MediaEntry? entry)
+    public void Start(MediaEntry? entry, bool replayOnAir = false)
     {
         // Any new cue replaces whatever replay was waiting in the preview.
         _staged = null;
@@ -377,7 +377,7 @@ public sealed class MediaPlayback
             }
             NowPlaying = entry;
         }
-        ReplayOnAir = false;
+        ReplayOnAir = replayOnAir;
         IsPlaying = entry is not null;
         // A cue starts on its own speaker until the session says a tagged bus carries it.
         RouteDevice = string.IsNullOrWhiteSpace(entry?.AudioDevice) ? null : entry.AudioDevice;
@@ -487,7 +487,11 @@ public sealed class MediaPlayback
     public MediaEntry? ActiveFor(string? elementTag)
     {
         // A promoted replay must outrank the camera it was cut from, or Start replay leaves the live
-        // picture on screen. Ordinary files are selected by tag, with the newest cue first.
+        // picture on screen. The promoted cue may only be in NowPlaying (PromoteStage does not add
+        // it to the file list), so check that before the camera. Ordinary files are selected by tag,
+        // with the newest cue first.
+        if (ReplayOnAir && NowPlaying is { IsCamera: false, IsVideo: true } current && Matches(current, elementTag))
+            return Resolve(current, elementTag);
         if (ReplayOnAir && _activeFiles.LastOrDefault(clip => Matches(clip, elementTag)) is { } replay)
             return Resolve(replay, elementTag);
         if (_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) is { } camera)
@@ -506,6 +510,8 @@ public sealed class MediaPlayback
         if (_staged is not null) return Resolve(_staged, elementTag);
         // Once Start replay promotes the file, the preview must show it too; otherwise the operator
         // starts a replay and the thumbnail still shows the live camera, which reads as a dead button.
+        if (ReplayOnAir && NowPlaying is { IsCamera: false, IsVideo: true } current && Matches(current, elementTag))
+            return Resolve(current, elementTag);
         if (ReplayOnAir && _activeFiles.LastOrDefault(clip => Matches(clip, elementTag)) is { } replay)
             return Resolve(replay, elementTag);
         if (_liveCameras.FirstOrDefault(camera => Matches(camera, elementTag)) is { } camera)

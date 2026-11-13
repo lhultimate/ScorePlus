@@ -21,6 +21,9 @@ public partial class ScorebugEditorWindow : Window
     readonly GameEngine _engine;
     readonly MediaPlayback? _playback;
     readonly string _theme;
+    readonly AutomationRuntime? _automation;
+    AutomationWindow? _conditionals;
+    string? _conditionalsDisplayId;
     // Keyed by element id: a rebuild reuses the surface so a playing clip is never restarted.
     readonly Dictionary<string, VideoSurface> _videoSurfaces = [];
     // Property edits save through the catalog; the resulting Changed event must not rebuild the
@@ -33,9 +36,14 @@ public partial class ScorebugEditorWindow : Window
     // artwork they were drawn from, so a thumbnail is only re-rendered when that artwork changed.
     readonly Dictionary<string,(string Signature,ImageSource Image)> _layoutThumbs = [];
     bool _displayLoading;
-    bool _scoreAnimationLoading;
     bool _scoreVideoLoading;
+    string _scoreVideoSignature="";
+    readonly Dictionary<int,(TextBlock Caption,Button KeyButton,Button ClearKey,TextBox Tolerance)> _scoreVideoRowParts=[];
     bool _linkLoading;
+    // The transitions and celebrations bar is parked in a separate window while it is open.
+    Window? _motionWindow;
+    Panel? _motionParent;
+    int _motionIndex;
     // Set while the player-data pickers are being filled for an element, so the sync is not
     // mistaken for the operator choosing a different player or value.
     bool _bindingLoading;
@@ -161,14 +169,6 @@ public partial class ScorebugEditorWindow : Window
         public override string ToString() => $"Preset · {name}";
     }
 
-    /// <summary>The empty choice for a score-event animation.</summary>
-    sealed record ScoreAnimationOff
-    {
-        public override string ToString() => "None";
-    }
-
-    static readonly ScoreAnimationOff NoScoreAnimation = new();
-
     static readonly LayoutTransitionOption[] LayoutTransitions =
     [
         new(LayoutTransition.Cut, "Cut — instant"),
@@ -181,8 +181,77 @@ public partial class ScorebugEditorWindow : Window
         new(LayoutTransition.Move, "Move items")
     ];
 
-    // Per-element quarter style. "Follow game default" keeps the old behaviour for layouts that
-    // never asked for anything else.
+    /// <summary>
+    /// Opens this display's conditionals in a separate window. The Display Studio stays focused on
+    /// artwork; rules are a screen-level concern and get their own resizable workspace.
+    /// </summary>
+    void Conditionals_Click(object sender,RoutedEventArgs e)
+    {
+        var displayId=_catalog.ActiveDisplay.Id;
+        if(_conditionals is {IsVisible:true}&&string.Equals(_conditionalsDisplayId,displayId,StringComparison.OrdinalIgnoreCase))
+        {
+            _conditionals.Activate();
+            return;
+        }
+        _conditionals?.Close();
+        _conditionals=new AutomationWindow(_catalog,_engine,_theme,displayId,_automation,_engine){Owner=this};
+        _conditionalsDisplayId=displayId;
+        _conditionals.Closed+=(_,_)=>_conditionals=null;
+        _conditionals.Show();
+    }
+
+    /// <summary>
+    /// Opens the transition and score-celebration controls in their own window. The existing bar
+    /// is reparented, not copied, so every handler and every live status update keeps working.
+    /// </summary>
+    void MotionWindow_Click(object sender,RoutedEventArgs e)
+    {
+        if(_motionWindow is { IsVisible:true })
+        {
+            _motionWindow.Activate();
+            return;
+        }
+        if(_motionParent is null&&MotionRows.Parent is Panel owner)
+        {
+            _motionParent=owner;
+            _motionIndex=owner.Children.IndexOf(MotionRows);
+        }
+        if(MotionRows.Parent is Panel current) current.Children.Remove(MotionRows);
+        MotionRows.Visibility=Visibility.Visible;
+        var host=new ScrollViewer
+        {
+            Content=MotionRows,
+            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,
+            HorizontalContentAlignment=HorizontalAlignment.Stretch,
+            Padding=new Thickness(14,10,14,10)
+        };
+        var window=new Window
+        {
+            Owner=this,
+            Title="Transitions & score celebrations",
+            Width=1160,
+            Height=520,
+            MinWidth=780,
+            MinHeight=320,
+            WindowStartupLocation=WindowStartupLocation.CenterOwner,
+            Background=new SolidColorBrush(Color.FromRgb(14,18,24)),
+            Foreground=Brushes.White,
+            FontFamily=new FontFamily("Segoe UI"),
+            Content=host
+        };
+        window.Closed+=(_,_)=>{
+            host.Content=null;
+            MotionRows.Visibility=Visibility.Collapsed;
+            if(_motionParent is not null)
+                _motionParent.Children.Insert(Math.Min(_motionIndex,_motionParent.Children.Count),MotionRows);
+            _motionWindow=null;
+        };
+        _motionWindow=window;
+        ThemeManager.Apply(window,_theme);
+        window.Show();
+    }
+
     /// <summary>Chooses a video file to play as this layout's hand-over.</summary>
     void TransitionVideo_Click(object sender,RoutedEventArgs e)
     {
@@ -265,108 +334,206 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>
-    /// Fills the score-video rows. The rows stay tied to the layout being designed, just like the
-    /// animation pickers, so switching layouts never leaves the previous clip's key on screen.
+    /// Fills the score-video rows for this layout. Each row is one exact signed score change, so a
+    /// +6 touchdown and a -6 correction can play different clips. Rows are only rebuilt when the
+    /// value, file or key changes; typing a tolerance updates the existing row instead of taking
+    /// focus away from its field.
     /// </summary>
     void SyncScoreVideos()
     {
-        if(TouchdownVideoButton is null)return;
+        if(ScoreVideoRows is null)return;
+        var layout=_catalog.Layout;
+        var rules=(layout.ScoreVideos??[]).Where(rule=>!rule.IsEmpty).ToArray();
+        var signature=layout.Id+"|"+string.Join(";",rules.Select(rule=>
+            $"{rule.Amount}:{rule.Video.Path}:{rule.Video.ChromaKeyColor}"));
         _scoreVideoLoading=true;
         try
         {
-            var layout=_catalog.Layout;
-            var hasTouchdown=layout.TouchdownVideo is not null&&!layout.TouchdownVideo.IsEmpty;
-            var hasFieldGoal=layout.FieldGoalVideo is not null&&!layout.FieldGoalVideo.IsEmpty;
-            TouchdownVideoKeyGroup.Visibility=hasTouchdown?Visibility.Visible:Visibility.Collapsed;
-            FieldGoalVideoKeyGroup.Visibility=hasFieldGoal?Visibility.Visible:Visibility.Collapsed;
-            ScoreVideoKeyRow.Visibility=hasTouchdown||hasFieldGoal?Visibility.Visible:Visibility.Collapsed;
-            SyncScoreVideo(TouchdownVideoCaption,TouchdownVideoKeyButton,TouchdownVideoKeyClearButton,
-                TouchdownVideoClearButton,TouchdownVideoToleranceLabel,TouchdownVideoToleranceInput,layout.TouchdownVideo);
-            SyncScoreVideo(FieldGoalVideoCaption,FieldGoalVideoKeyButton,FieldGoalVideoKeyClearButton,
-                FieldGoalVideoClearButton,FieldGoalVideoToleranceLabel,FieldGoalVideoToleranceInput,layout.FieldGoalVideo);
-            var hasVideo=hasTouchdown||hasFieldGoal;
-            ScoreAnimationHintText.Text=hasVideo
-                ? "Video celebrations play full-frame over the scorebug; Key removes the backdrop, saved with this layout."
-                : "Choose an animation or video for each scoring play; None leaves it still.";
+            if(!string.Equals(signature,_scoreVideoSignature))
+            {
+                _scoreVideoSignature=signature;
+                ScoreVideoRows.Children.Clear();
+                _scoreVideoRowParts.Clear();
+                foreach(var rule in rules)AddScoreVideoRow(rule);
+            }
+            else
+            {
+                foreach(var rule in rules)
+                    if(_scoreVideoRowParts.TryGetValue(rule.Amount,out var parts))
+                        UpdateScoreVideoRow(rule,parts);
+            }
+            ScoreVideoEmptyText.Visibility=rules.Length==0?Visibility.Visible:Visibility.Collapsed;
+            ScoreVideoHintText.Text=rules.Length==0
+                ? "One clip for each score change; key the background so the scorebug shows through."
+                : "These clips play for the exact score change, whichever team scores.";
         }
         finally { _scoreVideoLoading=false; }
     }
 
-    void SyncScoreVideo(TextBlock caption,Button keyButton,Button clearKey,Button clearVideo,
-        TextBlock toleranceLabel,TextBox toleranceInput,ScoreVideo? video)
+    void AddScoreVideoRow(ScoreVideoRule rule)
     {
-        var hasVideo=video is not null&&!video.IsEmpty;
-        var hasKey=hasVideo&&!string.IsNullOrWhiteSpace(video!.ChromaKeyColor);
-        clearVideo.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
-        keyButton.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
-        clearKey.Visibility=hasKey?Visibility.Visible:Visibility.Collapsed;
-        toleranceLabel.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
-        toleranceInput.Visibility=hasVideo?Visibility.Visible:Visibility.Collapsed;
-        var name=hasVideo?System.IO.Path.GetFileName(video!.Path):"No video";
-        caption.Text=hasKey?$"{name}  ·  key {video!.ChromaKeyColor}":name;
-        caption.ToolTip=hasVideo?video!.Path:null;
-        var tolerance=(hasVideo?video!.ChromaKeyTolerance:0.16).ToString("0.00");
-        if(toleranceInput.Text!=tolerance)toleranceInput.Text=tolerance;
-    }
-
-    bool IsTouchdownVideo(object sender)=>ReferenceEquals(sender,TouchdownVideoButton);
-
-    ScoreVideo? ScoreVideoFor(bool touchdown)=>touchdown?_catalog.Layout.TouchdownVideo:_catalog.Layout.FieldGoalVideo;
-
-    void UpdateScoreVideo(bool touchdown,Action<ScoreVideo> edit)
-    {
-        if(ScoreVideoFor(touchdown) is not { } current)return;
-        var copy=current.Copy();
-        edit(copy);
-        _catalog.ApplyScoreVideoToLayout(touchdown,copy);
-        SyncScoreVideos();
-    }
-
-    /// <summary>Chooses a video celebration for one scoring play, keeping any key already set.</summary>
-    void ScoreVideo_Click(object sender,RoutedEventArgs e)
-    {
-        var touchdown=IsTouchdownVideo(sender);
-        var current=ScoreVideoFor(touchdown);
-        var dialog=new Microsoft.Win32.OpenFileDialog
+        var amount=rule.Amount;
+        var row=new Border
         {
-            Title=touchdown?"Choose a touchdown video":"Choose a field-goal video",
+            Background=new SolidColorBrush(Color.FromRgb(0x11,0x16,0x1F)),
+            BorderBrush=new SolidColorBrush(Color.FromRgb(0x28,0x32,0x3F)),
+            BorderThickness=new Thickness(1),
+            CornerRadius=new CornerRadius(6),
+            Padding=new Thickness(8,5,8,5),
+            Margin=new Thickness(0,0,0,5)
+        };
+        var line=new StackPanel{Orientation=Orientation.Horizontal,VerticalAlignment=VerticalAlignment.Center};
+        var label=new TextBlock
+        {
+            Text=FormatScoreAmount(amount),Width=42,FontSize=12,FontWeight=FontWeights.Bold,
+            Foreground=Brushes.White,VerticalAlignment=VerticalAlignment.Center
+        };
+        line.Children.Add(label);
+        var caption=new TextBlock
+        {
+            Width=260,FontSize=10,Foreground=new SolidColorBrush(Color.FromRgb(0x93,0xA0,0xB2)),
+            TextTrimming=TextTrimming.CharacterEllipsis,VerticalAlignment=VerticalAlignment.Center,
+            ToolTip=rule.Video.Path
+        };
+        line.Children.Add(caption);
+        line.Children.Add(SmallScoreVideoButton("Video…",amount,ScoreVideoEdit_Click,
+            "Choose the clip for this score value"));
+        var keyButton=SmallScoreVideoButton("Key…",amount,ScoreVideoKey_Click,
+            "Choose the green or blue backdrop to remove from this score video");
+        line.Children.Add(keyButton);
+        var clearKey=SmallScoreVideoButton("Clear key",amount,ScoreVideoKeyClear_Click,
+            "Leave this clip's colours untouched");
+        line.Children.Add(clearKey);
+        line.Children.Add(new TextBlock
+        {
+            Text="Tol",FontSize=10,Foreground=new SolidColorBrush(Color.FromRgb(0x5C,0x6B,0x7E)),
+            VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(8,0,3,0)
+        });
+        var tolerance=new TextBox
+        {
+            Width=42,FontSize=10,Padding=new Thickness(4,2,4,2),Tag=amount,
+            ToolTip="How different a pixel may be from the key colour and still disappear (0–1)"
+        };
+        tolerance.TextChanged+=ScoreVideoTolerance_Changed;
+        line.Children.Add(tolerance);
+        line.Children.Add(SmallScoreVideoButton("Remove",amount,ScoreVideoRemove_Click,
+            "Remove this score video"));
+        row.Child=line;
+        ScoreVideoRows.Children.Add(row);
+        _scoreVideoRowParts[amount]=(caption,keyButton,clearKey,tolerance);
+        UpdateScoreVideoRow(rule,_scoreVideoRowParts[amount]);
+    }
+
+    Button SmallScoreVideoButton(string text,int amount,RoutedEventHandler handler,string tip)
+    {
+        var button=new Button
+        {
+            Content=text,FontSize=10,Padding=new Thickness(8,3,8,3),Margin=new Thickness(5,0,0,0),
+            MinHeight=26,Tag=amount,ToolTip=tip
+        };
+        button.Click+=handler;
+        return button;
+    }
+
+    void UpdateScoreVideoRow(ScoreVideoRule rule,(TextBlock Caption,Button KeyButton,Button ClearKey,TextBox Tolerance) parts)
+    {
+        var hasKey=!string.IsNullOrWhiteSpace(rule.Video.ChromaKeyColor);
+        var name=System.IO.Path.GetFileName(rule.Video.Path);
+        parts.Caption.Text=hasKey?$"{name}  ·  key {rule.Video.ChromaKeyColor}":name;
+        parts.Caption.ToolTip=rule.Video.Path;
+        parts.ClearKey.Visibility=hasKey?Visibility.Visible:Visibility.Collapsed;
+        if(!parts.Tolerance.IsKeyboardFocusWithin)
+        {
+            var tolerance=rule.Video.ChromaKeyTolerance.ToString("0.00",CultureInfo.InvariantCulture);
+            if(parts.Tolerance.Text!=tolerance)parts.Tolerance.Text=tolerance;
+        }
+    }
+
+    static string FormatScoreAmount(int amount)=>amount>0?$"+{amount}":amount.ToString();
+
+    void ScoreVideoAdd_Click(object sender,RoutedEventArgs e)
+    {
+        var raw=TextPromptWindow.Ask(this,"Score video","Score change (for example +6, -6, +3 or -2)","+6");
+        if(raw is null)return;
+        if(!int.TryParse(raw.Trim(),NumberStyles.Integer,CultureInfo.InvariantCulture,out var amount)||amount==0)
+        {
+            ScoreVideoHintText.Text="Enter a whole score change such as +6 or -3.";
+            return;
+        }
+        var current=_catalog.Layout.ScoreVideoForAmount(amount);
+        var dialog=new OpenFileDialog
+        {
+            Title=$"Choose a video for {FormatScoreAmount(amount)}",
             Filter="Video (*.mp4;*.wmv;*.avi;*.mov;*.mkv;*.webm)|*.mp4;*.wmv;*.avi;*.mov;*.mkv;*.webm|All files (*.*)|*.*"
         };
         if(dialog.ShowDialog(this)!=true)return;
-        _catalog.ApplyScoreVideoToLayout(touchdown,new ScoreVideo
+        ApplyScoreVideo(amount,new ScoreVideo
         {
             Path=dialog.FileName,
             ChromaKeyColor=current?.ChromaKeyColor??"",
             ChromaKeyTolerance=current?.ChromaKeyTolerance??0.16
         });
-        SyncScoreVideos();
+    }
+
+    void ScoreVideoEdit_Click(object sender,RoutedEventArgs e)
+    {
+        if(sender is not FrameworkElement{Tag:int amount})return;
+        var current=_catalog.Layout.ScoreVideoForAmount(amount);
+        if(current is null)return;
+        var dialog=new OpenFileDialog
+        {
+            Title=$"Choose a video for {FormatScoreAmount(amount)}",
+            Filter="Video (*.mp4;*.wmv;*.avi;*.mov;*.mkv;*.webm)|*.mp4;*.wmv;*.avi;*.mov;*.mkv;*.webm|All files (*.*)|*.*"
+        };
+        if(dialog.ShowDialog(this)!=true)return;
+        var copy=current.Copy();
+        copy.Path=dialog.FileName;
+        ApplyScoreVideo(amount,copy);
     }
 
     void ScoreVideoKey_Click(object sender,RoutedEventArgs e)
     {
-        var touchdown=IsTouchdownVideo(sender);
-        var current=ScoreVideoFor(touchdown);
+        if(sender is not FrameworkElement{Tag:int amount})return;
+        var current=_catalog.Layout.ScoreVideoForAmount(amount);
         if(current is null)return;
         var chosen=ColorPickerWindow.Pick(this,string.IsNullOrWhiteSpace(current.ChromaKeyColor)?"#FF00B140":current.ChromaKeyColor);
         if(chosen is null)return;
-        UpdateScoreVideo(touchdown,video=>video.ChromaKeyColor=chosen);
+        var copy=current.Copy();
+        copy.ChromaKeyColor=chosen;
+        ApplyScoreVideo(amount,copy);
     }
 
     void ScoreVideoKeyClear_Click(object sender,RoutedEventArgs e)
-        =>UpdateScoreVideo(IsTouchdownVideo(sender),video=>video.ChromaKeyColor="");
-
-    void ScoreVideoClear_Click(object sender,RoutedEventArgs e)
     {
-        _catalog.ApplyScoreVideoToLayout(IsTouchdownVideo(sender),null);
+        if(sender is not FrameworkElement{Tag:int amount})return;
+        var current=_catalog.Layout.ScoreVideoForAmount(amount);
+        if(current is null)return;
+        var copy=current.Copy();
+        copy.ChromaKeyColor="";
+        ApplyScoreVideo(amount,copy);
+    }
+
+    void ScoreVideoRemove_Click(object sender,RoutedEventArgs e)
+    {
+        if(sender is FrameworkElement{Tag:int amount})ApplyScoreVideo(amount,null);
+    }
+
+    void ApplyScoreVideo(int amount,ScoreVideo? video)
+    {
+        _catalog.ApplyScoreVideoToLayout(amount,video);
         SyncScoreVideos();
     }
 
     void ScoreVideoTolerance_Changed(object sender,TextChangedEventArgs e)
     {
         if(_loading||_scoreVideoLoading)return;
-        var touchdown=ReferenceEquals(sender,TouchdownVideoToleranceInput);
-        if(!double.TryParse(touchdown?TouchdownVideoToleranceInput.Text:FieldGoalVideoToleranceInput.Text,out var tolerance))return;
-        UpdateScoreVideo(touchdown,video=>video.ChromaKeyTolerance=Math.Clamp(tolerance,0,1));
+        if(sender is not TextBox{Tag:int amount} box)return;
+        if(!double.TryParse(box.Text,NumberStyles.Float,CultureInfo.InvariantCulture,out var tolerance))return;
+        var current=_catalog.Layout.ScoreVideoForAmount(amount);
+        if(current is null)return;
+        var copy=current.Copy();
+        copy.ChromaKeyTolerance=Math.Clamp(tolerance,0,1);
+        _catalog.ApplyScoreVideoToLayout(amount,copy);
     }
 
     /// <summary>Where the value sits inside its box, offered beside the text content.</summary>
@@ -413,9 +580,9 @@ public partial class ScorebugEditorWindow : Window
         new(ScorebugPlayerPhotoSide.Away, "Selected visitors player")
     ];
 
-    public ScorebugEditorWindow(ScorebugCatalog catalog, GameEngine engine, MediaPlayback? playback=null, string theme="Dark")
+    public ScorebugEditorWindow(ScorebugCatalog catalog, GameEngine engine, MediaPlayback? playback=null, string theme="Dark", AutomationRuntime? automation=null)
     {
-        InitializeComponent(); _catalog=catalog; _engine=engine; _playback=playback; _theme=theme;
+        InitializeComponent(); _catalog=catalog; _engine=engine; _playback=playback; _theme=theme; _automation=automation;
         GroupResizeHandle.PreviewMouseLeftButtonDown+=Resize_MouseDown;
         GroupResizeHandle.PreviewMouseMove+=Resize_MouseMove;
         GroupResizeHandle.PreviewMouseLeftButtonUp+=Resize_MouseUp;
@@ -818,11 +985,6 @@ public partial class ScorebugEditorWindow : Window
             TransitionCaption.Text=layout.TransitionClip is { } custom
                 ? $"  Custom “{custom.Name}” — the transition maker's hand-over, saved with {layout.Name}."
                 : $"  Saved with {layout.Name} — every layout can arrive differently.";
-            SelectScoreAnimation(TouchdownAnimationBox,layout.TouchdownAnimation);
-            SelectScoreAnimation(FieldGoalAnimationBox,layout.FieldGoalAnimation);
-            ScoreAnimationHintText.Text=layout.TouchdownAnimation is null&&layout.FieldGoalAnimation is null
-                ? "Choose a clip for each scoring play; None leaves it still."
-                : "Played once when the score lands; saved with this layout.";
         }
         finally { _displayLoading=false; }
     }
@@ -1191,7 +1353,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -1240,6 +1402,10 @@ public partial class ScorebugEditorWindow : Window
             MediaTagInput.Text=e.MediaTag;
             PreserveAspectInput.IsChecked=e.PreserveVideoAspect;
             AspectInput.Text=e.VideoAspect.ToString("0.###");
+            VideoCropLeftInput.Text=(Math.Clamp(e.VideoCropLeft,0,0.49)*100).ToString("0.#");
+            VideoCropTopInput.Text=(Math.Clamp(e.VideoCropTop,0,0.49)*100).ToString("0.#");
+            VideoCropRightInput.Text=(Math.Clamp(e.VideoCropRight,0,0.49)*100).ToString("0.#");
+            VideoCropBottomInput.Text=(Math.Clamp(e.VideoCropBottom,0,0.49)*100).ToString("0.#");
             ChromaKeyInput.Text=e.ChromaKeyColor;
             ChromaKeyToleranceInput.Text=e.ChromaKeyTolerance.ToString("0.00");
             AudioDeviceInput.SelectedItem=_audioOptions.FirstOrDefault(option=>string.Equals(option.Id??"",e.AudioDevice??"",StringComparison.OrdinalIgnoreCase))??_audioOptions[0];
@@ -1437,66 +1603,6 @@ public partial class ScorebugEditorWindow : Window
         AnimationInput.SelectedItem=KeepMotionChoice(AnimationInput,animation);
         TransitionInput.SelectedItem=KeepMotionChoice(TransitionInput,transition);
         RefreshLayoutTransitionChoices();
-        RefreshScoreAnimationChoices();
-    }
-
-    /// <summary>Offers every animation the maker can save, plus the built-in styles, for a score event.</summary>
-    void RefreshScoreAnimationChoices()
-    {
-        _scoreAnimationLoading=true;
-        try
-        {
-            var touchdown=TouchdownAnimationBox.SelectedItem;
-            var fieldGoal=FieldGoalAnimationBox.SelectedItem;
-            TouchdownAnimationBox.ItemsSource=BuildScoreAnimationChoices();
-            FieldGoalAnimationBox.ItemsSource=BuildScoreAnimationChoices();
-            TouchdownAnimationBox.SelectedItem=KeepScoreAnimationChoice(TouchdownAnimationBox,touchdown);
-            FieldGoalAnimationBox.SelectedItem=KeepScoreAnimationChoice(FieldGoalAnimationBox,fieldGoal);
-        }
-        finally { _scoreAnimationLoading=false; }
-    }
-
-    object[] BuildScoreAnimationChoices()=>new object[]{NoScoreAnimation}
-        .Concat(MotionClip.AnimationPresets.Select(name=>new AnimationPresetChoice(name)))
-        .Concat(_catalog.Animations.Select(clip=>new MotionClipChoice(clip,"Saved · "+clip.Name)))
-        .ToArray();
-
-    static object KeepScoreAnimationChoice(ComboBox box,object? previous)
-    {
-        if(previous is AnimationPresetChoice preset)
-        {
-            var match=box.Items.OfType<AnimationPresetChoice>()
-                .FirstOrDefault(candidate=>string.Equals(candidate.Name,preset.Name,StringComparison.OrdinalIgnoreCase));
-            return match is null?NoScoreAnimation:match;
-        }
-        if(previous is MotionClipChoice choice)
-        {
-            var match=box.Items.OfType<MotionClipChoice>()
-                .FirstOrDefault(candidate=>string.Equals(candidate.Clip.Id,choice.Clip.Id,StringComparison.OrdinalIgnoreCase));
-            return match is null?NoScoreAnimation:match;
-        }
-        return NoScoreAnimation;
-    }
-
-    void SelectScoreAnimation(ComboBox box,MotionClip? clip)
-    {
-        if(clip is null){box.SelectedItem=NoScoreAnimation;return;}
-        box.SelectedItem=MotionChoice(box,clip,"on this layout");
-    }
-
-    void ScoreAnimation_Changed(object sender,SelectionChangedEventArgs e)
-    {
-        if(_displayLoading||_scoreAnimationLoading)return;
-        var box=(ComboBox)sender;
-        var touchdown=ReferenceEquals(box,TouchdownAnimationBox);
-        MotionClip? clip=null;
-        if(box.SelectedItem is MotionClipChoice choice)clip=choice.Clip;
-        else if(box.SelectedItem is AnimationPresetChoice preset)clip=MotionClip.AnimationPreset(preset.Name);
-        // None means no celebration at all; choosing a made animation also drops a video that was
-        // attached to the same play, because the two are alternatives rather than layers.
-        if(clip is null)_catalog.ClearScoreCelebration(touchdown);
-        else _catalog.ApplyScoreAnimationToLayout(touchdown,clip);
-        SyncScoreVideos();
     }
 
     static object? KeepMotionChoice(ComboBox box,object? previous)
@@ -1673,6 +1779,16 @@ public partial class ScorebugEditorWindow : Window
         var mediaTag=MediaTagInput.Text.Trim();
         var preserveAspect=PreserveAspectInput.IsChecked==true;
         var aspectOk=double.TryParse(AspectInput.Text,out var aspect)&&aspect>0.05;
+        var cropLeftOk=double.TryParse(VideoCropLeftInput.Text,out var cropLeftRaw);
+        var cropTopOk=double.TryParse(VideoCropTopInput.Text,out var cropTopRaw);
+        var cropRightOk=double.TryParse(VideoCropRightInput.Text,out var cropRightRaw);
+        var cropBottomOk=double.TryParse(VideoCropBottomInput.Text,out var cropBottomRaw);
+        var cropLeft=Math.Clamp(cropLeftOk?cropLeftRaw/100:0,0,0.49);
+        var cropTop=Math.Clamp(cropTopOk?cropTopRaw/100:0,0,0.49);
+        var cropRight=Math.Clamp(cropRightOk?cropRightRaw/100:0,0,0.49);
+        var cropBottom=Math.Clamp(cropBottomOk?cropBottomRaw/100:0,0,0.49);
+        if(cropLeft+cropRight>0.9)cropRight=Math.Max(0,0.9-cropLeft);
+        if(cropTop+cropBottom>0.9)cropBottom=Math.Max(0,0.9-cropTop);
         var chromaKey=ChromaKeyInput.Text.Trim();
         // Accept a bare hex string, the way an operator usually types one. The model always stores
         // a colour the video surface can parse, and the save is immediate for this field.
@@ -1714,6 +1830,8 @@ public partial class ScorebugEditorWindow : Window
         // With a group selected every field is written, because the group is allowed to differ.
         if(ids.Length==1&&item.Name==name&&item.Content==content&&(!xOk||item.X==x)&&(!yOk||item.Y==y)&&(!wOk||item.Width==w)&&(!hOk||item.Height==h)
             &&item.PreserveVideoAspect==preserveAspect&&(!aspectOk||Math.Abs(item.VideoAspect-aspect)<0.001)
+            &&Math.Abs(item.VideoCropLeft-cropLeft)<0.0001&&Math.Abs(item.VideoCropTop-cropTop)<0.0001
+            &&Math.Abs(item.VideoCropRight-cropRight)<0.0001&&Math.Abs(item.VideoCropBottom-cropBottom)<0.0001
             &&(!chromaKeyOk||string.Equals(item.ChromaKeyColor,chromaKey,StringComparison.OrdinalIgnoreCase))
             &&(!chromaToleranceOk||Math.Abs(item.ChromaKeyTolerance-chromaTolerance)<0.001)
             &&string.Equals(item.AudioDevice,audioDevice,StringComparison.Ordinal)
@@ -1791,6 +1909,9 @@ public partial class ScorebugEditorWindow : Window
         if(periodFormat is not null&&item.PeriodFormat!=periodFormat)Group(t=>t.PeriodFormat=periodFormat);
         if(item.PreserveVideoAspect!=preserveAspect)Group(t=>t.PreserveVideoAspect=preserveAspect);
         if(aspectOk&&Math.Abs(item.VideoAspect-aspect)>0.001)Group(t=>t.VideoAspect=Math.Clamp(aspect,0.1,10));
+        if(item.Kind==ScorebugElementKind.Video&&(Math.Abs(item.VideoCropLeft-cropLeft)>0.0001||Math.Abs(item.VideoCropTop-cropTop)>0.0001
+            ||Math.Abs(item.VideoCropRight-cropRight)>0.0001||Math.Abs(item.VideoCropBottom-cropBottom)>0.0001))
+            Group(t=>{t.VideoCropLeft=cropLeft;t.VideoCropTop=cropTop;t.VideoCropRight=cropRight;t.VideoCropBottom=cropBottom;});
         if(chromaKeyOk&&!string.Equals(item.ChromaKeyColor,chromaKey,StringComparison.OrdinalIgnoreCase))
             Group(t=>{if(t.Kind==ScorebugElementKind.Video)t.ChromaKeyColor=chromaKey;});
         if(chromaToleranceOk&&Math.Abs(item.ChromaKeyTolerance-chromaTolerance)>0.001)
@@ -1891,6 +2012,11 @@ public partial class ScorebugEditorWindow : Window
                 if(periodFormat is not null||target.PeriodFormat is not null)target.PeriodFormat=periodFormat;
                 target.PreserveVideoAspect=preserveAspect;
                 if(aspectOk)target.VideoAspect=Math.Clamp(aspect,0.1,10);
+                if(target.Kind==ScorebugElementKind.Video)
+                {
+                    target.VideoCropLeft=cropLeft;target.VideoCropTop=cropTop;
+                    target.VideoCropRight=cropRight;target.VideoCropBottom=cropBottom;
+                }
                 if(chromaKeyOk&&target.Kind==ScorebugElementKind.Video)target.ChromaKeyColor=chromaKey;
                 if(chromaToleranceOk&&target.Kind==ScorebugElementKind.Video)target.ChromaKeyTolerance=chromaTolerance;
                 target.AudioDevice=string.IsNullOrWhiteSpace(audioDevice)?null:audioDevice;
@@ -3231,11 +3357,13 @@ public partial class ScorebugEditorWindow : Window
     void ApplyTipVisibility(bool show)
     {
         var visibility=show?Visibility.Visible:Visibility.Collapsed;
+        // Score videos are a working control, not a tip: hiding the row with the explanatory text
+        // made the score-celebration options appear to be missing from the Motions window.
         FrameworkElement[] tips=
         [
             HeaderHint,DisplayHintText,TransitionCaption,LinkTipText,LayersHintText,
-            CanvasBackgroundHintText,PlayerDataHintText,LogoHintText,VideoTagHintText,ChromaKeyHintText,AudioHintText,
-            CanvasFitTipText,ResizeTipText,AllValuesHintText
+            CanvasBackgroundHintText,PlayerDataHintText,LogoHintText,VideoTagHintText,VideoCropHintText,ChromaKeyHintText,AudioHintText,
+            CanvasFitTipText,ResizeTipText,AllValuesHintText,ScoreVideoHintText
         ];
         foreach(var tip in tips)if(tip is not null)tip.Visibility=visibility;
     }

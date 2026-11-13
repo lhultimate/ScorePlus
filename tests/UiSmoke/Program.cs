@@ -475,6 +475,160 @@ internal static class Program
             main.Close();
             Console.WriteLine("PASS: main window loads");
 
+            // Macros are part of the main workspace. Conditionals now belong to the Display Studio,
+            // where their rules sit beside the display they affect.
+            var tabShell = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+            tabShell.Show();
+            tabShell.UpdateLayout();
+            ((Button)tabShell.FindName("MacrosTab")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            tabShell.UpdateLayout();
+            if (tabShell.FindName("MacroHost") is not ContentControl { Content: MacroDock })
+                throw new Exception("FAIL: the Macros tab does not host the macro board");
+            var macroDock = (MacroDock)((ContentControl)tabShell.FindName("MacroHost")!).Content!;
+            var firstDrag = new SavedMacro { Label = "First drag", Color = "#FF6B6B" };
+            var secondDrag = new SavedMacro { Label = "Second drag", Color = "#4C9AFF" };
+            tabShell.Engine.StoreMacros([firstDrag, secondDrag]);
+            macroDock.RefreshView(force: true);
+            tabShell.UpdateLayout();
+            var macroCards = FindAll<Border>(macroDock).Where(border => border.Width >= 200 && border.Tag is SavedMacro).ToList();
+            var dragStrips = FindAll<TextBlock>(macroDock).Where(text => text.Text.Contains("DRAG", StringComparison.Ordinal)).ToList();
+            if (macroCards.Count != 2 || dragStrips.Count != 2 || macroCards.Any(card => card.ContextMenu is null)
+                || macroCards.Any(card => FindAll<Button>(card).Any(button => (button.Content as string) is "Edit" or "Delete")))
+                throw new Exception("FAIL: macro cards lost their drag strip, context menu or removable action row");
+            var macroMenu = macroCards[0].ContextMenu!;
+            macroMenu.PlacementTarget = macroCards[0];
+            macroMenu.IsOpen = true;
+            Pump(TimeSpan.FromMilliseconds(100));
+            if (!macroMenu.IsOpen)
+                throw new Exception("FAIL: the macro context menu did not open");
+            macroMenu.IsOpen = false;
+            var moveMacro = typeof(MacroDock).GetMethod("MoveMacro", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: macro reordering is missing");
+            moveMacro.Invoke(macroDock, [firstDrag.Id, secondDrag.Id]);
+            if (tabShell.Engine.State.Macros[0].Id != secondDrag.Id)
+                throw new Exception("FAIL: dragging a macro did not reorder the board");
+            var macroNameBox = (TextBox)macroDock.FindName("NameBox")!;
+            macroNameBox.Text = "Saved with the game";
+            macroDock.CommitPendingEdits();
+            if (!tabShell.Engine.State.Macros.Any(macro => macro.Label == "Saved with the game"))
+                throw new Exception("FAIL: a pending macro edit was not committed to the game");
+            if (tabShell.FindName("ConditionalsTab") is not null || tabShell.FindName("ConditionalsHost") is not null)
+                throw new Exception("FAIL: the Conditionals editor still owns a main-window tab");
+            var gameNameBox = (TextBox)tabShell.FindName("GameNameBox")!;
+            if (!gameNameBox.IsVisible || gameNameBox.ActualWidth < 100)
+                throw new Exception($"FAIL: the game name field is not visible on the production bar ({gameNameBox.ActualWidth:0}px)");
+            gameNameBox.Text = "Friday Night Lights";
+            Pump(TimeSpan.FromMilliseconds(100));
+            if (tabShell.Engine.State.GameName != "Friday Night Lights")
+                throw new Exception("FAIL: the game name field did not reach the game state");
+            tabShell.Close();
+            Console.WriteLine("PASS: macros open in the main workspace and conditionals have no main-window tab");
+
+            // A macro runs its steps in order against the live game.
+            var macroEngine = new GameEngine();
+            macroEngine.NewGame("football");
+            var macroSession = new MediaSession(PreferencesStore.Load());
+            try
+            {
+                var macro = new SavedMacro
+                {
+                    Label = "Smoke drive",
+                    Actions =
+                    [
+                        new MacroAction { Kind = MacroActionKind.Score, Home = true, Amount = 3 },
+                        new MacroAction { Kind = MacroActionKind.SetDown, Value = 1 },
+                        new MacroAction { Kind = MacroActionKind.SetTimeouts, Home = false, Value = 2 }
+                    ]
+                };
+                macroEngine.StoreMacros([macro]);
+                var result = new MacroRunner(macroEngine, macroSession).Run(macroEngine.State.Macros[0]);
+                if (macroEngine.State.HomeScore != 3 || macroEngine.State.Down != 1 || macroEngine.State.AwayTimeouts != 2
+                    || !result.Contains("3 steps run", StringComparison.Ordinal))
+                    throw new Exception($"FAIL: macro steps did not run in order ({result})");
+            }
+            finally { macroSession.Stop(); macroSession.Dispose(); }
+            Console.WriteLine("PASS: a macro changes score, down and timeouts in one press");
+
+            // Every console button and every sport/custom value is reachable from a macro, not just
+            // the original score/down/clock fields.
+            var extendedEngine = new GameEngine();
+            extendedEngine.NewGame("football");
+            var extendedSession = new MediaSession(PreferencesStore.Load());
+            try
+            {
+                var custom = extendedEngine.State.Stats.First();
+                var extended = new SavedMacro
+                {
+                    Label = "Everything",
+                    Actions =
+                    [
+                        new MacroAction { Kind = MacroActionKind.Control, Path = "football.down.next", Label = "Next down" },
+                        new MacroAction { Kind = MacroActionKind.SportValue, Path = "football.firstdowns.home", Value = 4, Label = "Home 1st downs" },
+                        new MacroAction { Kind = MacroActionKind.SetFootballDistance, Value = 12 },
+                        new MacroAction { Kind = MacroActionKind.SetFootballBallSpot, Value = 35 },
+                        new MacroAction { Kind = MacroActionKind.SetPossession, Home = false },
+                        new MacroAction { Kind = MacroActionKind.CustomValue, Path = custom.Id, Value = 7, Label = custom.Name }
+                    ]
+                };
+                var pressed = "";
+                var extendedResult = new MacroRunner(extendedEngine, extendedSession, id => pressed = id).Run(extended);
+                if (pressed != "football.down.next"
+                    || SportValues.Read(extendedEngine.State, "football.firstdowns.home") != 4
+                    || extendedEngine.State.YardsToGo != 12 || extendedEngine.State.YardsToGoal != 35
+                    || extendedEngine.State.HomePossession
+                    || extendedEngine.State.Stats.First(stat => stat.Id == custom.Id).Value != 7
+                    || !extendedResult.Contains("6 steps run", StringComparison.Ordinal))
+                    throw new Exception($"FAIL: extended macro steps did not run ({extendedResult})");
+            }
+            finally { extendedSession.Stop(); extendedSession.Dispose(); }
+            Console.WriteLine("PASS: a macro can press a console button and set every kind of value");
+
+            // The multiview is a source picker per tile: program previews, audience outputs, cameras,
+            // replay and blank spacers all share one wall.
+            var multiviewClick = typeof(MainWindow).GetMethod("Multiview_Click", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: Multiview_Click is missing");
+            var multiviewOwner = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+            multiviewOwner.Show();
+            multiviewOwner.UpdateLayout();
+            multiviewClick.Invoke(multiviewOwner, [multiviewOwner, new RoutedEventArgs()]);
+            Pump(TimeSpan.FromMilliseconds(250));
+            var multiview = Application.Current.Windows.OfType<MultiviewWindow>().LastOrDefault()
+                ?? throw new Exception("FAIL: the Multiview button opened no multiview window");
+            multiview.UpdateLayout();
+            var sourceBoxes = FindAll<ComboBox>(multiview)
+                .Where(box => box.Items.Cast<object>().Any(item => (item.ToString() ?? "").Contains("AUDIENCE OUTPUT", StringComparison.Ordinal)))
+                .ToList();
+            var sourceLabels = sourceBoxes.SelectMany(box => box.Items.Cast<object>())
+                .Select(item => item.ToString() ?? "").ToList();
+            if (sourceBoxes.Count < 3
+                || sourceLabels.All(label => !label.Contains("PROGRAM PREVIEW", StringComparison.Ordinal))
+                || sourceLabels.All(label => !label.Contains("AUDIENCE OUTPUT", StringComparison.Ordinal))
+                || sourceLabels.All(label => !label.StartsWith("REPLAY", StringComparison.Ordinal)))
+                throw new Exception("FAIL: the multiview did not offer preview, audience and replay sources");
+
+            // Moving the replay tile away and back also proves its persistent frame follows its
+            // new home instead of making the old tile the only legal parent.
+            var replayBox = FindAll<ComboBox>(multiview)
+                .First(box => (box.SelectedItem?.ToString() ?? "").StartsWith("REPLAY", StringComparison.Ordinal));
+            var previewChoice = replayBox.Items.Cast<object>()
+                .FirstOrDefault(item => (item.ToString() ?? "").Contains("PROGRAM PREVIEW", StringComparison.Ordinal))
+                ?? throw new Exception("FAIL: the multiview had no preview source to switch to");
+            replayBox.SelectedItem = previewChoice;
+            Pump(TimeSpan.FromMilliseconds(200));
+            var replayAgain = FindAll<ComboBox>(multiview)
+                .First(box => box.Items.Cast<object>().Any(item => (item.ToString() ?? "").StartsWith("REPLAY", StringComparison.Ordinal)));
+            var replayChoice = replayAgain.Items.Cast<object>()
+                .First(item => (item.ToString() ?? "").StartsWith("REPLAY", StringComparison.Ordinal));
+            replayAgain.SelectedItem = replayChoice;
+            Pump(TimeSpan.FromMilliseconds(200));
+            if (!FindAll<ComboBox>(multiview).Any(box => (box.SelectedItem?.ToString() ?? "").StartsWith("REPLAY", StringComparison.Ordinal)))
+                throw new Exception("FAIL: the replay tile did not follow a source switch");
+
+            multiview.Close();
+            multiviewOwner.Close();
+            Pump(TimeSpan.FromMilliseconds(150));
+            Console.WriteLine("PASS: the multiview lets every tile choose a preview, audience, camera, replay or blank source");
+
             // The dock is a single media panel: tiles, transport and tag editor, no inline event log.
             var shell = new MainWindow { Width = 1280, Height = 800 };
             shell.Show();
@@ -579,6 +733,13 @@ internal static class Program
             var editor = new ScorebugEditorWindow(catalog, engine);
             editor.Show();
             editor.UpdateLayout();
+            if (editor.FindName("ConditionalsButton") is not Button conditionalsButton)
+                throw new Exception("FAIL: Display Studio does not offer Conditionals");
+            conditionalsButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var conditionals = Application.Current.Windows.OfType<AutomationWindow>().FirstOrDefault();
+            if (conditionals is null || !conditionals.IsVisible || conditionals.DisplayId != catalog.ActiveDisplay.Id)
+                throw new Exception("FAIL: Display Studio did not open the Conditionals window for its display");
+            conditionals.Close();
 
             var layers = (ListBox)editor.FindName("Layers")!;
             var nameInput = (TextBox)editor.FindName("NameInput")!;
@@ -3304,22 +3465,37 @@ internal static class Program
                     throw new Exception($"FAIL: picking a transition did not save it on this layout ({layoutMain.Scorebug.Layouts[1].Transition})");
                 if (layoutMain.Scorebug.Layouts[0].Transition == LayoutTransition.SlideLeft)
                     throw new Exception("FAIL: the transition was written onto the display's other layout");
-                // Each layout also owns its touchdown and field-goal celebrations.
-                var touchdownBox = (ComboBox)layoutStudio.FindName("TouchdownAnimationBox")!;
-                var fieldGoalBox = (ComboBox)layoutStudio.FindName("FieldGoalAnimationBox")!;
-                if (touchdownBox.SelectedItem is null || fieldGoalBox.SelectedItem is null)
-                    throw new Exception("FAIL: a score-animation picker is empty when the studio opens");
-                touchdownBox.SelectedItem = touchdownBox.Items.OfType<object>()
-                    .First(item => item.ToString()!.Contains("Pulse", StringComparison.Ordinal));
-                fieldGoalBox.SelectedItem = fieldGoalBox.Items.OfType<object>()
-                    .First(item => item.ToString()!.Contains("Pop in", StringComparison.Ordinal));
-                Pump(TimeSpan.FromMilliseconds(250));
-                if (layoutMain.Scorebug.Layouts[1].TouchdownAnimation?.Name != "Pulse"
-                    || layoutMain.Scorebug.Layouts[1].FieldGoalAnimation?.Name != "Pop in")
-                    throw new Exception("FAIL: the score-event animations were not saved on this layout");
-                if (layoutMain.Scorebug.Layouts[0].TouchdownAnimation is not null
-                    || layoutMain.Scorebug.Layouts[0].FieldGoalAnimation is not null)
-                    throw new Exception("FAIL: a score-event animation leaked onto the display's other layout");
+                // Each layout owns video celebrations keyed by the exact signed score change.
+                var scoreVideoPanel = layoutStudio.FindName("ScoreVideoPanel") as DockPanel;
+                var scoreVideoRows = layoutStudio.FindName("ScoreVideoRows") as StackPanel;
+                if (scoreVideoPanel is null || scoreVideoRows is null || scoreVideoPanel.Visibility != Visibility.Visible)
+                    throw new Exception("FAIL: the score-video controls are missing or hidden in the studio");
+                layoutMain.Scorebug.ApplyScoreVideoToLayout(6, new ScoreVideo
+                {
+                    Path = @"C:\clips\touchdown.mp4", ChromaKeyColor = "#FF00B140", ChromaKeyTolerance = 0.21
+                });
+                layoutMain.Scorebug.ApplyScoreVideoToLayout(-6, new ScoreVideo
+                {
+                    Path = @"C:\clips\touchdown-undo.mp4", ChromaKeyColor = "#FF2020FF", ChromaKeyTolerance = 0.17
+                });
+                layoutStudio.UpdateLayout();
+                if (scoreVideoRows.Children.Count != 2
+                    || !FindAll<TextBlock>(scoreVideoRows).Any(text => text.Text == "+6")
+                    || !FindAll<TextBlock>(scoreVideoRows).Any(text => text.Text == "-6"))
+                    throw new Exception("FAIL: signed score changes did not create score-video rows");
+                if (layoutMain.Scorebug.Layouts[1].ScoreVideos.Count != 2
+                    || layoutMain.Scorebug.Layouts[0].ScoreVideos.Count != 0)
+                    throw new Exception("FAIL: a score video leaked onto the display's other layout");
+                var motionsButton = FindAll<Button>(layoutStudio).First(button =>
+                    string.Equals(button.Content?.ToString(), "Motions…", StringComparison.Ordinal));
+                motionsButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump(TimeSpan.FromMilliseconds(150));
+                var motionWindow = Application.Current.Windows.OfType<Window>()
+                    .FirstOrDefault(window => window.Title == "Transitions & score celebrations");
+                if (motionWindow is null
+                    || !FindAll<TextBlock>(motionWindow).Any(text => text.Text == "SCORE VIDEOS"))
+                    throw new Exception("FAIL: the Motions window does not show the score-video controls");
+                motionWindow.Close();
                 layoutMain.Scorebug.SelectLayout(0);
                 layoutStudio.UpdateLayout();
                 if (transitionBox.SelectedItem.ToString()!.Contains("Swing left", StringComparison.Ordinal))

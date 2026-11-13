@@ -1240,29 +1240,38 @@ public sealed class ScorebugCanvasView : Grid
     }
 
     /// <summary>
-    /// Plays this layout's touchdown or field-goal celebration when a new football score lands. The
-    /// sequence, not the score itself, is the trigger: clock ticks and score corrections leave it
-    /// alone, and a second touchdown at the same score still celebrates exactly once.
+    /// Plays the celebration assigned to the exact signed score change, for any sport. A +6 entry
+    /// works for either team and a -6 entry handles a correction; the sequence, not the score
+    /// itself, is the trigger, so a clock tick never replays a celebration. The old fixed
+    /// touchdown/field-goal fields remain a fallback for layouts saved before value rules existed.
     /// </summary>
     void TryPlayScoreAnimation(GameState state)
     {
         var sequence=state.LastScoreSequence;
         if(sequence<=_lastScoreSequence){_lastScoreSequence=sequence;return;}
         _lastScoreSequence=sequence;
-        if(!string.Equals(state.SportId,"football",StringComparison.OrdinalIgnoreCase)||state.LastScoreAmount<=0)return;
+        // SetScore deliberately leaves the amount at zero (it is a correction, not a score press).
+        if(state.LastScoreAmount==0)return;
+        var amount=state.LastScoreAmount;
+        var mapped=Layout.ScoreVideoForAmount(amount);
+        if(mapped is not null&&TryPlayScoreVideo(mapped))return;
+        // Compatibility with layouts saved before the per-value video list. These fixed clips only
+        // ever described positive football scores, so they must not claim a correction or another
+        // sport's score.
         ScoreVideo? video=null;
         MotionClip? clip=null;
-        // A seven- or eight-point football score still contains a touchdown; the extra point or
-        // conversion is part of the same scoring play on the console.
-        if(state.LastScoreAmount is 6 or 7 or 8)
+        if(string.Equals(state.SportId,"football",StringComparison.OrdinalIgnoreCase)&&amount>0)
         {
-            video=Layout.TouchdownVideo;
-            clip=Layout.TouchdownAnimation;
-        }
-        else if(state.LastScoreAmount==3)
-        {
-            video=Layout.FieldGoalVideo;
-            clip=Layout.FieldGoalAnimation;
+            if(amount is 6 or 7 or 8)
+            {
+                video=Layout.TouchdownVideo;
+                clip=Layout.TouchdownAnimation;
+            }
+            else if(amount==3)
+            {
+                video=Layout.FieldGoalVideo;
+                clip=Layout.FieldGoalAnimation;
+            }
         }
         if(video is not null&&TryPlayScoreVideo(video))return;
         if(clip is null||clip.IsEmpty)return;

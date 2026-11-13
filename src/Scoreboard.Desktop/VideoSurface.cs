@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Scoreboard.Core;
 
@@ -85,7 +86,10 @@ public sealed class VideoSurface : Grid
         {
             Stretch = item.PreserveVideoAspect ? Stretch.Uniform : Stretch.UniformToFill,
             AlignmentX = AlignmentX.Center,
-            AlignmentY = AlignmentY.Center
+            AlignmentY = AlignmentY.Center,
+            // The viewbox is the crop: the video keeps painting its decoded frame, and the brush
+            // shows only the selected fraction of it.
+            ViewboxUnits = BrushMappingMode.RelativeToBoundingBox
         };
         _video = new Rectangle
         {
@@ -93,6 +97,9 @@ public sealed class VideoSurface : Grid
             Stretch = Stretch.Fill,
             IsHitTestVisible = false
         };
+        // A surface built from an already-cropped element must start cropped, not wait for the
+        // first property edit to call SetElement.
+        ApplyCrop();
 
         // Re-apply once the picture is in the tree so Play() is honoured. A surface that is
         // re-attached (the studio rebuilt its canvas) picks the picture up where the transport is
@@ -195,6 +202,7 @@ public sealed class VideoSurface : Grid
         // Preserving the aspect ratio letterboxes the picture inside its box instead of cropping it.
         var stretch = item.PreserveVideoAspect ? Stretch.Uniform : Stretch.UniformToFill;
         _videoBrush.Stretch = stretch;
+        ApplyCrop();
         _live.Stretch = stretch;
         _replay.Stretch = stretch;
         if (_placeholder is not null)
@@ -237,6 +245,44 @@ public sealed class VideoSurface : Grid
     }
 
     void SyncClip() => _clip.Rect = new Rect(0, 0, Math.Max(0, ActualWidth), Math.Max(0, ActualHeight));
+
+    /// <summary>The source rectangle selected by the element's four crop percentages.</summary>
+    Rect CropRect()
+    {
+        var left = Math.Clamp(_item.VideoCropLeft, 0, 0.49);
+        var top = Math.Clamp(_item.VideoCropTop, 0, 0.49);
+        var right = Math.Clamp(_item.VideoCropRight, 0, 0.49);
+        var bottom = Math.Clamp(_item.VideoCropBottom, 0, 0.49);
+        if (left + right > 0.9) right = Math.Max(0, 0.9 - left);
+        if (top + bottom > 0.9) bottom = Math.Max(0, 0.9 - top);
+        return new Rect(left, top, Math.Max(0.02, 1 - left - right), Math.Max(0.02, 1 - top - bottom));
+    }
+
+    void ApplyCrop()
+    {
+        _videoBrush.ViewboxUnits = BrushMappingMode.RelativeToBoundingBox;
+        _videoBrush.Viewbox = CropRect();
+    }
+
+    /// <summary>Crops a live or replay bitmap to the chosen source region.</summary>
+    ImageSource CropFrame(ImageSource source)
+    {
+        var crop = CropRect();
+        if (Math.Abs(crop.X) < 0.0001 && Math.Abs(crop.Y) < 0.0001
+            && Math.Abs(crop.Width - 1) < 0.0001 && Math.Abs(crop.Height - 1) < 0.0001) return source;
+        if (source is not BitmapSource bitmap) return source;
+        try
+        {
+            var x = Math.Clamp((int)Math.Round(bitmap.PixelWidth * crop.X), 0, bitmap.PixelWidth - 1);
+            var y = Math.Clamp((int)Math.Round(bitmap.PixelHeight * crop.Y), 0, bitmap.PixelHeight - 1);
+            var width = Math.Clamp((int)Math.Round(bitmap.PixelWidth * crop.Width), 1, bitmap.PixelWidth - x);
+            var height = Math.Clamp((int)Math.Round(bitmap.PixelHeight * crop.Height), 1, bitmap.PixelHeight - y);
+            var cropped = new CroppedBitmap(bitmap, new Int32Rect(x, y, width, height));
+            cropped.Freeze();
+            return cropped;
+        }
+        catch { return source; }
+    }
 
     /// <summary>
     /// The clip this surface should be showing. A muted surface is a preview (studio, program
@@ -494,7 +540,7 @@ public sealed class VideoSurface : Grid
         _video.Visibility = Visibility.Visible;
     }
 
-    void OnCameraFrame(ImageSource frame) => _live.Source = frame;
+    void OnCameraFrame(ImageSource frame) => _live.Source = CropFrame(frame);
 
     void HideLiveCamera()
     {
@@ -545,7 +591,7 @@ public sealed class VideoSurface : Grid
         _playing = false;
         _video.Visibility = Visibility.Collapsed;
         if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
-        if (_replay.Source is null && feed.Frame is { } picture) _replay.Source = picture;
+        if (_replay.Source is null && feed.Frame is { } picture) _replay.Source = CropFrame(picture);
         _replay.Visibility = Visibility.Visible;
         return true;
     }
@@ -560,7 +606,7 @@ public sealed class VideoSurface : Grid
 
     void OnReplayFrame(System.Windows.Media.Imaging.BitmapSource frame)
     {
-        if (_replay.Visibility == Visibility.Visible) _replay.Source = frame;
+        if (_replay.Visibility == Visibility.Visible) _replay.Source = CropFrame(frame);
     }
 
     public void Dispose()

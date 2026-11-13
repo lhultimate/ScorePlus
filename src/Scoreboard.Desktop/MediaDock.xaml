@@ -11,10 +11,12 @@
     <SolidColorBrush x:Key="DockInput" Color="#050505"/>
     <SolidColorBrush x:Key="DockTrack" Color="#26313D"/>
     <SolidColorBrush x:Key="DockThumb" Color="#EAF0F7"/>
+    <SolidColorBrush x:Key="DockRail" Color="#10151D"/>
+    <SolidColorBrush x:Key="DockAccent" Color="#38D7A3"/>
 
     <Style x:Key="TileGlyph" TargetType="TextBlock">
       <Setter Property="FontSize" Value="20"/>
-      <Setter Property="Foreground" Value="#38D7A3"/>
+      <Setter Property="Foreground" Value="{DynamicResource DockAccent}"/>
       <Setter Property="HorizontalAlignment" Value="Center"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
@@ -188,7 +190,7 @@
                   <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
                     <RepeatButton.Template>
                       <ControlTemplate TargetType="RepeatButton">
-                        <Border Height="7" CornerRadius="4" Background="#38D7A3"/>
+                        <Border Height="7" CornerRadius="4" Background="{DynamicResource DockAccent}"/>
                       </ControlTemplate>
                     </RepeatButton.Template>
                   </RepeatButton>
@@ -204,7 +206,7 @@
                   <Thumb Width="16" Height="16" Cursor="Hand">
                     <Thumb.Template>
                       <ControlTemplate TargetType="Thumb">
-                        <Ellipse Width="16" Height="16" Fill="{DynamicResource DockThumb}" Stroke="#38D7A3" StrokeThickness="2"/>
+                        <Ellipse Width="16" Height="16" Fill="{DynamicResource DockThumb}" Stroke="{DynamicResource DockAccent}" StrokeThickness="2"/>
                       </ControlTemplate>
                     </Thumb.Template>
                   </Thumb>
@@ -232,10 +234,15 @@
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="8"/>
+        <ColumnDefinition Width="232"/>
+      </Grid.ColumnDefinitions>
 
-      <!-- Header: library actions on the first line, live camera on the second, so nothing is
-           clipped when the dock is only a rail wide. -->
-      <StackPanel Margin="0,0,0,5">
+      <!-- The library owns the wide side; every add/route/live/replay control lives in the rail
+           on the right, so clips get the full height and width instead of a stack of toolbars. -->
+      <StackPanel Grid.Column="0" Margin="0,0,0,5">
         <DockPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
             <Button x:Name="RemoveButton" Content="Remove" Style="{StaticResource DockAction}" Click="Remove_Click" ToolTip="Remove the selected clip from the library"/>
@@ -244,67 +251,78 @@
                     ToolTip="Stop playback, close the camera and blank every scorebug video box"/>
           </StackPanel>
           <StackPanel Orientation="Horizontal">
-            <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,6,0"/>
+            <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource DockAccent}" Margin="0,0,6,0"/>
             <TextBlock Text="MEDIA" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center"/>
             <TextBlock x:Name="HintText" Text="  tags route to the scorebug · folders organise" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.7" VerticalAlignment="Center" Visibility="Collapsed"/>
           </StackPanel>
         </DockPanel>
-        <!-- Camera items: add one, rename/re-route one, and scrub the last two minutes. -->
-        <WrapPanel Margin="0,4,0,0">
-          <TextBlock Text="CAMERA" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
-          <Button Content="Add camera" Style="{StaticResource DockAction}" Click="Camera_Click" ToolTip="Add the next capture device to the library — it routes by tag like any other clip"/>
-          <Button x:Name="RouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="Route_Click"
-                  ToolTip="Rename the selected camera item and choose which camera it uses"/>
-          <Button x:Name="ReplayButton" Content="Replay" Style="{StaticResource DockAction}" Click="Replay_Click"
-                  ToolTip="Freeze the last two minutes of the live camera on the scorebug so you can drag back to the start of the play"/>
-          <Button x:Name="LiveButton" Content="Live" Style="{StaticResource DockAction}" Click="Live_Click"
-                  ToolTip="Jump back to the live camera"/>
-        </WrapPanel>
-        <!-- Microphones: live commentary, captured from a device and monitored on its own output. -->
-        <WrapPanel Margin="0,3,0,0">
-          <TextBlock Text="MICROPHONE" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
-          <Button Content="Add microphone" Style="{StaticResource DockAction}" Click="Microphone_Click"
-                  ToolTip="Add a capture device to the library. Cue it and its sound goes live on the output set below"/>
-          <Button x:Name="MicrophoneRouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="MicrophoneRoute_Click"
-                  ToolTip="Rename the selected microphone item and choose which microphone it listens to"/>
-          <TextBlock x:Name="MicrophoneStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
-                     VerticalAlignment="Center" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
-        </WrapPanel>
-        <!-- Speaker buses: add one, name it and point it at an output device. Selecting it at the
-             bottom of the dock makes the volume slider its house level. -->
-        <WrapPanel Margin="0,3,0,0">
-          <TextBlock Text="SPEAKER" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
-          <Button Content="Add speaker" Style="{StaticResource DockAction}" Click="Speaker_Click"
-                  ToolTip="Add an output device as a speaker bus, then use the SPEAKER dropdown and VOLUME slider to control it"/>
-          <Button x:Name="SpeakerRouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="SpeakerRoute_Click"
-                  ToolTip="Rename the selected speaker bus and choose which output device it uses"/>
-          <TextBlock x:Name="SpeakerStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
-                     VerticalAlignment="Center" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
-        </WrapPanel>
-        <!-- Which camera item is live: pick another and it takes over on air. -->
-        <DockPanel Margin="0,3,0,0">
-          <TextBlock Text="LIVE" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
-          <ComboBox x:Name="CameraBox" Style="{StaticResource DockCombo}" SelectionChanged="Camera_Changed"
-                    ToolTip="Choose which camera item is on air"/>
-        </DockPanel>
-        <DockPanel Margin="0,3,0,0">
-          <TextBlock Text="REPLAY" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,4,0"/>
-          <Button x:Name="StartReplayButton" Style="{StaticResource DockAction}" Content="Start replay" Click="StartReplay_Click"
-                  IsEnabled="False"
-                  ToolTip="Put the replay on air at the frame you have scrubbed to; Play rolls it"/>
-          <Button x:Name="JumpToLiveButton" Style="{StaticResource DockAction}" Content="↩ Jump to live" Click="Live_Click"
-                  IsEnabled="False" ToolTip="Leave the replay and go straight back to the live camera"/>
-          <Button x:Name="SaveReplayButton" Style="{StaticResource DockAction}" Content="Save replay…" Click="SaveReplay_Click"
-                  IsEnabled="False"
-                  ToolTip="Save everything from where the replay is paused through to now as a clip on your computer"/>
-          <TextBlock x:Name="ReplayHint" Text="  scrub back, start it, then save from there to now" FontSize="10"
-                     Foreground="{DynamicResource DockMuted}" Opacity="0.7" VerticalAlignment="Center"/>
-        </DockPanel>
       </StackPanel>
+
+      <Border Grid.Column="2" Grid.RowSpan="11" Background="{DynamicResource DockRail}" CornerRadius="9" Padding="10,8" Margin="0,0,0,0">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <DockPanel Margin="0,0,0,8">
+              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource DockAccent}" Margin="0,0,6,0"/>
+              <TextBlock Text="ADD &amp; ROUTE" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center"/>
+            </DockPanel>
+
+            <TextBlock Text="CAMERA" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
+            <WrapPanel Margin="0,0,0,7">
+              <Button Content="Add camera" Style="{StaticResource DockAction}" Click="Camera_Click" ToolTip="Add the next capture device to the library — it routes by tag like any other clip"/>
+              <Button x:Name="RouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="Route_Click"
+                      ToolTip="Rename the selected camera item and choose which camera it uses"/>
+            </WrapPanel>
+            <WrapPanel Margin="0,0,0,9">
+              <Button x:Name="ReplayButton" Content="Replay" Style="{StaticResource DockAction}" Click="Replay_Click"
+                      ToolTip="Freeze the last two minutes of the live camera on the scorebug so you can drag back to the start of the play"/>
+              <Button x:Name="LiveButton" Content="Live" Style="{StaticResource DockAction}" Click="Live_Click"
+                      ToolTip="Jump back to the live camera"/>
+            </WrapPanel>
+
+            <TextBlock Text="MICROPHONE" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
+            <WrapPanel Margin="0,0,0,4">
+              <Button Content="Add microphone" Style="{StaticResource DockAction}" Click="Microphone_Click"
+                      ToolTip="Add a capture device to the library. Cue it and its sound goes live on the output set below"/>
+              <Button x:Name="MicrophoneRouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="MicrophoneRoute_Click"
+                      ToolTip="Rename the selected microphone item and choose which microphone it listens to"/>
+            </WrapPanel>
+            <TextBlock x:Name="MicrophoneStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
+                       TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+            <TextBlock Text="SPEAKER" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
+            <WrapPanel Margin="0,0,0,4">
+              <Button Content="Add speaker" Style="{StaticResource DockAction}" Click="Speaker_Click"
+                      ToolTip="Add an output device as a speaker bus, then use the SPEAKER dropdown and VOLUME slider to control it"/>
+              <Button x:Name="SpeakerRouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="SpeakerRoute_Click"
+                      ToolTip="Rename the selected speaker bus and choose which output device it uses"/>
+            </WrapPanel>
+            <TextBlock x:Name="SpeakerStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
+                       TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+            <TextBlock Text="LIVE CAMERA" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
+            <ComboBox x:Name="CameraBox" Style="{StaticResource DockCombo}" SelectionChanged="Camera_Changed"
+                      ToolTip="Choose which camera item is on air"/>
+
+            <TextBlock Text="REPLAY" Style="{StaticResource DockLabel}" Margin="0,7,0,3"/>
+            <WrapPanel>
+              <Button x:Name="StartReplayButton" Style="{StaticResource DockAction}" Content="Start replay" Click="StartReplay_Click"
+                      IsEnabled="False"
+                      ToolTip="Put the replay on air at the frame you have scrubbed to; Play rolls it"/>
+              <Button x:Name="JumpToLiveButton" Style="{StaticResource DockAction}" Content="↩ Jump to live" Click="Live_Click"
+                      IsEnabled="False" ToolTip="Leave the replay and go straight back to the live camera"/>
+              <Button x:Name="SaveReplayButton" Style="{StaticResource DockAction}" Content="Save replay…" Click="SaveReplay_Click"
+                      IsEnabled="False"
+                      ToolTip="Save everything from where the replay is paused through to now as a clip on your computer"/>
+            </WrapPanel>
+            <TextBlock x:Name="ReplayHint" Text="Scrub back, start it, then save from there to now." FontSize="10"
+                       Foreground="{DynamicResource DockMuted}" Opacity="0.7" TextWrapping="Wrap" Margin="0,4,0,0"/>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
 
       <!-- Search is library-wide: it deliberately ignores the open folder so a clip is never
            hidden just because it lives in a folder or on a playlist. -->
-      <Grid Grid.Row="1" Margin="0,0,0,5">
+      <Grid Grid.Column="0" Grid.Row="1" Margin="0,0,0,5">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
@@ -325,7 +343,7 @@
 
       <!-- The browser is a file explorer: folders and playlists are items in the grid below,
            and this bar is where you go back out, make a folder, or move a folder in and out. -->
-      <StackPanel x:Name="BrowserBar" Grid.Row="2" Margin="0,0,0,5">
+      <StackPanel x:Name="BrowserBar" Grid.Column="0" Grid.Row="2" Margin="0,0,0,5">
         <DockPanel Margin="0,0,0,4">
           <Button x:Name="UpButton" DockPanel.Dock="Right" Style="{StaticResource DockAction}" Content="← Back"
                   Click="Up_Click" ToolTip="Back to the folder you came from"/>
@@ -345,7 +363,7 @@
         </WrapPanel>
       </StackPanel>
 
-      <Grid Grid.Row="4" Margin="0,0,0,5">
+      <Grid Grid.Column="0" Grid.Row="4" Margin="0,0,0,5">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
@@ -366,16 +384,16 @@
         </StackPanel>
       </Grid>
 
-      <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,1,0,6">
+      <ScrollViewer Grid.Column="0" Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,1,0,6">
         <ScrollViewer.Resources>
           <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource DockVScrollBar}"/>
         </ScrollViewer.Resources>
         <WrapPanel x:Name="Tiles"/>
       </ScrollViewer>
-      <TextBlock x:Name="EmptyText" Grid.Row="5" Text="No media yet — Import adds anthems, ads and clips. Give each clip a tag so scorebug video elements know what to show."
+      <TextBlock x:Name="EmptyText" Grid.Column="0" Grid.Row="5" Text="No media yet — Import adds anthems, ads and clips. Give each clip a tag so scorebug video elements know what to show."
                  Foreground="{DynamicResource DockMuted}" FontSize="11" TextWrapping="Wrap" Margin="2,6,8,0"/>
 
-      <Grid Grid.Row="6" Margin="0,0,0,6">
+      <Grid Grid.Column="0" Grid.Row="6" Margin="0,0,0,6">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
@@ -395,7 +413,7 @@
       </Grid>
 
       <!-- Tags stay a picker: they are a routing rule, not a place in the library. -->
-      <Grid Grid.Row="7" Margin="0,0,0,3">
+      <Grid Grid.Column="0" Grid.Row="7" Margin="0,0,0,3">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
@@ -407,7 +425,7 @@
         <Button Grid.Column="2" Content="Set tag" Style="{StaticResource DockAction}" Click="TagApply_Click" ToolTip="Apply this tag to the selected clip"/>
       </Grid>
 
-      <Grid Grid.Row="8" Margin="0,0,0,0">
+      <Grid Grid.Column="0" Grid.Row="8" Margin="0,0,0,0">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
@@ -425,7 +443,7 @@
       </Grid>
 
       <!-- Audio for the selected clip: its own level, and which speaker it comes out of. -->
-      <Grid Grid.Row="9" Margin="0,5,0,0">
+      <Grid Grid.Column="0" Grid.Row="9" Margin="0,5,0,0">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
@@ -440,7 +458,7 @@
                    Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center" Width="42" TextAlignment="Right"/>
       </Grid>
 
-      <Grid Grid.Row="10" Margin="0,4,0,0">
+      <Grid Grid.Column="0" Grid.Row="10" Margin="0,4,0,0">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>

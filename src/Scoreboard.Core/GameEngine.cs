@@ -113,6 +113,8 @@ public sealed class SavedQuickMedia
 public sealed class GameState
 {
     public string SportId { get; set; } = "basketball";
+    /// <summary>A free-form label for this fixture, shown on the live production bar and saved with the game.</summary>
+    public string GameName { get; set; } = "";
     public string HomeTeam { get; set; } = "HOME";
     public string AwayTeam { get; set; } = "VISITORS";
     public string HomeAbbreviation { get; set; } = "HOME";
@@ -148,6 +150,8 @@ public sealed class GameState
     /// <summary>The quick layout and media buttons in use when the game was saved, so opening it brings them back.</summary>
     public List<SavedQuickLayout> QuickLayouts { get; set; } = [];
     public List<SavedQuickMedia> QuickMedia { get; set; } = [];
+    /// <summary>Saved macro buttons, with their ordered steps, so a game reopens with the show's shortcuts.</summary>
+    public List<SavedMacro> Macros { get; set; } = [];
     /// <summary>True when this file carries the quick-button lists, including deliberately empty ones.</summary>
     public bool QuickButtonsSaved { get; set; }
     /// <summary>Team logo imported from the control panel. Graphics draw it, the studio never edits it.</summary>
@@ -515,6 +519,16 @@ public sealed class GameEngine
         var control = SportValues.FindControl(State, id);
         if (control is null || control.Kind != SportControlKind.Flag) return;
         SetSportValue(control.Id, SportValues.Read(State, control.Id) == 0 ? 1 : 0);
+    }
+
+    /// <summary>Labels the fixture without changing the sport, teams or score.</summary>
+    public void SetGameName(string? name)
+    {
+        var clean = (name ?? "").Trim();
+        if (clean.Length > 120) clean = clean[..120];
+        if (State.GameName == clean) return;
+        State.GameName = clean;
+        Changed?.Invoke();
     }
 
     public void SetTeams(string home, string away)
@@ -1280,6 +1294,13 @@ public sealed class GameEngine
         Changed?.Invoke();
     }
 
+    /// <summary>Replaces the saved macro buttons without adding an undo point for every keystroke.</summary>
+    public void StoreMacros(IEnumerable<SavedMacro> macros)
+    {
+        State.Macros = macros.Select(macro => macro.Copy()).ToList();
+        Changed?.Invoke();
+    }
+
     public void ResetGame()
     {
         SaveUndo("Game reset"); var home = State.HomeTeam; var away = State.AwayTeam; var id = State.SportId;
@@ -1307,12 +1328,17 @@ public sealed class GameEngine
     {
         var (game, design) = GameFiles.Read(path);
         State = game;
+        // Older saves simply have no name; normalize hand-edited files as well.
+        State.GameName = (State.GameName ?? "").Trim();
+        if (State.GameName.Length > 120) State.GameName = State.GameName[..120];
         // Older saves could hold a spot past midfield; bring it back into the 0–50 range.
         State.YardsToGoal = Math.Clamp(State.YardsToGoal, 0, 50);
         NormalizeFootballTimeouts();
         // A file written before sport values existed keeps the current profile's control list, so
         // the console still has balls, bases and power play to work with.
         State.SportValues ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        State.Macros ??= [];
+        foreach (var macro in State.Macros) macro.Normalize();
         State.Controls ??= [];
         if (State.Controls.Count == 0)
             State.Controls = (Sports.Find(State.SportId)?.Controls ?? []).Select(c => c with { }).ToList();

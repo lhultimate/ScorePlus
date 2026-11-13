@@ -13,6 +13,8 @@
     <SolidColorBrush x:Key="OperatorInputBrush" Color="#050505"/>
     <SolidColorBrush x:Key="OperatorTextBrush" Color="#F4F7FB"/>
     <SolidColorBrush x:Key="OperatorBorderBrush" Color="#383838"/>
+    <SolidColorBrush x:Key="OperatorComboHoverBrush" Color="#2B3949"/>
+    <SolidColorBrush x:Key="OperatorComboSelectedBrush" Color="#1E2A36"/>
 
     <Style TargetType="Button">
       <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
@@ -115,10 +117,10 @@
                   </Border>
                   <ControlTemplate.Triggers>
                     <Trigger Property="IsHighlighted" Value="True">
-                      <Setter TargetName="Row" Property="Background" Value="#2B3949"/>
+                      <Setter TargetName="Row" Property="Background" Value="{DynamicResource OperatorComboHoverBrush}"/>
                     </Trigger>
                     <Trigger Property="IsSelected" Value="True">
-                      <Setter TargetName="Row" Property="Background" Value="#1E2A36"/>
+                      <Setter TargetName="Row" Property="Background" Value="{DynamicResource OperatorComboSelectedBrush}"/>
                       <Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                       <Setter TargetName="Row" Property="BorderThickness" Value="3,0,0,0"/>
                     </Trigger>
@@ -160,6 +162,56 @@
     <Style TargetType="CheckBox">
       <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
       <Setter Property="Margin" Value="4"/>
+    </Style>
+
+    <!-- Right-click menus use the same operator chrome as the rest of the desk. The default
+         MenuItem template reserves a light icon/check column, which appeared as a row of small
+         white boxes beside the labels; this template has only the label row. -->
+    <Style TargetType="ContextMenu">
+      <Setter Property="Background" Value="{DynamicResource OperatorPanelBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="3"/>
+      <Setter Property="HasDropShadow" Value="False"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ContextMenu">
+            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}"
+                    CornerRadius="6" local:ThemeManager.SkipTheme="True">
+              <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto">
+                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+              </ScrollViewer>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style TargetType="MenuItem">
+      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Padding" Value="12,6"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="MenuItem">
+            <Border x:Name="Row" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"
+                    Margin="1" CornerRadius="4" local:ThemeManager.SkipTheme="True">
+              <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"
+                                TextElement.Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="Row" Property="Background" Value="{DynamicResource OperatorComboHoverBrush}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Row" Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
   </Application.Resources>
 </Application>

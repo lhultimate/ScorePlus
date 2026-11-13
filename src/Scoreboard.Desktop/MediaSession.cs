@@ -1209,7 +1209,9 @@ public sealed class MediaSession
         // recorded without sound, so there is no audio to open either.
         _replay.Open(segment.Path, offset, play);
         // Before Start replay the cue is staged: only the previews pick it up.
-        if (_replayOnAir) Playback.Start(entry);
+        // Keep the promoted replay flag on every segment and scrub. Start() normally clears it for
+        // a fresh cue, which made the scorebug fall back to the live camera after a scrub.
+        if (_replayOnAir) Playback.Start(entry, replayOnAir: true);
         else Playback.Stage(entry);
         Playback.Seek(offset);
         // After the cue, so a paused scrub stays paused on the scorebug: Start() marks a new cue

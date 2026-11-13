@@ -313,14 +313,53 @@ try
     {
         Name="Ad",Kind=ScorebugElementKind.Video,MediaTag="Ads",PreserveVideoAspect=true,
         VideoAspect=4.0/3.0,Width=800,Height=600,AudioDevice="speaker-two",
+        VideoCropLeft=0.1,VideoCropTop=0.2,VideoCropRight=0.3,VideoCropBottom=0.15,
         ChromaKeyColor="#FF00FF00",ChromaKeyTolerance=0.11
     }));
     var reopenedVideo=new ScorebugCatalog(videoPath);
     var ad=reopenedVideo.Layout.Elements.First(x=>x.Kind==ScorebugElementKind.Video);
     Check(ad.PreserveVideoAspect&&Math.Abs(ad.VideoAspect-4.0/3.0)<0.001&&ad.AudioDevice=="speaker-two","a video element keeps its preserved aspect ratio and its own audio output");
     Check(ad.ChromaKeyColor=="#FF00FF00"&&Math.Abs(ad.ChromaKeyTolerance-0.11)<0.001,"a video element keeps its chroma key colour and tolerance across a save");
+    Check(Math.Abs(ad.VideoCropLeft-0.1)<0.001&&Math.Abs(ad.VideoCropTop-0.2)<0.001
+        &&Math.Abs(ad.VideoCropRight-0.3)<0.001&&Math.Abs(ad.VideoCropBottom-0.15)<0.001,
+        "a video element keeps its four-edge crop across a save");
 }
 finally{if(File.Exists(videoPath))File.Delete(videoPath);}
+
+// ---------- macro buttons: ordered steps save with the game ----------
+var macroPath=Path.Combine(Path.GetTempPath(),$"macros-{Guid.NewGuid():N}.spg");
+try
+{
+    var macroEngine=new GameEngine();macroEngine.NewGame("football");
+    macroEngine.StoreMacros([new SavedMacro
+    {
+        Label="Kickoff",
+        Color="#FF6B6B",
+        Actions=[
+            new MacroAction{Kind=MacroActionKind.Score,Home=true,Amount=3},
+            new MacroAction{Kind=MacroActionKind.SetDown,Value=1},
+            new MacroAction{Kind=MacroActionKind.SetTimeouts,Home=false,Value=2},
+            new MacroAction{Kind=MacroActionKind.PlayVideo,Path=@"C:\media\intro.mp4"},
+            new MacroAction{Kind=MacroActionKind.Control,Path="output.publish",Label="Output · Update Output"},
+            new MacroAction{Kind=MacroActionKind.SportValue,Path="football.firstdowns.home",Value=4,Label="Home 1st downs"},
+            new MacroAction{Kind=MacroActionKind.CustomValue,Path="stat-id",Value=7,Label="Turnovers"}
+        ]
+    }]);
+    macroEngine.SetGameName("Friday Night Lights");
+    File.WriteAllText(macroPath,GameFiles.Serialize(macroEngine.State,null));
+    var (loadedMacros,_)=GameFiles.Read(macroPath);
+    var macro=loadedMacros.Macros.Single();
+    Check(loadedMacros.GameName=="Friday Night Lights","a game name survives a game save");
+    Check(macro.Label=="Kickoff"&&macro.Color=="#FF6B6B"&&macro.Actions.Count==7,"macro buttons, their colour and every step survive a game save");
+    Check(macro.Actions[0].Kind==MacroActionKind.Score&&macro.Actions[1].Kind==MacroActionKind.SetDown
+        &&macro.Actions[2].Kind==MacroActionKind.SetTimeouts&&macro.Actions[3].Kind==MacroActionKind.PlayVideo,
+        "macro steps keep their order across a game save");
+    Check(macro.Actions[4].Kind==MacroActionKind.Control&&macro.Actions[4].Path=="output.publish"
+        &&macro.Actions[5].Kind==MacroActionKind.SportValue&&macro.Actions[5].Value==4
+        &&macro.Actions[6].Kind==MacroActionKind.CustomValue&&macro.Actions[6].Label=="Turnovers",
+        "console, sport-value and custom-value steps keep their targets across a save");
+}
+finally{if(File.Exists(macroPath))File.Delete(macroPath);}
 
 // ---------- typography, text transitions and team colour slots ----------
 var styledPath=Path.Combine(Path.GetTempPath(),$"styled-{Guid.NewGuid():N}.json");
@@ -663,6 +702,27 @@ try
         "the touchdown and field-goal videos switch off independently");
     reloadedScoreVideo.ClearScoreCelebration(false);
     Check(reloadedScoreVideo.Layout.FieldGoalVideo is null,"a score celebration can be cleared completely");
+    var plusSixVideo=new ScoreVideo{Path=@"C:\\clips\\plus-six.mp4",ChromaKeyColor="#FF00B140",ChromaKeyTolerance=0.14};
+    var minusSixVideo=new ScoreVideo{Path=@"C:\\clips\\minus-six.mp4",ChromaKeyColor="#FF2020FF",ChromaKeyTolerance=0.08};
+    reloadedScoreVideo.ApplyScoreVideoToLayout(6,plusSixVideo);
+    reloadedScoreVideo.ApplyScoreVideoToLayout(-6,minusSixVideo);
+    var valueRules=new ScorebugCatalog(scoreMotionPath);
+    Check(valueRules.Layout.ScoreVideoForAmount(6)?.Path==plusSixVideo.Path
+        &&valueRules.Layout.ScoreVideoForAmount(-6)?.Path==minusSixVideo.Path
+        &&valueRules.Layout.ScoreVideoForAmount(3) is null,
+        "score videos are selected by the exact signed score change");
+    var minusSixTolerance=valueRules.Layout.ScoreVideoForAmount(-6)?.ChromaKeyTolerance??1;
+    Check(valueRules.Layout.ScoreVideoForAmount(6)?.ChromaKeyColor=="#FF00B140"
+        &&Math.Abs(minusSixTolerance-0.08)<0.001,
+        "a value score video keeps its own chroma key in the saved layout");
+    var copiedValueRules=valueRules.Layout.Copy();
+    Check(copiedValueRules.ScoreVideoForAmount(6)?.Path==plusSixVideo.Path
+        &&copiedValueRules.ScoreVideoForAmount(-6)?.Path==minusSixVideo.Path,
+        "a copied layout carries every value score video");
+    valueRules.ApplyScoreVideoToLayout(6,null);
+    Check(valueRules.Layout.ScoreVideoForAmount(6) is null
+        &&valueRules.Layout.ScoreVideoForAmount(-6)?.Path==minusSixVideo.Path,
+        "one score value's video can be removed without clearing the others");
     var shimmerPreset=MotionClip.AnimationPreset("Shimmer");
     var colourCyclePreset=MotionClip.AnimationPreset("Color cycle");
     Check(shimmerPreset.Phases[0].Tracks.Count==0&&colourCyclePreset.Phases[0].Tracks.Count==0,

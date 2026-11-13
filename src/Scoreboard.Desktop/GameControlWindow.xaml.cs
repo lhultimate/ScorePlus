@@ -21,8 +21,8 @@ public partial class GameControlWindow : Window
     bool _displaySync;
     ConsoleTab _tab = ConsoleTab.Control;
 
-    /// <summary>The three desks a control window carries: console, media and rosters.</summary>
-    public enum ConsoleTab { Control, Media, Rosters }
+    /// <summary>The desks a control window can carry; the main window also hosts Macros.</summary>
+    public enum ConsoleTab { Control, Media, Rosters, Macros }
 
     public ControlPanelView Panel { get; }
 

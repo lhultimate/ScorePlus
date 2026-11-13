@@ -247,7 +247,7 @@
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
               <ToggleButton x:Name="PenaltyActiveToggle" Content="No flag" MinHeight="32"
                             Padding="10,2" Checked="Penalty_Changed" Unchecked="Penalty_Changed"
-                            ToolTip="Whether a flag is up at all"/>
+                            ToolTip="Whether a flag is down at all"/>
               <ComboBox x:Name="PenaltyTypeBox" Width="132" MinHeight="30" Margin="6,0,0,0"
                         SelectionChanged="Penalty_Changed"
                         ToolTip="What the flag was given for — holding, offside, handball and the rest"/>
@@ -257,7 +257,7 @@
             </StackPanel>
             <TextBlock x:Name="PenaltyHint" Style="{StaticResource Caption}" VerticalAlignment="Center"
                        Margin="8,0,0,0" TextTrimming="CharacterEllipsis"
-                       Text="No flag is up. Update Output puts one on air."/>
+                       Text="No flag down. Update Output puts one on air."/>
           </DockPanel>
 
         </Grid>

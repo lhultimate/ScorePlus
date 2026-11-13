@@ -100,6 +100,9 @@ public sealed class UserPreferences
     /// <summary>Twelve quick-media buttons above the quick layouts. Each one points at a library path.</summary>
     public List<QuickMediaBinding> QuickMedia { get; set; } = [];
 
+    /// <summary>The operator's own multiview tile layout: previews, audience displays, cameras or replay.</summary>
+    public List<MultiviewTileBinding> MultiviewTiles { get; set; } = [];
+
     /// <summary>
     /// Off by default: a quick button only stages its layout. When this is on, the same press also
     /// sends it to air, which is faster but updates output without a second confirmation.
@@ -348,6 +351,10 @@ public static class ThemeManager
         window.Resources["OperatorInputBrush"] = Brush(input);
         window.Resources["OperatorTextBrush"] = Brush(foreground);
         window.Resources["OperatorBorderBrush"] = Brush(border);
+        // Popup rows are templated, so their hover/selection shades need to follow the theme
+        // too. The dark-only literals made a light-theme dropdown show dark rows.
+        window.Resources["OperatorComboHoverBrush"] = Brush(light ? "#FFE2E8F0" : "#FF2B3949");
+        window.Resources["OperatorComboSelectedBrush"] = Brush(light ? "#FFD9E2EC" : "#FF1E2A36");
 
         // The operator's own accent pair: the outline colour and the filled-action colour. A failed
         // read keeps the last accent that worked rather than falling back to the stock green, which
@@ -380,6 +387,45 @@ public static class ThemeManager
         {
             if (args.OriginalSource is DependencyObject element) PaintAccent(element, accent, secondary);
         }), handledEventsToo: true);
+    }
+
+    /// <summary>
+    /// Paints an element tree that is hosted outside its own window, such as the Conditionals
+    /// editor embedded in the main workspace. A Window's Loaded event never fires there, so the
+    /// normal theme pass has to be run directly against the detached content.
+    /// </summary>
+    public static void ApplyTo(FrameworkElement root, string theme)
+    {
+        var light = Resolve(theme) == "Light";
+        var panel = light ? "#FFFFFFFF" : "#FF080808";
+        var surface = light ? "#FFE5EAF0" : "#FF141414";
+        var foreground = light ? "#FF18202B" : "#FFF4F7FB";
+        var input = light ? "#FFFFFFFF" : "#FF050505";
+        var border = light ? "#FFB9C3CE" : "#FF383838";
+
+        root.Resources["OperatorPanelBrush"] = Brush(panel);
+        root.Resources["OperatorSurfaceBrush"] = Brush(surface);
+        root.Resources["OperatorInputBrush"] = Brush(input);
+        root.Resources["OperatorTextBrush"] = Brush(foreground);
+        root.Resources["OperatorBorderBrush"] = Brush(border);
+        root.Resources["OperatorComboHoverBrush"] = Brush(light ? "#FFE2E8F0" : "#FF2B3949");
+        root.Resources["OperatorComboSelectedBrush"] = Brush(light ? "#FFD9E2EC" : "#FF1E2A36");
+
+        UserPreferences? preferences = null;
+        try { preferences = PreferencesStore.Load(); } catch { }
+        var accent = preferences is not null
+            ? UiPalette.Accent(preferences)
+            : _lastAccent?.Accent ?? UiPalette.Accent(new UserPreferences());
+        var secondary = preferences is not null
+            ? UiPalette.Secondary(preferences)
+            : _lastAccent?.Secondary ?? UiPalette.Secondary(new UserPreferences());
+        _lastAccent = (accent, secondary);
+        root.Resources["Accent"] = UiPalette.Frozen(accent);
+        root.Resources["AccentFillBrush"] = UiPalette.Frozen(UiPalette.Soft(accent));
+        root.Resources["AccentActionBrush"] = UiPalette.Frozen(secondary);
+
+        SetDescendants(root, panel, surface, foreground, input, border);
+        ApplyAccent(root, accent, secondary);
     }
 
     static Brush Brush(string color) => (Brush)new BrushConverter().ConvertFromString(color)!;

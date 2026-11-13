@@ -216,6 +216,9 @@ public partial class ControlPanelView : UserControl
         _showHints = show;
         if (DetailCardHint is not null)
             DetailCardHint.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        // The penalty strip has no separate heading; without tips the terse status line is noise.
+        if (PenaltyHint is not null)
+            PenaltyHint.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void SyncLiveState(bool live)
@@ -349,7 +352,7 @@ public partial class ControlPanelView : UserControl
             // The strip is one line beside three controls, so the hint stays to the point.
             PenaltyHint.Text = s.PenaltyActive
                 ? $"{(s.PenaltyHome ? s.HomeTeam : s.AwayTeam)} — {s.PenaltyType}"
-                : "No flag up";
+                : "No flag down";
         }
         finally { _penaltySync = false; }
     }
