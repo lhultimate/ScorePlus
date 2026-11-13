@@ -44,9 +44,9 @@ ScorePlus is two programs in one window: an **operator console** that a scorekee
 
 It was built around four ideas:
 
-**1. One console, no scrolling.** The control panel puts both teams, the game clock, the play clock, the shot clock, down & distance, the ball spot, possession, timeouts, the timeout clock and your custom values on a single page. There is nothing to hunt for and no tabs to flip through mid-play.
+**1. One console, no scrolling.** The control panel puts both teams, the game clock, the play clock, the shot clock, down & distance, the ball spot, possession, timeouts, the timeout clock and your custom stats on a single page. There is nothing to hunt for and no tabs to flip through mid-play.
 
-**2. Live data, staged data.** Scores, clocks, team names and the selected player's data are *live* — they hit the audience the instant they change. Everything else is *staged*: down and distance, possession, timeouts, custom values and the chosen layout only go on air when you press **Update Output**. That gives you a rehearsal layer between your fingers and the broadcast.
+**2. Live data, staged data.** Scores, clocks, team names and the selected player's data are *live* — they hit the audience the instant they change. Everything else is *staged*: down and distance, possession, timeouts, custom stats and the chosen layout only go on air when you press **Update Output**. That gives you a rehearsal layer between your fingers and the broadcast.
 
 **3. The graphic is yours.** A built-in studio lets you design the scorebug from scratch with text, logos, shapes, video boxes and live HTML — on a canvas that can be HD, Full HD, QHD, 4K or vertical. Every element is typed, colored, bordered, rotated and animated independently, and any element can read any value the game holds.
 
@@ -100,7 +100,7 @@ The launch box offers:
 - **Autosaves** — the recovery points listed down the side, each labelled with its time. Click one to load it.
 - **Delete all** — clears every autosave. It arms for a few seconds and needs a second click, so a stray click can never throw away a season. Saved `.spg` files are never touched.
 
-> **What a new game keeps and what it clears.** A new game resets the teams, logo, score, clocks, sport values, custom values, rosters-in-play, media folders and playlists, and any extra layouts or displays — it goes back to one scorebug. It keeps the things that describe *you*, not the game: imported media files, sport profiles, rosters and their stat columns, keybinds, fonts, preferences and your accent colors.
+> **What a new game keeps and what it clears.** A new game resets the teams, logo, score, clocks, sport values, custom stats, rosters-in-play, media folders and playlists, and any extra layouts or displays — it goes back to one scorebug. It keeps the things that describe *you*, not the game: imported media files, sport profiles, rosters and their stat columns, keybinds, fonts, preferences and your accent colors.
 
 ---
 
@@ -260,14 +260,6 @@ Clips live in the show's library and are written on their own as **`.spt`** file
 **Animation Maker** keys motion rather than a hand-over. A loop runs from its first key to its last for as long as the graphic is up — a bob, a sway, a breathe, a spin, a color cycle — and **ping-pong** runs it back the other way instead of snapping to the start. Tick **Play when the value changes** and the same clip becomes the flourish a new number plays: a pop, a ticker roll, a slide-in.
 
 Apply it to an element and it replaces the two motion presets for that element; the value-change form runs after the new value lands. Animations are written as **`.spa`** files and, like transitions, are copied onto the element that uses them so they save with the layout, the display and the game.
-
-### Touchdown and Field-Goal Animations
-
-The layout bar's **SCORE ANIMATIONS** row gives American football's two scoring plays their own celebration. **Touchdown** plays for a six-, seven- or eight-point score, and **Field goal** for a three-point score. Each picker offers **None**, the built-in Animation Maker styles, or any animation saved in the show's library. A saved clip keeps its per-item keys and temporary pieces, so a touchdown can pop the score plates, flash a full-frame card and fade it away without changing the layout. Whole-graphic keys animate the scorebug together; per-item keys move only the items they name, and a whole-graphic background key paints the layout backdrop rather than recolouring every item plate.
-
-Either scoring play can instead be a **video**. **Video…** chooses a clip that plays full-frame over the scorebug; **Key…** removes its green or blue backdrop with the same chroma shader used by video elements and video hand-overs, and **Tol** controls how close a pixel must be to the key colour. The clip, its key colour and its tolerance are stored on the layout, so an exported `.spl`, `.spd` or `.spg` carries them with the design. A video and a made animation are alternatives: choosing one clears the other for that scoring play. **Clear video** removes the clip, and **None** clears the whole celebration.
-
-Clock updates, score corrections and non-football sports do not trigger a score celebration; only a real scoring action does. Choose **None** to leave a play completely still.
 
 ### Per-Window Layout Choice
 
@@ -448,7 +440,7 @@ Preferences can serve the whole control panel to a phone or tablet on the same W
 
 The remote is three tabs, the same shape as the desktop:
 
-- **Console** — both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance with **Next down / Previous down / New series / Last down**, the ball spot and its side, possession, the sport's own values, custom values, layout switching, **Update Output**, **Live**, **Undo** and **New panel**.
+- **Console** — both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance with **Next down / Previous down / New series / Last down**, the ball spot and its side, possession, the sport's own values, custom stats, layout switching, **Update Output**, **Live**, **Undo** and **New panel**.
 - **Media** — the library as a list, with one tap to put a clip on air, one to take it off, and a **Play / Pause** for whatever is on air now.
 - **Roster** — both sides, the roster each one draws from, and its players; tap a roster to assign it and a player to put them on the graphic.
 
@@ -560,7 +552,7 @@ The main window is one page, top to bottom.
 - **Penalty box** — on the console itself rather than behind a dialog: a flag toggle, what the flag was given for and which team it is against. It stages like every other value, so **Update Output** is what puts a flag on air.
 - **Timeout clock** — one-minute clock with a reset and ±1s/±10s.
 - **Sport controls** — that sport's own values as compact `− value +` strips, typed over by clicking the number.
-- **Custom values** — any number *or* any text: `3rd`, `N/A`, `TBD`. New games start with sport-aware values such as **Field goal attempts**, **Field goal yards**, **Turnovers** and **Penalties**; **＋ Add** creates more, and each can be shown on the graphic with `{{STAT:Name}}` and in the report.
+- **Custom stats** — any number *or* any text: `3rd`, `N/A`, `TBD`. **＋ Add** creates one, and each can be shown on the graphic with `{{STAT:Name}}` and in the report.
 - **Program preview** with the display dropdown, the **◀ ▶** layout arrows, the **sound level meter** and the on-air/layout readout, and the smaller **audience view** below it.
 - **Live: ON / OFF** and **Update Output** at the bottom of the preview column.
 
@@ -691,7 +683,7 @@ Bind live data by typing a token into a text element's content, or by using the 
 | `{{PLAYER:HOME:Name}}` | A value from the selected player |
 | `{{PLAYER:AWAY:Number}}` | Same, other side |
 | `{{PLAYER:HOME:Yards}}` | Any stat column the roster tracks |
-| `{{STAT:Turnovers}}` | A custom value by name |
+| `{{STAT:Turnovers}}` | A custom stat by name |
 | `{{DATE}}` / `{{TIME}}` | Today's date, the current time |
 
 Tokens are resolved at draw time, so an element holding `{{HOME_SCORE}}` always shows the current score — including during a value transition, where the old and new values are both known.
@@ -720,7 +712,7 @@ Both accents accept a typed hex value or a picker, and **Reset** brings back the
 
 | Extension | Name | Holds |
 | --- | --- | --- |
-| `.spg` | **ScorePlus Game** | Everything: teams, score, clocks, sport values, custom values, every display and layout with its transitions and animations, the motion library, what is on air, rosters in use, selected players and their stats |
+| `.spg` | **ScorePlus Game** | Everything: teams, score, clocks, sport values, custom stats, every display and layout with its transitions and animations, the motion library, what is on air, rosters in use, selected players and their stats |
 | `.spl` | **ScorePlus Layout** | One layout, with all of its elements, artwork and transition |
 | `.spd` | **ScorePlus Display** | One display and every layout on it, their order, and what is on air — with each layout's transition clip |
 | `.spt` | **ScorePlus Transition** | One keyframed hand-over: its exit and enter legs, every property key and every color key |
@@ -732,7 +724,7 @@ Both accents accept a typed hex value or a picker, and **Reset** brings back the
 
 Exporting a layout or display keeps the artwork and settings, including the team palette slots (they re-read the game's colors, so the graphic still matches whoever is playing). A cross-display link is cleared on import, because a single file cannot contain the display it pointed at.
 
-The game report is a complete record: every value the game holds, the sport's own figures, the event timeline, all custom values, and a table for **every roster with every player and every stat column — zeros included**, so a report never hides the players who didn't touch the ball.
+The game report is a complete record: every value the game holds, the sport's own figures, the event timeline, all custom stats, and a table for **every roster with every player and every stat column — zeros included**, so a report never hides the players who didn't touch the ball.
 
 ---
 
@@ -835,7 +827,7 @@ dotnet run --project tests/HtmlRender/HtmlRender.csproj -c Release
 
 `HtmlRender` is separate because the browser engine refuses to start unless the app's own event loop is running; the smoke harness drives the dispatcher itself.
 
-Between them the suites cover scoring, undo, clock behaviour, period formats, sport profiles and overrides, custom values and tokens, live-versus-staged publishing, multiple layouts and displays, linked and copied parts, element typography and transitions, icon artwork, media tags, volume and speaker routing, camera and replay staging, roster files, the advertisement log and the icon library, layout and display files, media folder files, report output, the remote page, the installer's update path, and the studio's keyboard and canvas behaviour.
+Between them the suites cover scoring, undo, clock behaviour, period formats, sport profiles and overrides, custom stats and tokens, live-versus-staged publishing, multiple layouts and displays, linked and copied parts, element typography and transitions, icon artwork, media tags, volume and speaker routing, camera and replay staging, roster files, the advertisement log and the icon library, layout and display files, media folder files, report output, the remote page, the installer's update path, and the studio's keyboard and canvas behaviour.
 
 ---
 
@@ -874,9 +866,9 @@ The console and studio reflow onto portrait monitors and high-DPI scaling. The s
 
 ScorePlus is an evolving production tool, not yet a full broadcast package. Still ahead:
 
-- Network and hardware control (not for a bit)
+- Network and hardware control (Major WIP right now)
 - Multi-game communication
-- More of the console reachable from the phone (the media and roster tabs are in; the long tail of sport-specific verbs is not)
+- More of the console reachable from the phone (the media and roster tabs are in; the media and UI enhancements are not)
 - Professional/commercial use
 
 Also worth knowing: video sound plays through the audience output window while the preview and studio stay muted, so you never hear a cue twice — and a video element with its own audio output is only routed when it is on an audience screen, so several preview windows never open the same speaker more than once.
