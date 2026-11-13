@@ -87,7 +87,7 @@ The setup also accepts `/SILENT`, `/DIR=<path>`, `/NOICONS` and `/NOREG` for scr
 
 Download **`ScorePlusPortable.exe`** and run it from anywhere — a USB stick, a desktop folder, a network share. It needs nothing else: one file, no loose DLLs, no runtime install.
 
-A portable copy never checks for updates and never touches the registry, so it is the safe choice for testing a new alpha beside the version that runs your show.
+A portable copy never checks for updates and never touches the registry, so it is the safe choice for testing a new beta beside the version that runs your show.
 
 ### First Launch
 
@@ -868,7 +868,7 @@ ScorePlus is an evolving production tool, not yet a full broadcast package. Stil
 
 - Network and hardware control (Major WIP right now)
 - Multi-game communication
-- More of the console reachable from the phone (the media and roster tabs are in; the media and UI enhancements are not)
+- More of the console reachable from the phone (the media and roster tabs are in, but the live camera fixes and UI enhancements are not)
 - Professional/commercial use
 
 Also worth knowing: video sound plays through the audience output window while the preview and studio stay muted, so you never hear a cue twice — and a video element with its own audio output is only routed when it is on an audience screen, so several preview windows never open the same speaker more than once.
@@ -877,4 +877,4 @@ Several live sources can be on air together: each camera and each microphone kee
 
 ---
 
-<sub>ScorePlus · alpha · bugs are expected and reports are welcome.</sub>
+<sub>ScorePlus · beta · bugs are expected and reports are welcome.</sub>
