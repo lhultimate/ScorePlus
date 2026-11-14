@@ -34,6 +34,10 @@ public partial class SettingsWindow : Window
         AutosaveMinutesInput.Text = _draft.AutosaveMinutes.ToString(CultureInfo.InvariantCulture);
         ClockFormatInput.SelectedIndex = string.Equals(_draft.ClockFormat, "Compact", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         AutoRecordInput.IsChecked = _draft.AutoUpdateRecord;
+        TieRuleInput.SelectedIndex = string.Equals(_draft.TieRule, "AllowTie", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        TiePeriodInput.Text = _draft.TieAllowPeriod.ToString(CultureInfo.InvariantCulture);
+        TiePeriodInput.IsEnabled = TieRuleInput.SelectedIndex == 1;
+        OvertimeFinalInput.IsChecked = _draft.ShowOvertimeFinal;
         AccentInput.Text = _draft.AccentColor;
         Accent2Input.Text = _draft.AccentColor2;
         PaintSwatches();
@@ -293,6 +297,26 @@ public partial class SettingsWindow : Window
         _draft.AutoUpdateRecord = AutoRecordInput.IsChecked == true;
     }
 
+    void TieRule_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || TieRuleInput is null || TiePeriodInput is null) return;
+        _draft.TieRule = TieRuleInput.SelectedIndex == 1 ? "AllowTie" : "PlayUntilWinner";
+        TiePeriodInput.IsEnabled = TieRuleInput.SelectedIndex == 1;
+    }
+
+    void TiePeriod_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_loading || TiePeriodInput is null) return;
+        if (int.TryParse(TiePeriodInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var period))
+            _draft.TieAllowPeriod = Math.Clamp(period, 1, 99);
+    }
+
+    void OvertimeFinal_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || OvertimeFinalInput is null) return;
+        _draft.ShowOvertimeFinal = OvertimeFinalInput.IsChecked == true;
+    }
+
     void Autosave_Changed(object sender, TextChangedEventArgs e)
     {
         if (_loading || AutosaveMinutesInput is null) return;
@@ -374,6 +398,9 @@ public partial class SettingsWindow : Window
         _original.AutosaveMinutes = Math.Max(0, _draft.AutosaveMinutes);
         _original.ClockFormat = _draft.ClockFormat;
         _original.AutoUpdateRecord = _draft.AutoUpdateRecord;
+        _original.TieRule = _draft.TieRule;
+        _original.TieAllowPeriod = Math.Clamp(_draft.TieAllowPeriod, 1, 99);
+        _original.ShowOvertimeFinal = _draft.ShowOvertimeFinal;
         _original.AccentColor = _draft.AccentColor;
         _original.AccentColor2 = _draft.AccentColor2;
         _original.RemotePort = _draft.RemotePort;

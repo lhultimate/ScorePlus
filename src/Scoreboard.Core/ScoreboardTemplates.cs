@@ -73,6 +73,9 @@ public static class ScoreboardTemplates
         .Replace("{{LAST_SCORE_ABBR}}", state.LastScoreAmount == 0 ? string.Empty : state.LastScoreAbbreviation)
         .Replace("{{LAST_SCORE_SIDE}}", state.LastScoreAmount == 0 ? string.Empty : state.LastScoreHome ? "HOME" : "AWAY")
         .Replace("{{PERIOD}}", PeriodDisplay.Format(state, periodFormat).ToUpperInvariant())
+        // A league cloud feed can be placed in a lower third without rebuilding the graphic.
+        .Replace("{{LEAGUE_GAMES}}", state.LeagueTickerText)
+        .Replace("{{LEAGUE_TICKER}}", state.LeagueTickerText)
         // Final and End of Reg. replace the clock's digits on the graphic.
         .Replace("{{GAME_CLOCK}}", state.GameClockText)
         .Replace("{{STOPPAGE}}", GameEngine.FormatClock(state.StoppageSeconds))

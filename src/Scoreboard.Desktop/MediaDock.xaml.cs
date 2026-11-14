@@ -88,6 +88,8 @@ public partial class MediaDock : UserControl
         ThemeManager.SetSkipTheme(this, true);
         TagBox.ItemsSource = MediaLibrary.SuggestedTags;
         TagBox.Text = MediaLibrary.DefaultTag;
+        TransitionBox.ItemsSource = MediaLibrary.TransitionOptions;
+        TransitionBox.SelectedItem = "Cut";
         ApplyTheme("Dark");
         // A UserControl's children only reach the visual tree when its template is applied, so the
         // size swap has to run once more after load or the first pass finds nothing to restyle.
@@ -109,7 +111,7 @@ public partial class MediaDock : UserControl
         Set("DockInput", light ? "#FFFFFF" : "#050505");
         Set("DockTrack", light ? "#C9D2DC" : "#26313D");
         Set("DockThumb", light ? "#FFFFFF" : "#EAF0F7");
-        Set("DockRail", light ? "#F2F5F9" : "#10151D");
+        Set("DockRail", light ? "#FFFFFF" : "#080808");
         Set("DockAccent", UiPalette.Accent(PreferencesStore.Load()));
         _tilePanel = Frozen(light ? "#F2F5F9" : "#10151D");
         _tileBorderIdle = Frozen(light ? "#C9D2DC" : "#1E2630");
@@ -229,6 +231,8 @@ public partial class MediaDock : UserControl
             }
             ClipLoopBox.IsChecked = selected?.Loop == true;
             ClipLoopBox.IsEnabled = selected is not null;
+            TransitionBox.IsEnabled = selected?.IsVideo == true;
+            TransitionBox.SelectedItem = MediaLibrary.NormalizeTransition(selected?.Transition);
 
             // Audio: the selected clip's own level and speaker.
             var level = Math.Round((selected?.Volume ?? 1) * 100);
@@ -321,6 +325,12 @@ public partial class MediaDock : UserControl
         CameraBox.SelectedItem = active is null
             ? null
             : _cameraChoices.FirstOrDefault(choice => string.Equals(choice.Entry.Path, active.Path, StringComparison.OrdinalIgnoreCase));
+    }
+
+    void Transition_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing || _session?.Selected is not { IsVideo: true } selected) return;
+        _session.SetClipTransition(selected, TransitionBox.SelectedItem as string);
     }
 
     /// <summary>Shows the dock again (the tab was just opened).</summary>

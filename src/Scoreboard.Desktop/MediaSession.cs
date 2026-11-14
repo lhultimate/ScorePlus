@@ -548,7 +548,8 @@ public sealed class MediaSession
                         AudioDevice = entry.AudioDevice,
                         Name = entry.Name,
                         CameraDevice = entry.CameraDevice,
-                        MicrophoneDevice = entry.MicrophoneDevice
+                        MicrophoneDevice = entry.MicrophoneDevice,
+                        Transition = entry.Transition
                     };
                     if (!entry.IsCamera && !entry.IsMicrophone && File.Exists(entry.Path))
                     {
@@ -618,7 +619,8 @@ public sealed class MediaSession
                 {
                     if (Library.Any(entry => string.Equals(entry.Path, clip.Path, StringComparison.OrdinalIgnoreCase))) continue;
                     Library.Add(new MediaEntry(clip.Path, MediaLibrary.NormalizeTag(clip.Tag), folder, clip.Loop,
-                        Math.Clamp(clip.Volume, 0, 1), clip.AudioDevice, clip.Name, clip.CameraDevice, clip.MicrophoneDevice));
+                        Math.Clamp(clip.Volume, 0, 1), clip.AudioDevice, clip.Name, clip.CameraDevice, clip.MicrophoneDevice)
+                    { Transition = MediaLibrary.NormalizeTransition(clip.Transition) });
                     added++;
                     continue;
                 }
@@ -630,7 +632,8 @@ public sealed class MediaSession
                 var target = UniqueFile(landing, name);
                 zipEntry.ExtractToFile(target, true);
                 Library.Add(new MediaEntry(target, MediaLibrary.NormalizeTag(clip.Tag), folder, clip.Loop,
-                    Math.Clamp(clip.Volume, 0, 1), clip.AudioDevice, clip.Name, clip.CameraDevice));
+                    Math.Clamp(clip.Volume, 0, 1), clip.AudioDevice, clip.Name, clip.CameraDevice)
+                { Transition = MediaLibrary.NormalizeTransition(clip.Transition) });
                 added++;
             }
 
@@ -663,6 +666,24 @@ public sealed class MediaSession
             if (!File.Exists(target)) return target;
         }
         return Path.Combine(directory, $"{Guid.NewGuid():N}{extension}");
+    }
+
+    /// <summary>Chooses the animation used when this clip or camera replaces the previous cue.</summary>
+    public void SetClipTransition(MediaEntry entry, string? transition)
+    {
+        entry = Resolve(entry);
+        var updated = entry with { Transition = MediaLibrary.NormalizeTransition(transition) };
+        if (string.Equals(entry.Transition, updated.Transition, StringComparison.Ordinal)) return;
+        var index = Library.IndexOf(entry);
+        if (index < 0) index = Library.ToList().FindIndex(item => string.Equals(item.Path, entry.Path, StringComparison.OrdinalIgnoreCase));
+        if (index < 0) return;
+        Library[index] = updated;
+        if (SameClip(Current, updated)) Current = updated;
+        if (SameClip(Selected, updated)) Selected = updated;
+        Playback.UpdateEntry(updated);
+        Save();
+        StateChanged?.Invoke();
+        Status?.Invoke($"SWITCH · {updated.Label} → {updated.Transition}");
     }
 
     /// <summary>Turns this one clip's own loop on or off.</summary>

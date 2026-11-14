@@ -84,6 +84,11 @@ finally{if(File.Exists(layoutPath))File.Delete(layoutPath);}
 engine.NewGame("football");engine.AdvanceDown();Check(engine.State.Down==2&&engine.State.YardsToGo==10,"football advances from first to second down");engine.AdvanceDown();engine.AdvanceDown();engine.AdvanceDown();Check(engine.State.Down==1,"football fourth down starts a new series");engine.SetFootballDistance(4,22);Check(engine.State.YardsToGo==4&&engine.State.YardsToGoal==22,"football yardage and distance are editable");
 engine.SetDown(1);engine.SetFootballDistance(6);engine.SetFootballDownMode(FootballDownMode.Goal);Check(engine.State.DownDistanceDisplay=="1st & Goal","first and goal prints 1st & Goal");engine.SetFootballDownMode(FootballDownMode.Pat);Check(engine.State.DownDisplay=="PAT"&&engine.State.ToGoDisplay==""&&engine.State.DownDistanceDisplay=="PAT","the down line can become PAT after a touchdown");engine.SetFootballDownMode(FootballDownMode.TwoPoint);Check(engine.State.DownDistanceDisplay=="2 PT ATT","the down line can become 2 PT ATT after a touchdown");engine.SetFootballDownMode(FootballDownMode.None);Check(engine.State.DownDisplay==""&&engine.State.ToGoDisplay==""&&engine.State.DownDistanceDisplay==""&&ScoreboardTemplates.Bind("{{DOWNS}}",engine.State)=="","the down and distance can be blank");engine.SetFootballDownMode(FootballDownMode.Normal);Check(engine.State.DownDistanceDisplay=="1st & 6","normal down display comes back after a special mode");
 engine.NewGame("football");engine.SetClockMessage(GameClockMessage.Final);Check(engine.State.GameClockText=="FINAL"&&ScoreboardTemplates.Bind("{{GAME_CLOCK}}",engine.State)=="FINAL","the game clock can read Final");engine.SetClockMessage(GameClockMessage.EndOfRegulation);Check(engine.State.GameClockText=="END OF REG."&&ScoreboardTemplates.Bind("{{GAME_CLOCK}}",engine.State)=="END OF REG.","the game clock can read End of Reg.");engine.SetClockMessage(GameClockMessage.Clock);Check(engine.State.GameClockText==GameEngine.FormatClock(engine.State.ClockSeconds),"the game clock returns to the running time");
+var overtimeLabel=new GameEngine();overtimeLabel.NewGame("football");overtimeLabel.State.Period=overtimeLabel.State.TotalPeriods+1;overtimeLabel.SetClockMessage(GameClockMessage.Final);
+Check(overtimeLabel.State.GameClockText=="FINAL","a final after overtime still reads FINAL when the label option is off");
+GameEngine.OvertimeFinalLabelEnabled=true;
+Check(overtimeLabel.State.GameClockText=="FINAL/OT"&&ScoreboardTemplates.Bind("{{GAME_CLOCK}}",overtimeLabel.State)=="FINAL/OT","the final clock can print FINAL/OT after overtime");
+GameEngine.OvertimeFinalLabelEnabled=false;
 engine.NewGame("football");engine.SetPeriod(5);Check(PeriodDisplay.Format(engine.State)=="OT","a fifth football period prints OT");engine.SetPeriod(6);Check(PeriodDisplay.Format(engine.State)=="2OT","a sixth football period prints 2OT");
 engine.NewGame("soccer");engine.AddCard(true);engine.AddCard(false,true);Check(engine.State.HomeYellowCards==1&&engine.State.AwayRedCards==1,"soccer yellow and red cards track per side");Check(engine.Undo()&&engine.State.AwayRedCards==0,"soccer card can be undone");
 Check(!GameEngine.UppercaseDownWordsEnabled,"the full-caps down line is off by default");
@@ -946,6 +951,42 @@ try
     Check(autoRecord.State.HomeRecord=="5-0"&&autoRecord.State.AwayRecord=="5-8-1"
         &&autoRecord.State.GameEnded&&autoRecord.State.RecordSettled,
         "the final whistle marks the game final and adds a win and a loss to both team records");
+    // A tied regulation game is held at End of Reg. while overtime is still possible. The record
+    // is only settled when a winner emerges, unless the operator chooses a tie period.
+    var tieGame=new GameEngine();tieGame.NewGame("football");
+    tieGame.State.HomeRecord="5-2";tieGame.State.AwayRecord="5-2";
+    tieGame.State.Period=tieGame.State.TotalPeriods;tieGame.State.ClockSeconds=1;
+    tieGame.Score(true,7);tieGame.Score(false,7);
+    GameEngine.AutoUpdateRecordEnabled=true;GameEngine.TieAllowedAtPeriod=0;
+    tieGame.State.ClockRunning=true;Thread.Sleep(1100);tieGame.Tick();
+    Check(tieGame.State.ClockMessage==GameClockMessage.EndOfRegulation&&!tieGame.State.GameEnded
+        &&!tieGame.State.RecordSettled&&tieGame.State.HomeRecord=="5-2",
+        "a tied regulation game waits at End of Reg. instead of recording a tie");
+    tieGame.State.Period=5;tieGame.State.ClockSeconds=1;tieGame.State.ClockRunning=true;
+    Thread.Sleep(1100);tieGame.Tick();
+    Check(tieGame.State.ClockMessage==GameClockMessage.EndOfRegulation&&!tieGame.State.RecordSettled,
+        "a tie after overtime also stays open until a winner is found");
+    tieGame.Score(true,3);tieGame.EndGame();
+    Check(tieGame.State.GameEnded&&tieGame.State.RecordSettled&&tieGame.State.HomeRecord=="6-2"
+        &&tieGame.State.AwayRecord=="5-3",
+        "a winner in overtime settles both records");
+    var tieEnd=new GameEngine();tieEnd.NewGame("football");
+    tieEnd.State.HomeRecord="5-2";tieEnd.State.AwayRecord="5-2";
+    tieEnd.State.Period=tieEnd.State.TotalPeriods;tieEnd.Score(true,7);tieEnd.Score(false,7);
+    GameEngine.AutoUpdateRecordEnabled=true;GameEngine.TieAllowedAtPeriod=0;
+    Check(tieEnd.EndGame()&&tieEnd.State.GameEnded&&tieEnd.State.RecordSettled
+        &&tieEnd.State.ClockMessage==GameClockMessage.Final
+        &&tieEnd.State.HomeRecord=="5-2-1"&&tieEnd.State.AwayRecord=="5-2-1",
+        "End Game records a tie instead of leaving the records unchanged");
+    var tieAtFour=new GameEngine();tieAtFour.NewGame("football");
+    tieAtFour.State.HomeRecord="5-2";tieAtFour.State.AwayRecord="5-2";
+    tieAtFour.State.Period=tieAtFour.State.TotalPeriods;tieAtFour.State.ClockSeconds=1;
+    tieAtFour.Score(true,7);tieAtFour.Score(false,7);
+    GameEngine.TieAllowedAtPeriod=4;tieAtFour.State.ClockRunning=true;Thread.Sleep(1100);tieAtFour.Tick();
+    Check(tieAtFour.State.GameEnded&&tieAtFour.State.RecordSettled
+        &&tieAtFour.State.HomeRecord=="5-2-1"&&tieAtFour.State.AwayRecord=="5-2-1",
+        "choosing regulation as the tie period records a 5-2-1 tie");
+    GameEngine.AutoUpdateRecordEnabled=false;GameEngine.TieAllowedAtPeriod=0;GameEngine.OvertimeFinalLabelEnabled=false;
     var endedGame=new GameEngine();endedGame.NewGame("baseball");
     endedGame.State.HomeRecord="4-0";endedGame.State.AwayRecord="";endedGame.Score(true,1);
     Check(endedGame.EndGame()&&endedGame.State.GameEnded&&endedGame.State.RecordSettled
@@ -956,6 +997,14 @@ try
     Check(endedGame.Undo()&&!endedGame.State.GameEnded&&!endedGame.State.RecordSettled
         &&endedGame.State.HomeRecord=="4-0",
         "End Game and its record update can be undone");
+    var pendingFinal=new GameEngine();pendingFinal.NewGame("football");
+    pendingFinal.State.HomeRecord="5-2";pendingFinal.State.AwayRecord="5-2";
+    pendingFinal.Score(true,7);pendingFinal.Score(false,7);
+    pendingFinal.State.GameEnded=true;pendingFinal.State.ClockMessage=GameClockMessage.Final;
+    GameEngine.AutoUpdateRecordEnabled=false;
+    Check(pendingFinal.EndGame()&&pendingFinal.State.RecordSettled
+        &&pendingFinal.State.HomeRecord=="5-2-1"&&pendingFinal.State.AwayRecord=="5-2-1",
+        "End Game still records a tie when the clock already marked the game final");
     var restartGame=new GameEngine();restartGame.NewGame("football");
     restartGame.SetTeamIdentity(true,"Restart Home","RST",null,"#FF112233","#FF445566",mascot:"Eagles",record:"2-0",ranking:"#7",divisionRecord:"1-0");
     restartGame.State.HomeRosterId="roster-1";
@@ -985,6 +1034,31 @@ try
         &&quickReload.State.QuickMedia.Single().Path=="C:\\clips\\replay.mp4",
         "quick layout and media buttons travel inside the game save");
     File.Delete(quickSave);
+
+    // ---------- league cloud snapshot, feed parsing and ticker ----------
+    var cloudGame=new GameEngine();cloudGame.NewGame("football");
+    cloudGame.SetTeams("Cloud Home","Cloud Away");cloudGame.State.GameName="Friday Night";
+    cloudGame.Score(true,14);cloudGame.Score(false,7);
+    var cloudUpload=LeagueCloudUpload.From(cloudGame.State,"fall-league");
+    Check(cloudUpload.League=="fall-league"&&cloudUpload.GameId==cloudGame.State.GameId
+        &&cloudUpload.HomeScore==14&&cloudUpload.Status=="live"&&cloudUpload.HomeTeam=="Cloud Home",
+        "the league upload carries the stable game id, teams, score and live status");
+    cloudGame.State.ClockMessage=GameClockMessage.EndOfRegulation;
+    Check(LeagueCloudUpload.From(cloudGame.State,"fall-league").Status=="end_of_reg",
+        "the league upload marks a held tie as End of Reg.");
+    var feedGames=new[]
+    {
+        new LeagueGame{AwayTeam="Bears",HomeTeam="Eagles",AwayScore=2,HomeScore=4,PeriodLabel="Q4",Clock="1:20",Status="live"},
+        new LeagueGame{AwayTeam="Tigers",HomeTeam="Hawks",HomeScore=3,PeriodLabel="FINAL",Status="final"}
+    };
+    var feedJson=JsonSerializer.Serialize(feedGames);
+    var parsedGames=LeagueCloudClient.Parse(feedJson);
+    var wrappedGames=LeagueCloudClient.Parse($"{{\"games\":{feedJson}}}");
+    Check(parsedGames.Count==2&&wrappedGames.Count==2&&parsedGames[0].TickerLine.Contains("Bears 2")
+        &&parsedGames[1].StateLine.Contains("FINAL"),
+        "the league feed accepts a bare array or a games wrapper and exposes ticker text");
+    Check(LeagueTicker.Format(parsedGames).Contains("Eagles 4")&&LeagueTicker.Format([]).Contains("waiting for cloud feed"),
+        "the league ticker joins received games and prints a waiting state for an empty feed");
 
     // ---------- node rules and hand-over chroma keying ----------
     var automationPath=Path.Combine(Path.GetTempPath(),$"automation-{Guid.NewGuid():N}.json");

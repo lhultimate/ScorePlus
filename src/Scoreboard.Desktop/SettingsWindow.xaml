@@ -33,6 +33,18 @@
         <TextBlock Text="Padded prints 10:00, 09:59 and 0:59. Compact prints 10:00, 9:59 and :59. It reaches every clock on the graphic, the console and the remote." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
         <CheckBox x:Name="AutoRecordInput" Content="Update team records when the game ends" Checked="AutoRecord_Changed" Unchecked="AutoRecord_Changed"/>
         <TextBlock Text="Off by default. When the final period expires — or full time in soccer — the winner's record gets a win and the loser's a loss; a tie adds one tie. Records use win-loss-tie, such as 4-0 or 5-7-1. A side with no record is left alone." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
+        <TextBlock Text="If the score is tied when time expires" Foreground="#93A0B2" FontSize="11" Margin="4,10,0,2"/>
+        <ComboBox x:Name="TieRuleInput" SelectionChanged="TieRule_Changed">
+          <ComboBoxItem Content="Keep playing overtime until a winner"/>
+          <ComboBoxItem Content="Allow a tie after a chosen period"/>
+        </ComboBox>
+        <DockPanel Margin="4,6,4,0">
+          <TextBlock DockPanel.Dock="Right" Text="last period that may end level" Foreground="#93A0B2" FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"/>
+          <TextBox x:Name="TiePeriodInput" Width="82" MinHeight="30" Padding="8,4" TextChanged="TiePeriod_Changed" ToolTip="For example 4 for regulation or 5 for the first overtime"/>
+        </DockPanel>
+        <TextBlock Text="With automatic records on, a tie at the end of regulation shows END OF REG. instead of FINAL and waits for overtime. Choose a period here to count a tie there; leave the rule on play-until-winner to allow overtime indefinitely. Ending the game yourself records a tie." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
+        <CheckBox x:Name="OvertimeFinalInput" Content="Show FINAL/OT when the game ends after overtime" Checked="OvertimeFinal_Changed" Unchecked="OvertimeFinal_Changed"/>
+        <TextBlock Text="Off by default: the clock reads FINAL after any final period. On, a game that went past its scheduled periods reads FINAL/OT." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <CheckBox x:Name="QuickPublishInput" Content="Quick layout buttons also update output" Checked="QuickLayout_Changed" Unchecked="QuickLayout_Changed"/>
         <TextBlock Text="Off by default: the four buttons above the sound meter only stage a layout, and Update Output sends it as usual. On, the same press puts the layout on air — faster, but it changes the audience picture without a second confirmation." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,8"/>
         <CheckBox x:Name="DownPreviewInput" Content="Next down shows &quot;2nd Down&quot; until the distance is set" Checked="DownPreview_Changed" Unchecked="DownPreview_Changed"/>

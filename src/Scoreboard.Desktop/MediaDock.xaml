@@ -11,7 +11,7 @@
     <SolidColorBrush x:Key="DockInput" Color="#050505"/>
     <SolidColorBrush x:Key="DockTrack" Color="#26313D"/>
     <SolidColorBrush x:Key="DockThumb" Color="#EAF0F7"/>
-    <SolidColorBrush x:Key="DockRail" Color="#10151D"/>
+    <SolidColorBrush x:Key="DockRail" Color="#080808"/>
     <SolidColorBrush x:Key="DockAccent" Color="#38D7A3"/>
 
     <Style x:Key="TileGlyph" TargetType="TextBlock">
@@ -302,6 +302,10 @@
             <TextBlock Text="LIVE CAMERA" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
             <ComboBox x:Name="CameraBox" Style="{StaticResource DockCombo}" SelectionChanged="Camera_Changed"
                       ToolTip="Choose which camera item is on air"/>
+
+            <TextBlock Text="SWITCH ANIMATION" Style="{StaticResource DockLabel}" Margin="0,7,0,3"/>
+            <ComboBox x:Name="TransitionBox" Style="{StaticResource DockCombo}" SelectionChanged="Transition_Changed"
+                      ToolTip="How the selected clip or camera arrives when it replaces the previous picture"/>
 
             <TextBlock Text="REPLAY" Style="{StaticResource DockLabel}" Margin="0,7,0,3"/>
             <WrapPanel>

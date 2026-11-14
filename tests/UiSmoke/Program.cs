@@ -637,6 +637,13 @@ internal static class Program
             shell.ShowMediaTab(true);
             shell.UpdateLayout();
             var shellContent = (FrameworkElement)shell.Content;
+            var nameBoxForHeader = (TextBox)shell.FindName("GameNameBox")!;
+            if (nameBoxForHeader.FontSize < 15 || nameBoxForHeader.Width < 210)
+                throw new Exception("FAIL: the Game Name field is still too small");
+            if (!FindAll<TextBlock>(shell).Any(label => label.Text == "Game Name"))
+                throw new Exception("FAIL: the Game Name label is missing or still in caps");
+            if (!FindAll<Button>(shell).Any(button => (button.ToolTip as string ?? string.Empty).StartsWith("About ScorePlus", StringComparison.OrdinalIgnoreCase)))
+                throw new Exception("FAIL: the main window has no About button");
             var dock = FindAll<MediaDock>(shell).FirstOrDefault() ?? throw new Exception("FAIL: the main window hosts no media dock");
             var transport = (Button)dock.FindName("PlayPauseButton")!;
             var transportBottom = transport.TransformToAncestor(shellContent).Transform(new Point(0, transport.ActualHeight)).Y;
@@ -644,6 +651,8 @@ internal static class Program
                 throw new Exception($"FAIL: the media dock runs past the window ({transportBottom:0} of {shellContent.ActualHeight:0})");
             if (dock.FindName("Tiles") is not WrapPanel || dock.FindName("TagBox") is not ComboBox)
                 throw new Exception("FAIL: the unified media dock is missing its tiles or tag editor");
+            if (dock.FindName("TransitionBox") is not ComboBox mediaTransitionBox || mediaTransitionBox.Items.Count < 4)
+                throw new Exception("FAIL: the unified media dock is missing its switch-animation picker");
             if (transport.ActualWidth < 36 || transport.ActualHeight < 28)
                 throw new Exception($"FAIL: the transport controls are still tiny ({transport.ActualWidth:0}x{transport.ActualHeight:0})");
             if (FindAll<GridSplitter>(shell).Count() < 1)
@@ -659,6 +668,8 @@ internal static class Program
             bool IsColor(Brush? brush, byte r, byte g, byte bl) => brush is SolidColorBrush s && s.Color.R == r && s.Color.G == g && s.Color.B == bl;
             if (!IsColor(chrome.Background, 8, 8, 8) || !IsColor(removeButton.Background, 20, 20, 20))
                 throw new Exception($"FAIL: the media dock ignores the dark theme (panel {chrome.Background}, button {removeButton.Background})");
+            if (dock.Resources["DockRail"] is not SolidColorBrush railBrush || !IsColor(railBrush, 8, 8, 8))
+                throw new Exception($"FAIL: the Add & Route rail still has a non-black background ({dock.Resources["DockRail"]})");
             dock.ApplyTheme("Light");
             dock.UpdateLayout();
             if (!IsColor(chrome.Background, 255, 255, 255) || !IsColor(removeButton.Background, 229, 234, 240) || !IsColor(removeButton.Foreground, 24, 32, 43))
@@ -670,6 +681,8 @@ internal static class Program
             // The top row is icon-only now; the name lives in the tooltip.
             if (!FindAll<Button>(shell).Any(b => (b.ToolTip as string ?? string.Empty).StartsWith("Event log", StringComparison.OrdinalIgnoreCase)))
                 throw new Exception("FAIL: the event log button is missing from the top row");
+            if (!FindAll<Button>(shell).Any(b => (b.ToolTip as string ?? string.Empty).StartsWith("League cloud", StringComparison.OrdinalIgnoreCase)))
+                throw new Exception("FAIL: the league-cloud button is missing from the top row");
             // The phone's media card must separate a paused clip from playing media, and speakers
             // are their own on-air row rather than being reported as playing clips.
             Directory.CreateDirectory(appDataPath);
@@ -681,6 +694,9 @@ internal static class Program
             if (mediaSession is null) throw new Exception("FAIL: the shell has no media session");
             var pausedClip = new MediaEntry(remoteMediaPath, "Ads", Name: "Paused test clip");
             mediaSession.Library.Add(pausedClip);
+            mediaSession.SetClipTransition(pausedClip, "Fade");
+            if (mediaSession.Library.First(item => item.Path == remoteMediaPath).Transition != "Fade")
+                throw new Exception("FAIL: a clip's switch animation was not saved to the media library");
             mediaSession.Play(pausedClip);
             mediaSession.TogglePlayPause();
             mediaSession.Library.Add(new MediaEntry(MediaLibrary.SpeakerPath(0), Name: "Test speaker"));
@@ -1080,7 +1096,20 @@ internal static class Program
             preferencesWindow.UpdateLayout();
             if (preferencesWindow.FindName("ThemeSelector") is not ComboBox)
                 throw new Exception("FAIL: preferences theme selector missing");
+            if (preferencesWindow.FindName("TieRuleInput") is not ComboBox || preferencesWindow.FindName("TiePeriodInput") is not TextBox)
+                throw new Exception("FAIL: preferences is missing the tie-rule controls");
+            if (preferencesWindow.FindName("OvertimeFinalInput") is not CheckBox)
+                throw new Exception("FAIL: preferences is missing the overtime final label option");
             preferencesWindow.Close();
+            var aboutWindow = new AboutWindow("Dark");
+            aboutWindow.Show();
+            aboutWindow.UpdateLayout();
+            if (!FindAll<TextBlock>(aboutWindow).Any(text => text.Text == "ScorePlus")
+                || !FindAll<TextBlock>(aboutWindow).Any(text => text.Text == "LHUltimate")
+                || !FindAll<TextBlock>(aboutWindow).Any(text => text.Text.StartsWith("Version ", StringComparison.Ordinal))
+                || !FindAll<Image>(aboutWindow).Any(image => image.Source is not null))
+                throw new Exception("FAIL: the About box does not show the logo, name, version and credits");
+            aboutWindow.Close();
             Console.WriteLine("PASS: preferences window loads with a save action");
 
             var profileCatalogPath = Path.Combine(Path.GetTempPath(), $"smoke-sports-{Guid.NewGuid():N}.json");
@@ -2014,17 +2043,43 @@ internal static class Program
                 throw new Exception("FAIL: keybinds are still assigned out of the box");
             Console.WriteLine("PASS: no shortcut is assigned until the operator picks one");
 
-            // The button that pops out another synced panel raises the request the main window listens to.
+            // A detached panel keeps the synced chain alive even though its production header — the
+            // row with Transition Builder and Multiview — is deliberately absent.
             var popOutRequests = 0;
             var chainPanel = new GameControlWindow(engine, () => { }, _ => { }, () => true);
             chainPanel.NewPanelRequested += () => popOutRequests++;
             chainPanel.Show();
             chainPanel.UpdateLayout();
-            FindAll<Button>(chainPanel).First(b => (b.Content as string) == "New panel")
-                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            if (popOutRequests != 1) throw new Exception($"FAIL: the New panel button raised the request {popOutRequests} times");
+            if (FindAll<Button>(chainPanel).Any(b => (b.Content as string) is "Transition Builder" or "Animation Maker" or "Multiview" or "Display Studio" or "Save Game" or "Open Game"))
+                throw new Exception("FAIL: a detached panel still carries production-header buttons");
+            chainPanel.RequestNewPanel();
+            if (popOutRequests != 1) throw new Exception($"FAIL: the detached panel's synced chain raised the request {popOutRequests} times");
             chainPanel.Close();
-            Console.WriteLine("PASS: the New panel button asks for another synced window");
+
+            // A real detached panel is the main operator body, not a second console layout. It carries
+            // the same preview rail, four desks and audience monitor, but none of the production header
+            // actions that belong to the main window only.
+            var mirrorOwner = new MainWindow(LaunchMode.New) { Width = 1440, Height = 900 };
+            mirrorOwner.Show();
+            mirrorOwner.UpdateLayout();
+            mirrorOwner.OpenControlPanel();
+            mirrorOwner.UpdateLayout();
+            var mirror = Application.Current.Windows.OfType<GameControlWindow>().LastOrDefault()
+                ?? throw new Exception("FAIL: the main window opened no detached panel");
+            mirror.UpdateLayout();
+            foreach (var required in new[] { "PreviewRail", "DisplaySelector", "PreviewHost", "AudienceHost",
+                         "QuickMediaHost", "QuickLayoutsHost", "ControlTab", "MediaTab", "RosterTab", "MacrosTab",
+                         "PanelHost", "MediaControl", "RosterControl", "MacroHost", "SoundMeterSegments" })
+                if (mirror.FindName(required) is null)
+                    throw new Exception($"FAIL: the detached panel is missing the main body's {required}");
+            if (mirror.FindName("PreviewRail") is Border rail && rail.Visibility != Visibility.Visible)
+                throw new Exception("FAIL: the detached panel hid its program preview rail");
+            if (FindAll<Button>(mirror).Any(b => (b.Content as string) is "Transition Builder" or "Animation Maker"
+                    or "Multiview" or "Display Studio" or "Save Game" or "Open Game"))
+                throw new Exception("FAIL: the detached panel copied the main window's production header");
+            mirror.Close();
+            mirrorOwner.Close();
+            Console.WriteLine("PASS: a detached panel mirrors the main operator body with no production header, and the synced chain still works");
 
             // Preference defaults: follow Windows, heading tips off.
             var freshPrefs = new UserPreferences();
@@ -3064,6 +3119,45 @@ internal static class Program
                 Console.WriteLine("PASS: End Game settles the result, then Restart Game resets the score and keeps the teams");
             }
 
+            // A clock-expired game with automatic records off is final but unsettled. End Game must
+            // still be the action that applies its tie, not a Restart Game that discards it.
+            {
+                var tieEnding = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+                tieEnding.Show();
+                tieEnding.UpdateLayout();
+                tieEnding.StartNewGame("football", announce: false);
+                tieEnding.Engine.SetTeamIdentity(true, "Tie Home", "TIE", null, "#FF112233", "#FF445566", record: "5-2");
+                tieEnding.Engine.SetTeamIdentity(false, "Tie Away", "TIEA", null, "#FF223344", "#FF556677", record: "5-2");
+                tieEnding.Engine.Score(true, 7);
+                tieEnding.Engine.Score(false, 7);
+                tieEnding.Engine.State.GameEnded = true;
+                tieEnding.Engine.State.ClockMessage = GameClockMessage.Final;
+                var tieEndButton = FindAll<Button>(tieEnding).FirstOrDefault(button => (button.Content as string) == "End Game")
+                    ?? throw new Exception("FAIL: an unsettled final no longer offers End Game");
+                var tieTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+                var sawTieConfirm = false;
+                tieTimer.Tick += (_, _) =>
+                {
+                    var confirm = Application.Current.Windows.OfType<ConfirmWindow>().FirstOrDefault();
+                    if (confirm is null) return;
+                    tieTimer.Stop();
+                    sawTieConfirm = true;
+                    var finish = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "End game")
+                        ?? throw new Exception("FAIL: the tie End Game confirmation has no End game action");
+                    finish.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                };
+                tieTimer.Start();
+                tieEndButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump(TimeSpan.FromMilliseconds(250));
+                if (!sawTieConfirm || !tieEnding.Engine.State.RecordSettled
+                    || tieEnding.Engine.State.HomeRecord != "5-2-1"
+                    || tieEnding.Engine.State.AwayRecord != "5-2-1")
+                    throw new Exception($"FAIL: End Game did not apply the tie to an unsettled final ({tieEnding.Engine.State.HomeRecord} / {tieEnding.Engine.State.AwayRecord})");
+                tieEnding.Close();
+                Pump(TimeSpan.FromMilliseconds(200));
+                Console.WriteLine("PASS: End Game applies a tie after the clock has already marked the game final");
+            }
+
             // Choosing Exit without saving must actually close, and must do so after OnClosing
             // has finished (calling Close from inside it is what raised the WPF error).
             MainWindow.PromptOnExit = true;
@@ -3648,9 +3742,15 @@ internal static class Program
                 if (pictureBrush.Stretch != Stretch.Uniform)
                     throw new Exception($"FAIL: a preserved-aspect video letterboxes with {pictureBrush.Stretch}");
                 video.PreserveVideoAspect = false;
+                video.VideoCropLeft = 0.1; video.VideoCropTop = 0.2;
+                video.VideoCropRight = 0.3; video.VideoCropBottom = 0.15;
                 surface.SetElement(video);
                 if (pictureBrush.Stretch != Stretch.UniformToFill)
                     throw new Exception($"FAIL: a free video box should fill its frame, not {pictureBrush.Stretch}");
+                var crop = pictureBrush.Viewbox;
+                if (Math.Abs(crop.X - 0.1) > 0.001 || Math.Abs(crop.Y - 0.2) > 0.001
+                    || Math.Abs(crop.Width - 0.6) > 0.001 || Math.Abs(crop.Height - 0.65) > 0.001)
+                    throw new Exception($"FAIL: video crop changes did not reach the brush ({crop})");
                 if (Math.Abs(video.Width / video.Height - video.VideoAspect) > 0.001)
                     throw new Exception("FAIL: the preserved-aspect box does not match its picture");
                 // Chroma key: the selected green disappears, while another colour survives. Rendering
@@ -4275,6 +4375,38 @@ internal static class Program
                     ?? throw new Exception("FAIL: the control panel hosts no roster dock");
                 if (rosterDock.Visibility != Visibility.Visible || rosterWindow.Panel.IsVisible)
                     throw new Exception("FAIL: the roster desk did not replace the console on the tab");
+                // The roster desk is a true black surface in the dark theme, with neutral borders and
+                // readable text. The old blue-tinted navy read as a different program beside the console.
+                rosterWindow.ApplyTheme("Dark");
+                rosterWindow.UpdateLayout();
+                static double Contrast(Color one, Color two)
+                {
+                    static double Channel(byte value)
+                    {
+                        var v = value / 255.0;
+                        return v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+                    }
+                    var first = 0.2126 * Channel(one.R) + 0.7152 * Channel(one.G) + 0.0722 * Channel(one.B);
+                    var second = 0.2126 * Channel(two.R) + 0.7152 * Channel(two.G) + 0.0722 * Channel(two.B);
+                    var light = Math.Max(first, second);
+                    var dark = Math.Min(first, second);
+                    return (light + 0.05) / (dark + 0.05);
+                }
+                static Color ResourceColor(FrameworkElement owner, string key) =>
+                    owner.Resources[key] is SolidColorBrush brush ? brush.Color
+                    : throw new Exception($"FAIL: the roster desk has no {key}");
+                var dockBackground = (rosterDock.Background as SolidColorBrush)?.Color ?? Colors.Transparent;
+                if (dockBackground != Colors.Black)
+                    throw new Exception($"FAIL: the roster desk background is {dockBackground}, not black");
+                var rosterSurface = ResourceColor(rosterDock, "RosterSurfaceBrush");
+                var rosterAlt = ResourceColor(rosterDock, "RosterSurfaceAltBrush");
+                var rosterText = ResourceColor(rosterDock, "RosterTextBrush");
+                var rosterMuted = ResourceColor(rosterDock, "RosterMutedBrush");
+                if (rosterSurface.R > 14 || rosterSurface.G > 14 || rosterSurface.B > 14
+                    || rosterAlt.R > 24 || rosterAlt.G > 24 || rosterAlt.B > 24)
+                    throw new Exception($"FAIL: the roster cards are still tinted ({rosterSurface}, {rosterAlt})");
+                if (Contrast(rosterText, rosterSurface) < 4.5 || Contrast(rosterMuted, rosterAlt) < 4.5)
+                    throw new Exception("FAIL: roster text and muted labels are not readable on the black cards");
 
                 if (!rosterDock.ShowingHome || !rosterDock.ActivePanel.IsHome)
                     throw new Exception("FAIL: the roster desk does not open on the home side");
@@ -4356,12 +4488,12 @@ internal static class Program
                 rosterWindow.UpdateLayout();
                 if (rosterEngine.State.HomePlayer?.Name != "Jones")
                     throw new Exception($"FAIL: selecting a player after clearing left {rosterEngine.State.HomePlayer?.Name}");
-                // The desk shares the console's navy surfaces instead of its own charcoal palette.
-                var listCard = FindAll<Border>(homePanel).FirstOrDefault(b => b.Background is SolidColorBrush s && s.Color == Color.FromRgb(16, 22, 31))
-                    ?? throw new Exception("FAIL: the roster desk does not use the console's surface colour");
+                // The desk is black in Dark, with neutral cards and wells rather than navy.
+                var listCard = FindAll<Border>(homePanel).FirstOrDefault(b => b.Background is SolidColorBrush s && s.Color == Color.FromRgb(10, 10, 10))
+                    ?? throw new Exception("FAIL: the roster desk does not use the black surface colour");
                 var inputWell = FindAll<TextBox>(homePanel).FirstOrDefault() ?? throw new Exception("FAIL: the roster desk has no fields");
-                if (inputWell.Background is not SolidColorBrush well || well.Color != Color.FromRgb(11, 15, 20))
-                    throw new Exception($"FAIL: a roster field is not the console's input well colour ({inputWell.Background})");
+                if (inputWell.Background is not SolidColorBrush well || well.Color != Color.FromRgb(5, 5, 5))
+                    throw new Exception($"FAIL: a roster field is not the black input well colour ({inputWell.Background})");
                 if (listCard.ActualHeight <= 0) throw new Exception("FAIL: the roster list column did not lay out");
 
                 // The whole stat sheet is laid out as two compact columns, so it fills the desk

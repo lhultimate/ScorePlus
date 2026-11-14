@@ -112,6 +112,8 @@ public sealed class SavedQuickMedia
 
 public sealed class GameState
 {
+    /// <summary>A stable id for cloud feeds, kept when a game is saved and reopened.</summary>
+    public string GameId { get; set; } = Guid.NewGuid().ToString("N");
     public string SportId { get; set; } = "basketball";
     /// <summary>A free-form label for this fixture, shown on the live production bar and saved with the game.</summary>
     public string GameName { get; set; } = "";
@@ -152,6 +154,14 @@ public sealed class GameState
     public List<SavedQuickMedia> QuickMedia { get; set; } = [];
     /// <summary>Saved macro buttons, with their ordered steps, so a game reopens with the show's shortcuts.</summary>
     public List<SavedMacro> Macros { get; set; } = [];
+    /// <summary>
+    /// The latest league cloud snapshot. It is live data rather than part of the fixture, so it is
+    /// deliberately not written into a saved game; the ticker refreshes from the cloud on sync.
+    /// </summary>
+    [JsonIgnore]
+    public List<LeagueGame> LeagueGames { get; set; } = [];
+    [JsonIgnore]
+    public string LeagueTickerText => LeagueTicker.Format(LeagueGames);
     /// <summary>True when this file carries the quick-button lists, including deliberately empty ones.</summary>
     public bool QuickButtonsSaved { get; set; }
     /// <summary>Team logo imported from the control panel. Graphics draw it, the studio never edits it.</summary>
@@ -243,7 +253,7 @@ public sealed class GameState
     [JsonIgnore]
     public string GameClockText => ClockMessage switch
     {
-        GameClockMessage.Final => "FINAL",
+        GameClockMessage.Final => GameEngine.FinalClockText(this),
         GameClockMessage.EndOfRegulation => "END OF REG.",
         _ => GameEngine.FormatClock(ClockSeconds)
     };
@@ -447,6 +457,21 @@ public sealed class GameEngine
     /// </summary>
     public static bool AutoUpdateRecordEnabled { get; set; }
 
+    /// <summary>
+    /// The period at which a tied game may be recorded as a tie. Zero never accepts a tie: the clock
+    /// reads End of Reg. and overtime can continue until somebody wins. A positive value is the last
+    /// period that may finish level and be settled as a tie (for example 4 for regulation or 5 for
+    /// the first overtime).
+    /// </summary>
+    public static int TieAllowedAtPeriod { get; set; }
+
+    /// <summary>When on, a final after the scheduled periods reads FINAL/OT instead of FINAL.</summary>
+    public static bool OvertimeFinalLabelEnabled { get; set; }
+
+    /// <summary>The final clock label, including overtime when the game went past its last period.</summary>
+    public static string FinalClockText(GameState state) =>
+        OvertimeFinalLabelEnabled && state.Period > state.TotalPeriods ? "FINAL/OT" : "FINAL";
+
     public SportDefinition Sport => Sports.Find(State.SportId) ?? SportDefinition.BuiltIns[^1];
 
     public GameEngine(SportCatalog? sports = null) => Sports = sports ?? new SportCatalog();
@@ -528,6 +553,13 @@ public sealed class GameEngine
         if (clean.Length > 120) clean = clean[..120];
         if (State.GameName == clean) return;
         State.GameName = clean;
+        Changed?.Invoke();
+    }
+
+    /// <summary>Replaces the live league feed without treating it as an undoable game edit.</summary>
+    public void SetLeagueGames(IEnumerable<LeagueGame>? games)
+    {
+        State.LeagueGames = (games ?? []).Where(game => game is not null).Select(game => game.Copy()).Take(24).ToList();
         Changed?.Invoke();
     }
 
@@ -635,12 +667,16 @@ public sealed class GameEngine
         // The fraction already elapsed stays in _gameClockCarry, so starting again reaches the next
         // whole second when it is actually due rather than waiting a fresh second.
         SaveUndo("Clock"); State.ClockRunning = !State.ClockRunning; _lastTick = _watch.ElapsedTicks;
+        if (State.ClockRunning && State.ClockMessage == GameClockMessage.EndOfRegulation && State.ClockSeconds > 0)
+            State.ClockMessage = GameClockMessage.Clock;
         Log("Clock", State.ClockRunning ? "Clock started" : $"Clock stopped at {FormatClock(State.ClockSeconds)}"); Changed?.Invoke();
     }
 
     public void SetClock(int seconds)
     {
         Tick(); SaveUndo("Clock correction"); State.ClockSeconds = Math.Max(0, seconds); _gameClockCarry = 0; _lastTick = _watch.ElapsedTicks;
+        if (State.ClockSeconds > 0 && State.ClockMessage == GameClockMessage.EndOfRegulation)
+            State.ClockMessage = GameClockMessage.Clock;
         Log("Clock", $"Clock set to {FormatClock(State.ClockSeconds)}"); Changed?.Invoke();
     }
 
@@ -827,6 +863,19 @@ public sealed class GameEngine
     void SettleRecord()
     {
         if (!GameIsComplete()) return;
+        var tied = State.HomeScore == State.AwayScore;
+        // With automatic record updates on, a tied final period is held at End of Reg. until the
+        // operator plays overtime. Zero means keep playing until somebody wins; a positive period
+        // lets the game finish level there and count as a tie (for example 5-2-1).
+        if (tied && AutoUpdateRecordEnabled
+            && (TieAllowedAtPeriod <= 0 || State.Period < TieAllowedAtPeriod))
+        {
+            State.ClockMessage = GameClockMessage.EndOfRegulation;
+            Log("Clock", State.Period <= State.TotalPeriods
+                ? "End of regulation · tied"
+                : $"End of {PeriodDisplay.Format(State)} · tied");
+            return;
+        }
         State.GameEnded = true;
         State.ClockMessage = GameClockMessage.Final;
         if (!AutoUpdateRecordEnabled) return;
@@ -859,8 +908,8 @@ public sealed class GameEngine
 
     /// <summary>
     /// Ends the game on the operator's command: stops every clock, marks the game final and adds
-    /// the result to the team records. This is explicit, so it applies even when automatic record
-    /// updates are off. A side with no record is left alone.
+    /// the result to the team records, including a tie. This is explicit, so it applies even when
+    /// automatic record updates are off. A side with no record is left alone.
     /// </summary>
     public bool EndGame()
     {
@@ -871,10 +920,13 @@ public sealed class GameEngine
         State.ShotClockRunning = false;
         State.PlayClockRunning = false;
         State.TimeoutClockRunning = false;
+        // End Game is the operator's explicit decision, so a tie is final and counts in the team
+        // records here. The clock-expiry path still holds a regulation tie at End of Reg. while
+        // overtime is possible; advancing the period is how the operator gets there.
         State.GameEnded = true;
         State.ClockMessage = GameClockMessage.Final;
         ApplyFinalRecord(recordUndo: false);
-        Log("Game", "Game ended");
+        Log("Game", State.HomeScore == State.AwayScore ? "Game ended · tie" : "Game ended");
         Changed?.Invoke();
         return true;
     }
@@ -900,6 +952,8 @@ public sealed class GameEngine
         // Soccer's clock runs 0–90 across both halves; it does not restart at 45:00.
         if (State.SportId != "soccer") State.ClockSeconds = State.PeriodSeconds;
         State.ClockRunning = false;
+        // A tie held at the end of regulation becomes a running clock again as overtime begins.
+        if (State.ClockMessage == GameClockMessage.EndOfRegulation) State.ClockMessage = GameClockMessage.Clock;
         _gameClockCarry = 0;
         Log("Period", $"{State.PeriodLabel} {State.Period}"); Changed?.Invoke();
     }
@@ -909,6 +963,7 @@ public sealed class GameEngine
         var value = Math.Clamp(period, 1, 99);
         if (State.Period == value) return;
         SaveUndo("Period"); State.Period = value;
+        if (State.ClockMessage == GameClockMessage.EndOfRegulation) State.ClockMessage = GameClockMessage.Clock;
         Log("Period", $"{State.PeriodLabel} {State.Period}"); Changed?.Invoke();
     }
 
@@ -918,6 +973,7 @@ public sealed class GameEngine
         SaveUndo("Period"); State.Period--;
         if (State.SportId != "soccer") State.ClockSeconds = State.PeriodSeconds;
         State.ClockRunning = false;
+        if (State.ClockMessage == GameClockMessage.EndOfRegulation) State.ClockMessage = GameClockMessage.Clock;
         _gameClockCarry = 0;
         Log("Period", $"{State.PeriodLabel} {State.Period}"); Changed?.Invoke();
     }
@@ -1328,6 +1384,8 @@ public sealed class GameEngine
     {
         var (game, design) = GameFiles.Read(path);
         State = game;
+        // A file written before cloud feeds existed gets an id the first time it is opened.
+        if (string.IsNullOrWhiteSpace(State.GameId)) State.GameId = Guid.NewGuid().ToString("N");
         // Older saves simply have no name; normalize hand-edited files as well.
         State.GameName = (State.GameName ?? "").Trim();
         if (State.GameName.Length > 120) State.GameName = State.GameName[..120];

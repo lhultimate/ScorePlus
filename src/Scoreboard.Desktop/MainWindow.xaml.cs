@@ -34,6 +34,7 @@ public partial class MainWindow : Window, IControlPanelHost
     readonly ProgramSelection _program;
     readonly MediaSession _session;
     readonly HardwareService _hardware;
+    LeagueCloudService? _leagueCloud;
     bool _displaySync;
     readonly MediaPlayback _playback;
     // Every audience window ever opened this session. Opening the output again adds another one
@@ -143,6 +144,9 @@ public partial class MainWindow : Window, IControlPanelHost
 
         _engine.Changed += Refresh;
         _engine.Changed += EngineChanged;
+        _leagueCloud = new LeagueCloudService(_engine, _preferences);
+        _leagueCloud.Status += message => Dispatcher.BeginInvoke(new Action(() => StatusText.Text = message));
+        _engine.Changed += () => _leagueCloud?.MarkDirty();
         _timer.Tick += (_, _) => _engine.Tick();
         _timer.Start();
         _autosave.Tick += (_, _) => AutoSave();
@@ -170,7 +174,7 @@ public partial class MainWindow : Window, IControlPanelHost
         {
             ApplyTabVisuals();
             // The remote and the update check belong to a live window, not to the launch sequence.
-            if (!waitForLaunch) { StartRemote(); StartHardware(); if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync(); }
+            if (!waitForLaunch) { StartRemote(); StartHardware(); _leagueCloud?.Start(); if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync(); }
         };
 
         _panel = new ControlPanelView(_engine, this);
@@ -256,6 +260,7 @@ public partial class MainWindow : Window, IControlPanelHost
         Activate();
         StartRemote();
         StartHardware();
+        _leagueCloud?.Start();
         if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync();
     }
 
@@ -818,12 +823,19 @@ public partial class MainWindow : Window, IControlPanelHost
         _hardware.Start(_preferences.Hardware);
     }
 
+    void Info_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new AboutWindow(_preferences.Theme) { Owner = this };
+        dialog.ShowDialog();
+    }
+
     void Preferences_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SettingsWindow(_preferences) { Owner = this };
         ThemeManager.Apply(dialog, _preferences.Theme);
         if (dialog.ShowDialog() != true) return; // Cancel discards: nothing is applied or saved.
         ThemeManager.Apply(this, _preferences.Theme);
+        _leagueCloud?.ApplySettings();
         // The new theme paints buttons as it runs; put the active tab's outline back on top.
         ApplyTabVisuals();
         MediaControl.ApplyTheme(_preferences.Theme);
@@ -1055,12 +1067,17 @@ public partial class MainWindow : Window, IControlPanelHost
     void RefreshEndGameButton()
     {
         if (EndGameButton is null) return;
-        var final = _engine.State.GameEnded;
+        // A clock-expired game can be final without its records being settled when automatic
+        // records are off. Keep offering End Game in that state so the result can still be applied;
+        // only a fully settled final becomes Restart Game.
+        var final = _engine.State.GameEnded && _engine.State.RecordSettled;
         var content = final ? "Restart Game" : "End Game";
         if (!Equals(EndGameButton.Content, content)) EndGameButton.Content = content;
         EndGameButton.ToolTip = final
             ? "Start the same game over: the score, clocks and game stats reset; the teams, their records and the design stay"
-            : "Stop every clock, mark the game final and add the result to each team's record";
+            : _engine.State.GameEnded
+                ? "Add this final result to each team's record. A team with no record is left alone"
+                : "Stop every clock, mark the game final and add the result to each team's record";
     }
 
     void NewGame_Click(object sender, RoutedEventArgs e)
@@ -1077,9 +1094,9 @@ public partial class MainWindow : Window, IControlPanelHost
     /// </summary>
     void EndGame_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine.State.GameEnded)
+        if (_engine.State.GameEnded && _engine.State.RecordSettled)
         {
-            // A final game restarts the same fixture instead of ending it a second time.
+            // A fully settled final restarts the same fixture instead of ending it a second time.
             // The score and clocks start over; the teams, their details and the design stay.
             if (!ConfirmWindow.Ask(this, _preferences.Theme, "RESTART GAME",
                 "This starts the same game over. The score, clocks, period and this game's stats are cleared. The teams — names, colours, logos, records and selected players — and the scorebug design stay.",
@@ -1099,9 +1116,11 @@ public partial class MainWindow : Window, IControlPanelHost
             StatusText.Text = "GAME ENDED · start a New Game to play again";
             return;
         }
-        StatusText.Text = homeRecord != _engine.State.HomeRecord || awayRecord != _engine.State.AwayRecord
-            ? "GAME ENDED · team records updated"
-            : wasSettled ? "GAME ENDED · records were already updated" : "GAME ENDED · no team records were set";
+        StatusText.Text = _engine.State.ClockMessage == GameClockMessage.EndOfRegulation
+            ? "TIED · END OF REG. · advance to overtime, or choose a tie period in Preferences"
+            : homeRecord != _engine.State.HomeRecord || awayRecord != _engine.State.AwayRecord
+                ? "GAME ENDED · team records updated"
+                : wasSettled ? "GAME ENDED · records were already updated" : "GAME ENDED · no team records were set";
         // Keep the final state in the recovery point immediately, not at the next autosave tick.
         AutoSave();
     }
@@ -1550,6 +1569,14 @@ public partial class MainWindow : Window, IControlPanelHost
         base.OnPreviewKeyDown(e);
     }
 
+    void LeagueCloud_Click(object sender, RoutedEventArgs e)
+    {
+        if (_leagueCloud is null) return;
+        var dialog = new LeagueCloudWindow(_leagueCloud, _preferences, _scorebug, _program) { Owner = this };
+        dialog.ShowDialog();
+        _leagueCloud.ApplySettings();
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         // Every timer belongs to this window. Leaving one running after the window is gone is a
@@ -1563,6 +1590,7 @@ public partial class MainWindow : Window, IControlPanelHost
         // Each cleanup is independent: one native media or capture component failing must not skip
         // the rest and leave the process behind.
         try { _engine.Changed -= Refresh; _engine.Changed -= EngineChanged; } catch { }
+        try { _leagueCloud?.Dispose(); } catch { }
         try { _hardware.Dispose(); } catch { }
         try { HornPlayer.Stop(); } catch { }
         try { _remote?.Dispose(); } catch { }

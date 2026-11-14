@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Scoreboard.Core;
@@ -40,6 +41,14 @@ public sealed class VideoSurface : Grid
     readonly bool _onAir;
     CameraFeed? _feed;
     int _cameraIndex = -1;
+    // The last raw picture from each live source, kept so a crop change can re-cut a paused frame
+    // immediately instead of waiting for the next camera/replay update.
+    ImageSource? _liveFrame;
+    ImageSource? _replayFrame;
+    // The cue currently on screen, used to run the clip's own switch animation only on a real cut.
+    string? _cueKey;
+    FrameworkElement? _switchOverlay;
+    int _switchToken;
     string? _loadedPath;
     bool _playing;
     int _appliedSeek;
@@ -262,6 +271,10 @@ public sealed class VideoSurface : Grid
     {
         _videoBrush.ViewboxUnits = BrushMappingMode.RelativeToBoundingBox;
         _videoBrush.Viewbox = CropRect();
+        // Camera and replay frames are real bitmaps, not a DrawingBrush. Re-cut the last one so a
+        // paused replay (and the studio's live preview) changes with the crop fields immediately.
+        if (_liveFrame is not null) _live.Source = CropFrame(_liveFrame);
+        if (_replayFrame is not null) _replay.Source = CropFrame(_replayFrame);
     }
 
     /// <summary>Crops a live or replay bitmap to the chosen source region.</summary>
@@ -320,6 +333,14 @@ public sealed class VideoSurface : Grid
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(Apply); return; }
         SyncClip();
         var entry = Cue();
+        // A cut to another clip or camera can carry its own transition. Snapshot the outgoing
+        // picture before any layer is switched, then let it leave over the incoming source.
+        var cueKey = entry is null ? ""
+            : entry.IsCamera ? $"camera:{entry.CameraIndex}"
+            : $"file:{entry.Path}";
+        if (_cueKey is not null && !string.Equals(_cueKey, cueKey, StringComparison.OrdinalIgnoreCase))
+            BeginSwitchAnimation(entry);
+        _cueKey = cueKey;
 
         // A replay is decoded to frames by the session, not opened as a media file: the recorded
         // clips are MJPG AVI, which WPF shows as one still frame on a machine without an MJPEG
@@ -536,11 +557,17 @@ public sealed class VideoSurface : Grid
         _feed = null;
         _cameraIndex = -1;
         if (keepPicture) return;
+        _liveFrame = null;
         _live.Visibility = Visibility.Collapsed;
         _video.Visibility = Visibility.Visible;
     }
 
-    void OnCameraFrame(ImageSource frame) => _live.Source = CropFrame(frame);
+    void OnCameraFrame(ImageSource frame)
+    {
+        _liveFrame = frame;
+        _live.Source = CropFrame(frame);
+    }
+
 
     void HideLiveCamera()
     {
@@ -591,7 +618,11 @@ public sealed class VideoSurface : Grid
         _playing = false;
         _video.Visibility = Visibility.Collapsed;
         if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
-        if (_replay.Source is null && feed.Frame is { } picture) _replay.Source = CropFrame(picture);
+        if (feed.Frame is { } picture)
+        {
+            _replayFrame = picture;
+            _replay.Source = CropFrame(picture);
+        }
         _replay.Visibility = Visibility.Visible;
         return true;
     }
@@ -602,11 +633,80 @@ public sealed class VideoSurface : Grid
         _replayFeed = null;
         if (_replay.Visibility != Visibility.Collapsed) _replay.Visibility = Visibility.Collapsed;
         _replay.Source = null;
+        _replayFrame = null;
     }
 
     void OnReplayFrame(System.Windows.Media.Imaging.BitmapSource frame)
     {
+        _replayFrame = frame;
         if (_replay.Visibility == Visibility.Visible) _replay.Source = CropFrame(frame);
+    }
+
+    /// <summary>
+    /// Holds a still of the outgoing picture over the new source and animates it away. The still is
+    /// important for camera cuts: the old frame is already visible while the next camera opens, so
+    /// a fade, slide or zoom reads as a deliberate switch rather than a flash of black.
+    /// </summary>
+    void BeginSwitchAnimation(MediaEntry? incoming)
+    {
+        var transition = MediaLibrary.NormalizeTransition(incoming?.Transition);
+        // A new cut always replaces an animation that has not finished yet. A Cut then shows the
+        // incoming source immediately instead of letting the old fade linger over it.
+        if (_switchOverlay is not null)
+        {
+            Children.Remove(_switchOverlay);
+            _switchOverlay = null;
+            _switchToken++;
+        }
+        if (transition == "Cut" || !IsLoaded) return;
+        var width = (int)Math.Round(ActualWidth);
+        var height = (int)Math.Round(ActualHeight);
+        if (width < 2 || height < 2) return;
+        RenderTargetBitmap snapshot;
+        try
+        {
+            snapshot = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            snapshot.Render(this);
+            snapshot.Freeze();
+        }
+        catch { return; }
+
+        var overlay = new Image
+        {
+            Source = snapshot,
+            Width = width,
+            Height = height,
+            Stretch = Stretch.Fill,
+            IsHitTestVisible = false,
+            Opacity = 1
+        };
+        Children.Add(overlay);
+        _switchOverlay = overlay;
+        var token = ++_switchToken;
+        var duration = TimeSpan.FromSeconds(0.45);
+        var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var fade = new DoubleAnimation(1, 0, duration) { EasingFunction = easing };
+        if (transition == "Slide")
+        {
+            var slide = new TranslateTransform(0, 0);
+            overlay.RenderTransform = slide;
+            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(0, width, duration) { EasingFunction = easing });
+        }
+        else if (transition == "Zoom")
+        {
+            overlay.RenderTransformOrigin = new Point(0.5, 0.5);
+            var scale = new ScaleTransform(1, 1);
+            overlay.RenderTransform = scale;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, 1.14, duration) { EasingFunction = easing });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, 1.14, duration) { EasingFunction = easing });
+        }
+        fade.Completed += (_, _) =>
+        {
+            if (token != _switchToken || !ReferenceEquals(_switchOverlay, overlay)) return;
+            Children.Remove(overlay);
+            _switchOverlay = null;
+        };
+        overlay.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
     public void Dispose()
@@ -619,6 +719,8 @@ public sealed class VideoSurface : Grid
         HideLiveCamera();
         _playing = false;
         _opened = false;
+        _switchToken++;
+        if (_switchOverlay is not null) { Children.Remove(_switchOverlay); _switchOverlay = null; }
         try { _player.Stop(); _player.Close(); } catch { }
     }
 }

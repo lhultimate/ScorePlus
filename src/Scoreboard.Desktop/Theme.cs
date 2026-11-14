@@ -88,6 +88,29 @@ public sealed class UserPreferences
     /// </summary>
     public bool AutoUpdateRecord { get; set; }
 
+    /// <summary>
+    /// "PlayUntilWinner" holds a tie at End of Reg. and keeps overtime available indefinitely;
+    /// "AllowTie" permits the game to finish level once <see cref="TieAllowPeriod"/> is reached.
+    /// </summary>
+    public string TieRule { get; set; } = "PlayUntilWinner";
+
+    /// <summary>The last period that may end level and still be recorded as a tie.</summary>
+    public int TieAllowPeriod { get; set; } = 4;
+
+    /// <summary>Off by default: after the scheduled periods, FINAL reads FINAL/OT.</summary>
+    public bool ShowOvertimeFinal { get; set; }
+
+    /// <summary>Off until a league cloud endpoint is configured.</summary>
+    public bool LeagueCloudEnabled { get; set; }
+    /// <summary>POST endpoint for this game's live snapshot.</summary>
+    public string LeagueCloudUploadUrl { get; set; } = "";
+    /// <summary>GET endpoint for the league's current games; may contain {league}.</summary>
+    public string LeagueCloudFeedUrl { get; set; } = "";
+    public string LeagueCloudLeagueId { get; set; } = "default";
+    /// <summary>Optional bearer token. It stays on this computer with the other preferences.</summary>
+    public string LeagueCloudApiKey { get; set; } = "";
+    public int LeagueCloudPollSeconds { get; set; } = 15;
+
     /// <summary>The sport the operator last ran, so a launcher "New Game" opens the game they expect.</summary>
     public string LastSport { get; set; } = "football";
 
@@ -152,6 +175,15 @@ public sealed class UserPreferences
         AutosaveMinutes = AutosaveMinutes,
         ClockFormat = ClockFormat,
         AutoUpdateRecord = AutoUpdateRecord,
+        TieRule = TieRule,
+        TieAllowPeriod = TieAllowPeriod,
+        ShowOvertimeFinal = ShowOvertimeFinal,
+        LeagueCloudEnabled = LeagueCloudEnabled,
+        LeagueCloudUploadUrl = LeagueCloudUploadUrl,
+        LeagueCloudFeedUrl = LeagueCloudFeedUrl,
+        LeagueCloudLeagueId = LeagueCloudLeagueId,
+        LeagueCloudApiKey = LeagueCloudApiKey,
+        LeagueCloudPollSeconds = LeagueCloudPollSeconds,
         NextDownPreview = NextDownPreview,
         UppercaseDownWords = UppercaseDownWords,
         NewSeriesLive = NewSeriesLive,
@@ -273,6 +305,14 @@ public static class PreferencesStore
         if (preferences.AnnotationFadeSeconds is > 0 and < 0.5) preferences.AnnotationFadeSeconds = 0.5;
         if (preferences.ClockFormat is not ("Padded" or "Compact")) preferences.ClockFormat = "Padded";
         if (preferences.Theme is not ("System" or "Dark" or "Light")) preferences.Theme = "System";
+        if (preferences.TieRule is not ("PlayUntilWinner" or "AllowTie")) preferences.TieRule = "PlayUntilWinner";
+        preferences.TieAllowPeriod = Math.Clamp(preferences.TieAllowPeriod, 1, 99);
+        preferences.LeagueCloudUploadUrl = (preferences.LeagueCloudUploadUrl ?? "").Trim();
+        preferences.LeagueCloudFeedUrl = (preferences.LeagueCloudFeedUrl ?? "").Trim();
+        preferences.LeagueCloudLeagueId = (preferences.LeagueCloudLeagueId ?? "").Trim();
+        if (preferences.LeagueCloudLeagueId.Length == 0) preferences.LeagueCloudLeagueId = "default";
+        preferences.LeagueCloudApiKey = (preferences.LeagueCloudApiKey ?? "").Trim();
+        preferences.LeagueCloudPollSeconds = Math.Clamp(preferences.LeagueCloudPollSeconds, 5, 300);
     }
 
     /// <summary>Pushes the saved clock shape into the binder every graphic, panel and remote reads.</summary>
@@ -282,6 +322,10 @@ public static class PreferencesStore
             ? ClockStyle.Compact
             : ClockStyle.Padded;
         GameEngine.AutoUpdateRecordEnabled = preferences.AutoUpdateRecord;
+        GameEngine.TieAllowedAtPeriod = string.Equals(preferences.TieRule, "AllowTie", StringComparison.OrdinalIgnoreCase)
+            ? Math.Clamp(preferences.TieAllowPeriod, 1, 99)
+            : 0;
+        GameEngine.OvertimeFinalLabelEnabled = preferences.ShowOvertimeFinal;
         GameEngine.UppercaseDownWordsEnabled = preferences.UppercaseDownWords;
     }
 

@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -14,9 +15,17 @@ namespace Scoreboard.Desktop;
 public partial class GameControlWindow : Window
 {
     readonly GameEngine _engine;
+    GameEngine? _publishedEngine;
     ScorebugCatalog? _catalog;
     ScorebugCanvasView? _preview;
     AudiencePreview? _audience;
+    MacroDock? _macroDock;
+    MediaSession? _ownedSession;
+    // The rail's peak meter, redrawn a few times a second; the level itself is shared by every
+    // window, just like the main window's rail.
+    readonly Border[] _meterBars = new Border[22];
+    readonly DispatcherTimer _meterTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
+    int _meterLit = -1;
     bool _tabHook;
     bool _displaySync;
     ConsoleTab _tab = ConsoleTab.Control;
@@ -51,15 +60,24 @@ public partial class GameControlWindow : Window
         InitializeComponent();
         ScreenFit.Track(this);
         _engine = engine;
+        _publishedEngine = engine;
         if (host is DelegateHost detached) detached.NewPanel = () => NewPanelRequested?.Invoke();
         Panel = new ControlPanelView(engine, host);
         PanelHost.Content = Panel;
         RosterControl.Attach(engine);
-        ProgramStrip.Visibility = Visibility.Collapsed;
-        // Without a display there is nothing for a show line to describe, so the meter stays hidden.
-        Meter.Visibility = Visibility.Collapsed;
-        // A panel with no catalog has no layouts to reach, so the quick buttons stay off too.
+        BuildSoundMeter();
+        _meterTimer.Tick += (_, _) => UpdateSoundMeter();
+        _meterTimer.Start();
+        // A panel with no catalog has no display, layouts or quick buttons to reach. The real
+        // detached panel always gets the main window's full rail. The minimal host is used by the
+        // checks and by callers that only need the console, so it keeps the body compact.
+        PreviewRail.Visibility = Visibility.Collapsed;
+        PreviewColumn.MinWidth = 0;
+        PreviewColumn.Width = new GridLength(0);
+        SplitterColumn.Width = new GridLength(0);
+        PreviewSplitter.Visibility = Visibility.Collapsed;
         QuickLayoutsHost.Visibility = Visibility.Collapsed;
+        MacrosTab.Visibility = Visibility.Collapsed;
         AttachMedia(media);
         ApplyTheme(PreferencesStore.Load().Theme);
     }
@@ -75,6 +93,7 @@ public partial class GameControlWindow : Window
         InitializeComponent();
         ScreenFit.Track(this);
         _engine = engine;
+        _publishedEngine = previewEngine;
         _catalog = catalog;
         Program = new ProgramSelection(catalog);
         // The preview is staged; the small audience monitor below reads the published copy.
@@ -89,13 +108,23 @@ public partial class GameControlWindow : Window
         Program.Changed += ProgramChanged;
         catalog.Changed += CatalogChanged;
         _engine.Changed += MeterChanged;
-        // The same quick media and quick layout buttons as the main rail, on the same preferences.
-        _quickMedia = new QuickMediaBar(media ?? new MediaSession(PreferencesStore.Load()), theme);
+        if (!ReferenceEquals(previewEngine, engine)) previewEngine.Changed += MeterChanged;
+        BuildSoundMeter();
+        _meterTimer.Tick += (_, _) => UpdateSoundMeter();
+        _meterTimer.Start();
+        // The same quick media, quick layout and macro desks as the main window, on the same
+        // preferences and the same media session.
+        var session = media ?? new MediaSession(PreferencesStore.Load());
+        if (media is null) _ownedSession = session;
+        _quickMedia = new QuickMediaBar(session, theme);
         _quickMedia.Status += message => MediaStatus.Text = message;
         QuickMediaHost.Content = _quickMedia;
         _quickLayouts = new QuickLayoutBar(catalog, engine, theme);
         _quickLayouts.Status += message => MediaStatus.Text = message;
         QuickLayoutsHost.Content = _quickLayouts;
+        _macroDock = new MacroDock(engine, session, theme, Panel.Execute);
+        _macroDock.Status += message => MediaStatus.Text = message;
+        MacroHost.Content = _macroDock;
         RosterControl.Attach(engine);
         AttachMedia(media);
         ApplyTheme(theme);
@@ -127,6 +156,7 @@ public partial class GameControlWindow : Window
         }
         MediaControl.ApplyTheme(theme);
         RosterControl.ApplyTheme(theme);
+        _macroDock?.ApplyTheme(theme);
         _quickLayouts?.Refresh();
         // In a tab the dock has the full panel width, so its buttons are the size of the console's.
         MediaControl.SetLargeMode(true);
@@ -136,7 +166,11 @@ public partial class GameControlWindow : Window
     {
         Panel.SetHintVisibility(show);
         RosterControl.SetHintVisibility(show);
+        PreviewAudienceHint.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    /// <summary>Allows the host to keep the panel chain going without a production header button.</summary>
+    public void RequestNewPanel() => NewPanelRequested?.Invoke();
 
     public void SyncLiveState(bool live) => Panel.SyncLiveState(live);
 
@@ -163,9 +197,6 @@ public partial class GameControlWindow : Window
         PreviewLayoutLabel.Text = Program.Label;
         var count = Program.Display.Layouts.Count;
         LayoutPrevButton.IsEnabled = LayoutNextButton.IsEnabled = count > 1;
-        ProgramHint.Text = Program.HasStagedChanges
-            ? "Preview only — press Update Output to put this display on air."
-            : "This display is on air with the layout shown here.";
         _preview?.PrepareTransition(Program.Layout);
         _preview?.Rebuild();
         Panel.Refresh();
@@ -179,13 +210,64 @@ public partial class GameControlWindow : Window
         RefreshMeterStatus();
     }
 
+    /// <summary>Builds the same peak meter as the main rail: one column of segments repainted by the timer.</summary>
+    void BuildSoundMeter()
+    {
+        var unlit = new SolidColorBrush(Color.FromRgb(0x1B, 0x24, 0x30));
+        unlit.Freeze();
+        for (var index = 0; index < _meterBars.Length; index++)
+        {
+            var fraction = (index + 1) / (double)_meterBars.Length;
+            var colour = fraction > 0.92 ? Color.FromRgb(0xFF, 0x6B, 0x6B)
+                : fraction > 0.78 ? Color.FromRgb(0xE8, 0xB2, 0x3A)
+                : Color.FromRgb(0x38, 0xD7, 0xA3);
+            var bar = new Border
+            {
+                Background = unlit,
+                CornerRadius = new CornerRadius(1),
+                Margin = new Thickness(1, 0, 1, 0),
+                ToolTip = fraction > 0.92 ? "Full scale — the output is clipping" : null
+            };
+            bar.Tag = colour;
+            ThemeManager.SetSkipTheme(bar, true);
+            _meterBars[index] = bar;
+            SoundMeterSegments.Children.Add(bar);
+        }
+    }
+
+    void UpdateSoundMeter()
+    {
+        if (_meterBars[0] is null) return;
+        var level = SoundLevelMeter.Read();
+        var lit = (int)Math.Round(Math.Sqrt(level) * _meterBars.Length);
+        if (lit != _meterLit)
+        {
+            _meterLit = lit;
+            var unlit = (Brush)new BrushConverter().ConvertFromString("#1B2430")!;
+            for (var index = 0; index < _meterBars.Length; index++)
+                _meterBars[index].Background = index < lit ? new SolidColorBrush((Color)_meterBars[index].Tag) : unlit;
+        }
+        SoundLevelText.Text = SoundLevelMeter.Suppressed
+            ? "speakers off"
+            : level <= 0
+                ? (SoundLevelMeter.Available ? "−∞ dB" : "no output")
+                : $"{SoundLevelMeter.Decibels(level):0} dB";
+        RefreshMeterStatus();
+    }
+
     void RefreshMeterStatus()
     {
-        if (Program is null) return;
-        var state = _engine.State;
-        Meter.SetStatus(
-            Program.HasStagedChanges ? "STAGED · UPDATE TO AIR" : $"ON AIR · {Program.Display.Name.ToUpperInvariant()}",
-            $"{state.AwayAbbreviation} {state.AwayScore} · {state.HomeAbbreviation} {state.HomeScore} · {GameEngine.FormatClock(state.ClockSeconds)} · {PeriodDisplay.Format(state)}");
+        if (Program is null)
+        {
+            OnAirInfo.Text = "STANDBY";
+            ShowInfo.Text = "Start a game to go live";
+            return;
+        }
+        OnAirInfo.Text = Program.HasStagedChanges
+            ? "STAGED · UPDATE TO AIR"
+            : $"ON AIR · {Program.Display.Name.ToUpperInvariant()}";
+        var state = _publishedEngine?.State ?? _engine.State;
+        ShowInfo.Text = $"{state.AwayAbbreviation} {state.AwayScore} · {state.HomeAbbreviation} {state.HomeScore} · {GameEngine.FormatClock(state.ClockSeconds)} · {PeriodDisplay.Format(state)}";
     }
 
     /// <summary>Fills the display picker without treating the sync as the operator's choice.</summary>
@@ -231,16 +313,21 @@ public partial class GameControlWindow : Window
 
     void RosterTab_Click(object sender, RoutedEventArgs e) => ShowTab(ConsoleTab.Rosters);
 
-    /// <summary>Switches between the console, the media desk and the roster desk; all fill one pane.</summary>
+    void MacrosTab_Click(object sender, RoutedEventArgs e) => ShowTab(ConsoleTab.Macros);
+
+    /// <summary>Switches between the console, media, roster and macro desks; all fill one pane.</summary>
     void ShowTab(ConsoleTab tab)
     {
+        if (_tab == ConsoleTab.Macros && tab != ConsoleTab.Macros) _macroDock?.CommitPendingEdits();
         _tab = tab;
         PanelHost.Visibility = tab == ConsoleTab.Control ? Visibility.Visible : Visibility.Collapsed;
         MediaControl.Visibility = tab == ConsoleTab.Media ? Visibility.Visible : Visibility.Collapsed;
         RosterControl.Visibility = tab == ConsoleTab.Rosters ? Visibility.Visible : Visibility.Collapsed;
+        MacroHost.Visibility = tab == ConsoleTab.Macros ? Visibility.Visible : Visibility.Collapsed;
         ApplyTabVisuals();
         if (tab == ConsoleTab.Media) MediaControl.RefreshView();
         if (tab == ConsoleTab.Rosters) RosterControl.RefreshView();
+        if (tab == ConsoleTab.Macros) _macroDock?.RefreshView(force: true);
     }
 
     /// <summary>
@@ -256,7 +343,7 @@ public partial class GameControlWindow : Window
         var onBorder = UiPalette.Frozen(accent);
         var offBorder = (Brush)new BrushConverter().ConvertFromString("#28323F")!;
         var muted = (Brush)new BrushConverter().ConvertFromString("#93A0B2")!;
-        Button[] tabs = [ControlTab, MediaTab, RosterTab];
+        Button[] tabs = [ControlTab, MediaTab, RosterTab, MacrosTab];
         var active = (int)_tab;
         for (var i = 0; i < tabs.Length; i++)
         {
@@ -295,7 +382,12 @@ public partial class GameControlWindow : Window
         }
         if (_catalog is not null) _catalog.Changed -= CatalogChanged;
         _engine.Changed -= MeterChanged;
+        if (_publishedEngine is not null && !ReferenceEquals(_publishedEngine, _engine))
+            _publishedEngine.Changed -= MeterChanged;
+        _meterTimer.Stop();
+        _macroDock?.CommitPendingEdits();
         _preview?.Dispose();
+        _ownedSession?.Dispose();
         base.OnClosed(e);
     }
 

@@ -45,6 +45,9 @@ public sealed record MediaEntry(
     public string FolderLabel => string.IsNullOrWhiteSpace(Folder) ? MediaLibrary.RootFolderLabel : Folder;
     public string TagAndFolder => string.IsNullOrWhiteSpace(Folder) ? Tag : $"{Tag} · {Folder}";
 
+    /// <summary>How a cut from the previous clip or camera arrives: Cut, Fade, Slide or Zoom.</summary>
+    public string Transition { get; init; } = "Cut";
+
     /// <summary>0–100, as shown on the dock's knob.</summary>
     public int VolumePercent => (int)Math.Round(Math.Clamp(Volume, 0, 1) * 100);
 
@@ -86,6 +89,16 @@ public static class MediaLibrary
     public const string SpeakerPrefix = "speaker:";
 
     public static readonly string[] SuggestedTags = [AnyTag, "General", "Ads", "Highlights", "Music", "Anthem", "Sponsors", "Camera", "Microphone"];
+
+    public static readonly string[] TransitionOptions = ["Cut", "Fade", "Slide", "Zoom"];
+
+    public static string NormalizeTransition(string? value) => (value ?? "").Trim().ToLowerInvariant() switch
+    {
+        "fade" => "Fade",
+        "slide" => "Slide",
+        "zoom" => "Zoom",
+        _ => "Cut"
+    };
 
     public static bool IsVideoFile(string path) => Path.GetExtension(path).ToLowerInvariant() is ".mp4" or ".mov" or ".mkv" or ".webm" or ".avi" or ".m4v";
 
@@ -563,4 +576,5 @@ public sealed class MediaFolderClip
     public string? Name { get; set; }
     public int? CameraDevice { get; set; }
     public int? MicrophoneDevice { get; set; }
+    public string Transition { get; set; } = "Cut";
 }

@@ -2555,6 +2555,7 @@ public partial class ScorebugEditorWindow : Window
             ("Team · home abbreviation","{{HOME_ABBR}}"),("Team · visitors abbreviation","{{AWAY_ABBR}}"),
             ("Team · home mascot","{{HOME_MASCOT}}"),("Team · visitors mascot","{{AWAY_MASCOT}}"),
             ("Team · home record","{{HOME_RECORD}}"),("Team · visitors record","{{AWAY_RECORD}}"),
+            ("League · cloud ticker","{{LEAGUE_GAMES}}"),
             ("Team · home division record","{{HOME_DIVISION_RECORD}}"),("Team · visitors division record","{{AWAY_DIVISION_RECORD}}"),
             ("Team · home ranking","{{HOME_RANKING}}"),("Team · visitors ranking","{{AWAY_RANKING}}"),
             ("Score · home","{{HOME_SCORE}}"),("Score · visitors","{{AWAY_SCORE}}"),
