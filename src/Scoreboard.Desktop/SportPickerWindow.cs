@@ -61,7 +61,7 @@ public sealed class SportPickerWindow : Window
             Text = heading,
             FontSize = 15,
             FontWeight = FontWeights.Bold,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
         });
         root.Children.Add(titleRow);
 
@@ -91,7 +91,7 @@ public sealed class SportPickerWindow : Window
         root.Children.Add(_sports);
         root.Children.Add(_detail);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         var cancel = MakeButton("Cancel", primary: false);
         cancel.IsCancel = true;
         cancel.Click += (_, _) => { _selectedId = null; Close(); };

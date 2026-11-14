@@ -1,6 +1,6 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -38,12 +38,12 @@ public sealed class AudiencePreview : Grid
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var header = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
-        var live = new TextBlock { Text = "● LIVE", Foreground = Accent, FontSize = 9, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
+        var live = new TextBlock { Text = "● LIVE", Foreground = Accent, FontSize = 9, FontWeight = FontWeights.Bold, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center };
         DockPanel.SetDock(live, Dock.Right);
         header.Children.Add(live);
         var title = new StackPanel { Orientation = Orientation.Horizontal };
         title.Children.Add(new Border { Width = 3, Height = 12, CornerRadius = new CornerRadius(2), Background = Accent, Margin = new Thickness(0, 0, 6, 0) });
-        title.Children.Add(new TextBlock { Text = "AUDIENCE VIEW", FontWeight = FontWeights.Bold, FontSize = 12, Foreground = Muted, VerticalAlignment = VerticalAlignment.Center });
+        title.Children.Add(new TextBlock { Text = "AUDIENCE VIEW", FontWeight = FontWeights.Bold, FontSize = 12, Foreground = Muted, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center });
         header.Children.Add(title);
         Children.Add(header);
 

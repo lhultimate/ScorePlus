@@ -128,14 +128,14 @@ public partial class SportProfileWindow : Window
             {
                 Text = control.Kind == SportControlKind.Flag ? $"{control.Label}  ·  on / off" : control.Label,
                 FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(4, 0, 6, 0)
             };
             grid.Children.Add(label);
 
             var valueBox = new TextBox { Width = 68, Height = 30, MinHeight = 0, FontSize = 12, Margin = new Thickness(0, 1, 0, 1), TextAlignment = TextAlignment.Center };
-            var onBox = new CheckBox { Content = "Starts on", FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0) };
+            var onBox = new CheckBox { Content = "Starts on", FontSize = 11, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0) };
             if (control.Kind == SportControlKind.Flag)
             {
                 onBox.IsChecked = control.Default != 0;
@@ -232,7 +232,7 @@ public partial class SportProfileWindow : Window
         panel.Children.Add(start);
         var hint = new TextBlock { Text = "It appears on the console under SPORT CONTROLS, can be given a keybind, and can be printed on the scorebug with Add sport data.", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(0x5C, 0x6B, 0x7E)), Margin = new Thickness(2, 6, 2, 10) };
         panel.Children.Add(hint);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         var cancel = new Button { Content = "Cancel", MinWidth = 84, Margin = new Thickness(4, 0, 0, 0) };
         cancel.Click += (_, _) => dialog.Close();
         var add = new Button { Content = "Add value", IsDefault = true, MinWidth = 110, Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(0x0B, 0x6B, 0x50)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x14, 0xA6, 0x7C)), Foreground = Brushes.White };

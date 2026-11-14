@@ -33,7 +33,7 @@ public sealed class TextPromptWindow : Window
         _error.TextWrapping = TextWrapping.Wrap;
         panel.Children.Add(_error);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var ok = new Button { Content = "OK", IsDefault = true, MinWidth = 84, Padding = new Thickness(10, 6, 10, 6) };
         var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 84, Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(6, 0, 0, 0) };
         ok.Click += (_, _) =>

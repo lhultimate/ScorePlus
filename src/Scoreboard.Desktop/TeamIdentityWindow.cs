@@ -24,7 +24,7 @@ public sealed class TeamIdentityWindow : Window
     readonly Border _primarySwatch = new() { Width = 46, Height = 30, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), BorderBrush = Brushes.Gray };
     readonly Border _secondarySwatch = new() { Width = 46, Height = 30, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), BorderBrush = Brushes.Gray };
     readonly Image _logoPreview = new() { Stretch = Stretch.Uniform };
-    readonly TextBlock _logoEmpty = new() { Text = "NO LOGO", Opacity = 0.45, FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock _logoEmpty = new() { Text = "NO LOGO", Opacity = 0.45, FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center };
     string? _logoPath;
     string? _pendingLogoSource;
 
@@ -47,7 +47,7 @@ public sealed class TeamIdentityWindow : Window
         _logoPath = home ? state.HomeLogoPath : state.AwayLogoPath;
 
         var root = new DockPanel { Margin = new Thickness(18) };
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
         var save = new Button { Content = "Done", IsDefault = true, Padding = new Thickness(18, 8, 18, 8) };
         var cancel = new Button { Content = "Cancel", IsCancel = true, Padding = new Thickness(18, 8, 18, 8) };
         save.Click += (_, _) => Save();

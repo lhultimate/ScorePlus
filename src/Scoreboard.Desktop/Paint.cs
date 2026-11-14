@@ -1,6 +1,6 @@
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
+using Avalonia;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -143,10 +143,10 @@ internal static class Paint
         if (!paint.Radial) return Linear(stops, paint.Angle, opacity);
         var brush = new RadialGradientBrush
         {
-            Center = new Point(paint.CenterX, paint.CenterY),
-            GradientOrigin = new Point(paint.CenterX, paint.CenterY),
-            RadiusX = paint.RadiusX,
-            RadiusY = paint.RadiusY
+            Center = new RelativePoint(paint.CenterX, paint.CenterY, RelativeUnit.Relative),
+            GradientOrigin = new RelativePoint(paint.CenterX, paint.CenterY, RelativeUnit.Relative),
+            RadiusX = new RelativeScalar(paint.RadiusX, RelativeUnit.Relative),
+            RadiusY = new RelativeScalar(paint.RadiusY, RelativeUnit.Relative)
         };
         foreach (var (offset, colour) in stops)
             brush.GradientStops.Add(new GradientStop(Fade(colour, opacity), Math.Clamp(offset, 0, 1)));
@@ -159,10 +159,13 @@ internal static class Paint
         var radians = (((angle % 360) + 360) % 360) * Math.PI / 180.0;
         var dx = Math.Cos(radians) / 2;
         var dy = Math.Sin(radians) / 2;
-        var brush = new LinearGradientBrush(
-            new GradientStopCollection(stops.Select(stop => new GradientStop(Fade(stop.Colour, opacity), Math.Clamp(stop.Offset, 0, 1)))),
-            new Point(0.5 - dx, 0.5 - dy),
-            new Point(0.5 + dx, 0.5 + dy));
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(new Point(0.5 - dx, 0.5 - dy), RelativeUnit.Relative),
+            EndPoint = new RelativePoint(new Point(0.5 + dx, 0.5 + dy), RelativeUnit.Relative)
+        };
+        foreach (var stop in stops)
+            brush.GradientStops.Add(new GradientStop(Fade(stop.Colour, opacity), Math.Clamp(stop.Offset, 0, 1)));
         brush.Freeze();
         return brush;
     }
@@ -176,10 +179,10 @@ internal static class Paint
     {
         var textureColour = ColorOf(texture.Tint, flat);
         var group = new DrawingGroup();
-        group.Children.Add(new GeometryDrawing(baseBrush, null, new RectangleGeometry(new Rect(0, 0, 1, 1))));
+        group.Children.Add(new GeometryDrawing { Brush = baseBrush, Geometry = new RectangleGeometry(new Rect(0, 0, 1, 1)) });
 
         // The broad bands: a lit edge, a shadowed body, a highlight and a reflected ambience.
-        var bands = new GradientStopCollection();
+        var bands = new GradientStops();
         void Band(double offset, double light)
         {
             var colour = MotionColors.Shift(ToHex(Mix(textureColour, flat, texture.TintAmount)), light);
@@ -198,9 +201,14 @@ internal static class Paint
         var radians = (((texture.Angle % 360) + 360) % 360) * Math.PI / 180.0;
         var dx = Math.Cos(radians) / 2;
         var dy = Math.Sin(radians) / 2;
-        var bandBrush = new LinearGradientBrush(bands, new Point(0.5 - dx, 0.5 - dy), new Point(0.5 + dx, 0.5 + dy));
+        var bandBrush = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(new Point(0.5 - dx, 0.5 - dy), RelativeUnit.Relative),
+            EndPoint = new RelativePoint(new Point(0.5 + dx, 0.5 + dy), RelativeUnit.Relative),
+            GradientStops = bands
+        };
         bandBrush.Freeze();
-        group.Children.Add(new GeometryDrawing(bandBrush, null, new RectangleGeometry(new Rect(0, 0, 1, 1))));
+        group.Children.Add(new GeometryDrawing { Brush = bandBrush, Geometry = new RectangleGeometry(new Rect(0, 0, 1, 1)) });
 
         // Emboss / bevel: a thin lit edge on one side and a shadow on the other.
         var relief = Math.Clamp(texture.Emboss + texture.Bevel * 0.6, 0, 1);
@@ -210,8 +218,8 @@ internal static class Paint
             var shadow = new SolidColorBrush(Color.FromArgb((byte)Math.Round(255 * relief * 0.6), 0, 0, 0));
             light.Freeze(); shadow.Freeze();
             var edge = Math.Max(0.004, relief * 0.035);
-            group.Children.Add(new GeometryDrawing(light, null, new RectangleGeometry(new Rect(0, 0, 1, edge))));
-            group.Children.Add(new GeometryDrawing(shadow, null, new RectangleGeometry(new Rect(0, 1 - edge, 1, edge))));
+            group.Children.Add(new GeometryDrawing { Brush = light, Geometry = new RectangleGeometry(new Rect(0, 0, 1, edge)) });
+            group.Children.Add(new GeometryDrawing { Brush = shadow, Geometry = new RectangleGeometry(new Rect(0, 1 - edge, 1, edge)) });
         }
 
         // Iridescence: a hue-shifted wash across the surface.
@@ -219,8 +227,8 @@ internal static class Paint
         {
             var iridescent = new LinearGradientBrush
             {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(1, 1)
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative)
             };
             var baseHex = ToHex(flat);
             iridescent.GradientStops.Add(new GradientStop(Colors.Transparent, 0));
@@ -230,7 +238,7 @@ internal static class Paint
                 ? Color.FromArgb((byte)Math.Round(255 * texture.Iridescence * 0.5), h2.R, h2.G, h2.B) : Colors.Transparent, 0.68));
             iridescent.GradientStops.Add(new GradientStop(Colors.Transparent, 1));
             iridescent.Freeze();
-            group.Children.Add(new GeometryDrawing(iridescent, null, new RectangleGeometry(new Rect(0, 0, 1, 1))));
+            group.Children.Add(new GeometryDrawing { Brush = iridescent, Geometry = new RectangleGeometry(new Rect(0, 0, 1, 1)) });
         }
 
         // Grain: a stable speckle, so the same finish looks the same every time it is drawn.
@@ -244,12 +252,12 @@ internal static class Paint
             {
                 var x = random.NextDouble();
                 var y = random.NextDouble();
-                dots.Children.Add(new EllipseGeometry(new Point(x, y), size * (1 + random.NextDouble()), size * (1 + random.NextDouble())));
+                dots.Children.Add(new EllipseGeometry { Center = new Point(x, y), RadiusX = size * (1 + random.NextDouble()), RadiusY = size * (1 + random.NextDouble()) });
             }
             var grainColour = texture.Metallic > 0.4 ? Colors.White : Colors.Black;
             var grain = new SolidColorBrush(Color.FromArgb((byte)Math.Round(255 * Math.Clamp(texture.Grain * 0.45, 0, 1)), grainColour.R, grainColour.G, grainColour.B));
             grain.Freeze();
-            group.Children.Add(new GeometryDrawing(grain, null, dots));
+            group.Children.Add(new GeometryDrawing { Brush = grain, Geometry = dots });
         }
 
         // Contrast: a soft black wash at the foot of the plate.
@@ -257,13 +265,13 @@ internal static class Paint
         {
             var wash = new LinearGradientBrush
             {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(0, 1)
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative)
             };
             wash.GradientStops.Add(new GradientStop(Colors.Transparent, 0.45));
             wash.GradientStops.Add(new GradientStop(Color.FromArgb((byte)Math.Round(255 * texture.Contrast * 0.55), 0, 0, 0), 1));
             wash.Freeze();
-            group.Children.Add(new GeometryDrawing(wash, null, new RectangleGeometry(new Rect(0, 0, 1, 1))));
+            group.Children.Add(new GeometryDrawing { Brush = wash, Geometry = new RectangleGeometry(new Rect(0, 0, 1, 1)) });
         }
 
         group.Freeze();
@@ -319,19 +327,10 @@ internal static class Paint
     public static string ToHex(Color color) => $"#{color.A:X2}{color.R:X2}{color.G:X2}{color.B:X2}";
 
     /// <summary>The image for a still or logo, loaded without holding the file open.</summary>
-    public static BitmapImage? TryImage(string? path)
+    public static Bitmap? TryImage(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
-        try
-        {
-            var image = new BitmapImage();
-            image.BeginInit();
-            image.CacheOption = BitmapCacheOption.OnLoad;
-            image.UriSource = new Uri(path);
-            image.EndInit();
-            image.Freeze();
-            return image;
-        }
+        try { return new Bitmap(path); }
         catch { return null; }
     }
 }

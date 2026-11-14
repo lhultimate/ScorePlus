@@ -5,7 +5,6 @@ using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
-using Avalonia.Media.Animation;
 using Avalonia.Media.Imaging;
 using Avalonia.Media;
 using Microsoft.Win32;
@@ -28,7 +27,7 @@ public partial class ScorebugEditorWindow : Window
     bool _layoutLoading;
     // Layout pictures for the strip above the canvas, keyed by layout: the signature is the
     // artwork they were drawn from, so a thumbnail is only re-rendered when that artwork changed.
-    readonly Dictionary<string,(string Signature,ImageSource Image)> _layoutThumbs = [];
+    readonly Dictionary<string,(string Signature,Avalonia.Media.IImage Image)> _layoutThumbs = [];
     bool _displayLoading;
     bool _linkLoading;
     // Set while the player-data pickers are being filled for an element, so the sync is not
@@ -46,7 +45,7 @@ public partial class ScorebugEditorWindow : Window
     // Speakers are listed once per studio window; asking WASAPI per keystroke would be wasteful.
     readonly IReadOnlyList<AudioOption> _audioOptions;
     readonly Avalonia.Threading.DispatcherTimer _propertySave = new() { Interval=TimeSpan.FromMilliseconds(350) };
-    readonly Dictionary<string,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind)> _visuals = [];
+    readonly Dictionary<string,(Border Host, Avalonia.Controls.Control Content, Border Handle, ScorebugElementKind Kind)> _visuals = [];
     readonly Dictionary<string,(ScorebugElementKind Kind, ScorebugShape Shape, string? Image, ScorebugAnimation Animation, double Opacity)> _applied = [];
     string _motionSignature = "";
     bool _loading;
@@ -156,7 +155,7 @@ public partial class ScorebugEditorWindow : Window
         // The studio opens filling the desktop (windowed, so the title bar and taskbar stay), and it
         // can never be sized past the working area: a window that runs off the bottom of the screen
         // hides the lower edge of the artwork, which read as a canvas you could not drag into.
-        var work=SystemParameters.WorkArea;
+        var work=WpfSystemParameters.WorkArea;
         MinWidth=Math.Min(MinWidth,Math.Max(720,work.Width-40));
         MinHeight=Math.Min(MinHeight,Math.Max(480,work.Height-40));
         MaxWidth=work.Width; MaxHeight=work.Height;
@@ -218,7 +217,7 @@ public partial class ScorebugEditorWindow : Window
         copy.LinkId=original.LinkId;
     }
 
-    static IEnumerable<T> Descendants<T>(DependencyObject root) where T:DependencyObject
+    static IEnumerable<T> Descendants<T>(Avalonia.AvaloniaObject root) where T:Avalonia.AvaloniaObject
     {
         for(var i=0;i<VisualTreeHelper.GetChildrenCount(root);i++)
         {
@@ -283,7 +282,7 @@ public partial class ScorebugEditorWindow : Window
         SyncDisplayPicker();
         SyncLinkPicker();
         var previousVideos=new Dictionary<string,VideoSurface>(_videoSurfaces);
-        var previousVisuals=new Dictionary<string,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind)>(_visuals);
+        var previousVisuals=new Dictionary<string,(Border Host, Avalonia.Controls.Control Content, Border Handle, ScorebugElementKind Kind)>(_visuals);
         _videoSurfaces.Clear();
         DesignCanvas.Width=_catalog.Layout.Width; DesignCanvas.Height=_catalog.Layout.Height;
         // Elements (video especially) must never paint outside the artwork they belong to.
@@ -325,10 +324,10 @@ public partial class ScorebugEditorWindow : Window
             // A new visual is added here; a reused one is already on the canvas and must stay put,
             // because removing it would take a playing video out of the tree.
             if(!DesignCanvas.Children.Contains(host))DesignCanvas.Children.Add(host);
-            Panel.SetZIndex(host,zIndex++);
+            host.ZIndex = zIndex++;;
         }
-        foreach(var child in DesignCanvas.Children.OfType<UIElement>().ToList())
-            if(!_visuals.Values.Any(visual=>ReferenceEquals(visual.Host,child)))DesignCanvas.Children.Remove(child);
+        foreach(var child in DesignCanvas.Children.OfType<Avalonia.Visual>().ToList())
+            if(!_visuals.Values.Any(visual=>ReferenceEquals(visual.Host,child)))DesignCanvas.Children.Remove((Avalonia.Controls.Control)child);
         foreach(var (id,surface) in previousVideos)
             if(!_videoSurfaces.ContainsKey(id))surface.Dispose();
         RefreshAllVisuals();
@@ -367,8 +366,7 @@ public partial class ScorebugEditorWindow : Window
                     Source=ThumbnailFor(layout),
                     Width=122,
                     Height=68,
-                    Stretch=Stretch.Uniform,
-                    SnapsToDevicePixels=true
+                    Stretch=Stretch.Uniform
                 };
                 RenderOptions.SetBitmapScalingMode(image,BitmapScalingMode.HighQuality);
                 var label=new TextBlock
@@ -406,11 +404,11 @@ public partial class ScorebugEditorWindow : Window
     }
 
     /// <summary>A small picture of one layout, cached until its artwork changes.</summary>
-    ImageSource ThumbnailFor(ScorebugLayout layout)
+    Avalonia.Media.IImage ThumbnailFor(ScorebugLayout layout)
     {
         var signature=ThumbSignature(layout);
         if(_layoutThumbs.TryGetValue(layout.Id,out var cached)&&cached.Signature==signature)return cached.Image;
-        ImageSource image;
+        Avalonia.Media.IImage image;
         try
         {
             // A throwaway view of the same artwork, rendered once: no media plays in a thumbnail.
@@ -557,7 +555,7 @@ public partial class ScorebugEditorWindow : Window
     /// element to an icon — or from one icon to another — has to build it instead of reusing the
     /// text block that was there before, which is why icons never appeared in the studio.
     /// </summary>
-    static bool CanReuseVisual(ScorebugElement item,(Border Host, FrameworkElement Content, Border Handle, ScorebugElementKind Kind) prior)
+    static bool CanReuseVisual(ScorebugElement item,(Border Host, Avalonia.Controls.Control Content, Border Handle, ScorebugElementKind Kind) prior)
     {
         if(prior.Kind!=item.Kind)return false;
         var wantsIcon=item.Kind==ScorebugElementKind.Text&&item.Icon!=ScorebugIcon.None;
@@ -568,7 +566,7 @@ public partial class ScorebugEditorWindow : Window
 
     Border CreateVisual(ScorebugElement item,Dictionary<string,VideoSurface>? previous=null)
     {
-        FrameworkElement content;
+        Avalonia.Controls.Control content;
         if(previous is not null&&previous.TryGetValue(item.Id,out var kept))
         {
             // Detach from the old host and re-point at the edited element: the picture keeps running.
@@ -582,14 +580,14 @@ public partial class ScorebugEditorWindow : Window
         {
             Width=16, Height=16, Background=Brushes.DeepSkyBlue, BorderBrush=Brushes.White,
             BorderThickness=new Thickness(1), Cursor=Cursors.SizeNWSE, Tag=item,
-            HorizontalAlignment=HorizontalAlignment.Right, VerticalAlignment=VerticalAlignment.Bottom,
+            HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Right, VerticalAlignment=global::Avalonia.Layout.VerticalAlignment.Bottom,
             Margin=new Thickness(0,0,1,1),
-            Visibility=IsSelected(item.Id)&&item.Id==_selectedId?Visibility.Visible:Visibility.Collapsed,
+            IsVisible = IsSelected(item.Id)&&item.Id==_selectedId?true:false,
             ToolTip="Drag to resize"
         };
-        handle.PreviewMouseLeftButtonDown+=Resize_MouseDown;
-        handle.PreviewMouseMove+=Resize_MouseMove;
-        handle.PreviewMouseLeftButtonUp+=Resize_MouseUp;
+        handle.PreviewMouseLeftButtonDown(Resize_MouseDown);
+        handle.PreviewMouseMove(Resize_MouseMove);
+        handle.PreviewMouseLeftButtonUp(Resize_MouseUp);
         // Clip the content to its own box so a playing video cannot bleed over neighbouring elements.
         var clipped=new Border{Child=content,ClipToBounds=true};
         var stack=new Grid();
@@ -603,22 +601,22 @@ public partial class ScorebugEditorWindow : Window
             BorderBrush=IsSelected(item.Id)?Brushes.DeepSkyBlue:ScorebugRender.HostBorder(item,_engine.State),
             BorderThickness=new Thickness(IsSelected(item.Id)?2:Math.Max(1,item.BorderThickness))
         };
-        Canvas.SetLeft(host,item.X); Canvas.SetTop(host,item.Y); Panel.SetZIndex(host,_catalog.Layout.Elements.IndexOf(item));
-        host.MouseLeftButtonDown+=Element_MouseDown; host.MouseMove+=Element_MouseMove; host.MouseLeftButtonUp+=Element_MouseUp;
+        Canvas.SetLeft(host,item.X); Canvas.SetTop(host,item.Y); host.ZIndex = _catalog.Layout.Elements.IndexOf(item);;
+        host.MouseLeftButtonDown(Element_MouseDown); host.MouseMove(Element_MouseMove); host.MouseLeftButtonUp(Element_MouseUp);
         _visuals[item.Id]=(host,content,handle,item.Kind);
         ApplyAnimation(item,host);
         return host;
     }
 
-    void ApplyAnimation(ScorebugElement item,FrameworkElement host)
+    void ApplyAnimation(ScorebugElement item,Avalonia.Controls.Control host)
     {
         if(_applied.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001)return;
-        host.BeginAnimation(UIElement.OpacityProperty,null);
-        if(host.RenderTransform is TranslateTransform previous){previous.BeginAnimation(TranslateTransform.XProperty,null);previous.BeginAnimation(TranslateTransform.YProperty,null);host.RenderTransform=Transform.Identity;}
+        host.BeginAnimation(Avalonia.Visual.OpacityProperty,null);
+        if(host.RenderTransform is TranslateTransform previous){previous.BeginAnimation(TranslateTransform.XProperty,null);previous.BeginAnimation(TranslateTransform.YProperty,null);host.RenderTransform=WpfTransforms.Identity;}
         switch(item.Animation)
         {
             case ScorebugAnimation.Pulse:
-                host.BeginAnimation(UIElement.OpacityProperty,new DoubleAnimation(item.Opacity*0.72,item.Opacity,TimeSpan.FromSeconds(1.1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever});
+                host.BeginAnimation(Avalonia.Visual.OpacityProperty,new DoubleAnimation(item.Opacity*0.72,item.Opacity,TimeSpan.FromSeconds(1.1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever});
                 break;
             case ScorebugAnimation.Drift:
                 // Animate the transform, not the host: the old call animated X on the Border itself,
@@ -648,7 +646,7 @@ public partial class ScorebugEditorWindow : Window
             visual.Host.Background=ScorebugRender.HostBackground(item,_engine.State);
             if(item.Animation!=ScorebugAnimation.Pulse)visual.Host.Opacity=item.Opacity;
             Canvas.SetLeft(visual.Host,item.X); Canvas.SetTop(visual.Host,item.Y);
-            visual.Handle.Visibility=item.Id==_selectedId&&IsSelected(item.Id)?Visibility.Visible:Visibility.Collapsed;
+            visual.Handle.IsVisible = item.Id==_selectedId&&IsSelected(item.Id)?true:false;
             visual.Host.BorderBrush=IsSelected(item.Id)?Brushes.DeepSkyBlue:ScorebugRender.HostBorder(item,_engine.State);
             visual.Host.BorderThickness=new Thickness(IsSelected(item.Id)?2:Math.Max(1,item.BorderThickness));
             ApplyAnimation(item,visual.Host);
@@ -671,7 +669,7 @@ public partial class ScorebugEditorWindow : Window
                 block.ApplyStyle(item,_engine.State);
                 block.UpdateText(ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat),item.Transition,item.TransitionSeconds);
             }
-            else if(visual.Content is Image or ScorebugLogoView or Avalonia.Controls.Shape)
+            else if(visual.Content is Image or ScorebugLogoView or Avalonia.Controls.Shapes.Shape)
                 ScorebugRender.ApplyToContent(visual.Content,item,_engine.State);
         }
         RefreshColorSwatches();
@@ -892,40 +890,40 @@ public partial class ScorebugEditorWindow : Window
     {
         var e=Selected;
         var linked=e is not null&&!string.IsNullOrWhiteSpace(e.LinkId);
-        LinkSection.Visibility=e is null?Visibility.Collapsed:Visibility.Visible;
+        LinkSection.IsVisible = e is null?false:true;
         LinkHint.Text=linked
             ? "This part is linked: moving it, resizing it or changing anything here updates every copy of it on every layout."
             : "This element stands on its own. \"Add parts…\" makes a copy that stays linked to its original.";
-        BreakLinkButton.Visibility=linked?Visibility.Visible:Visibility.Collapsed;
+        BreakLinkButton.IsVisible = linked?true:false;
         var kind=e?.Kind;
         var text=kind==ScorebugElementKind.Text;
         var any=e is not null;
         // An HTML element has no printed value, but its markup is edited in the same content box.
-        TextSection.Visibility=text||kind==ScorebugElementKind.Html?Visibility.Visible:Visibility.Collapsed;
+        TextSection.IsVisible = text||kind==ScorebugElementKind.Html?true:false;
         // Type is typography: a logo, shape or video has no text to set a face, weight or colour on.
-        FontSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
+        FontSection.IsVisible = text?true:false;
         // Rotation is drawn inside the text element, so only text can use it.
-        TransformSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
-        LogoSection.Visibility=kind==ScorebugElementKind.Logo?Visibility.Visible:Visibility.Collapsed;
-        ShapePanel.Visibility=kind==ScorebugElementKind.Shape?Visibility.Visible:Visibility.Collapsed;
-        VideoPanel.Visibility=kind==ScorebugElementKind.Video?Visibility.Visible:Visibility.Collapsed;
+        TransformSection.IsVisible = text?true:false;
+        LogoSection.IsVisible = kind==ScorebugElementKind.Logo?true:false;
+        ShapePanel.IsVisible = kind==ScorebugElementKind.Shape?true:false;
+        VideoPanel.IsVisible = kind==ScorebugElementKind.Video?true:false;
         // The host paints the backdrop and the outline for every kind, shapes included.
-        BackgroundSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
-        BorderSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
-        PeriodSection.Visibility=text&&e!.Content.Contains("{{PERIOD}}",StringComparison.OrdinalIgnoreCase)?Visibility.Visible:Visibility.Collapsed;
+        BackgroundSection.IsVisible = any?true:false;
+        BorderSection.IsVisible = any?true:false;
+        PeriodSection.IsVisible = text&&e!.Content.Contains("{{PERIOD}}",StringComparison.OrdinalIgnoreCase)?true:false;
         // Player data only means something on text that actually prints a player value. On a stats
         // element the pickers would overwrite {{YARDS}} with a player binding, and on a plain label
         // they change nothing at all; unbound text becomes a player element through the studio's
         // "Add player data" button instead, so the pickers stay off every other element.
-        PlayerDataSection.Visibility=text&&PlayerToken.IsMatch(e!.Content)?Visibility.Visible:Visibility.Collapsed;
-        IconSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
+        PlayerDataSection.IsVisible = text&&PlayerToken.IsMatch(e!.Content)?true:false;
+        IconSection.IsVisible = text?true:false;
         // The fill only appears for the diamond: bars and the possession dot have one colour.
-        BaseFillPanel.Visibility=text&&IconInput.SelectedItem is ScorebugIcon.Bases?Visibility.Visible:Visibility.Collapsed;
+        BaseFillPanel.IsVisible = text&&IconInput.SelectedItem is ScorebugIcon.Bases?true:false;
         // A value transition needs a printed value to cross to.
-        TransitionSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
+        TransitionSection.IsVisible = text?true:false;
         var icon=e?.Icon??ScorebugIcon.None;
-        IconVisitorsInput.Visibility=icon==ScorebugIcon.TimeoutBars?Visibility.Visible:Visibility.Collapsed;
-        IconFlipInput.Visibility=icon==ScorebugIcon.PossessionDot?Visibility.Visible:Visibility.Collapsed;
+        IconVisitorsInput.IsVisible = icon==ScorebugIcon.TimeoutBars?true:false;
+        IconFlipInput.IsVisible = icon==ScorebugIcon.PossessionDot?true:false;
     }
 
     /// <summary>
@@ -1211,7 +1209,7 @@ public partial class ScorebugEditorWindow : Window
 
     void ImportFont_Click(object sender, object e)
     {
-        var dialog=new OpenFileDialog{Title="Import a font",Filter="Fonts (*.ttf;*.otf;*.ttc)|*.ttf;*.otf;*.ttc|All files (*.*)|*.*"};
+        var dialog=new Microsoft.Win32.OpenFileDialog{Title="Import a font",Filter="Fonts (*.ttf;*.otf;*.ttc)|*.ttf;*.otf;*.ttc|All files (*.*)|*.*"};
         if(dialog.ShowDialog(this)!=true)return;
         try
         {
@@ -1314,7 +1312,7 @@ public partial class ScorebugEditorWindow : Window
         panel.Children.Add(new TextBlock{Text=hint,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(2,0,2,8),Opacity=0.8});
         var input=new TextBox{Text=initial,Margin=new Thickness(2),FontSize=13};
         panel.Children.Add(input);
-        var ok=new Button{Content="Save",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(2,10,2,0),MinHeight=34,Padding=new Thickness(14,6,14,6)};
+        var ok=new Button{Content="Save",IsDefault=true,HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Right,Margin=new Thickness(2,10,2,0),MinHeight=34,Padding=new Thickness(14,6,14,6)};
         string? result=null;
         ok.Click+=(_,_)=>{result=input.Text.Trim();dialog.DialogResult=true;dialog.Close();};
         panel.Children.Add(ok);
@@ -1395,7 +1393,7 @@ public partial class ScorebugEditorWindow : Window
         panel.Children.Add(new TextBlock{Text="Layout name",Margin=new Thickness(4,0,4,6)});
         var input=new TextBox{Text=_catalog.Layout.Name,Margin=new Thickness(4)};
         panel.Children.Add(input);
-        var ok=new Button{Content="Rename",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(4,10,4,0)};
+        var ok=new Button{Content="Rename",IsDefault=true,HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Right,Margin=new Thickness(4,10,4,0)};
         ok.Click+=(_,_)=>{_catalog.RenameLayout(_catalog.ActiveIndex,input.Text);dialog.DialogResult=true;dialog.Close();};
         panel.Children.Add(ok);
         dialog.Content=panel; ThemeManager.Apply(dialog,_theme);
@@ -1417,7 +1415,7 @@ public partial class ScorebugEditorWindow : Window
     {
         var snapshot=_catalog.SnapshotLayout(_catalog.ActiveIndex);
         if(snapshot is null)return;
-        var dialog=new SaveFileDialog
+        var dialog=new Microsoft.Win32.SaveFileDialog
         {
             Title="Export layout",
             Filter=ScorebugFiles.LayoutFilter,
@@ -1436,7 +1434,7 @@ public partial class ScorebugEditorWindow : Window
     /// <summary>Adds a ScorePlus Layout file to the display being edited, as its own independent layout.</summary>
     void LayoutImport_Click(object sender, object e)
     {
-        var dialog=new OpenFileDialog{Title="Import layout",Filter=ScorebugFiles.LayoutFilter,DefaultExt=ScorebugFiles.LayoutExtension};
+        var dialog=new Microsoft.Win32.OpenFileDialog{Title="Import layout",Filter=ScorebugFiles.LayoutFilter,DefaultExt=ScorebugFiles.LayoutExtension};
         if(dialog.ShowDialog(this)!=true)return;
         var layout=ScorebugFiles.LoadLayout(dialog.FileName);
         if(layout is null)
@@ -1453,7 +1451,7 @@ public partial class ScorebugEditorWindow : Window
     {
         var snapshot=_catalog.SnapshotDisplay(_catalog.ActiveDisplayIndex);
         if(snapshot is null)return;
-        var dialog=new SaveFileDialog
+        var dialog=new Microsoft.Win32.SaveFileDialog
         {
             Title="Export display",
             Filter=ScorebugFiles.DisplayFilter,
@@ -1472,7 +1470,7 @@ public partial class ScorebugEditorWindow : Window
     /// <summary>Adds every layout of a ScorePlus Display file as a new display, and edits it.</summary>
     void DisplayImport_Click(object sender, object e)
     {
-        var dialog=new OpenFileDialog{Title="Import display",Filter=ScorebugFiles.DisplayFilter,DefaultExt=ScorebugFiles.DisplayExtension};
+        var dialog=new Microsoft.Win32.OpenFileDialog{Title="Import display",Filter=ScorebugFiles.DisplayFilter,DefaultExt=ScorebugFiles.DisplayExtension};
         if(dialog.ShowDialog(this)!=true)return;
         var display=ScorebugFiles.LoadDisplay(dialog.FileName);
         if(display is null)
@@ -1496,7 +1494,7 @@ public partial class ScorebugEditorWindow : Window
     /// </summary>
     void AddImage_Click(object sender, object e)
     {
-        var dialog=new OpenFileDialog
+        var dialog=new Microsoft.Win32.OpenFileDialog
         {
             Title="Add an image to the scorebug",
             Filter="Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp|All files (*.*)|*.*"
@@ -1548,7 +1546,7 @@ public partial class ScorebugEditorWindow : Window
         var panel=new StackPanel{Margin=new Thickness(14)};
         panel.Children.Add(new TextBlock{Text="Shape",Margin=new Thickness(4)});
         var shape=new ComboBox{ItemsSource=Enum.GetValues<ScorebugShape>(),SelectedItem=ScorebugShape.Rectangle,Margin=new Thickness(4)};
-        var add=new Button{Content="Add shape",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right};
+        var add=new Button{Content="Add shape",IsDefault=true,HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Right};
         add.Click+=(_,_)=>{
             var kind=(ScorebugShape)(shape.SelectedItem??ScorebugShape.Rectangle);
             Add(new ScorebugElement{Name=$"New {kind.ToString().ToLowerInvariant()}",Kind=ScorebugElementKind.Shape,Shape=kind,Content="",X=450,Y=470,Width=kind==ScorebugShape.Rectangle?200:140,Height=kind==ScorebugShape.Rectangle?100:140,TransparentBackground=true,BorderThickness=2});
@@ -1594,7 +1592,7 @@ public partial class ScorebugEditorWindow : Window
         choices.Add(("Custom stat · any name","{{STAT:Name}}"));
         var picker=new Window{Title="Add sport data",Width=380,Height=470,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner};
         var list=new ListBox{ItemsSource=choices.Select(x=>x.Item1).ToArray(),Margin=new Thickness(10)};
-        var add=new Button{Content="Add selected data",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right};
+        var add=new Button{Content="Add selected data",IsDefault=true,HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Right};
         add.Click+=(_,_) =>
         {
             if(list.SelectedIndex<0)return;
@@ -1650,7 +1648,7 @@ public partial class ScorebugEditorWindow : Window
         var list=new ListBox{ItemsSource=choices.Select(x=>x.Label).ToArray(),Margin=new Thickness(10,6,10,4)};
         // The first value is ready to add, so the button never sits there doing nothing.
         if(list.Items.Count>0)list.SelectedIndex=0;
-        var add=new Button{Content="Add selected data",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,0,10,10)};
+        var add=new Button{Content="Add selected data",IsDefault=true,HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Right,Margin=new Thickness(0,0,10,10)};
         (string Label,string Token)? chosen=null;
         add.Click+=(_,_)=>{if(list.SelectedIndex<0)return;chosen=choices[list.SelectedIndex];picker.DialogResult=true;picker.Close();};
         var hint=new TextBlock
@@ -1693,7 +1691,7 @@ public partial class ScorebugEditorWindow : Window
         var tag=new ComboBox{IsEditable=true,Text=MediaLibrary.AnyTag,ItemsSource=MediaLibrary.SuggestedTags.ToArray(),Margin=new Thickness(4)};
         panel.Children.Add(tag);
         panel.Children.Add(new TextBlock{Text="ANY plays whatever clip is cued, whatever tag it carries. Name a tag (Ads, Highlights…) to show only that tag's clips.",TextWrapping=TextWrapping.Wrap,FontSize=11,Margin=new Thickness(4,6,4,0)});
-        var add=new Button{Content="Add video box",IsDefault=true,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(4,12,4,0)};
+        var add=new Button{Content="Add video box",IsDefault=true,HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Right,Margin=new Thickness(4,12,4,0)};
         add.Click+=(_,_)=>{
             var width=Math.Round(_catalog.Layout.Width*0.36); var height=Math.Round(width*9/16);
             Add(new ScorebugElement{
@@ -1807,7 +1805,7 @@ public partial class ScorebugEditorWindow : Window
             TextWrapping=TextWrapping.Wrap,FontSize=11,Opacity=0.75,Margin=new Thickness(2,0,2,8)
         };
         var sourceBox=new ComboBox{ItemsSource=sources.Select(s=>$"{s.Display}  ·  {s.Layout.Name}").ToArray(),SelectedIndex=0,Margin=new Thickness(0,0,0,8)};
-        var list=new ListBox{SelectionMode=SelectionMode.Extended,Margin=new Thickness(0,0,0,8)};
+        var list=new ListBox{SelectionMode=SelectionMode.Multiple,Margin=new Thickness(0,0,0,8)};
         var count=new TextBlock{FontSize=11,Opacity=0.6,Margin=new Thickness(2,0,2,0)};
         void Fill()
         {
@@ -1817,7 +1815,7 @@ public partial class ScorebugEditorWindow : Window
         }
         sourceBox.SelectionChanged+=(_,_)=>Fill();
         Fill();
-        var actions=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right};
+        var actions=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Right};
         var cancel=new Button{Content="Cancel",MinWidth=90,Margin=new Thickness(4,0,0,0)};
         cancel.Click+=(_,_)=>dialog.Close();
         var add=new Button{Content="Add selected parts",IsDefault=true,MinWidth=150,Margin=new Thickness(6,0,0,0),Background=new SolidColorBrush(Color.FromRgb(0x0B,0x6B,0x50)),BorderBrush=new SolidColorBrush(Color.FromRgb(0x14,0xA6,0x7C)),Foreground=Brushes.White};
@@ -1885,8 +1883,8 @@ public partial class ScorebugEditorWindow : Window
     {
         if(_resizing||sender is not Border host||host.Tag is not ScorebugElement item)return;
         var id=item.Id;
-        var ctrl=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
-        var shift=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
+        var ctrl=(e.KeyModifiers&KeyModifiers.Control)!=0;
+        var shift=(e.KeyModifiers&KeyModifiers.Shift)!=0;
         if(ctrl||shift)
         {
             // Ctrl-click adds this object to the selection, or takes it back out again; Shift-click
@@ -2008,8 +2006,8 @@ public partial class ScorebugEditorWindow : Window
         var maxHeight=Math.Max(24,_catalog.Layout.Height-_dragElement.Y);
         var width=Math.Clamp(_resizeStartWidth+(p.X-_resizeStartX),24,maxWidth);
         var height=Math.Clamp(_resizeStartHeight+(p.Y-_resizeStartY),24,maxHeight);
-        var ctrl=(Keyboard.Modifiers&ModifierKeys.Control)!=0;
-        var shift=(Keyboard.Modifiers&ModifierKeys.Shift)!=0;
+        var ctrl=(e.KeyModifiers&KeyModifiers.Control)!=0;
+        var shift=(e.KeyModifiers&KeyModifiers.Shift)!=0;
         // A video box that preserves its aspect ratio can only be resized along one diagonal;
         // Shift asks for the same thing on any other element.
         var lockedAspect=_dragElement.PreserveVideoAspect&&_dragElement.VideoAspect>0.05
@@ -2038,7 +2036,7 @@ public partial class ScorebugEditorWindow : Window
         {
             _loading=true;
             WidthInput.Text=width.ToString("0"); HeightInput.Text=height.ToString("0");
-            if(FindName("FontSizeInput") is TextBox fontSizeBox)fontSizeBox.Text=_dragElement.FontSize.ToString("0.#");
+            if(this.FindNameScope()?.Find("FontSizeInput") is TextBox fontSizeBox)fontSizeBox.Text=_dragElement.FontSize.ToString("0.#");
             _loading=false;
         }
         e.Handled=true;
@@ -2063,14 +2061,14 @@ public partial class ScorebugEditorWindow : Window
     {
         if(e.LeftButton!=MouseButtonState.Pressed||Layers.SelectedItem is not LayerItem item)return;
         var p=e.GetPosition(null);
-        if(Math.Abs(p.X-_listStart.X)>8||Math.Abs(p.Y-_listStart.Y)>8)DragDrop.DoDragDrop(Layers,item.Element.Id,DragDropEffects.Move);
+        if(Math.Abs(p.X-_listStart.X)>8||Math.Abs(p.Y-_listStart.Y)>8)WpfDragDrop.DoDragDrop(Layers,item.Element.Id,DragDropEffects.Move);
     }
 
     void Layers_Drop(object sender,DragEventArgs e)
     {
         if(e.Data.GetData(typeof(string)) is not string movedId)return;
         var p=e.GetPosition(Layers);
-        var target=Layers.InputHitTest(p) as DependencyObject;
+        var target=Layers.InputHitTest(p) as Avalonia.AvaloniaObject;
         while(target is not null&&target is not ListBoxItem)target=VisualTreeHelper.GetParent(target);
         if(target is not ListBoxItem row||row.Content is not LayerItem drop)return;
         var from=_catalog.Layout.Elements.FindIndex(x=>x.Id==movedId);
@@ -2091,14 +2089,14 @@ public partial class ScorebugEditorWindow : Window
     /// </summary>
     void ApplyTipVisibility(bool show)
     {
-        var visibility=show?Visibility.Visible:Visibility.Collapsed;
-        FrameworkElement[] tips=
+        var visibility=show;
+        Avalonia.Controls.Control[] tips=
         [
             HeaderHint,DisplayHintText,TransitionCaption,LinkTipText,LayersHintText,
             CanvasBackgroundHintText,PlayerDataHintText,LogoHintText,VideoTagHintText,AudioHintText,
             CanvasFitTipText,ResizeTipText,AllValuesHintText
         ];
-        foreach(var tip in tips)if(tip is not null)tip.Visibility=visibility;
+        foreach(var tip in tips)if(tip is not null)tip.IsVisible = visibility;
     }
 
     // ---------- the artwork backdrop ----------
@@ -2136,9 +2134,10 @@ public partial class ScorebugEditorWindow : Window
     void Done_Click(object sender, object e)=>Close();
 
     // Enter inside a property field commits that value. It must never close the studio.
-    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    // dirty port: Avalonia has no virtual OnPreviewKeyDown. TODO(port): routed PreviewKeyDown.AddHandler if tunneling matters.
+    protected override void OnKeyDown(KeyEventArgs e)
     {
-        var field=Keyboard.FocusedElement as TextBox??e.OriginalSource as TextBox;
+        var field=Keyboard.FocusedElement as TextBox??e.Source as TextBox;
         if(e.Key==Key.Enter&&field is not null)
         {
             // The content field is multi-line: Enter is a new line there, not a commit-and-leave.
@@ -2164,7 +2163,7 @@ public partial class ScorebugEditorWindow : Window
             }
         }
         // Delete removes every selected object, but never while the operator is typing a value.
-        if(e.Key==Key.Delete&&Keyboard.FocusedElement is not TextBox&&e.OriginalSource is not TextBox)
+        if(e.Key==Key.Delete&&Keyboard.FocusedElement is not TextBox&&e.Source is not TextBox)
         {
             if(_selectedIds.Count>0)
             {
@@ -2173,7 +2172,7 @@ public partial class ScorebugEditorWindow : Window
                 return;
             }
         }
-        base.OnPreviewKeyDown(e);
+        base.OnKeyDown(e);
     }
     protected override void OnClosed(EventArgs e)
     {

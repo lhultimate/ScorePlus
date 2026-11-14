@@ -80,7 +80,7 @@ public sealed class PaintTextureWindow : Window
             _draft.BackgroundGradientPaint = null; _draft.BackgroundTexture = null;
             RefreshAll();
         };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         actions.Children.Add(reset);
         actions.Children.Add(done);
         DockPanel.SetDock(actions, Dock.Right);
@@ -114,11 +114,11 @@ public sealed class PaintTextureWindow : Window
         Margin = new Thickness(0, 10, 0, 4)
     };
 
-    UIElement BuildPaintColumn(bool text)
+    Avalonia.Controls.Control BuildPaintColumn(bool text)
     {
         var scroll = new ScrollViewer
         {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarIsVisible = ScrollBarVisibility.Auto,
             Margin = new Thickness(text ? 0 : 8, 0, text ? 8 : 0, 0)
         };
         var panel = new StackPanel();
@@ -140,7 +140,7 @@ public sealed class PaintTextureWindow : Window
         panel.Children.Add(radial);
 
         var angleRow = new WrapPanel();
-        angleRow.Children.Add(new TextBlock { Text = "Angle", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+        angleRow.Children.Add(new TextBlock { Text = "Angle", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
         var angle = Field((gradient?.Angle ?? 90).ToString("0.##", CultureInfo.CurrentCulture));
         angle.Width = 60;
         angle.TextChanged += (_, _) =>
@@ -153,9 +153,9 @@ public sealed class PaintTextureWindow : Window
         angleRow.Children.Add(angle);
         if (gradient?.Radial == true)
         {
-            angleRow.Children.Add(new TextBlock { Text = "Centre X", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
+            angleRow.Children.Add(new TextBlock { Text = "Centre X", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
             angleRow.Children.Add(NumberBox(gradient.CenterX, 0.5, 0, 1, value => { var paint = Existing(text); if (paint is null) return; paint.CenterX = value; Touch(); }));
-            angleRow.Children.Add(new TextBlock { Text = "Y", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
+            angleRow.Children.Add(new TextBlock { Text = "Y", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
             angleRow.Children.Add(NumberBox(gradient.CenterY, 0.5, 0, 1, value => { var paint = Existing(text); if (paint is null) return; paint.CenterY = value; Touch(); }));
         }
         panel.Children.Add(angleRow);
@@ -167,7 +167,7 @@ public sealed class PaintTextureWindow : Window
         var stopRow = new WrapPanel();
         var offset = text ? _textOffset : _plateOffset;
         var colour = text ? _textColour : _plateColour;
-        stopRow.Children.Add(new TextBlock { Text = "At", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+        stopRow.Children.Add(new TextBlock { Text = "At", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
         offset.Width = 52;
         stopRow.Children.Add(offset);
         colour.Width = 92;
@@ -191,7 +191,7 @@ public sealed class PaintTextureWindow : Window
         panel.Children.Add(finishOn);
 
         var kindRow = new WrapPanel();
-        kindRow.Children.Add(new TextBlock { Text = "Material", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+        kindRow.Children.Add(new TextBlock { Text = "Material", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
         var kind = new ComboBox { MinWidth = 128, MinHeight = 26, ItemsSource = ScorebugTexture.Kinds, Margin = new Thickness(0, 2, 0, 2) };
         if (finish is not null && ScorebugTexture.Kinds.Contains(finish.Kind)) kind.SelectedItem = finish.Kind;
         kind.SelectionChanged += (_, _) =>
@@ -247,7 +247,7 @@ public sealed class PaintTextureWindow : Window
         }
 
         var tintRow = new WrapPanel();
-        tintRow.Children.Add(new TextBlock { Text = "Tint", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+        tintRow.Children.Add(new TextBlock { Text = "Tint", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
         var tint = Field(finish?.Tint ?? "#FFFFFFFF");
         tint.Width = 92;
         tint.TextChanged += (_, _) =>
@@ -289,11 +289,11 @@ public sealed class PaintTextureWindow : Window
         return button;
     }
 
-    FrameworkElement Slider(string label, double min, double max, double value, Action<double> set)
+    Avalonia.Controls.Control Slider(string label, double min, double max, double value, Action<double> set)
     {
         var panel = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
-        var caption = new TextBlock { Text = label, Width = 82, FontSize = 10, Opacity = 0.8, VerticalAlignment = VerticalAlignment.Center };
-        var readout = new TextBlock { Text = value.ToString("0.##", CultureInfo.CurrentCulture), Width = 38, FontSize = 10, Opacity = 0.8, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        var caption = new TextBlock { Text = label, Width = 82, FontSize = 10, Opacity = 0.8, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center };
+        var readout = new TextBlock { Text = value.ToString("0.##", CultureInfo.CurrentCulture), Width = 38, FontSize = 10, Opacity = 0.8, TextAlignment = TextAlignment.Right, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center };
         var slider = new Avalonia.Controls.Slider
         {
             Minimum = min,
@@ -302,7 +302,7 @@ public sealed class PaintTextureWindow : Window
             SmallChange = (max - min) / 100,
             LargeChange = (max - min) / 10,
             MinHeight = 22,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
         };
         DockPanel.SetDock(caption, Dock.Left);
         DockPanel.SetDock(readout, Dock.Right);
@@ -356,7 +356,7 @@ public sealed class PaintTextureWindow : Window
             // Detach them from the old panels first: WPF will not parent the same control twice, and
             // that is exactly what the material checkbox used to trigger. Some of them sit inside a
             // nested stop row, so clearing only the column panel would leave those parents in place.
-            foreach (var shared in new FrameworkElement[]
+            foreach (var shared in new Avalonia.Controls.Control[]
             {
                 _preview, _textStops, _plateStops, _textOffset, _textColour, _plateOffset, _plateColour
             })
@@ -459,8 +459,8 @@ public sealed class PaintTextureWindow : Window
         {
             Text = string.IsNullOrWhiteSpace(_draft.Content) || _draft.Content.StartsWith("{{", StringComparison.Ordinal) ? "SCORE 21" : _draft.Content,
             FontSize = Math.Clamp(_draft.FontSize, 14, 64),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
             TextAlignment = TextAlignment.Center
         };
         plate.Child = text;

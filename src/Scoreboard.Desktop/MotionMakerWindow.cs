@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media;
 using Avalonia.Media;
+using Avalonia.Controls.Shapes; // dirty port: WPF shapes live under Avalonia.Controls.Shapes
 using Avalonia.Threading;
 using Microsoft.Win32;
 using Scoreboard.Core;
@@ -66,12 +67,13 @@ public sealed class MotionMakerWindow : Window
     string _pieceId = "";
     bool _pieceLoading;
     readonly Canvas _timeline = new() { Width = 560, Height = 104, Background = new SolidColorBrush(Color.FromRgb(0x0B, 0x0F, 0x14)) };
+    Point _lastTimelinePoint;
     readonly Border _stage = new() { Height = 226, CornerRadius = new CornerRadius(8), ClipToBounds = true, Background = new SolidColorBrush(Color.FromRgb(0x0B, 0x0F, 0x14)) };
     readonly Grid _previewGrid = new() { ClipToBounds = true };
     readonly Border _plate;
     readonly TextBlock _plateText;
     readonly Viewbox _stageView;
-    readonly Dictionary<string, FrameworkElement> _surfaces = [];
+    readonly Dictionary<string, Avalonia.Controls.Control> _surfaces = [];
     readonly Line _playhead = new() { Stroke = new SolidColorBrush(Color.FromRgb(0xFF, 0x6B, 0x6B)), StrokeThickness = 2, Y1 = 0, Y2 = 104 };
     readonly DispatcherTimer _ticker = new() { Interval = TimeSpan.FromMilliseconds(30) };
     readonly Stopwatch _clock = new();
@@ -103,7 +105,7 @@ public sealed class MotionMakerWindow : Window
         Title = kind == MotionKind.Transition ? "ScorePlus — Transition Maker" : "ScorePlus — Animation Maker";
         // Fit the working area: the window is a working surface, not something to drag around a
         // desktop it does not fit on.
-        var work = SystemParameters.WorkArea;
+        var work = WpfSystemParameters.WorkArea;
         Width = Math.Min(1240, Math.Max(900, work.Width - 40));
         Height = Math.Min(800, Math.Max(600, work.Height - 40));
         MinWidth = Math.Min(980, Width);
@@ -120,8 +122,8 @@ public sealed class MotionMakerWindow : Window
             FontSize = 54,
             FontWeight = FontWeights.Bold,
             Foreground = Brushes.White,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
         };
         _plate = new Border
         {
@@ -133,7 +135,7 @@ public sealed class MotionMakerWindow : Window
             BorderThickness = new Thickness(2),
             Child = _plateText
         };
-        _plate.RenderTransformOrigin = new Point(0.5, 0.5);
+        _plate.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
         _previewGrid.Children.Add(_plate);
         _previewGrid.Width = 420;
         _previewGrid.Height = 150;
@@ -182,7 +184,7 @@ public sealed class MotionMakerWindow : Window
 
     // ---------- layout ----------
 
-    UIElement Build()
+    Avalonia.Visual Build()
     {
         var root = new Grid { Margin = new Thickness(14) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -190,7 +192,7 @@ public sealed class MotionMakerWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
-        var fileRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var fileRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         fileRow.Children.Add(ActionButton("Save clip", SaveToLibrary));
         fileRow.Children.Add(ActionButton("Import " + Extension(), Import));
         fileRow.Children.Add(ActionButton("Export " + Extension(), Export));
@@ -310,7 +312,7 @@ public sealed class MotionMakerWindow : Window
             Margin = new Thickness(0, 0, 0, 6)
         });
         right.Children.Add(_status);
-        var rightScroll = new ScrollViewer { Content = right, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var rightScroll = new ScrollViewer { Content = right, VerticalScrollBarIsVisible = ScrollBarVisibility.Auto };
         Grid.SetColumn(rightScroll, 2);
         body.Children.Add(rightScroll);
 
@@ -329,7 +331,7 @@ public sealed class MotionMakerWindow : Window
         return root;
     }
 
-    UIElement BuildLibraryColumn()
+    Avalonia.Controls.Control BuildLibraryColumn()
     {
         var panel = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
         panel.Children.Add(Section("CLIP"));
@@ -374,17 +376,17 @@ public sealed class MotionMakerWindow : Window
         return panel;
     }
 
-    UIElement BuildEditorColumn()
+    Avalonia.Controls.Control BuildEditorColumn()
     {
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(4, 0, 4, 0) };
+        var scroll = new ScrollViewer { VerticalScrollBarIsVisible = ScrollBarVisibility.Auto, Margin = new Thickness(4, 0, 4, 0) };
         var panel = new StackPanel();
 
         panel.Children.Add(Section("PHASES"));
         var phaseRow = new WrapPanel();
-        phaseRow.Children.Add(new TextBlock { Text = "Name", VerticalAlignment = VerticalAlignment.Center, FontSize = 10, Opacity = 0.7, Margin = new Thickness(0, 0, 4, 0) });
+        phaseRow.Children.Add(new TextBlock { Text = "Name", VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, FontSize = 10, Opacity = 0.7, Margin = new Thickness(0, 0, 4, 0) });
         _phaseName.Width = 96;
         phaseRow.Children.Add(_phaseName);
-        phaseRow.Children.Add(new TextBlock { Text = "Seconds", VerticalAlignment = VerticalAlignment.Center, FontSize = 10, Opacity = 0.7, Margin = new Thickness(8, 0, 4, 0) });
+        phaseRow.Children.Add(new TextBlock { Text = "Seconds", VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, FontSize = 10, Opacity = 0.7, Margin = new Thickness(8, 0, 4, 0) });
         _phaseSeconds.Width = 62;
         phaseRow.Children.Add(_phaseSeconds);
         phaseRow.Children.Add(_phaseOn);
@@ -414,10 +416,11 @@ public sealed class MotionMakerWindow : Window
             Opacity = 0.65,
             Margin = new Thickness(0, 0, 0, 3)
         });
-        _timeline.MouseLeftButtonDown += TimelineDown;
-        _timeline.MouseMove += TimelineMove;
-        _timeline.MouseLeftButtonUp += TimelineUp;
-        _timeline.LostMouseCapture += (_, _) => EndDrag();
+        _timeline.MouseLeftButtonDown(TimelineDown);
+        _timeline.DoubleTapped += TimelineDoubleTapped;
+        _timeline.MouseMove(TimelineMove);
+        _timeline.MouseLeftButtonUp(TimelineUp);
+        _timeline.LostMouseCapture((_, _) => EndDrag());
         panel.Children.Add(new Border
         {
             Child = new Viewbox { Child = _timeline, Stretch = Stretch.Uniform, MaxHeight = 150 },
@@ -438,10 +441,10 @@ public sealed class MotionMakerWindow : Window
         panel.Children.Add(_trackList);
 
         var keyRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-        keyRow.Children.Add(new TextBlock { Text = "Time", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+        keyRow.Children.Add(new TextBlock { Text = "Time", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
         _keyTime.Width = 58;
         keyRow.Children.Add(_keyTime);
-        keyRow.Children.Add(new TextBlock { Text = "Value", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
+        keyRow.Children.Add(new TextBlock { Text = "Value", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
         _keyValue.Width = 68;
         keyRow.Children.Add(_keyValue);
         _easePicker.ItemsSource = Enum.GetValues<MotionEase>();
@@ -461,7 +464,7 @@ public sealed class MotionMakerWindow : Window
         _colorRolePicker.ItemsSource = Enum.GetValues<MotionColorRole>();
         _colorRolePicker.SelectedIndex = 0;
         colorRow.Children.Add(_colorRolePicker);
-        colorRow.Children.Add(new TextBlock { Text = "Time", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
+        colorRow.Children.Add(new TextBlock { Text = "Time", FontSize = 10, Opacity = 0.7, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
         _colorTime.Width = 56;
         colorRow.Children.Add(_colorTime);
         _colorValue.Width = 96;
@@ -994,10 +997,10 @@ public sealed class MotionMakerWindow : Window
 
     // ---------- preview ----------
 
-    readonly record struct PreviewTarget(FrameworkElement Element, double Width, double Height);
+    readonly record struct PreviewTarget(Avalonia.Controls.Control Element, double Width, double Height);
 
-    sealed record TransitionPreview(FrameworkElement Root, Dictionary<string, FrameworkElement> Hosts,
-        List<(FrameworkElement Host, MotionPiece Piece)> Temporary, double Width, double Height);
+    sealed record TransitionPreview(Avalonia.Controls.Control Root, Dictionary<string, Avalonia.Controls.Control> Hosts,
+        List<(Avalonia.Controls.Control Host, MotionPiece Piece)> Temporary, double Width, double Height);
 
     PreviewTarget TargetFor(LayoutChoice? choice)
     {
@@ -1011,7 +1014,7 @@ public sealed class MotionMakerWindow : Window
     }
 
     /// <summary>A still, scaled copy of a real layout — the same paint, fonts and spacing as the studio.</summary>
-    FrameworkElement BuildLayoutSurface(ScorebugLayout layout)
+    Avalonia.Controls.Control BuildLayoutSurface(ScorebugLayout layout)
     {
         var canvas = new Canvas
         {
@@ -1026,11 +1029,11 @@ public sealed class MotionMakerWindow : Window
     }
 
     /// <summary>One element as the studio draws it: same paint, content and spacing.</summary>
-    FrameworkElement BuildElementHost(ScorebugElement item)
+    Avalonia.Controls.Control BuildElementHost(ScorebugElement item)
     {
         var state = _engine.State;
         var content = ScorebugRender.CreateContent(item, () => _engine.State, null, true, showVideoPlaceholder: true);
-        if (content is FrameworkElement element && content is not ScorebugTextBlock)
+        if (content is Avalonia.Controls.Control element && content is not ScorebugTextBlock)
             element.Opacity = Math.Clamp(item.TextOpacity, 0, 1);
         var host = new Border
         {
@@ -1060,10 +1063,10 @@ public sealed class MotionMakerWindow : Window
         _previewGrid.Height = target.Height;
     }
 
-    static void ResetPreview(FrameworkElement host, double opacity = 1)
+    static void ResetPreview(Avalonia.Controls.Control host, double opacity = 1)
     {
         MotionPlayback.Stop(host);
-        host.RenderTransform = Transform.Identity;
+        host.RenderTransform = WpfTransforms.Identity;
         host.Opacity = Math.Clamp(opacity, 0, 1);
         host.Effect = null;
     }
@@ -1083,7 +1086,7 @@ public sealed class MotionMakerWindow : Window
             Background = ScorebugRender.ParseBrush(layout.Background),
             ClipToBounds = true
         };
-        var hosts = new Dictionary<string, FrameworkElement>(StringComparer.OrdinalIgnoreCase);
+        var hosts = new Dictionary<string, Avalonia.Controls.Control>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in layout.Elements)
         {
             if (!item.Visible) continue;
@@ -1091,7 +1094,7 @@ public sealed class MotionMakerWindow : Window
             canvas.Children.Add(host);
             hosts[item.Id] = host;
         }
-        var temporary = new List<(FrameworkElement Host, MotionPiece Piece)>();
+        var temporary = new List<(Avalonia.Controls.Control Host, MotionPiece Piece)>();
         foreach (var piece in _clip.Pieces ?? [])
         {
             var host = BuildTemporaryPieceHost(piece);
@@ -1103,15 +1106,15 @@ public sealed class MotionMakerWindow : Window
             hosts, temporary, layout.Width, layout.Height);
     }
 
-    FrameworkElement BuildTemporaryPieceHost(MotionPiece piece)
+    Avalonia.Controls.Control BuildTemporaryPieceHost(MotionPiece piece)
     {
         var text = new TextBlock
         {
             Text = piece.Text,
             FontSize = piece.FontSize,
             Foreground = new SolidColorBrush(Paint.ColorOf(piece.TextColor, Colors.White)),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
             TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap
         };
@@ -1126,7 +1129,7 @@ public sealed class MotionMakerWindow : Window
             ClipToBounds = true,
             Child = text
         };
-        host.RenderTransformOrigin = new Point(0.5, 0.5);
+        host.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
         Canvas.SetLeft(host, piece.X);
         Canvas.SetTop(host, piece.Y);
         return host;
@@ -1349,7 +1352,7 @@ public sealed class MotionMakerWindow : Window
                 Canvas.SetLeft(dot, Math.Clamp((start + key.Time) / total, 0, 1) * _timeline.Width - 5.5);
                 Canvas.SetTop(dot, 67);
                 var keyRef = key;
-                dot.MouseLeftButtonDown += (_, e) => { BeginKeyDrag(track, keyRef, dot); e.Handled = true; };
+                dot.MouseLeftButtonDown((_, e) => { BeginKeyDrag(track, keyRef, dot); e.Handled = true; });
                 _timeline.Children.Add(dot);
             }
         }
@@ -1387,18 +1390,26 @@ public sealed class MotionMakerWindow : Window
         if (CurrentPhase is null) return;
         _ticker.Stop();
         var point = e.GetPosition(_timeline);
+        _lastTimelinePoint = point;
         var time = TimeAt(point);
         _keyTime.Text = time.ToString("0.##", CultureInfo.CurrentCulture);
         Canvas.SetLeft(_playhead, Math.Clamp(point.X, 0, _timeline.Width));
-        if (e.ClickCount == 2)
-        {
-            if (SelectedTrack is not null) AddKey();
-            else _status.Text = "Select a track first, then double-click the ruler to add a key.";
-            return;
-        }
         _scrubbing = true;
         _timeline.CaptureMouse();
         ScrubTo(point);
+    }
+
+    void TimelineDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (CurrentPhase is null) return;
+        _ticker.Stop();
+        _keyTime.Text = TimeAt(_lastTimelinePoint).ToString("0.##", CultureInfo.CurrentCulture);
+        Canvas.SetLeft(_playhead, Math.Clamp(_lastTimelinePoint.X, 0, _timeline.Width));
+        _scrubbing = false;
+        _timeline.ReleaseMouseCapture();
+        if (SelectedTrack is not null) AddKey();
+        else _status.Text = "Select a track first, then double-click the ruler to add a key.";
+        e.Handled = true;
     }
 
     void TimelineMove(object sender, PointerEventArgs e)
@@ -1540,7 +1551,7 @@ public sealed class MotionMakerWindow : Window
 
     void Export()
     {
-        var dialog = new SaveFileDialog
+        var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Title = _kind == MotionKind.Transition ? "Export transition" : "Export animation",
             Filter = MotionFiles.Filter(_kind),
@@ -1558,7 +1569,7 @@ public sealed class MotionMakerWindow : Window
 
     void Import()
     {
-        var dialog = new OpenFileDialog
+        var dialog = new Microsoft.Win32.OpenFileDialog
         {
             Title = _kind == MotionKind.Transition ? "Import a transition" : "Import an animation",
             Filter = MotionFiles.Filter(_kind)

@@ -2,10 +2,9 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
+using Avalonia;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -20,7 +19,7 @@ namespace Scoreboard.Desktop;
 public sealed class MediaSession
 {
     readonly UserPreferences _preferences;
-    readonly Dispatcher _ui = Dispatcher.CurrentDispatcher;
+    readonly Avalonia.Threading.Dispatcher _ui = Dispatcher.CurrentDispatcher;
     // ScrubbingEnabled is what makes Position stick while the clip is paused; without it the
     // transport can only be watched from the beginning.
     readonly MediaPlayer _player = new() { ScrubbingEnabled = true };

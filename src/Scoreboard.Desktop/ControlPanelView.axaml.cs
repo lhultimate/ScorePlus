@@ -93,7 +93,7 @@ public partial class ControlPanelView : UserControl
         {
             Content = "HOME ▶",
             Tag = "football.ball.side",
-            Style = (Style)FindResource("Tiny"),
+            Classes = { "control-tiny" },
             Margin = new Thickness(2, 6, 2, 0),
             FontSize = 11,
             ToolTip = "Which team's half of the field the ball is on — independent of possession"
@@ -162,8 +162,8 @@ public partial class ControlPanelView : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var caption = new TextBlock { Text = "QUARTER", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-        caption.Style = (Style)FindResource("Caption");
+        var caption = new TextBlock { Text = "QUARTER", VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+        caption.Classes.Add("control-caption");
         grid.Children.Add(caption);
         _quarterValue.FontFamily = new FontFamily("Consolas");
         _quarterValue.FontSize = 22;
@@ -184,11 +184,11 @@ public partial class ControlPanelView : UserControl
         _quarterValue.LostKeyboardFocus += (_, _) => _quarterValue.Text = _engine.State.Period.ToString();
         Grid.SetColumn(_quarterValue, 1);
         grid.Children.Add(_quarterValue);
-        var minus = new Button { Content = "−", Tag = "period.previous", Style = (Style)FindResource("Tiny"), MinWidth = 44 };
+        var minus = new Button { Content = "−", Tag = "period.previous", Classes = { "control-tiny" }, MinWidth = 44 };
         minus.Click += Action_Click;
         Grid.SetColumn(minus, 2);
         grid.Children.Add(minus);
-        var plus = new Button { Content = "+", Tag = "period.next", Style = (Style)FindResource("Tiny"), MinWidth = 44 };
+        var plus = new Button { Content = "+", Tag = "period.next", Classes = { "control-tiny" }, MinWidth = 44 };
         plus.Click += Action_Click;
         Grid.SetColumn(plus, 3);
         grid.Children.Add(plus);
@@ -420,7 +420,7 @@ public partial class ControlPanelView : UserControl
             FontSize = 10,
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(Color.FromRgb(0x93, 0xA0, 0xB2)),
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(4, 0, 4, 0),
             ToolTip = control.Label
@@ -443,7 +443,7 @@ public partial class ControlPanelView : UserControl
             Margin = new Thickness(2, 0, 2, 0),
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
-            VerticalContentAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
             ToolTip = $"{control.Label} — click to type a value, then press Enter"
         };
         value.KeyDown += (_, e) =>
@@ -486,7 +486,7 @@ public partial class ControlPanelView : UserControl
             Margin = new Thickness(0, 0, 6, 5),
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
-            HorizontalContentAlignment = HorizontalAlignment.Center,
+            HorizontalContentAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
             Tag = $"sport.{control.Id}.toggle",
             Content = control.Label.ToUpperInvariant()
         };
@@ -503,7 +503,7 @@ public partial class ControlPanelView : UserControl
                 },
                 FontSize = 10,
                 FontWeight = FontWeights.Bold,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
             };
             var square = new Border
             {
@@ -512,9 +512,9 @@ public partial class ControlPanelView : UserControl
                 CornerRadius = new CornerRadius(3),
                 BorderThickness = new Thickness(1.5),
                 Margin = new Thickness(0, 0, 8, 0),
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
             };
-            var content = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            var content = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center };
             content.Children.Add(square);
             content.Children.Add(baseLabel);
             toggle.Content = content;
@@ -616,7 +616,7 @@ public partial class ControlPanelView : UserControl
         var remove = new Button
         {
             Content = "×", Width = 16, Height = 16, Padding = new Thickness(0), FontSize = 10,
-            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, ToolTip = $"Remove {stat.Name}"
+            HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Top, ToolTip = $"Remove {stat.Name}"
         };
         remove.Click += (_, _) => _engine.RemoveStat(stat.Id);
         host.Children.Add(remove);

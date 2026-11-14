@@ -1,7 +1,7 @@
 using System.IO;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -104,7 +104,7 @@ public sealed class VideoSurface : Grid
                 // now waits for the first frames to land.
                 var token = ++_freezeToken;
                 try { _element.Play(); } catch { }
-                var freeze = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(240) };
+                var freeze = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(240) };
                 freeze.Tick += (_, _) =>
                 {
                     freeze.Stop();
@@ -139,8 +139,8 @@ public sealed class VideoSurface : Grid
                 Foreground = Brushes.White,
                 FontSize = Math.Max(9, item.FontSize * 0.6),
                 FontWeight = FontWeights.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
                 Opacity = 0.55,
                 IsHitTestVisible = false
             };

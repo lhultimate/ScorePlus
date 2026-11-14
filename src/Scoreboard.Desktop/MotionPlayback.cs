@@ -1,9 +1,8 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Effects;
-using System.Windows.Shapes;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -21,7 +20,7 @@ internal static class MotionPlayback
     /// Runs one phase from its first keyframe to its last. The host's own opacity is treated as a
     /// ceiling, so a clip that fades to 0 hides a half-transparent element rather than brightening it.
     /// </summary>
-    public static void PlayPhase(FrameworkElement host, MotionPhase? phase, double baseOpacity, Action? done = null, double speed = 1, bool repeat = false, bool pingPong = false, string? pieceId = null)
+    public static void PlayPhase(Control host, MotionPhase? phase, double baseOpacity, Action? done = null, double speed = 1, bool repeat = false, bool pingPong = false, string? pieceId = null)
     {
         if (phase is null || !phase.Enabled || phase.Seconds <= 0.001 || phase.IsEmpty)
         {
@@ -47,7 +46,7 @@ internal static class MotionPlayback
         group.Children.Add(rotate);
         group.Children.Add(skew);
         group.Children.Add(translate);
-        host.RenderTransformOrigin = new Point(0.5, 0.5);
+        host.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
         host.RenderTransform = group;
 
         var finished = false;
@@ -69,7 +68,7 @@ internal static class MotionPlayback
         opacity.RepeatBehavior = repeatBehaviour;
         opacity.AutoReverse = pingPong;
         opacity.Completed += (_, _) => Finish();
-        host.BeginAnimation(UIElement.OpacityProperty, opacity);
+        host.BeginAnimation(Visual.OpacityProperty, opacity);
 
         foreach (var track in tracks)
         {
@@ -125,7 +124,7 @@ internal static class MotionPlayback
     /// Puts a phase at an instant, without animating: the scrub preview. Values are read straight
     /// from the tracks at <paramref name="time"/>, so dragging the ruler shows the frame it lands on.
     /// </summary>
-    public static void ApplyAt(FrameworkElement host, MotionPhase? phase, double time, string? pieceId = null)
+    public static void ApplyAt(Control host, MotionPhase? phase, double time, string? pieceId = null)
     {
         if (phase is null) return;
         var tracks = phase.Tracks.Where(track => Matches(track.PieceId, pieceId)).ToList();
@@ -142,7 +141,7 @@ internal static class MotionPlayback
         group.Children.Add(rotate);
         group.Children.Add(skew);
         group.Children.Add(translate);
-        host.RenderTransformOrigin = new Point(0.5, 0.5);
+        host.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
         host.RenderTransform = group;
         foreach (var track in tracks)
         {
@@ -158,7 +157,7 @@ internal static class MotionPlayback
                 case MotionTarget.SkewX: skew.AngleX = value; break;
                 case MotionTarget.SkewY: skew.AngleY = value; break;
                 case MotionTarget.Opacity: host.Opacity = Math.Clamp(value, 0, 1); break;
-                case MotionTarget.Blur: host.Effect = new BlurEffect { Radius = Math.Max(0, value), KernelType = KernelType.Gaussian }; break;
+                case MotionTarget.Blur: host.Effect = new BlurEffect { Radius = Math.Max(0, value) }; break;
             }
         }
         foreach (var track in colorTracks)
@@ -170,7 +169,7 @@ internal static class MotionPlayback
     }
 
     /// <summary>Plays an animation clip's motion, either once or for as long as the graphic is up.</summary>
-    public static void PlayClip(FrameworkElement host, MotionClip? clip, double baseOpacity, bool ambient, Action? done = null)
+    public static void PlayClip(Control host, MotionClip? clip, double baseOpacity, bool ambient, Action? done = null)
     {
         if (clip is null || clip.IsEmpty) { done?.Invoke(); return; }
         var phase = ambient ? clip.Phases.FirstOrDefault(candidate => candidate.Enabled && !candidate.IsEmpty) : clip.EnterPhase;
@@ -179,9 +178,9 @@ internal static class MotionPlayback
     }
 
     /// <summary>Stops every animation this player put on an element and leaves it at rest.</summary>
-    public static void Stop(FrameworkElement host)
+    public static void Stop(Control host)
     {
-        host.BeginAnimation(UIElement.OpacityProperty, null);
+        host.BeginAnimation(Visual.OpacityProperty, null);
         switch (host.RenderTransform)
         {
             case ScaleTransform scale:
@@ -229,15 +228,15 @@ internal static class MotionPlayback
     }
 
     /// <summary>Puts an element back at rest at its design opacity.</summary>
-    static void Reset(FrameworkElement host, double baseOpacity)
+    static void Reset(Control host, double baseOpacity)
     {
         Stop(host);
         host.Opacity = Math.Clamp(baseOpacity, 0, 1);
-        host.RenderTransform = Transform.Identity;
+        host.RenderTransform = null;
         host.Effect = null;
     }
 
-    static void AnimateTransform(Animatable transform, DependencyProperty property, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong, double fallback)
+    static void AnimateTransform(Transform transform, AvaloniaProperty property, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong, double fallback)
     {
         var animation = BuildDouble(track, seconds, 0, fallback, 1);
         animation.RepeatBehavior = repeat;
@@ -245,9 +244,9 @@ internal static class MotionPlayback
         transform.BeginAnimation(property, animation);
     }
 
-    static void AnimateBlur(FrameworkElement host, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong)
+    static void AnimateBlur(Control host, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong)
     {
-        var blur = host.Effect as BlurEffect ?? new BlurEffect { Radius = 0, KernelType = KernelType.Gaussian };
+        var blur = host.Effect as BlurEffect ?? new BlurEffect { Radius = 0 };
         host.Effect = blur;
         var animation = BuildDouble(track, seconds, 0, 0, 1);
         animation.RepeatBehavior = repeat;
@@ -262,7 +261,7 @@ internal static class MotionPlayback
     /// </summary>
     static DoubleAnimationUsingKeyFrames BuildDouble(MotionTrack? track, double seconds, double defaultValue, double fallback, double ceiling)
     {
-        var animation = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd };
+        var animation = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd, Duration = TimeSpan.FromSeconds(seconds) };
         var keys = track?.Keys.OrderBy(key => key.Time).ToList() ?? [];
         if (keys.Count == 0)
         {
@@ -304,7 +303,7 @@ internal static class MotionPlayback
     /// Repaints the text, plate and outline through a phase's colour keys. Every brush is replaced
     /// with an unfrozen copy first, because an animated frozen brush throws.
     /// </summary>
-    public static void AnimateColours(FrameworkElement host, IEnumerable<ColorTrack> tracks, double seconds, RepeatBehavior repeat, bool pingPong)
+    public static void AnimateColours(Control host, IEnumerable<ColorTrack> tracks, double seconds, RepeatBehavior repeat, bool pingPong)
     {
         foreach (var track in tracks)
         {
@@ -319,7 +318,7 @@ internal static class MotionPlayback
 
     static ColorAnimationUsingKeyFrames BuildColour(ColorTrack track, double seconds)
     {
-        var animation = new ColorAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd };
+        var animation = new ColorAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd, Duration = TimeSpan.FromSeconds(seconds) };
         var keys = track.Keys.OrderBy(key => key.Time).ToList();
         if (keys.Count == 0) return animation;
         Color Of(string? value) => Paint.ColorOf(value, Colors.White);
@@ -337,7 +336,7 @@ internal static class MotionPlayback
     }
 
     /// <summary>Every solid brush on a host that paints one of the colour roles.</summary>
-    static IEnumerable<SolidColorBrush> Targets(DependencyObject root, MotionColorRole role)
+    static IEnumerable<SolidColorBrush> Targets(AvaloniaObject root, MotionColorRole role)
     {
         foreach (var element in Descendants(root))
         {
@@ -368,7 +367,7 @@ internal static class MotionPlayback
     }
 
     /// <summary>An unfrozen copy of a brush, already assigned, ready to animate.</summary>
-    static SolidColorBrush Live(DependencyObject owner, ref SolidColorBrush current, Action<SolidColorBrush> assign)
+    static SolidColorBrush Live(AvaloniaObject owner, ref SolidColorBrush current, Action<SolidColorBrush> assign)
     {
         var copy = current.IsFrozen ? new SolidColorBrush(current.Color) : current;
         if (copy.IsFrozen) copy = new SolidColorBrush(current.Color);
@@ -376,7 +375,7 @@ internal static class MotionPlayback
         return copy;
     }
 
-    static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    static IEnumerable<AvaloniaObject> Descendants(AvaloniaObject root)
     {
         yield return root;
         var count = VisualTreeHelper.GetChildrenCount(root);

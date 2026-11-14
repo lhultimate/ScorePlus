@@ -217,7 +217,7 @@ public static class KeybindStore
         if ((modifiers & ModifierKeys.Control) != 0) text += "Ctrl+";
         if ((modifiers & ModifierKeys.Shift) != 0) text += "Shift+";
         if ((modifiers & ModifierKeys.Alt) != 0) text += "Alt+";
-        if ((modifiers & ModifierKeys.Windows) != 0) text += "Win+";
+        if ((modifiers & ModifierKeys.Meta) != 0) text += "Win+";
         return text + KeyName(key);
     }
 
@@ -254,7 +254,7 @@ public static class KeybindStore
                 case "ctrl" or "control": modifiers |= ModifierKeys.Control; break;
                 case "shift": modifiers |= ModifierKeys.Shift; break;
                 case "alt": modifiers |= ModifierKeys.Alt; break;
-                case "win" or "windows": modifiers |= ModifierKeys.Windows; break;
+                case "win" or "windows": modifiers |= ModifierKeys.Meta; break;
                 default: return false;
             }
         }

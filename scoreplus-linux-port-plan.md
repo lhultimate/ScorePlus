@@ -194,3 +194,9 @@ Carryovers into C# phase (keyed style lookups dangling now that styles are class
 - MediaDock.axaml.cs: (Style)Resources["TransportButton"|"DockAction"|"ClearAction"|"DockCombo"|"DockSearch"], Resources["TileGlyph"] dynamic tile TextBlocks (~line 826) → assign Classes= tokens instead.
 - ControlPanelView.axaml.cs: (Style)FindResource("Tiny")/("Caption") at 96,166,187,191 → Classes= assignment.
 - Per phase-1 note: window `{ Owner = x }` sites → `.Show(owner)` when each window's C# compiles.
+
+Recovery note: the first C# recovery slice replaced the inert dispatcher animation snap with a real Avalonia dispatcher clock/keyframe evaluator, switched scorebug image/brush loading to Avalonia APIs, and moved System theme detection to GTK settings. The desktop build remains blocked by 111 unrelated migration errors, chiefly missing WPF namespaces/types in the remaining files; the four prioritized files emit no diagnostics.
+
+# C# recovery checkpoint (2026-11-14)
+
+The C# migration work lost from the interrupted worker had no complete source backup. Recovery resumed on the current checkout. Replaced stale WPF/NAudio imports in the shared rendering, theme, media, and device files; added Avalonia type aliases and small compatibility adapters; corrected several Avalonia event, dialog, and selector-class call sites. Desktop compiler diagnostics moved from 218 at the recovered checkout to 84 at this checkpoint. The build is still in progress: remaining errors cluster around MediaDock pointer/drag event wiring, XAML generated-name bindings, WPF-shaped rendering APIs, and theme/media compatibility. The free OpenCode model reached its usage limit; Pi/OpenRouter returned a provider error. Continue with free providers when available and reserve Codex usage.

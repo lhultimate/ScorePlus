@@ -1,5 +1,5 @@
 using System.IO;
-using System.Windows.Media;
+using Avalonia.Media;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;

@@ -79,7 +79,7 @@ public partial class RosterPanel : UserControl
     }
 
     public void SetHintVisibility(bool show) =>
-        HintText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        HintText.IsVisible = show ? true : false;
 
     void EngineChanged() => Refresh();
 
@@ -203,7 +203,7 @@ public partial class RosterPanel : UserControl
             .Where(Matches)
             .Select(p => new PlayerRow(p, selected is not null && selected.PlayerId == p.Id,
                 selected is not null && selected.PlayerId == p.Id ? background : Brushes.Transparent,
-                selected is not null && selected.PlayerId == p.Id ? foreground : (Brush)FindResource("RosterTextBrush")))
+                selected is not null && selected.PlayerId == p.Id ? foreground : (Brush)(Resources["RosterTextBrush"] ?? Brushes.White)))
             .ToList();
         PlayerList.ItemsSource = rows;
         PlayerList.SelectedItem = rows.FirstOrDefault(row => row.Player.Id == keep);
@@ -265,7 +265,7 @@ public partial class RosterPanel : UserControl
                 Text = stat.Name,
                 FontSize = 10,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 5, 0),
                 ToolTip = stat.Name
             };
@@ -287,7 +287,7 @@ public partial class RosterPanel : UserControl
             value.SetResourceReference(ForegroundProperty, "RosterTextBrush");
             value.SetResourceReference(BorderBrushProperty, "RosterBorderBrush");
             value.SetResourceReference(TextBox.CaretBrushProperty, "RosterTextBrush");
-            value.LostKeyboardFocus += StatValue_LostFocus;
+            value.LostKeyboardFocus(StatValue_LostFocus);
             value.KeyDown += StatValue_KeyDown;
             Grid.SetColumn(value, 1);
             row.Children.Add(value);
@@ -303,7 +303,7 @@ public partial class RosterPanel : UserControl
                 Background = Brushes.Transparent,
                 Tag = stat.Name,
                 Cursor = Cursors.Hand,
-                VerticalAlignment = VerticalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
                 ToolTip = $"Remove {stat.Name} from every player on this roster"
             };
             remove.SetResourceReference(ForegroundProperty, "RosterDangerBrush");
@@ -375,7 +375,7 @@ public partial class RosterPanel : UserControl
     void Import_Click(object sender, object e)
     {
         if (_engine is null) return;
-        var dialog = new OpenFileDialog
+        var dialog = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Import roster or player",
             Filter = "ScorePlus files (*.spr;*.spp)|*.spr;*.spp|ScorePlus Roster (*.spr)|*.spr|ScorePlus Player (*.spp)|*.spp|All files (*.*)|*.*",
@@ -464,7 +464,7 @@ public partial class RosterPanel : UserControl
                 "Click the player you want in the list first, then export again.");
             return;
         }
-        var dialog = new SaveFileDialog
+        var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Title = asPlayer ? "Export player" : "Export roster",
             Filter = asPlayer ? "ScorePlus Player (*.spp)|*.spp" : "ScorePlus Roster (*.spr)|*.spr",
@@ -525,7 +525,7 @@ public partial class RosterPanel : UserControl
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12)
         });
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var playerLabel = _player is null
             ? "Player (highlight one first)"
             : $"Player · {(_player.Number > 0 ? $"#{_player.Number} " : "")}{_player.Name} (.spp)";
@@ -543,8 +543,8 @@ public partial class RosterPanel : UserControl
         void Finish(ExportTarget? target)
         {
             if (target is { } value) choose(value);
-            if (false) window.DialogResult = true;
-            else window.Close();
+            if (window.Owner is not null) window.DialogResult = true; // modal: DialogResult closes it
+            else window.Close(); // modeless copy: close directly
         }
         rosterButton.Click += (_, _) => Finish(ExportTarget.Roster);
         playerButton.Click += (_, _) => Finish(ExportTarget.Player);
@@ -672,7 +672,7 @@ public partial class RosterPanel : UserControl
         e.Handled = true;
     }
 
-    void Player_LostFocus(object sender, FocusChangedEventArgs e) => CommitPlayer();
+    void Player_LostFocus(object sender, Avalonia.Interactivity.RoutedEventArgs e) => CommitPlayer();
 
     void CommitPlayer()
     {
@@ -725,7 +725,7 @@ public partial class RosterPanel : UserControl
         e.Handled = true;
     }
 
-    void StatValue_LostFocus(object sender, FocusChangedEventArgs e) => CommitStat(sender);
+    void StatValue_LostFocus(object sender, Avalonia.Interactivity.RoutedEventArgs e) => CommitStat(sender);
 
     void CommitStat(object sender)
     {

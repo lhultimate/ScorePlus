@@ -43,7 +43,7 @@ public sealed class ConfirmWindow : Window
             Text = heading,
             FontSize = 15,
             FontWeight = FontWeights.Bold,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap
         });
         root.Children.Add(titleRow);
@@ -57,7 +57,7 @@ public sealed class ConfirmWindow : Window
             Margin = new Thickness(0, 0, 0, 16)
         });
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         var cancel = MakeButton("Cancel", primary: false);
         cancel.IsCancel = true;
         cancel.Click += (_, _) => { Confirmed = false; Close(); };

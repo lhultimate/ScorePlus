@@ -1,11 +1,8 @@
 using System.IO;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -44,8 +41,8 @@ public sealed class HtmlSurface : Grid
                 FontSize = 14,
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(Color.FromArgb(0xAA, 0xF4, 0xF7, 0xFB)),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
             }
         };
         if (!showPlaceholder) _placeholder.Background = Brushes.Transparent;
@@ -246,7 +243,7 @@ public sealed class HtmlEngine : IDisposable
                 Top = -32000,
                 ShowInTaskbar = false,
                 ShowActivated = false,
-                WindowStyle = WindowStyle.None,
+                SystemDecorations = SystemDecorations.None,
                 ResizeMode = ResizeMode.NoResize,
                 Content = _view
             };

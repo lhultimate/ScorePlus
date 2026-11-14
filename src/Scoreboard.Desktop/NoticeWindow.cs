@@ -40,7 +40,7 @@ public sealed class NoticeWindow : Window
             Text = heading,
             FontSize = 15,
             FontWeight = FontWeights.Bold,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap
         });
         root.Children.Add(titleRow);
@@ -54,7 +54,7 @@ public sealed class NoticeWindow : Window
             Margin = new Thickness(0, 0, 0, 16)
         });
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         var ok = new Button
         {
             Content = "OK",

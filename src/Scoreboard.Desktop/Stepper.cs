@@ -1,8 +1,8 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Media;
 
 namespace Scoreboard.Desktop;
 
@@ -52,7 +52,7 @@ public sealed class Stepper : Grid
                 Text = caption.ToUpperInvariant(),
                 Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)),
                 FontSize = 10,
-                HorizontalAlignment = HorizontalAlignment.Center,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 4)
             };
             SetRow(label, 0);
@@ -69,7 +69,7 @@ public sealed class Stepper : Grid
         _value.TextAlignment = TextAlignment.Center;
         _value.Padding = new Thickness(2, 0, 2, 0);
         _value.Margin = new Thickness(0, 1, 0, 1);
-        _value.VerticalContentAlignment = VerticalAlignment.Center;
+        _value.VerticalContentAlignment = global::Avalonia.Layout.VerticalAlignment.Center;
         _value.Cursor = Cursors.IBeam;
         _value.BorderBrush = new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
         _value.BorderThickness = new Thickness(1);

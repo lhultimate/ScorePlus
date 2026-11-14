@@ -1,10 +1,10 @@
 using System.IO;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -15,7 +15,7 @@ internal static class ScorebugRender
     public static Brush ParseBrush(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return Brushes.Transparent;
-        try { return (Brush)new BrushConverter().ConvertFromString(value)!; }
+        try { return (Brush)Brush.Parse(value); }
         catch { return Brushes.Transparent; }
     }
 
@@ -67,7 +67,7 @@ internal static class ScorebugRender
     public static string? ResolveLogoPath(ScorebugElement item, GameState? state) =>
         item.LogoSide == ScorebugLogoSide.None ? item.ImagePath : state?.LogoFor(item.LogoSide) ?? item.ImagePath;
 
-    public static FrameworkElement CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false)
+    public static Control CreateContent(ScorebugElement item, Func<GameState>? state, MediaPlayback? playback = null, bool muteVideo = true, bool showVideoPlaceholder = false, bool onAirVideo = false)
     {
         if (item.Kind == ScorebugElementKind.Video) return new VideoSurface(item, playback, muteVideo, showVideoPlaceholder, onAirVideo);
         // HTML is drawn by a browser engine and captured as a frame, so every feed shows the same
@@ -76,7 +76,7 @@ internal static class ScorebugRender
         // A still image imported into the studio. It keeps its picture slot while the file is there,
         // and goes blank (rather than stale) if the file is moved away.
         if (item.Kind == ScorebugElementKind.Image)
-            return new Image { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+            return new Image { Stretch = Stretch.Uniform, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Stretch, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Stretch };
         // Icons are drawn from live data rather than typed text: small bars per timeout, or a dot
         // showing which team has the ball.
         if (item.Kind == ScorebugElementKind.Text && item.Icon != ScorebugIcon.None) return new ScorebugIconView(item, state);
@@ -89,16 +89,7 @@ internal static class ScorebugRender
     }
 
     /// <summary>Logos are copied into the app folder, but they still need a caching load.</summary>
-    internal static BitmapImage LoadLogo(string path)
-    {
-        var image = new BitmapImage();
-        image.BeginInit();
-        image.CacheOption = BitmapCacheOption.OnLoad;
-        image.UriSource = new Uri(path);
-        image.EndInit();
-        image.Freeze();
-        return image;
-    }
+    internal static Bitmap LoadLogo(string path) => new(path);
 
     public static ScorebugTextBlock MakeText(ScorebugElement item, string text, GameState? state = null)
     {
@@ -131,7 +122,7 @@ internal static class ScorebugRender
     }
 
     /// <summary>Applies text, colour, font and style to whatever content an element created.</summary>
-    public static void ApplyToContent(FrameworkElement content, ScorebugElement item, GameState? state = null, string? text = null)
+    public static void ApplyToContent(Control content, ScorebugElement item, GameState? state = null, string? text = null)
     {
         switch (content)
         {
@@ -180,7 +171,7 @@ internal static class ScorebugRender
 /// </summary>
 public sealed class ScorebugLogoView : Grid
 {
-    readonly Image _image = new() { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+    readonly Image _image = new() { Stretch = Stretch.Uniform, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Stretch, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Stretch };
     readonly TextBlock? _placeholder;
 
     public ScorebugLogoView(ScorebugElement item, GameState? state, bool showPlaceholder)
@@ -190,8 +181,8 @@ public sealed class ScorebugLogoView : Grid
             _placeholder = new TextBlock
             {
                 TextAlignment = TextAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap
             };
             Children.Add(_placeholder);
@@ -253,10 +244,10 @@ public sealed class ScorebugTextBlock : TextBlock
     {
         _style = item;
         TextAlignment = TextAlignment.Center;
-        VerticalAlignment = VerticalAlignment.Center;
-        HorizontalAlignment = HorizontalAlignment.Center;
+        VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center;
+        HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center;
         TextWrapping = TextWrapping.Wrap;
-        RenderTransformOrigin = new Point(0.5, 0.5);
+        RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
         _rest.Children.Add(_scale);
         _rest.Children.Add(_rotate);
         _rest.Children.Add(_translate);
@@ -274,8 +265,8 @@ public sealed class ScorebugTextBlock : TextBlock
         Foreground = Paint.Text(item, state);
         Opacity = Math.Clamp(item.TextOpacity, 0, 1);
         var decorations = new TextDecorationCollection();
-        if (item.Underline) decorations.Add(System.Windows.TextDecorations.Underline[0]);
-        if (item.StrikeThrough) decorations.Add(System.Windows.TextDecorations.Strikethrough[0]);
+        if (item.Underline) decorations.Add(TextDecorations.Underline[0]);
+        if (item.StrikeThrough) decorations.Add(TextDecorations.Strikethrough[0]);
         TextDecorations = decorations.Count == 0 ? null : decorations;
         // Slanted text: rotation is part of the element's design, not part of the animation.
         _rotate.Angle = item.Rotation;
@@ -524,7 +515,7 @@ public sealed class ScorebugTextBlock : TextBlock
             // A pop lands a touch too big and settles: the little bounce that reads as "new value".
             var start = scaleFrom ?? 1;
             var end = scaleTo ?? 1;
-            AnimationTimeline Pop()
+            WpfAnimation Pop()
             {
                 var animation = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd };
                 animation.KeyFrames.Add(new EasingDoubleKeyFrame(start, KeyTime.FromPercent(0)));
@@ -598,8 +589,8 @@ public sealed class ScorebugIconView : Grid
             _bars = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
             };
             Children.Add(_bars);
         }
@@ -607,7 +598,7 @@ public sealed class ScorebugIconView : Grid
         {
             // The dot is the whole icon: it marks the side with the ball, on the side that has it.
             // Printing the value beside it read as a second, stale possession next to the mark.
-            _dot = new Ellipse { Fill = ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item, state?.Invoke())), VerticalAlignment = VerticalAlignment.Center };
+            _dot = new Ellipse { Fill = ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item, state?.Invoke())), VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center };
             Children.Add(_dot);
         }
         Update(text);
@@ -660,7 +651,7 @@ public sealed class ScorebugIconView : Grid
                         Height = size,
                         RadiusX = Math.Max(1, size * 0.10),
                         RadiusY = Math.Max(1, size * 0.10),
-                        RenderTransformOrigin = new Point(0.5, 0.5),
+                        RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
                         RenderTransform = new TransformGroup { Children = { new RotateTransform(45), scale } },
                         StrokeThickness = Math.Max(1.5, size * 0.12)
                     };
@@ -756,7 +747,7 @@ public sealed class ScorebugIconView : Grid
             {
                 _dotRight = right;
                 // Whatever was running belongs to the old side; drop it before starting again.
-                _dot.BeginAnimation(UIElement.OpacityProperty, null);
+                _dot.BeginAnimation(Visual.OpacityProperty, null);
                 if (_dot.RenderTransform is TranslateTransform running) running.BeginAnimation(TranslateTransform.XProperty, null);
                 if (Animates)
                 {
@@ -767,7 +758,7 @@ public sealed class ScorebugIconView : Grid
                     var duration = MotionTime;
                     var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
                     shift.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(from, 0, duration) { EasingFunction = easing });
-                    _dot.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.35, 1, duration) { EasingFunction = easing });
+                    _dot.BeginAnimation(Visual.OpacityProperty, new DoubleAnimation(0.35, 1, duration) { EasingFunction = easing });
                 }
                 else
                 {
@@ -801,7 +792,7 @@ public sealed class ScorebugIconView : Grid
     /// Brings a freshly built piece of the icon in with the element's chosen value-change motion:
     /// a dissolve, a slide from the edge, or a pop/zoom, so bars and the dot move like the text does.
     /// </summary>
-    void PlayIn(FrameworkElement element)
+    void PlayIn(Control element)
     {
         var duration = MotionTime;
         var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
@@ -811,7 +802,7 @@ public sealed class ScorebugIconView : Grid
                 return;
             case ScorebugTransition.Fade:
                 element.Opacity = 0;
-                element.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, duration) { EasingFunction = easing });
+                element.BeginAnimation(Visual.OpacityProperty, new DoubleAnimation(0, 1, duration) { EasingFunction = easing });
                 return;
             case ScorebugTransition.SlideLeft or ScorebugTransition.SlideRight
                 or ScorebugTransition.SlideUp or ScorebugTransition.SlideDown
@@ -830,18 +821,18 @@ public sealed class ScorebugIconView : Grid
                 translate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(fromX, 0, duration) { EasingFunction = easing });
                 translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(fromY, 0, duration) { EasingFunction = easing });
                 element.Opacity = 0;
-                element.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, duration) { EasingFunction = easing });
+                element.BeginAnimation(Visual.OpacityProperty, new DoubleAnimation(0, 1, duration) { EasingFunction = easing });
                 return;
             default:
                 // Flip, zoom, pop, drop and the remaining fades: a small scale up with a dissolve.
-                element.RenderTransformOrigin = new Point(0.5, 0.5);
+                element.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
                 var from = _item.Transition == ScorebugTransition.Zoom ? 0.2 : 0.45;
                 var scale = new ScaleTransform(from, from);
                 element.RenderTransform = scale;
                 scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(from, 1, duration) { EasingFunction = easing });
                 scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(from, 1, duration) { EasingFunction = easing });
                 element.Opacity = 0;
-                element.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, duration) { EasingFunction = easing });
+                element.BeginAnimation(Visual.OpacityProperty, new DoubleAnimation(0, 1, duration) { EasingFunction = easing });
                 return;
         }
     }
@@ -856,7 +847,7 @@ public sealed class ScorebugIconView : Grid
         if (index < 0 || index >= _baseSquares.Count) return;
         var square = _baseSquares[index];
         var scale = _baseScales[index];
-        square.BeginAnimation(UIElement.OpacityProperty, null);
+        square.BeginAnimation(Visual.OpacityProperty, null);
         scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         if (duration is null)
@@ -882,11 +873,11 @@ public sealed class ScorebugIconView : Grid
                 scale.ScaleX = 1;
                 scale.ScaleY = 1;
             };
-            square.BeginAnimation(UIElement.OpacityProperty, fade);
+            square.BeginAnimation(Visual.OpacityProperty, fade);
             return;
         }
         ApplyBaseLook(square, true);
-        square.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, duration.Value) { EasingFunction = easing });
+        square.BeginAnimation(Visual.OpacityProperty, new DoubleAnimation(0, 1, duration.Value) { EasingFunction = easing });
         scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.55, 1, duration.Value) { EasingFunction = easing });
         scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.55, 1, duration.Value) { EasingFunction = easing });
     }

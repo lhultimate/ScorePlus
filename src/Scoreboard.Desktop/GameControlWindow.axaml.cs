@@ -266,7 +266,7 @@ public partial class GameControlWindow : Window
 
     void NewPanel_Click(object sender, object e) => NewPanelRequested?.Invoke();
 
-    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    protected override void OnKeyDown(KeyEventArgs e)
     {
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         // Enter commits the field being typed in and keeps this panel open.
@@ -277,7 +277,7 @@ public partial class GameControlWindow : Window
             return;
         }
         if (Panel.TryHandleKey(key, Keyboard.Modifiers)) { e.Handled = true; return; }
-        base.OnPreviewKeyDown(e);
+        base.OnKeyDown(e);
     }
 
     protected override void OnClosed(EventArgs e)
@@ -375,7 +375,7 @@ internal sealed class AddStatDialog : Window
         panel.Children.Add(_custom);
         var error = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(255, 114, 114)), Margin = new Thickness(4, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
         panel.Children.Add(error);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         var add = new Button { Content = "Add stat", IsDefault = true };
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         add.Click += (_, _) =>
@@ -419,7 +419,7 @@ internal sealed class ClockTimeDialog : Window
         _error.Margin = new Thickness(4, 4, 0, 0);
         _error.TextWrapping = TextWrapping.Wrap;
         panel.Children.Add(_error);
-        var apply = new Button { Content = "Apply", IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right };
+        var apply = new Button { Content = "Apply", IsDefault = true, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         apply.Click += (_, _) =>
         {
             if (!ClockFormat.TryParse(_input.Text, out var parsed)) { _error.Text = "Use MM:SS or a whole number of seconds."; return; }

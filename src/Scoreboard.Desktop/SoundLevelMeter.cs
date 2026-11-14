@@ -1,4 +1,3 @@
-using NAudio.Wave;
 
 namespace Scoreboard.Desktop;
 

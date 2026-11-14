@@ -58,7 +58,7 @@ internal sealed class MicrophoneRoutingWindow : Window
         _devices.Margin = new Thickness(0, 0, 0, 6);
         _devices.SelectedItem = _devices.Items.Cast<DeviceChoice>().FirstOrDefault(choice => choice.Index == entry.MicrophoneIndex);
         if (_devices.SelectedItem is null && _devices.Items.Count > 0) _devices.SelectedIndex = 0;
-        _devices.MouseDoubleClick += (_, _) => Accept();
+        _devices.DoubleTapped += (_, _) => Accept();
         root.Children.Add(_devices);
 
         if (microphones.Count == 0)
@@ -70,7 +70,7 @@ internal sealed class MicrophoneRoutingWindow : Window
                 Opacity = 0.7
             });
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var cancel = new Button { Content = "Cancel", IsCancel = true, MinHeight = 36, Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(4, 0, 0, 0) };
         var save = new Button { Content = "Apply", IsDefault = true, MinHeight = 36, Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(4, 0, 0, 0) };
         cancel.Click += (_, _) => { DialogResult = false; Close(); };

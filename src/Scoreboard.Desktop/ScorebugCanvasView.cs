@@ -25,7 +25,7 @@ public sealed class ScorebugCanvasView : Grid
     readonly string? _displayId;
     string? _drawnLayoutId;
     ScorebugLayout? _drawnLayout;
-    FrameworkElement? _swapOverlay;
+    Avalonia.Controls.Control? _swapOverlay;
     // Pieces that exist only while a hand-over runs, and the timer that ends an exit or a scoped
     // arrival. Both belong to the swap, not to the layout, so FinishSwap takes them down together.
     Canvas? _swapPieces;
@@ -34,7 +34,7 @@ public sealed class ScorebugCanvasView : Grid
     readonly bool _muteVideo;
     // A silent monitor of the audience picture (not a preview), so it follows the on-air cue.
     readonly bool _onAirVideo;
-    readonly Dictionary<string, (FrameworkElement Host, FrameworkElement Content)> _visuals = [];
+    readonly Dictionary<string, (Avalonia.Controls.Control Host, Avalonia.Controls.Control Content)> _visuals = [];
     // Keyed by element id so a rebuild can keep the surface (and the running picture) alive.
     readonly Dictionary<string, VideoSurface> _videoSurfaces = [];
     readonly Dictionary<string, HtmlSurface> _htmlSurfaces = [];
@@ -91,7 +91,7 @@ public sealed class ScorebugCanvasView : Grid
         var outgoingLayout = swapping ? _drawnLayout : null;
         var previousVideos=new Dictionary<string,VideoSurface>(_videoSurfaces);
         var previousHtml=new Dictionary<string,HtmlSurface>(_htmlSurfaces);
-        var previousVisuals=new Dictionary<string,(FrameworkElement Host, FrameworkElement Content)>(_visuals);
+        var previousVisuals=new Dictionary<string,(Avalonia.Controls.Control Host, Avalonia.Controls.Control Content)>(_visuals);
         foreach(var (id,_) in _pendingText) CancelPending(id);
         _videoSurfaces.Clear();_htmlSurfaces.Clear();_visuals.Clear();_animations.Clear();_backgrounds.Clear();_transparentStates.Clear();_borders.Clear();_shownText.Clear();
         var layout = incoming;
@@ -99,7 +99,7 @@ public sealed class ScorebugCanvasView : Grid
         _canvas.Width=layout.Width;_canvas.Height=layout.Height;
         // The artwork backdrop belongs to the layout, so a green-screen design and the studio agree.
         _canvas.Background=ScorebugRender.ParseBrush(layout.Background);
-        var live=new List<UIElement>();
+        var live=new List<Avalonia.Visual>();
         var zIndex=0;
         foreach(var item in layout.Elements)
         {
@@ -107,7 +107,7 @@ public sealed class ScorebugCanvasView : Grid
             // the only place the tag placeholder is drawn.
             // A video box that still exists keeps its live surface. Rebuilding it stopped the
             // decoder and re-opened the file, which is why editing the studio restarted playback.
-            FrameworkElement content;
+            Avalonia.Controls.Control content;
             if(previousVideos.TryGetValue(item.Id,out var surface)){surface.SetElement(item);content=surface;}
             else if(previousHtml.TryGetValue(item.Id,out var page)){page.Update(item);content=page;}
             else content=ScorebugRender.CreateContent(item,_stateProvider,_playback,_muteVideo,showVideoPlaceholder:false,onAirVideo:_onAirVideo);
@@ -124,8 +124,8 @@ public sealed class ScorebugCanvasView : Grid
             var host=reused?(Border)prior.Host:new Border{ClipToBounds=true,Child=content};
             if(!reused)host.Background=ScorebugRender.HostBackground(item,_stateProvider());
             host.Width=item.Width;host.Height=item.Height;host.Opacity=item.Opacity;
-            host.Visibility=item.Visible?Visibility.Visible:Visibility.Collapsed;
-            Canvas.SetLeft(host,item.X);Canvas.SetTop(host,item.Y);Panel.SetZIndex(host,zIndex++);
+            host.IsVisible = item.Visible?true:false;
+            Canvas.SetLeft(host,item.X);Canvas.SetTop(host,item.Y);host.ZIndex = zIndex++;;
             _visuals[item.Id]=(host,content);
             // A rebuilt view starts from what it draws right now, so a delay never blanks the graphic.
             if(content is ScorebugTextBlock shown) _shownText[item.Id]=shown.Text;
@@ -133,8 +133,8 @@ public sealed class ScorebugCanvasView : Grid
             live.Add(host);
             ApplyAnimation(item,host);
         }
-        foreach(var child in _canvas.Children.OfType<UIElement>().ToList())
-            if(!live.Contains(child))_canvas.Children.Remove(child);
+        foreach(var child in _canvas.Children.OfType<Avalonia.Visual>().ToList())
+            if(!live.Contains(child))_canvas.Children.Remove((Avalonia.Controls.Control)child);
         foreach(var (id,orphan) in previousVideos)
             if(!_videoSurfaces.ContainsKey(id))orphan.Dispose();
         foreach(var (id,orphan) in previousHtml)
@@ -216,8 +216,8 @@ public sealed class ScorebugCanvasView : Grid
                 break;
             case LayoutTransition.Zoom:
             {
-                overlay.RenderTransformOrigin=new Point(0.5,0.5);
-                _canvas.RenderTransformOrigin=new Point(0.5,0.5);
+                overlay.RenderTransformOrigin = new RelativePoint(0.5,0.5, RelativeUnit.Relative);
+                _canvas.RenderTransformOrigin = new RelativePoint(0.5,0.5, RelativeUnit.Relative);
                 var scaleOut=new ScaleTransform(1,1);
                 var scaleIn=new ScaleTransform(0.92,0.92);
                 overlay.RenderTransform=scaleOut;
@@ -232,7 +232,7 @@ public sealed class ScorebugCanvasView : Grid
         arriving.BeginAnimation(TranslateTransform.XProperty,arrive);
         var fade=new DoubleAnimation(1,0,duration){EasingFunction=easing};
         fade.Completed+=(_,_)=>Finish();
-        overlay.BeginAnimation(UIElement.OpacityProperty,fade);
+        overlay.BeginAnimation(Avalonia.Visual.OpacityProperty,fade);
     }
 
     /// <summary>
@@ -258,7 +258,7 @@ public sealed class ScorebugCanvasView : Grid
 
         // The outgoing frame: the whole still, or one cropped still per item when the exit itself is
         // keyed piece by piece. The crops are exactly what was on screen, so a piece moves on its own.
-        FrameworkElement outgoingHost;
+        Avalonia.Controls.Control outgoingHost;
         if(exitScoped)
         {
             var crops=new Canvas{Width=width,Height=height,IsHitTestVisible=false};
@@ -301,7 +301,7 @@ public sealed class ScorebugCanvasView : Grid
         _swapOverlay=outgoingHost;
 
         // Temporary pieces live for the hand-over only; they are drawn above both layouts.
-        var temporary=new List<(FrameworkElement Host, MotionPiece Piece)>();
+        var temporary=new List<(Avalonia.Controls.Control Host, MotionPiece Piece)>();
         Canvas? pieces=null;
         if(clip.Pieces.Count>0)
         {
@@ -324,7 +324,7 @@ public sealed class ScorebugCanvasView : Grid
             _stage.Children.Remove(outgoingHost);
             _swapOverlay=null;
             if(outgoingHost is Panel panel)
-                foreach(var child in panel.Children.OfType<FrameworkElement>()) MotionPlayback.Stop(child);
+                foreach(var child in panel.Children.OfType<Avalonia.Controls.Control>()) MotionPlayback.Stop(child);
             else MotionPlayback.Stop(outgoingHost);
         }
         void Arrive()
@@ -353,15 +353,15 @@ public sealed class ScorebugCanvasView : Grid
         else Arrive();
     }
 
-    FrameworkElement BuildTemporaryPiece(MotionPiece piece)
+    Avalonia.Controls.Control BuildTemporaryPiece(MotionPiece piece)
     {
         var text=new TextBlock
         {
             Text=piece.Text,
             FontSize=piece.FontSize,
             Foreground=new SolidColorBrush(Paint.ColorOf(piece.TextColor,Colors.White)),
-            HorizontalAlignment=HorizontalAlignment.Center,
-            VerticalAlignment=VerticalAlignment.Center,
+            HorizontalAlignment=global::Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment=global::Avalonia.Layout.VerticalAlignment.Center,
             TextAlignment=TextAlignment.Center,
             TextWrapping=TextWrapping.Wrap
         };
@@ -376,7 +376,7 @@ public sealed class ScorebugCanvasView : Grid
             ClipToBounds=true,
             Child=text
         };
-        host.RenderTransformOrigin=new Point(0.5,0.5);
+        host.RenderTransformOrigin = new RelativePoint(0.5,0.5, RelativeUnit.Relative);
         Canvas.SetLeft(host,piece.X);Canvas.SetTop(host,piece.Y);
         return host;
     }
@@ -402,17 +402,17 @@ public sealed class ScorebugCanvasView : Grid
         }
         if(_swapPieces is not null)
         {
-            foreach(var host in _swapPieces.Children.OfType<FrameworkElement>()) MotionPlayback.Stop(host);
+            foreach(var host in _swapPieces.Children.OfType<Avalonia.Controls.Control>()) MotionPlayback.Stop(host);
             _stage.Children.Remove(_swapPieces);
             _swapPieces=null;
         }
         MotionPlayback.Stop(_canvas);
-        _canvas.BeginAnimation(UIElement.OpacityProperty,null);
-        _canvas.RenderTransform=Transform.Identity;
-        _canvas.RenderTransformOrigin=new Point(0.5,0.5);
+        _canvas.BeginAnimation(Avalonia.Visual.OpacityProperty,null);
+        _canvas.RenderTransform=WpfTransforms.Identity;
+        _canvas.RenderTransformOrigin = new RelativePoint(0.5,0.5, RelativeUnit.Relative);
     }
 
-    void ApplyAnimation(ScorebugElement item,FrameworkElement host)
+    void ApplyAnimation(ScorebugElement item,Avalonia.Controls.Control host)
     {
         var motion=item.MotionAnimation is { UseOnValueChange:false, IsEmpty:false } clip?clip.Summary:"";
         if(_animations.TryGetValue(item.Id,out var applied)&&applied.Animation==item.Animation&&Math.Abs(applied.Opacity-item.Opacity)<0.0001&&applied.Motion==motion)return;
@@ -426,18 +426,18 @@ public sealed class ScorebugCanvasView : Grid
             return;
         }
         MotionPlayback.Stop(host);
-        host.BeginAnimation(UIElement.OpacityProperty,null);
+        host.BeginAnimation(Avalonia.Visual.OpacityProperty,null);
         host.Opacity=Math.Clamp(item.Opacity,0,1);
         if(host.RenderTransform is TranslateTransform previous)
         {
             previous.BeginAnimation(TranslateTransform.XProperty,null);
             previous.BeginAnimation(TranslateTransform.YProperty,null);
-            host.RenderTransform=Transform.Identity;
+            host.RenderTransform=WpfTransforms.Identity;
         }
         switch(item.Animation)
         {
             case ScorebugAnimation.Pulse:
-                host.BeginAnimation(UIElement.OpacityProperty,new DoubleAnimation(item.Opacity*0.68,item.Opacity,TimeSpan.FromSeconds(1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever});
+                host.BeginAnimation(Avalonia.Visual.OpacityProperty,new DoubleAnimation(item.Opacity*0.68,item.Opacity,TimeSpan.FromSeconds(1)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever});
                 break;
             case ScorebugAnimation.Drift:
                 // The old code animated X on the host instead of on its transform, so drift did
@@ -495,8 +495,7 @@ public sealed class ScorebugCanvasView : Grid
         foreach(var item in layout.Elements)
         {
             if(!_visuals.TryGetValue(item.Id,out var visual))continue;
-            var visibility=item.Visible?Visibility.Visible:Visibility.Collapsed;
-            if(visual.Host.Visibility!=visibility)visual.Host.Visibility=visibility;
+            if(visual.Host.IsVisible!=(item.Visible))visual.Host.IsVisible = item.Visible;
             if(item.Animation!=ScorebugAnimation.Pulse&&item.MotionAnimation is not { UseOnValueChange:false }&&Math.Abs(visual.Host.Opacity-item.Opacity)>0.0001)visual.Host.Opacity=item.Opacity;
             if(visual.Host is Border hostBorder)
             {

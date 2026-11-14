@@ -1,9 +1,8 @@
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
+using Avalonia.Media;
+using Avalonia.Threading;
 using OpenCvSharp;
 using Scoreboard.Core;
 using Size = OpenCvSharp.Size;
@@ -44,7 +43,7 @@ public sealed class CameraFeed : IDisposable
     public const double MaxReplaySeconds = 120;
 
     readonly int _index;
-    readonly Dispatcher _dispatcher;
+    readonly Avalonia.Threading.Dispatcher _dispatcher;
     readonly object _gate = new();
     Thread? _thread;
     volatile bool _wanted;
@@ -56,7 +55,7 @@ public sealed class CameraFeed : IDisposable
     // Clips that have been closed and can be read back. Newest last. A replay scrubs across these.
     readonly List<CameraSegment> _segments = [];
 
-    CameraFeed(int index, Dispatcher dispatcher)
+    CameraFeed(int index, Avalonia.Threading.Dispatcher dispatcher)
     {
         _index = index;
         _dispatcher = dispatcher;

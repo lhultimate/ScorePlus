@@ -28,7 +28,7 @@ public sealed class KeybindsWindow : Window
 
         var root = new DockPanel { Margin = new Thickness(12) };
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         var assign = new Button { Content = "Press a key to assign", Padding = new Thickness(12, 10, 12, 10) };
         var clear = new Button { Content = "Clear" };
         var defaults = new Button { Content = "Restore defaults" };
@@ -92,9 +92,9 @@ public sealed class KeybindsWindow : Window
         Focus();
     }
 
-    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (!_capturing) { base.OnPreviewKeyDown(e); return; }
+        if (!_capturing) { base.OnKeyDown(e); return; }
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         e.Handled = true;
         if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin) return;

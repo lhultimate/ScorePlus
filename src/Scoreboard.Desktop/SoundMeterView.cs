@@ -33,7 +33,7 @@ public sealed class SoundMeterView : Border
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var meter = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var meter = new StackPanel { VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center };
         var caption = new DockPanel();
         DockPanel.SetDock(_level, Dock.Right);
         caption.Children.Add(_level);
@@ -64,7 +64,7 @@ public sealed class SoundMeterView : Border
         meter.Children.Add(segments);
         grid.Children.Add(meter);
 
-        var show = new StackPanel { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, MaxWidth = 220 };
+        var show = new StackPanel { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, MaxWidth = 220 };
         show.Children.Add(_status);
         show.Children.Add(_detail);
         Grid.SetColumn(show, 1);

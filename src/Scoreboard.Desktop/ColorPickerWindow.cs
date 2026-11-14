@@ -68,7 +68,7 @@ public sealed class ColorPickerWindow : Window
         }
         root.Children.Add(palette);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var use = new Button { Content = "Use color", IsDefault = true };
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         use.Click += (_, _) =>
@@ -101,9 +101,9 @@ public sealed class ColorPickerWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-        var name = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)) };
-        valueText.HorizontalAlignment = HorizontalAlignment.Right;
-        valueText.VerticalAlignment = VerticalAlignment.Center;
+        var name = new TextBlock { Text = label, VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center, Foreground = new SolidColorBrush(Color.FromRgb(147, 160, 178)) };
+        valueText.HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right;
+        valueText.VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center;
         Grid.SetColumn(name, 0); Grid.SetColumn(slider, 1); Grid.SetColumn(valueText, 2);
         grid.Children.Add(name); grid.Children.Add(slider); grid.Children.Add(valueText);
         return grid;

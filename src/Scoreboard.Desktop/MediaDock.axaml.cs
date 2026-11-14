@@ -4,6 +4,8 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Microsoft.Win32;
+using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
+using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
 
 namespace Scoreboard.Desktop;
 
@@ -540,8 +542,8 @@ public partial class MediaDock : UserControl
             thumb.Children.Add(new Border
             {
                 Background = Frozen("#CC05080D"),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Top,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Top,
                 Padding = new Thickness(5, 1, 5, 1),
                 CornerRadius = new CornerRadius(0, 0, 0, 6),
                 Child = new TextBlock
@@ -645,16 +647,16 @@ public partial class MediaDock : UserControl
             FontSize = 38,
             FontWeight = FontWeights.Bold,
             Foreground = onAir ? BorderOnAir : BorderSelected,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
         });
         if (onAir)
         {
             thumb.Children.Add(new Border
             {
                 Background = Frozen("#B3000000"),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Left,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Top,
                 Padding = new Thickness(5, 2, 5, 2),
                 CornerRadius = new CornerRadius(0, 0, 6, 0),
                 Child = new TextBlock
@@ -750,8 +752,8 @@ public partial class MediaDock : UserControl
         Width = width,
         Height = height,
         Stretch = Stretch.Fill,
-        VerticalAlignment = VerticalAlignment.Center,
-        HorizontalAlignment = HorizontalAlignment.Center
+        VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
+        HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center
     };
 
     // ---------- clip tiles ----------
@@ -832,8 +834,8 @@ public partial class MediaDock : UserControl
             thumb.Children.Add(new Border
             {
                 Background = Frozen("#B3000000"),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Left,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Top,
                 Padding = new Thickness(5, 2, 5, 2),
                 CornerRadius = new CornerRadius(0, 0, 6, 0),
                 Child = new TextBlock { Text = session.IsPlaying ? "ON AIR" : "PAUSED", Foreground = BorderOnAir, FontSize = 9, FontWeight = FontWeights.Bold }
@@ -844,8 +846,8 @@ public partial class MediaDock : UserControl
             thumb.Children.Add(new Border
             {
                 Background = Frozen("#CC05080D"),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Top,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Top,
                 Padding = new Thickness(5, 1, 5, 1),
                 CornerRadius = new CornerRadius(0, 0, 0, 6),
                 Child = new TextBlock { Text = (index + 1).ToString(), Foreground = Brushes.White, FontSize = 9, FontWeight = FontWeights.Bold }
@@ -1214,7 +1216,7 @@ public partial class MediaDock : UserControl
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 4)
         });
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var cancel = new Button { Content = "Cancel", IsCancel = true, MinHeight = 34, Padding = new Thickness(13, 6, 13, 6), Margin = new Thickness(4, 0, 0, 0) };
         var clear = new Button
         {
@@ -1380,7 +1382,7 @@ public partial class MediaDock : UserControl
         var box = new TextBox { Text = initial, FontSize = 13, Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(0) };
         root.Children.Add(box);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 11, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 11, 0, 0) };
         var cancel = new Button { Content = "Cancel", IsCancel = true, MinHeight = 34, Padding = new Thickness(13, 6, 13, 6), Margin = new Thickness(4, 0, 0, 0) };
         var create = new Button
         {

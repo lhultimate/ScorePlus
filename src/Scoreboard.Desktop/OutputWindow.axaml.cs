@@ -15,7 +15,7 @@ public partial class OutputWindow : Window
     // is ever drawn here, so two screens can be on air with completely different designs.
     readonly string _displayId;
     string _broadcastTheme;
-    WindowStyle _style; WindowState _state; bool _full;
+    SystemDecorations _style; WindowState _state; bool _full;
     double _left, _top, _width, _height;
     bool _geometrySaved;
     public OutputWindow(GameEngine engine, ScorebugCatalog catalog,string broadcastTheme="Dark",MediaPlayback? playback=null,string? displayId=null)
@@ -109,7 +109,7 @@ public partial class OutputWindow : Window
     void EnterFullscreen()
     {
         _full = true;
-        _style = WindowStyle;
+        _style = SystemDecorations;
         _state = WindowState;
         _left = Left;
         _top = Top;
@@ -120,7 +120,7 @@ public partial class OutputWindow : Window
         // changed makes WPF size the window to the old work area, which is what left a strip down
         // each side of a 16:9 graphic (the "black borders" in fullscreen).
         WindowState = WindowState.Normal;
-        WindowStyle = WindowStyle.None;
+        SystemDecorations = SystemDecorations.None;
         ResizeMode = ResizeMode.NoResize;
         FillMonitor();
         Topmost = true;
@@ -130,7 +130,7 @@ public partial class OutputWindow : Window
     {
         _full = false;
         Topmost = false;
-        WindowStyle = _style;
+        SystemDecorations = _style;
         ResizeMode = ResizeMode.CanResize;
         if (_geometrySaved)
         {
@@ -186,7 +186,7 @@ public partial class OutputWindow : Window
     /// F11 on the audience window is the same as Broadcast Fullscreen from the main menu: the
     /// graphic fills the screen. Escape gives the window back.
     /// </summary>
-    protected override void OnPreviewKeyDown(Avalonia.Input.KeyEventArgs e)
+    protected override void OnKeyDown(Avalonia.Input.KeyEventArgs e)
     {
         if (e.Key == Avalonia.Input.Key.F11)
         {
@@ -200,7 +200,7 @@ public partial class OutputWindow : Window
             e.Handled = true;
             return;
         }
-        base.OnPreviewKeyDown(e);
+        base.OnKeyDown(e);
     }
     protected override void OnClosed(EventArgs e) { _engine.Changed-=Update; _engine.Changed-=_scorebugView.Refresh; _catalog.Changed-=Publish; _scorebugView.Dispose(); base.OnClosed(e); }
 }

@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Windows.Threading;
+using Avalonia.Threading;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -23,7 +23,7 @@ public sealed class RemoteControlServer : IDisposable
     readonly GameEngine _engine;
     readonly IControlPanelHost _host;
     readonly Func<string, bool> _execute;
-    readonly Dispatcher _dispatcher;
+    readonly Avalonia.Threading.Dispatcher _dispatcher;
     readonly int _port;
     readonly byte[] _passwordHash;
     readonly Dictionary<string, DateTimeOffset> _sessions = new(StringComparer.Ordinal);
@@ -35,7 +35,7 @@ public sealed class RemoteControlServer : IDisposable
     /// <summary>Raised with a human message when the server starts, stops or cannot bind.</summary>
     public event Action<string>? Status;
 
-    public RemoteControlServer(GameEngine engine, IControlPanelHost host, Func<string, bool> execute, Dispatcher dispatcher, int port, string password)
+    public RemoteControlServer(GameEngine engine, IControlPanelHost host, Func<string, bool> execute, Avalonia.Threading.Dispatcher dispatcher, int port, string password)
     {
         _engine = engine;
         _host = host;

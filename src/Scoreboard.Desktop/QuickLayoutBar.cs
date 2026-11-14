@@ -1,8 +1,8 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Media;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -84,7 +84,7 @@ public sealed class QuickLayoutBar : Border
                 Padding = new Thickness(4, 5, 4, 5),
                 Margin = new Thickness(2),
                 MinHeight = 28,
-                HorizontalContentAlignment = HorizontalAlignment.Center,
+                HorizontalContentAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
                 ToolTip = "Left-click to use · right-click to reassign or clear"
             };
             ThemeManager.SetSkipTheme(button, true);
@@ -265,7 +265,7 @@ internal sealed class QuickLayoutPickerWindow : Window
         _label.Text = current?.Label ?? "";
         root.Children.Add(_label);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         var clear = new Button { Content = "Clear button", MinHeight = 34, Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(4, 0, 0, 0) };
         var cancel = new Button { Content = "Cancel", IsCancel = true, MinHeight = 34, Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(4, 0, 0, 0) };
         var use = new Button { Content = "Use this layout", IsDefault = true, MinHeight = 34, Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(4, 0, 0, 0) };

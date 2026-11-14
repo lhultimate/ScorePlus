@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
-using System.Windows;
-using System.Windows.Interop;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Media;
 
 namespace Scoreboard.Desktop;
 
@@ -56,7 +55,7 @@ internal static class ScreenFit
     /// </summary>
     public static void Apply(Window window)
     {
-        var handle = new WindowInteropHelper(window).Handle;
+        var handle = WpfInterop.HandleFor(window);
         if (handle == IntPtr.Zero) return;
         var monitor = MonitorFromWindow(handle, MonitorDefaultToNearest);
         if (monitor == IntPtr.Zero) return;

@@ -1,10 +1,11 @@
 using System.IO;
 using System.Text.Json;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
+using Avalonia.Media;
 using Scoreboard.Core;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Media;
 
 namespace Scoreboard.Desktop;
 
@@ -161,29 +162,35 @@ public static class PreferencesStore
 /// </summary>
 public static class ThemeManager
 {
-    public static readonly DependencyProperty SkipThemeProperty =
-        DependencyProperty.RegisterAttached("SkipTheme", typeof(bool), typeof(ThemeManager), new PropertyMetadata(false));
+    public static readonly AttachedProperty<bool> SkipThemeProperty =
+        AvaloniaProperty.RegisterAttached<ThemeManager, AvaloniaObject, bool>("SkipTheme", false);
 
-    public static void SetSkipTheme(DependencyObject element, bool value) => element.SetValue(SkipThemeProperty, value);
-    public static bool GetSkipTheme(DependencyObject element) => (bool)element.GetValue(SkipThemeProperty);
+    public static void SetSkipTheme(AvaloniaObject element, bool value) => element.SetValue(SkipThemeProperty, value);
+    public static bool GetSkipTheme(AvaloniaObject element) => (bool)element.GetValue(SkipThemeProperty);
 
     public static Color PanelColor(string theme) => Resolve(theme) == "Light" ? Color.FromRgb(255, 255, 255) : Color.FromRgb(23, 28, 37);
 
-    /// <summary>
-    /// Turns the stored choice into the theme to paint with. "System" reads Windows' app theme
-    /// (Settings → Personalisation → Colours), so the operator surface can follow the desktop.
-    /// </summary>
+    /// <summary>Turns the stored choice into the theme to paint with; System follows GTK on Linux.</summary>
     public static string Resolve(string? theme)
     {
         if (string.Equals(theme, "Light", StringComparison.OrdinalIgnoreCase)) return "Light";
         if (!string.Equals(theme, "System", StringComparison.OrdinalIgnoreCase)) return "Dark";
         try
         {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            return key?.GetValue("AppsUseLightTheme") is int light && light != 0 ? "Light" : "Dark";
+            var config = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+            if (string.IsNullOrWhiteSpace(config)) config = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
+            var settings = Path.Combine(config, "gtk-3.0", "settings.ini");
+            if (!File.Exists(settings)) return "Dark";
+            foreach (var line in File.ReadLines(settings))
+            {
+                var separator = line.IndexOf('=');
+                if (separator < 0 || !line[..separator].Trim().Equals("gtk-theme", StringComparison.OrdinalIgnoreCase)) continue;
+                var name = line[(separator + 1)..].Trim().Trim('"', '\'');
+                return name.Contains("dark", StringComparison.OrdinalIgnoreCase) ? "Dark" : "Light";
+            }
         }
-        catch { return "Dark"; }
+        catch { }
+        return "Dark";
     }
 
     public static void Apply(Window window, string theme)
@@ -219,21 +226,21 @@ public static class ThemeManager
 
         void ApplyTheme()
         {
-            SetDescendants(window.Content as DependencyObject, panel, surface, foreground, input, border);
+            SetDescendants(window.Content as AvaloniaObject, panel, surface, foreground, input, border);
             ApplyAccent(window, accent, secondary);
         }
         window.Loaded += (_, _) => ApplyTheme();
         if (window.IsLoaded) window.Dispatcher.BeginInvoke(ApplyTheme);
     }
 
-    static Brush Brush(string color) => (Brush)new BrushConverter().ConvertFromString(color)!;
+    static Brush Brush(string color) => (Brush)Brush.Parse(color);
 
-    static void SetDescendants(DependencyObject? root, string panel, string surface, string foreground, string input, string border)
+    static void SetDescendants(AvaloniaObject? root, string panel, string surface, string foreground, string input, string border)
     {
         if (root is null) return;
         // Never repaint designed artwork: scorebug views and the studio canvas keep their own colors.
         if (root is ScorebugCanvasView) return;
-        if (root is FrameworkElement { Name: "DesignCanvas" }) return;
+        if (root is Control { Name: "DesignCanvas" }) return;
         if (GetSkipTheme(root)) return;
 
         if (root is Border borderElement && borderElement.Background is SolidColorBrush) borderElement.Background = Brush(panel);
@@ -270,11 +277,11 @@ public static class ThemeManager
     /// active-tab borders to the accent, filled actions to the secondary. Designed artwork (the
     /// scorebug canvas, the studio artboard) is never touched.
     /// </summary>
-    static void ApplyAccent(DependencyObject? root, Color accent, Color secondary)
+    static void ApplyAccent(AvaloniaObject? root, Color accent, Color secondary)
     {
         if (root is null) return;
         if (root is ScorebugCanvasView) return;
-        if (root is FrameworkElement { Name: "DesignCanvas" }) return;
+        if (root is Control { Name: "DesignCanvas" }) return;
 
         Color? Map(Color color)
         {
@@ -294,7 +301,7 @@ public static class ThemeManager
             case Panel panelElement when panelElement.Background is SolidColorBrush panelBackground && Map(panelBackground.Color) is Color filled:
                 panelElement.Background = UiPalette.Frozen(filled);
                 break;
-            case System.Windows.Shapes.Shape shape when shape.Fill is SolidColorBrush fill && Map(fill.Color) is Color shapeColor:
+            case Shape shape when shape.Fill is SolidColorBrush fill && Map(fill.Color) is Color shapeColor:
                 shape.Fill = UiPalette.Frozen(shapeColor);
                 break;
             case TextBlock text when text.Foreground is SolidColorBrush textColor && Map(textColor.Color) is Color mappedText:

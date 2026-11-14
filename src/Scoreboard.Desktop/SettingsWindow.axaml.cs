@@ -1,5 +1,6 @@
 using System.Globalization;
 using Avalonia;
+using Avalonia.Interactivity;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Scoreboard.Core;
@@ -135,7 +136,7 @@ public partial class SettingsWindow : Window
 
     // ---------- updates ----------
 
-    void Update_Changed(object sender, IsCheckedChangedEvent e)
+    void Update_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || CheckUpdatesInput is null || UpdateFeedInput is null) return;
         _draft.CheckForUpdates = CheckUpdatesInput.IsChecked == true;

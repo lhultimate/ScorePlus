@@ -48,7 +48,7 @@ public sealed class UnsavedChangesWindow : Window
             Text = "THIS GAME ISN'T IN A FILE YET",
             FontSize = 15,
             FontWeight = FontWeights.Bold,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center
         });
         root.Children.Add(heading);
 
@@ -66,7 +66,7 @@ public sealed class UnsavedChangesWindow : Window
         var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right
+            HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right
         };
         Grid.SetRow(buttons, 2);
 

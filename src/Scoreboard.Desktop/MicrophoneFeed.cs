@@ -1,6 +1,4 @@
 using System.Runtime.InteropServices;
-using NAudio.CoreAudioApi;
-using NAudio.Wave;
 
 namespace Scoreboard.Desktop;
 

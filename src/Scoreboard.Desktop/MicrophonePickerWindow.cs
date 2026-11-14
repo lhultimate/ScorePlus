@@ -51,10 +51,10 @@ internal sealed class MicrophonePickerWindow : Window
         _list.MinHeight = 96;
         _list.Margin = new Thickness(0, 0, 0, 12);
         _list.SelectedIndex = 0;
-        _list.MouseDoubleClick += (_, _) => Accept();
+        _list.DoubleTapped += (_, _) => Accept();
         root.Children.Add(_list);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Right };
         var cancel = new Button { Content = "Cancel", IsCancel = true, MinHeight = 36, Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(4, 0, 0, 0) };
         var add = new Button { Content = "Add microphone", IsDefault = true, MinHeight = 36, Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(4, 0, 0, 0) };
         cancel.Click += (_, _) => { DialogResult = false; Close(); };
