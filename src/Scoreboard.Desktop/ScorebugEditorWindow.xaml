@@ -446,11 +446,16 @@
             <CheckBox x:Name="TickerInput" Content="Scroll as a bottom-screen ticker" FontSize="11" Margin="10,4,10,2"
                       Checked="Property_Changed" Unchecked="Property_Changed"
                       ToolTip="Make this text travel continuously across its box, like a stadium ribbon board."/>
-            <TextBlock Text="Ticker speed (pixels / second)" Style="{StaticResource FieldLabel}"/>
-            <TextBox x:Name="TickerSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
-                     ToolTip="Higher moves faster; 80 is a readable broadcast ribbon speed."/>
-            <TextBlock Text="Separate items with | in the text. The ticker joins them with a dot and loops without a seam."
-                       Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
+            <StackPanel x:Name="TickerOptionsPanel">
+              <TextBlock Text="Ticker speed (pixels / second)" Style="{StaticResource FieldLabel}"/>
+              <TextBox x:Name="TickerSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                       ToolTip="Higher moves faster; 80 is a readable broadcast ribbon speed."/>
+              <CheckBox x:Name="TickerReverseInput" Content="Reverse direction (enter from the left)" FontSize="11" Margin="10,4,10,2"
+                        Checked="Property_Changed" Unchecked="Property_Changed"
+                        ToolTip="Reverse the ticker: cards enter from the left and travel right instead of entering from the right."/>
+              <TextBlock Text="Separate items with | in the text. The ticker joins them with a dot and loops without a seam."
+                         Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
+            </StackPanel>
           </StackPanel>
         </StackPanel>
 

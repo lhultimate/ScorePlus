@@ -368,7 +368,7 @@ public sealed class VideoSurface : Grid
         // picture before any layer is switched, then let it leave over the incoming source.
         var cueKey = entry is null ? ""
             : entry.IsCamera ? $"camera:{entry.CameraIndex}"
-            : $"file:{entry.Path}";
+            : $"file:{entry.Path}:{entry.ReplayCue}";
         if (_cueKey is not null && !string.Equals(_cueKey, cueKey, StringComparison.OrdinalIgnoreCase))
             BeginSwitchAnimation(entry);
         _cueKey = cueKey;
@@ -625,7 +625,7 @@ public sealed class VideoSurface : Grid
     /// </summary>
     bool ShowReplayFrames(MediaEntry? entry)
     {
-        var feed = _playback?.ReplayFrames;
+        var feed = _playback?.ReplayFramesFor(_mute && !_onAir);
         if (entry is null || feed is null || !feed.Contains(entry.Path))
         {
             StopReplayFrames();
@@ -681,6 +681,7 @@ public sealed class VideoSurface : Grid
     void BeginSwitchAnimation(MediaEntry? incoming)
     {
         var transition = MediaLibrary.NormalizeTransition(incoming?.Transition);
+        var seconds = MediaLibrary.NormalizeTransitionSeconds(incoming?.TransitionSeconds ?? MediaLibrary.DefaultTransitionSeconds);
         // A new cut always replaces an animation that has not finished yet. A Cut then shows the
         // incoming source immediately instead of letting the old fade linger over it.
         if (_switchOverlay is not null)
@@ -689,7 +690,7 @@ public sealed class VideoSurface : Grid
             _switchOverlay = null;
             _switchToken++;
         }
-        if (transition == "Cut" || !IsLoaded) return;
+        if (transition == "Cut" || seconds <= 0.02 || !IsLoaded) return;
         // The outgoing frame has to be captured after layout has settled. Calling Render on a box
         // that had only just been resized produced a blank still, so the switch looked like a cut
         // to black instead of a fade/slide/zoom.
@@ -719,7 +720,7 @@ public sealed class VideoSurface : Grid
         Children.Add(overlay);
         _switchOverlay = overlay;
         var token = ++_switchToken;
-        var duration = TimeSpan.FromSeconds(0.45);
+        var duration = TimeSpan.FromSeconds(seconds);
         var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
         var fade = new DoubleAnimation(1, 0, duration) { EasingFunction = easing };
         if (transition == "Slide")

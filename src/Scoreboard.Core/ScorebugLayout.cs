@@ -202,6 +202,9 @@ public sealed class ScorebugElement
     /// <summary>The ticker's travel speed in design pixels per second.</summary>
     public double TickerSpeed { get; set; } = 80;
 
+    /// <summary>Reverse the ticker's travel, so it enters from the left instead of the right.</summary>
+    public bool TickerReverse { get; set; }
+
     /// <summary>
     /// For video elements: a colour made transparent in the picture, so a green or blue screen
     /// can sit over the scorebug. Empty turns the key off.

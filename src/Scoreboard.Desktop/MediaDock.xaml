@@ -267,16 +267,10 @@
             </DockPanel>
 
             <TextBlock Text="CAMERA" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
-            <WrapPanel Margin="0,0,0,7">
+            <WrapPanel Margin="0,0,0,9">
               <Button Content="Add camera" Style="{StaticResource DockAction}" Click="Camera_Click" ToolTip="Add the next capture device to the library — it routes by tag like any other clip"/>
               <Button x:Name="RouteButton" Content="Route…" Style="{StaticResource DockAction}" Click="Route_Click"
                       ToolTip="Rename the selected camera item and choose which camera it uses"/>
-            </WrapPanel>
-            <WrapPanel Margin="0,0,0,9">
-              <Button x:Name="ReplayButton" Content="Replay" Style="{StaticResource DockAction}" Click="Replay_Click"
-                      ToolTip="Freeze the last two minutes of the live camera on the scorebug so you can drag back to the start of the play"/>
-              <Button x:Name="LiveButton" Content="Live" Style="{StaticResource DockAction}" Click="Live_Click"
-                      ToolTip="Jump back to the live camera"/>
             </WrapPanel>
 
             <TextBlock Text="MICROPHONE" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
@@ -306,9 +300,24 @@
             <TextBlock Text="SWITCH ANIMATION" Style="{StaticResource DockLabel}" Margin="0,7,0,3"/>
             <ComboBox x:Name="TransitionBox" Style="{StaticResource DockCombo}" SelectionChanged="Transition_Changed"
                       ToolTip="How the selected clip or camera arrives when it replaces the previous picture"/>
+            <Grid Margin="0,4,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="TIME" Style="{StaticResource DockLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+              <TextBox x:Name="TransitionSecondsBox" Grid.Column="1" Style="{StaticResource DockSearch}"
+                       Text="0.45" TextChanged="TransitionSeconds_Changed" LostFocus="TransitionSeconds_LostFocus"
+                       ToolTip="How long the selected clip or camera takes to arrive, in seconds (0–5)"/>
+              <TextBlock Grid.Column="2" Text="s" FontSize="10" Foreground="{DynamicResource DockMuted}"
+                         VerticalAlignment="Center" Margin="5,0,0,0"/>
+            </Grid>
 
             <TextBlock Text="REPLAY" Style="{StaticResource DockLabel}" Margin="0,7,0,3"/>
             <WrapPanel>
+              <Button x:Name="ReplayButton" Content="Replay" Style="{StaticResource DockAction}" Click="Replay_Click"
+                      ToolTip="Freeze the selected camera's last two minutes in the preview. Press it again during a replay to prepare another one without leaving the first on air"/>
               <Button x:Name="StartReplayButton" Style="{StaticResource DockAction}" Content="Start replay" Click="StartReplay_Click"
                       IsEnabled="False"
                       ToolTip="Put the replay on air at the frame you have scrubbed to; Play rolls it"/>

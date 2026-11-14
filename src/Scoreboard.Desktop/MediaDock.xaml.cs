@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -233,6 +234,9 @@ public partial class MediaDock : UserControl
             ClipLoopBox.IsEnabled = selected is not null;
             TransitionBox.IsEnabled = selected?.IsVideo == true;
             TransitionBox.SelectedItem = MediaLibrary.NormalizeTransition(selected?.Transition);
+            TransitionSecondsBox.IsEnabled = TransitionBox.IsEnabled;
+            if (!TransitionSecondsBox.IsKeyboardFocusWithin)
+                TransitionSecondsBox.Text = (selected?.TransitionSeconds ?? MediaLibrary.DefaultTransitionSeconds).ToString("0.##", CultureInfo.CurrentCulture);
 
             // Audio: the selected clip's own level and speaker.
             var level = Math.Round((selected?.Volume ?? 1) * 100);
@@ -244,9 +248,9 @@ public partial class MediaDock : UserControl
 
             SyncCameraPicker();
 
-            // Camera transport: Replay has something to cut to while live, Live goes back again.
-            ReplayButton.IsEnabled = _session.IsCameraLive || _session.IsReplaying;
-            LiveButton.IsEnabled = _session.IsReplaying;
+            // Replay can use the green-outlined camera even before it is on air. Jump to live in
+            // the REPLAY section is the way back; Start replay wakes up once there is a preview.
+            ReplayButton.IsEnabled = _session.IsCameraLive || _session.ReplaySource is not null || _session.IsReplaying;
             JumpToLiveButton.IsEnabled = _session.IsReplaying;
             StartReplayButton.IsEnabled = _session.IsReplaying;
             SaveReplayButton.IsEnabled = _session.IsReplaying;
@@ -255,20 +259,20 @@ public partial class MediaDock : UserControl
                 : _session.Library.Any(entry => entry.IsMicrophone)
                     ? $"{_session.Library.Count(entry => entry.IsMicrophone)} in the library"
                     : "none added yet";
-            var microphoneItem = _session.Current?.IsMicrophone == true ? _session.Current
-                : _session.Selected?.IsMicrophone == true ? _session.Selected : null;
+            var microphoneItem = _session.Selected?.IsMicrophone == true ? _session.Selected
+                : _session.Current?.IsMicrophone == true ? _session.Current : null;
             MicrophoneRouteButton.IsEnabled = microphoneItem is not null;
             MicrophoneRouteButton.ToolTip = microphoneItem is null
                 ? "Select a microphone item in the library to rename it or point it at another microphone"
                 : $"Rename {microphoneItem.Label} and choose which microphone it listens to";
-            var cameraItem = _session.Current?.IsCamera == true ? _session.Current
-                : _session.Selected?.IsCamera == true ? _session.Selected : null;
+            var cameraItem = _session.Selected?.IsCamera == true ? _session.Selected
+                : _session.Current?.IsCamera == true ? _session.Current : null;
             RouteButton.IsEnabled = cameraItem is not null;
             RouteButton.ToolTip = cameraItem is null
                 ? "Select a camera item in the library to rename it or point it at another camera"
                 : $"Rename {cameraItem.Label} and choose which camera it uses";
-            var speakerItem = _session.Current?.IsSpeaker == true ? _session.Current
-                : _session.Selected?.IsSpeaker == true ? _session.Selected : null;
+            var speakerItem = _session.Selected?.IsSpeaker == true ? _session.Selected
+                : _session.Current?.IsSpeaker == true ? _session.Current : null;
             SpeakerRouteButton.IsEnabled = speakerItem is not null;
             SpeakerRouteButton.ToolTip = speakerItem is null
                 ? "Select a speaker bus in the library to rename it or point it at another output"
@@ -331,6 +335,19 @@ public partial class MediaDock : UserControl
     {
         if (_syncing || _session?.Selected is not { IsVideo: true } selected) return;
         _session.SetClipTransition(selected, TransitionBox.SelectedItem as string);
+    }
+
+    void TransitionSeconds_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_syncing || _session?.Selected is not { IsVideo: true } selected) return;
+        if (!double.TryParse(TransitionSecondsBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var seconds)) return;
+        _session.SetClipTransitionSeconds(selected, seconds);
+    }
+
+    void TransitionSeconds_LostFocus(object sender, RoutedEventArgs e)
+    {
+        var selected = _session?.Selected;
+        TransitionSecondsBox.Text = (selected?.TransitionSeconds ?? MediaLibrary.DefaultTransitionSeconds).ToString("0.##", CultureInfo.CurrentCulture);
     }
 
     /// <summary>Shows the dock again (the tab was just opened).</summary>
@@ -954,9 +971,11 @@ public partial class MediaDock : UserControl
             var back = Math.Clamp(_session.ReplayBack, 0, depth);
             ElapsedText.Text = $"-{Stamp(TimeSpan.FromSeconds(back))}";
             DurationText.Text = "LIVE";
-            ReplayHint.Text = _session.ReplayOnAir
-                ? $"  ON AIR · {Stamp(TimeSpan.FromSeconds(back))} behind live · Jump to live leaves the replay"
-                : $"  PREVIEW ONLY · {Stamp(TimeSpan.FromSeconds(back))} behind live · Start replay goes to air";
+            ReplayHint.Text = _session.HasReplayPreview
+                ? $"  PREVIEW READY · {Stamp(TimeSpan.FromSeconds(back))} behind live · the first replay stays on air · Start replay switches"
+                : _session.ReplayOnAir
+                    ? $"  ON AIR · {Stamp(TimeSpan.FromSeconds(back))} behind live · press Replay to prepare another without leaving this one"
+                    : $"  PREVIEW ONLY · {Stamp(TimeSpan.FromSeconds(back))} behind live · Start replay goes to air";
             if (_scrubbing || _syncingBar || DateTime.UtcNow < _settleUntil || ScrubBar.IsMouseCaptureWithin || ScrubBar.IsKeyboardFocusWithin) return;
             _syncingBar = true;
             try
@@ -1251,8 +1270,10 @@ public partial class MediaDock : UserControl
     void SpeakerRoute_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        var entry = _session.Current?.IsSpeaker == true ? _session.Current
-            : _session.Selected?.IsSpeaker == true ? _session.Selected : null;
+        // The green outline is the editing target. Prefer it over what is on air so an operator
+        // can rename or reroute a silent bus without touching the live show.
+        var entry = _session.Selected?.IsSpeaker == true ? _session.Selected
+            : _session.Current?.IsSpeaker == true ? _session.Current : null;
         if (entry is null)
         {
             _session.Report("SELECT A SPEAKER BUS FIRST");
@@ -1276,7 +1297,6 @@ public partial class MediaDock : UserControl
     void Replay_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        if (_session.IsReplaying) _session.ReturnToLive();
         _session.BeginReplay();
         Refresh();
     }
@@ -1314,8 +1334,9 @@ public partial class MediaDock : UserControl
     void Route_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        var entry = _session.Current?.IsCamera == true ? _session.Current
-            : _session.Selected?.IsCamera == true ? _session.Selected : null;
+        // Edit the green-outlined camera, not necessarily the one on air.
+        var entry = _session.Selected?.IsCamera == true ? _session.Selected
+            : _session.Current?.IsCamera == true ? _session.Current : null;
         if (entry is null)
         {
             _session.Report("SELECT A CAMERA ITEM FIRST");
@@ -1329,8 +1350,9 @@ public partial class MediaDock : UserControl
     void MicrophoneRoute_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        var entry = _session.Current?.IsMicrophone == true ? _session.Current
-            : _session.Selected?.IsMicrophone == true ? _session.Selected : null;
+        // Edit the green-outlined microphone without opening or cueing its device.
+        var entry = _session.Selected?.IsMicrophone == true ? _session.Selected
+            : _session.Current?.IsMicrophone == true ? _session.Current : null;
         if (entry is null)
         {
             _session.Report("SELECT A MICROPHONE ITEM FIRST");

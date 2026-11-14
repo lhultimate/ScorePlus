@@ -1366,7 +1366,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,CornerRadiusInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,CornerRadiusInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput,TickerReverseInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -1450,6 +1450,7 @@ public partial class ScorebugEditorWindow : Window
             TextAlignInput.SelectedItem=AlignOptions.FirstOrDefault(o=>o.Align==e.TextAlign)??AlignOptions[1];
             TickerInput.IsChecked=e.Ticker;
             TickerSpeedInput.Text=e.TickerSpeed.ToString("0.#");
+            TickerReverseInput.IsChecked=e.TickerReverse;
             NestedAspectInput.IsChecked=e.NestedPreserveAspect;
             RefreshNestedLayoutChoices();
             var source=_catalog.FindLayout(e.NestedLayoutId);
@@ -1537,6 +1538,9 @@ public partial class ScorebugEditorWindow : Window
         CornerRadiusInput.Visibility=rectangleShape?Visibility.Visible:Visibility.Collapsed;
         VideoPanel.Visibility=kind==ScorebugElementKind.Video?Visibility.Visible:Visibility.Collapsed;
         TickerSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
+        // Speed and direction only mean something once the text is actually a ticker. Keeping
+        // them out of a normal text element's panel avoids offering controls that do nothing.
+        TickerOptionsPanel.Visibility=text&&TickerInput.IsChecked==true?Visibility.Visible:Visibility.Collapsed;
         // The host paints the backdrop and the outline for every kind, shapes included.
         BackgroundSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
         BorderSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
@@ -1715,7 +1719,14 @@ public partial class ScorebugEditorWindow : Window
             if(sender==IconInput){UpdatePropertyVisibility();UpdateColorAvailability();RefreshColorSwatches();}
             Render(); return;
         }
-        if(sender is CheckBox){UpdateColorAvailability();SaveProperties();if(sender==TickerInput)Render();else RefreshAllVisuals();return;}
+        if(sender is CheckBox)
+        {
+            UpdateColorAvailability();
+            SaveProperties();
+            if(sender==TickerInput){UpdatePropertyVisibility();Render();}
+            else RefreshAllVisuals();
+            return;
+        }
         if(sender==ColorInput||sender==BackgroundInput||sender==GradientColorInput||sender==ChromaKeyInput||sender==IconColorInput){SaveProperties();RefreshAllVisuals();return;}
         if(sender==ContentInput) UpdatePropertyVisibility();
         _propertySave.Stop(); _propertySave.Start();
@@ -1807,6 +1818,7 @@ public partial class ScorebugEditorWindow : Window
         var preserveAspect=PreserveAspectInput.IsChecked==true;
         var aspectOk=double.TryParse(AspectInput.Text,out var aspect)&&aspect>0.05;
         var ticker=TickerInput.IsChecked==true;
+        var tickerReverse=TickerReverseInput.IsChecked==true;
         var tickerSpeedOk=double.TryParse(TickerSpeedInput.Text,out var tickerSpeedRaw)&&tickerSpeedRaw>0;
         var tickerSpeed=Math.Clamp(tickerSpeedOk?tickerSpeedRaw:80,10,600);
         var cropLeftOk=double.TryParse(VideoCropLeftInput.Text,out var cropLeftRaw);
@@ -1860,7 +1872,7 @@ public partial class ScorebugEditorWindow : Window
         // With a group selected every field is written, because the group is allowed to differ.
         if(ids.Length==1&&item.Name==name&&item.Content==content&&(!xOk||item.X==x)&&(!yOk||item.Y==y)&&(!wOk||item.Width==w)&&(!hOk||item.Height==h)
             &&item.PreserveVideoAspect==preserveAspect&&(!aspectOk||Math.Abs(item.VideoAspect-aspect)<0.001)
-            &&item.Ticker==ticker&&(!tickerSpeedOk||Math.Abs(item.TickerSpeed-tickerSpeed)<0.001)
+            &&item.Ticker==ticker&&item.TickerReverse==tickerReverse&&(!tickerSpeedOk||Math.Abs(item.TickerSpeed-tickerSpeed)<0.001)
             &&Math.Abs(item.VideoCropLeft-cropLeft)<0.0001&&Math.Abs(item.VideoCropTop-cropTop)<0.0001
             &&Math.Abs(item.VideoCropRight-cropRight)<0.0001&&Math.Abs(item.VideoCropBottom-cropBottom)<0.0001
             &&(!chromaKeyOk||string.Equals(item.ChromaKeyColor,chromaKey,StringComparison.OrdinalIgnoreCase))
@@ -1938,6 +1950,7 @@ public partial class ScorebugEditorWindow : Window
             Group(t=>{if(t.Kind==ScorebugElementKind.Shape&&t.Shape==ScorebugShape.Rectangle)t.CornerRadius=cornerRadius;});
         if(item.Visible!=visible)Group(t=>t.Visible=visible);
         if(item.Ticker!=ticker)Group(t=>{if(t.Kind==ScorebugElementKind.Text)t.Ticker=ticker;});
+        if(item.TickerReverse!=tickerReverse)Group(t=>{if(t.Kind==ScorebugElementKind.Text)t.TickerReverse=tickerReverse;});
         if(tickerSpeedOk&&Math.Abs(item.TickerSpeed-tickerSpeed)>0.001)Group(t=>{if(t.Kind==ScorebugElementKind.Text)t.TickerSpeed=tickerSpeed;});
         if(item.NestedPreserveAspect!=nestedAspect)Group(t=>{if(t.Kind==ScorebugElementKind.Layout)t.NestedPreserveAspect=nestedAspect;});
         if(item.TransparentBackground!=transparent)Group(t=>t.TransparentBackground=transparent);
@@ -2057,6 +2070,7 @@ public partial class ScorebugEditorWindow : Window
                 if(target.Kind==ScorebugElementKind.Text)
                 {
                     target.Ticker=ticker;
+                    target.TickerReverse=tickerReverse;
                     if(tickerSpeedOk)target.TickerSpeed=tickerSpeed;
                 }
                 if(aspectOk)target.VideoAspect=Math.Clamp(aspect,0.1,10);

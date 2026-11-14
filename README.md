@@ -68,6 +68,7 @@ It was built around four ideas:
 | **League tools** | Cloud score feed, per-game field import, and a rotating ticker with news and score alerts |
 | **Monitoring** | Multiview camera wall with program, audience, replay and blank tiles |
 | **Finishes** | Multi-stop gradients and material finishes on text, plates and logo artwork |
+| **Replay** | Staged camera replay, a second replay prepared while the first is on air, and per-source switch animations with adjustable timing |
 | **Files** | `.spg` game, `.spl` layout, `.spd` display, `.spr` roster, `.spp` player, `.spf` media folder |
 | **Saving** | Portable save/load, 100-step undo, rolling autosaves every 15 seconds |
 
@@ -356,22 +357,28 @@ To tag a clip: select it, pick the tag from the dropdown, press **Set tag**. Sug
 - **Add microphone** adds an audio capture device the same way, for a commentary or ambient feed. Cameras themselves carry no audio; only a microphone item that you explicitly cue is heard.
 - **Add speaker** adds an output bus. **Route…** names it and chooses its Windows device; select the bus and use the bottom **VOLUME** slider to set that speaker's house level. A bus carries the clips tagged like it, so the tag on a clip is what sends it to that speaker.
 
+A single click puts a **green outline** around a camera, video, microphone or speaker without cueing it. The rail and its **Route…**, **VOLUME**, tag, loop and switch-animation controls edit that outlined item; double-clicking is what puts it on air. Selecting a second camera is therefore safe during a replay: its attributes can be changed while the replay already on air keeps playing.
+
 ### Replay, End to End
 
-The camera keeps rolling a two-minute buffer while it is live. Replay is staged, not fired blindly.
+The camera keeps rolling a two-minute buffer while it is live (a camera shown in the multiview records too). A green-outlined camera is the replay source; if it has never recorded, the first Replay press starts its recorder and asks for a second press. Replay itself is staged, not fired blindly.
 
-1. Something good happens. Press **Replay**. The replay opens **in the program preview only** — the audience keeps watching live camera — frozen on the newest frame, and the scrub bar becomes a replay timeline.
+1. Something good happens. Press **Replay**. It uses the **green-outlined camera** when one is selected, otherwise the camera behind the replay or the one on air. The replay opens **in the program preview only** — the audience keeps watching live camera — frozen on the newest frame, and the scrub bar becomes a replay timeline.
 2. Drag back to where the play started. You can go back as far as two minutes.
-3. Press **Start replay** to cut it to air exactly as it stands. A paused replay goes out as a freeze frame rather than suddenly jumping into motion; press **▶ Play** to roll it.
+3. Press **Start replay** to cut it to air exactly as it stands. A paused replay goes out as a freeze frame rather than suddenly jumping into motion; press **▶ Play** to roll it. The replay enters with the switch animation and timing chosen for the camera in **SWITCH ANIMATION**.
 4. Pause and resume freely while it is on air.
 5. Press **Save replay…** to write everything from where you are through to the moment you pressed it as a video clip on your computer.
-6. Press **Live** to jump back to the present and pick up the camera again — instantly, with no black frame in between.
+6. Press **↩ Jump to live** to jump back to the present and pick up the camera again — instantly, with no black frame in between.
 
 If you never press **Start replay**, nothing on air changes. The audience screen and the audience view thumbnail both keep feeding live until you do.
 
+**Prepare another replay during a replay.** While a replay is on air, select the camera you want and press **Replay** again. A second replay opens in the preview and you can scrub it normally; the first replay keeps playing to the audience. The multiview **REPLAY** tile follows the prepared replay and labels it **PREVIEW · NEXT**, so you can check it before committing. Press **Start replay** when the new one is ready and the output switches directly to it with the camera's switch animation. The preview's **Play** button auditions the new replay without putting it on air.
+
+The **SWITCH ANIMATION** rail sets how a selected video or camera arrives: **Cut**, **Fade**, **Slide** or **Zoom**, with a **TIME** field from 0 to 5 seconds. A replay inherits the camera's choice, and each clip keeps its own animation and timing.
+
 **Clear** takes every video, camera and microphone off air and blanks the screen — the way out of a camera that is holding on its last frame. The library, its folders and its playlists are kept.
 
-> **Why replay is staged.** A live camera has no "rewind" that the audience can see. Staging the replay means you can find the start of the play, confirm the frame, and only then make the cut — and if the moment passes, you just press **Live** and nothing ever went out.
+> **Why replay is staged.** A live camera has no "rewind" that the audience can see. Staging the replay means you can find the start of the play, confirm the frame, and only then make the cut — and if the moment passes, you just press **↩ Jump to live** and nothing ever went out.
 
 ---
 
@@ -460,13 +467,13 @@ The received-games list is an import desk, not an all-or-nothing sync. Select a 
 
 ### Make the ticker
 
-Press **Add league ticker layout** to create a transparent layout with a text element bound to `{{LEAGUE_GAMES}}`. Set the element's **Ticker** property in the studio if you want to turn an existing text element into one; the generated layout already does. Style the text, plate, border and position like any other graphic.
+Press **Add league ticker layout** to create a transparent layout with a text element bound to `{{LEAGUE_GAMES}}`. Set the element's **Ticker** property in the studio if you want to turn an existing text element into one; the generated layout already does. **Reverse direction** makes a scrolling ticker enter from the left and reverses the card order when rotation is on. Style the text, plate, border and position like any other graphic.
 
 Then open **Ticker rotation…** from League Cloud, or press **⇄** in the main header:
 
 - Tick the **games** to include. **Select all** and **Clear** cover the whole list.
 - Add **news headlines**, one per line, below the games.
-- Set **hold** time and **fade** time. The ticker shows one card at a time and transitions to the next instead of scrolling one long line.
+- Set **hold** time and **transition** time. The ticker shows one card at a time and slides the next card in instead of scrolling one long line.
 - Leave **score alerts** on to interrupt the rotation when the local game scores or one of the chosen league games changes its score. The alert shows the team, the scoring change where available, and the updated score, then the rotation resumes.
 
 The rotation choices are saved in the game. The league feed itself is live data, so it refreshes from the cloud rather than being frozen into the save.
@@ -940,7 +947,7 @@ Keybinds only list the sport you're playing. If the binding belongs to another s
 It is off until Preferences turns it on. Use the network URL (e.g. `http://192.168.1.5:8080`), not localhost, and allow ScorePlus through Windows Firewall on private networks. Phones must be on the same Wi-Fi.
 
 **Replay shows a black box.**
-Replay is staged in the preview until **Start replay**. The audience and the audience view thumbnail keep the live camera until then. If the preview itself is black, the camera may have been cleared or routed away — check **Route…**.
+Replay is staged in the preview until **Start replay**. The audience and the audience view thumbnail keep the live camera, or the replay already on air, until then. If the preview itself is black, the camera may have been cleared or routed away — check **Route…**.
 
 **Video restarts, or the scrub bar drifts.**
 Each clip's position is preserved while the studio is edited. If a clip was re-imported or replaced, it starts from the beginning. Seek with the bar rather than waiting through a clip.

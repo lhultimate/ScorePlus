@@ -358,12 +358,14 @@ public sealed class TickerView : Grid, IDisposable
     TextBlock? _rotationText;
     int _rotationIndex;
     int _transitionGeneration;
+    int _scrollGeneration;
     long _seenScoreSequence;
     bool _scoreSequenceSeen;
     bool _loaded;
     bool _disposed;
     bool _rotationActive;
     bool _showingAlert;
+    bool _pendingRotationEntrance;
     double _dwellSeconds = 7;
     double _transitionSeconds = 0.4;
     double _period;
@@ -380,7 +382,16 @@ public sealed class TickerView : Grid, IDisposable
         Loaded += (_, _) =>
         {
             _loaded = true;
-            if (_rotationActive) StartRotationClock(); else Start();
+            if (_rotationActive)
+            {
+                if (_pendingRotationEntrance)
+                {
+                    _pendingRotationEntrance = false;
+                    PlayRotationEntrance();
+                }
+                StartRotationClock();
+            }
+            else Start();
         };
         Unloaded += (_, _) =>
         {
@@ -420,7 +431,7 @@ public sealed class TickerView : Grid, IDisposable
         var color = foreground is SolidColorBrush solid ? solid.Color.ToString() : foreground.ToString();
         var signature = string.Join('|',
             display, item.FontFamily, item.FontSize.ToString("0.###"), item.Bold, item.Italic,
-            item.TextOpacity.ToString("0.###"), item.TickerSpeed.ToString("0.###"), color);
+            item.TextOpacity.ToString("0.###"), item.TickerSpeed.ToString("0.###"), item.TickerReverse, color);
         if (string.Equals(signature, _signature, StringComparison.Ordinal)) return;
         _signature = signature;
         Build(display, item, game);
@@ -461,13 +472,17 @@ public sealed class TickerView : Grid, IDisposable
         if (_showingAlert) return;
         var current = _rotationItems[Math.Clamp(_rotationIndex, 0, _rotationItems.Count - 1)];
         if (_rotationText is not null && !string.Equals(_rotationText.Text, current.Text, StringComparison.Ordinal))
-            ShowRotationText(current.Text, animate: false);
+            ShowRotationText(current.Text, animate: _loaded);
         if (_loaded && !_rotationTimer.IsEnabled) StartRotationClock();
     }
 
     void BuildRotationText(ScorebugElement item, GameState game)
     {
         Stop();
+        _transitionGeneration++;
+        _track.BeginAnimation(OpacityProperty, null);
+        if (_track.RenderTransform is TranslateTransform previous)
+            previous.BeginAnimation(TranslateTransform.XProperty, null);
         _rotationTimer.Stop();
         _track.Children.Clear();
         var typeface = new Typeface(FontCatalog.Resolve(item.FontFamily),
@@ -583,7 +598,10 @@ public sealed class TickerView : Grid, IDisposable
             return;
         }
         if (_rotationItems.Count == 0) return;
-        if (_rotationItems.Count > 1) _rotationIndex = (_rotationIndex + 1) % _rotationItems.Count;
+        if (_rotationItems.Count > 1)
+            _rotationIndex = _item.TickerReverse
+                ? (_rotationIndex - 1 + _rotationItems.Count) % _rotationItems.Count
+                : (_rotationIndex + 1) % _rotationItems.Count;
         ShowRotationText(_rotationItems[_rotationIndex].Text, animate: true);
         _rotationTimer.Interval = Dwell;
     }
@@ -592,23 +610,87 @@ public sealed class TickerView : Grid, IDisposable
     {
         if (_rotationText is null) return;
         var transition = _transitionSeconds;
-        if (!animate || transition <= 0.01)
+        if (!animate || !_loaded || transition <= 0.01)
         {
+            _transitionGeneration++;
             _rotationText.Text = text;
+            _track.BeginAnimation(OpacityProperty, null);
+            if (_track.RenderTransform is TranslateTransform still) { still.BeginAnimation(TranslateTransform.XProperty, null); still.X = 0; }
             _track.Opacity = 1;
+            _pendingRotationEntrance = !_loaded && transition > 0.01;
             return;
         }
         var generation = ++_transitionGeneration;
         var half = TimeSpan.FromSeconds(transition / 2);
+        var distance = Math.Max(1, ActualWidth > 1 ? ActualWidth : _item.Width);
+        // Normal cards leave to the left and the next card comes in from the right. Reverse does
+        // the opposite, so the direction is visible instead of the text changing in place.
+        var outgoing = _item.TickerReverse ? distance : -distance;
+        var incoming = -outgoing;
+        var transform = _track.RenderTransform as TranslateTransform;
+        if (transform is not null)
+        {
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            transform.X = 0;
+        }
         var fadeOut = new DoubleAnimation(1, 0, half);
         fadeOut.Completed += (_, _) =>
         {
             if (_disposed || generation != _transitionGeneration || _rotationText is null) return;
             _rotationText.Text = text;
+            if (transform is not null)
+            {
+                transform.BeginAnimation(TranslateTransform.XProperty, null);
+                transform.X = incoming;
+                var slideIn = new DoubleAnimation(incoming, 0, half) { FillBehavior = FillBehavior.Stop };
+                slideIn.Completed += (_, _) =>
+                {
+                    if (_disposed || generation != _transitionGeneration) return;
+                    transform.BeginAnimation(TranslateTransform.XProperty, null);
+                    transform.X = 0;
+                };
+                transform.BeginAnimation(TranslateTransform.XProperty, slideIn, HandoffBehavior.SnapshotAndReplace);
+            }
             var fadeIn = new DoubleAnimation(0, 1, half);
             _track.BeginAnimation(OpacityProperty, fadeIn);
         };
+        if (transform is not null)
+        {
+            var slideOut = new DoubleAnimation(0, outgoing, half)
+            {
+                FillBehavior = FillBehavior.Stop
+            };
+            transform.BeginAnimation(TranslateTransform.XProperty, slideOut, HandoffBehavior.SnapshotAndReplace);
+        }
         _track.BeginAnimation(OpacityProperty, fadeOut);
+    }
+
+    /// <summary>
+    /// The first card is set before the view is loaded, so it has nowhere to animate from yet.
+    /// Play its entrance once the view has a width, otherwise the first card simply appears.
+    /// </summary>
+    void PlayRotationEntrance()
+    {
+        if (_rotationText is null || _disposed || _transitionSeconds <= 0.01) return;
+        var transform = _track.RenderTransform as TranslateTransform;
+        if (transform is null) return;
+        var generation = ++_transitionGeneration;
+        var half = TimeSpan.FromSeconds(_transitionSeconds / 2);
+        var distance = Math.Max(1, ActualWidth > 1 ? ActualWidth : _item.Width);
+        var start = _item.TickerReverse ? -distance : distance;
+        transform.BeginAnimation(TranslateTransform.XProperty, null);
+        transform.X = start;
+        _track.BeginAnimation(OpacityProperty, null);
+        _track.Opacity = 0;
+        var slide = new DoubleAnimation(start, 0, half) { FillBehavior = FillBehavior.Stop };
+        slide.Completed += (_, _) =>
+        {
+            if (_disposed || generation != _transitionGeneration) return;
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            transform.X = 0;
+        };
+        transform.BeginAnimation(TranslateTransform.XProperty, slide, HandoffBehavior.SnapshotAndReplace);
+        _track.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, half));
     }
 
     void StopRotation()
@@ -620,8 +702,14 @@ public sealed class TickerView : Grid, IDisposable
         _rotationItems.Clear();
         _rotationKey = "";
         _rotationStyle = "";
+        _pendingRotationEntrance = false;
         StopRotationClock();
         _track.BeginAnimation(OpacityProperty, null);
+        if (_track.RenderTransform is TranslateTransform transform)
+        {
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            transform.X = 0;
+        }
         _track.Opacity = 1;
     }
 
@@ -678,8 +766,34 @@ public sealed class TickerView : Grid, IDisposable
     {
         if (_disposed || _period <= 0 || _track.RenderTransform is not TranslateTransform transform) return;
         var speed = Math.Clamp(_item.TickerSpeed, 10, 600);
-        var seconds = Math.Max(0.25, _period / speed);
-        var animation = new DoubleAnimation(0, -_period, new Duration(TimeSpan.FromSeconds(seconds)))
+        var generation = ++_scrollGeneration;
+        var reverse = _item.TickerReverse;
+        var loopStart = reverse ? -_period : 0;
+        var loopEnd = reverse ? 0 : -_period;
+        // The first pass starts outside the box so the words visibly enter instead of appearing
+        // already on screen. The repeating pass then starts exactly where the entrance ended, so
+        // the two copies hand over without a visible seam.
+        var viewport = ActualWidth > 1 ? ActualWidth : Math.Max(1, _item.Width);
+        var entrance = reverse ? -_period * 2 : Math.Max(_period, viewport);
+        if (Math.Abs(entrance - loopStart) < 0.5)
+        {
+            StartScrollLoop(transform, loopStart, loopEnd, speed, generation);
+            return;
+        }
+        var entranceSeconds = Math.Max(0.25, Math.Abs(loopStart - entrance) / speed);
+        var approach = new DoubleAnimation(entrance, loopStart, new Duration(TimeSpan.FromSeconds(entranceSeconds)))
+        {
+            FillBehavior = FillBehavior.Stop
+        };
+        approach.Completed += (_, _) => StartScrollLoop(transform, loopStart, loopEnd, speed, generation);
+        transform.BeginAnimation(TranslateTransform.XProperty, approach, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    void StartScrollLoop(TranslateTransform transform, double from, double to, double speed, int generation)
+    {
+        if (_disposed || generation != _scrollGeneration) return;
+        var seconds = Math.Max(0.25, Math.Abs(to - from) / speed);
+        var animation = new DoubleAnimation(from, to, new Duration(TimeSpan.FromSeconds(seconds)))
         {
             RepeatBehavior = RepeatBehavior.Forever
         };
@@ -688,6 +802,7 @@ public sealed class TickerView : Grid, IDisposable
 
     void Stop()
     {
+        _scrollGeneration++;
         if (_track.RenderTransform is TranslateTransform transform)
             transform.BeginAnimation(TranslateTransform.XProperty, null);
     }

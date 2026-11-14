@@ -115,6 +115,7 @@ public sealed class MultiviewWindow : Window
     int _mirrorIndex = -1;
     CameraFeed? _mirrorFeed;
     Action<BitmapSource>? _mirrorHandler;
+    ReplayFeed? _replayFeed;
 
     Brush _windowBrush = Brushes.Black;
     Brush _surfaceBrush = new SolidColorBrush(Color.FromRgb(0x14, 0x14, 0x14));
@@ -146,7 +147,7 @@ public sealed class MultiviewWindow : Window
         LoadTiles();
         _signature = BuildSignature();
 
-        if (session.Playback.ReplayFrames is { } frames) frames.FrameReady += OnReplayFrame;
+        SyncReplayFeed();
         _program.Changed += ProgramChanged;
         RenderTiles();
         _tick.Tick += (_, _) => Refresh();
@@ -828,11 +829,16 @@ public sealed class MultiviewWindow : Window
     /// <summary>Points the replay tile at the replay while one is open, and at the cued camera otherwise.</summary>
     void SyncReplay()
     {
-        var frames = _session.Playback.ReplayFrames;
-        if (_session.IsReplaying && _session.Current is { IsVideo: true } replay && frames is not null && frames.Contains(replay.Path))
+        SyncReplayFeed();
+        var frames = _replayFeed;
+        // The replay tile follows the decoder the preview is looking at. While a second replay is
+        // waiting, that is the new replay, so the operator can verify it before Start replay.
+        var replay = _session.Current;
+        if (_session.IsReplaying && replay is { IsVideo: true } && frames is not null && frames.Contains(replay.Path))
         {
-            _replayTitle.Text = $"REPLAY · {_session.CameraEntry?.Label ?? "camera"}"
-                + (_session.ReplayOnAir ? " · ON AIR" : " · PREVIEW")
+            var phase = _session.HasReplayPreview ? "PREVIEW · NEXT"
+                : _session.ReplayOnAir ? "ON AIR" : "PREVIEW";
+            _replayTitle.Text = $"REPLAY · {_session.ReplayCameraEntry?.Label ?? "camera"} · {phase}"
                 + (_session.IsPlaying ? " · playing" : " · paused");
             StopMirror();
             if (_replayPicture.Source is null && frames.Frame is { } picture) _replayPicture.Source = picture;
@@ -844,6 +850,18 @@ public sealed class MultiviewWindow : Window
 
         _replayPicture.Visibility = Visibility.Collapsed;
         MirrorCamera();
+    }
+
+    void SyncReplayFeed()
+    {
+        // The tile is a monitor for the operator, so it follows the prepared decoder when one is
+        // staged. With nothing staged this is the on-air replay decoder.
+        var frames = _session.Playback.ReplayFramesFor(preview: true);
+        if (ReferenceEquals(_replayFeed, frames)) return;
+        if (_replayFeed is not null) _replayFeed.FrameReady -= OnReplayFrame;
+        _replayFeed = frames;
+        if (_replayFeed is not null) _replayFeed.FrameReady += OnReplayFrame;
+        _replayPicture.Source = null;
     }
 
     void OnReplayFrame(BitmapSource frame)
@@ -911,6 +929,6 @@ public sealed class MultiviewWindow : Window
         StopMirror();
         foreach (var view in _canvasViews) view.Dispose();
         _canvasViews.Clear();
-        if (_session.Playback.ReplayFrames is { } frames) frames.FrameReady -= OnReplayFrame;
+        if (_replayFeed is not null) _replayFeed.FrameReady -= OnReplayFrame;
     }
 }

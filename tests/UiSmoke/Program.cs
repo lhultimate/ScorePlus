@@ -82,6 +82,21 @@ internal static class Program
             var smokeAlpha = (smokeHost.Background as SolidColorBrush)?.Color.A ?? -1;
             if (smokeTarget.TransparentBackground || smokeTarget.Background != "#FF00FF00" || smokeAlpha <= 0)
                 throw new Exception($"FAIL: a background colour did not paint (transparent={smokeTarget.TransparentBackground}, colour={smokeTarget.Background}, alpha={smokeAlpha})");
+            // Ticker-only controls stay out of an ordinary text element's panel. Turning the ticker
+            // on reveals them, and the direction is written through the same save path as the rest.
+            var tickerToggle = (CheckBox)smokeEditor.FindName("TickerInput")!;
+            var tickerOptions = (StackPanel)smokeEditor.FindName("TickerOptionsPanel")!;
+            if (tickerOptions.Visibility != Visibility.Collapsed)
+                throw new Exception("FAIL: ticker-only properties were visible on ordinary text");
+            tickerToggle.IsChecked = true;
+            smokeEditor.UpdateLayout();
+            if (tickerOptions.Visibility != Visibility.Visible || !smokeTarget.Ticker)
+                throw new Exception("FAIL: ticker properties did not appear after enabling the ticker");
+            var tickerReverseToggle = (CheckBox)smokeEditor.FindName("TickerReverseInput")!;
+            tickerReverseToggle.IsChecked = true;
+            smokeEditor.UpdateLayout();
+            if (!smokeTarget.TickerReverse)
+                throw new Exception("FAIL: the ticker direction did not reach the selected element");
             var smokeDown = (CheckBox)smokeEditor.FindName("DownTransitionInput")!;
             var smokeDownChoice = (ComboBox)smokeEditor.FindName("TransitionDownInput")!;
             smokeDownChoice.SelectedItem = ScorebugTransition.SlideUp;
@@ -575,6 +590,39 @@ internal static class Program
                 tickerHost.Close();
                 tickerView.Dispose();
 
+                // A scrolling ticker starts outside the chosen edge. Reverse puts it off the left
+                // and travels right; switching the flag back puts the new entrance off the right.
+                var scrollEngine = new GameEngine();
+                scrollEngine.NewGame("football");
+                scrollEngine.SetTickerSettings([], [], autoRotate: false, scoreAlerts: false, dwellSeconds: 1, transitionSeconds: 0.1);
+                var scrollItem = new ScorebugElement
+                {
+                    Name = "Scroll probe", Kind = ScorebugElementKind.Text, Ticker = true, TickerReverse = true,
+                    Content = "REVERSE", Width = 800, Height = 60, FontSize = 22, TickerSpeed = 90,
+                    Foreground = "#FFFFFFFF", TextOpacity = 1
+                };
+                var scrollView = new TickerView(scrollItem, () => scrollEngine.State);
+                var scrollHost = new Window
+                {
+                    Content = scrollView, Width = 900, Height = 100, WindowStyle = WindowStyle.None,
+                    ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual
+                };
+                scrollHost.Show();
+                scrollHost.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(200));
+                var scrollTrack = scrollView.Children.OfType<StackPanel>().First();
+                var scrollTransform = (TranslateTransform)scrollTrack.RenderTransform;
+                if (scrollTransform.X >= 0)
+                    throw new Exception($"FAIL: the reversed ticker entered at {scrollTransform.X:0.0} instead of the left edge");
+                scrollItem.TickerReverse = false;
+                scrollView.Update(scrollItem, () => scrollEngine.State);
+                Pump(TimeSpan.FromMilliseconds(50));
+                var forwardTransform = (TranslateTransform)scrollTrack.RenderTransform;
+                if (forwardTransform.X <= 0)
+                    throw new Exception($"FAIL: the forward ticker entered at {forwardTransform.X:0.0} instead of the right edge");
+                scrollHost.Close();
+                scrollView.Dispose();
+
                 // The ticker setup window is the operator path for those choices: it lists the
                 // received games, accepts headlines, and writes the rotation settings to the game.
                 using var tickerService = new LeagueCloudService(tickerEngine, new UserPreferences());
@@ -1038,6 +1086,12 @@ internal static class Program
                 throw new Exception("FAIL: the unified media dock is missing its tiles or tag editor");
             if (dock.FindName("TransitionBox") is not ComboBox mediaTransitionBox || mediaTransitionBox.Items.Count < 4)
                 throw new Exception("FAIL: the unified media dock is missing its switch-animation picker");
+            if (dock.FindName("ReplayButton") is not Button replayButton || dock.FindName("StartReplayButton") is not Button startReplayButton)
+                throw new Exception("FAIL: the media dock is missing its replay controls");
+            if (dock.FindName("TransitionSecondsBox") is not TextBox switchSecondsBox
+                || !double.TryParse(switchSecondsBox.Text, out var defaultSwitchSeconds)
+                || defaultSwitchSeconds <= 0)
+                throw new Exception("FAIL: the media dock is missing an editable switch-animation duration");
             if (transport.ActualWidth < 36 || transport.ActualHeight < 28)
                 throw new Exception($"FAIL: the transport controls are still tiny ({transport.ActualWidth:0}x{transport.ActualHeight:0})");
             if (FindAll<GridSplitter>(shell).Count() < 1)
@@ -1082,6 +1136,12 @@ internal static class Program
             mediaSession.SetClipTransition(pausedClip, "Fade");
             if (mediaSession.Library.First(item => item.Path == remoteMediaPath).Transition != "Fade")
                 throw new Exception("FAIL: a clip's switch animation was not saved to the media library");
+            mediaSession.SetClipTransitionSeconds(pausedClip, 1.75);
+            if (Math.Abs(mediaSession.Library.First(item => item.Path == remoteMediaPath).TransitionSeconds - 1.75) > 0.001)
+                throw new Exception("FAIL: a clip's switch-animation duration was not saved to the media library");
+            mediaSession.SetClipTransitionSeconds(pausedClip, 9);
+            if (Math.Abs(mediaSession.Library.First(item => item.Path == remoteMediaPath).TransitionSeconds - 5) > 0.001)
+                throw new Exception("FAIL: a clip's switch-animation duration was not capped at five seconds");
             mediaSession.Play(pausedClip);
             mediaSession.TogglePlayPause();
             mediaSession.Library.Add(new MediaEntry(MediaLibrary.SpeakerPath(0), Name: "Test speaker"));
@@ -2665,6 +2725,24 @@ internal static class Program
                         throw new Exception("FAIL: renaming a microphone did not update the item");
                 }
                 finally { micSession.Stop(); micSession.Dispose(); }
+                // Selecting a camera is an editing action, not a cue. Replay uses the green-outlined
+                // camera, and changing its level or route must not start its feed or put it on air.
+                var selectionSession = new MediaSession(new UserPreferences());
+                try
+                {
+                    var liveCameraItem = selectionSession.AddCamera(0, "Camera");
+                    var benchCameraItem = selectionSession.AddCamera(1, "Bench");
+                    if (selectionSession.ReplaySource?.Path != benchCameraItem.Path)
+                        throw new Exception("FAIL: Replay ignored the green-outlined camera");
+                    selectionSession.Select(liveCameraItem);
+                    if (selectionSession.ReplaySource?.Path != liveCameraItem.Path)
+                        throw new Exception("FAIL: Replay kept the old camera after the selection changed");
+                    selectionSession.Select(benchCameraItem);
+                    selectionSession.SetClipVolume(benchCameraItem, 0.25);
+                    if (selectionSession.IsOnAir(benchCameraItem) || selectionSession.Current is not null)
+                        throw new Exception("FAIL: editing a selected camera put it on air");
+                }
+                finally { selectionSession.Stop(); selectionSession.Dispose(); }
                 var micRouteButton = (Button)dock.FindName("MicrophoneRouteButton")!;
                 if ((micRouteButton.Content as string) != "Route…")
                     throw new Exception($"FAIL: the microphone route button reads '{micRouteButton.Content}'");
@@ -2687,6 +2765,22 @@ internal static class Program
                 staging.PromoteStage();
                 if (staging.ActiveFor("Camera")?.Path != replayClip.Path || staging.HasStaged)
                     throw new Exception("FAIL: Start replay did not put the staged replay on air");
+                // A second replay can be prepared while the first is already on air. Staging it must
+                // leave the audience cue on the first replay; promoting it switches both preview and
+                // audience to the new cue in one deliberate step.
+                var firstOnAir = replayClip with { ReplayCue = 41, Transition = "Fade", TransitionSeconds = 1.2 };
+                var nextReplay = replayClip with { Path = @"C:\media\replay-0002.avi", ReplayCue = 42, Transition = "Slide", TransitionSeconds = 0.8 };
+                staging.Start(firstOnAir, replayOnAir: true);
+                staging.Stage(nextReplay);
+                if (staging.ActiveFor("Camera")?.Path != firstOnAir.Path)
+                    throw new Exception("FAIL: preparing a second replay changed the audience cue");
+                if (staging.PreviewFor("Camera")?.Path != nextReplay.Path)
+                    throw new Exception("FAIL: the preview did not show the second replay");
+                staging.PromoteStage();
+                if (staging.ActiveFor("Camera")?.ReplayCue != 42 || staging.HasStaged)
+                    throw new Exception("FAIL: Start replay did not switch the audience to the prepared replay");
+                if (firstOnAir.TransitionSeconds != 1.2 || nextReplay.TransitionSeconds != 0.8)
+                    throw new Exception("FAIL: a replay did not carry its own switch duration");
                 staging.Start(liveCamera);
                 if (staging.HasStaged)
                     throw new Exception("FAIL: going live left the replay waiting in the preview");
@@ -2711,6 +2805,25 @@ internal static class Program
                     throw new Exception($"FAIL: the audience monitor followed the staged replay ({airSurface.CurrentCue?.Path})");
                 if (previewSurface.CurrentCue?.Path != replayClip.Path)
                     throw new Exception("FAIL: the program preview stopped showing the staged replay");
+                // The multiview's REPLAY tile is a monitor, so it must read the prepared decoder,
+                // not the old on-air one, while a second replay is waiting.
+                var primaryDecoder = new ReplayFeed(Dispatcher.CurrentDispatcher);
+                var previewDecoder = new ReplayFeed(Dispatcher.CurrentDispatcher);
+                try
+                {
+                    var decoderCue = new MediaPlayback();
+                    decoderCue.AttachReplay(primaryDecoder);
+                    decoderCue.AttachPreviewReplay(previewDecoder);
+                    decoderCue.Stage(nextReplay);
+                    if (!ReferenceEquals(decoderCue.ReplayFramesFor(preview: true), previewDecoder)
+                        || !ReferenceEquals(decoderCue.ReplayFramesFor(preview: false), primaryDecoder))
+                        throw new Exception("FAIL: the replay monitor did not follow the prepared decoder");
+                }
+                finally
+                {
+                    primaryDecoder.Dispose();
+                    previewDecoder.Dispose();
+                }
                 Console.WriteLine("PASS: a replay stays in the preview until Start replay puts it on air");
 
                 // Cameras are offered by the name Windows knows them by, in device-index order, so

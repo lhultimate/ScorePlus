@@ -48,6 +48,14 @@ public sealed record MediaEntry(
     /// <summary>How a cut from the previous clip or camera arrives: Cut, Fade, Slide or Zoom.</summary>
     public string Transition { get; init; } = "Cut";
 
+    /// <summary>How long the switch animation runs, in seconds (0–5).</summary>
+    public double TransitionSeconds { get; init; } = MediaLibrary.DefaultTransitionSeconds;
+
+    /// <summary>Identifies one instant replay cue. Zero for library media; a replay gets a new
+    /// value each time it is opened so switching between two replays of the same recording still
+    /// runs the incoming switch animation.</summary>
+    public int ReplayCue { get; init; }
+
     /// <summary>0–100, as shown on the dock's knob.</summary>
     public int VolumePercent => (int)Math.Round(Math.Clamp(Volume, 0, 1) * 100);
 
@@ -92,6 +100,9 @@ public static class MediaLibrary
 
     public static readonly string[] TransitionOptions = ["Cut", "Fade", "Slide", "Zoom"];
 
+    /// <summary>The switch time used by a clip or camera until the operator changes it.</summary>
+    public const double DefaultTransitionSeconds = 0.45;
+
     public static string NormalizeTransition(string? value) => (value ?? "").Trim().ToLowerInvariant() switch
     {
         "fade" => "Fade",
@@ -99,6 +110,10 @@ public static class MediaLibrary
         "zoom" => "Zoom",
         _ => "Cut"
     };
+
+    /// <summary>Clamps a switch duration to the same range the dock offers.</summary>
+    public static double NormalizeTransitionSeconds(double seconds) =>
+        double.IsFinite(seconds) ? Math.Clamp(seconds, 0, 5) : DefaultTransitionSeconds;
 
     public static bool IsVideoFile(string path) => Path.GetExtension(path).ToLowerInvariant() is ".mp4" or ".mov" or ".mkv" or ".webm" or ".avi" or ".m4v";
 
@@ -273,7 +288,22 @@ public sealed class MediaPlayback
     /// </summary>
     public ReplayFeed? ReplayFrames { get; private set; }
 
-    public void AttachReplay(ReplayFeed feed) => ReplayFrames = feed;
+    /// <summary>Decoded frames for a replay the operator is preparing while another replay stays
+    /// on air. Preview surfaces use these; audience surfaces keep using <see cref="ReplayFrames"/>.</summary>
+    public ReplayFeed? PreviewReplayFrames { get; private set; }
+
+    public void AttachReplay(ReplayFeed feed)
+    {
+        ReplayFrames = feed;
+        PreviewReplayFrames = feed;
+    }
+
+    /// <summary>Points only the previews at a separate decoder, leaving the audience feed alone.</summary>
+    public void AttachPreviewReplay(ReplayFeed? feed) => PreviewReplayFrames = feed;
+
+    /// <summary>The decoder that should feed this surface. A staged replay is preview-only even
+    /// when an older replay is still on air.</summary>
+    public ReplayFeed? ReplayFramesFor(bool preview) => preview && _staged is not null ? PreviewReplayFrames : ReplayFrames;
 
     // A show can carry several live cameras at once — wide, tight, bench — and each scorebug video
     // element picks the one whose tag it watches. Files still travel through NowPlaying.
@@ -382,7 +412,9 @@ public sealed class MediaPlayback
             // A camera is carried in its own live list; files are keyed by tag. Only the same tag
             // is replaced, so two different video boxes can play at the same time. The same file
             // under another tag is a separate cue, not a replacement.
-            if (entry is { IsVideo: true, IsCamera: false })
+            // Replay cues live in NowPlaying only. Adding them to the tagged file list left a
+            // finished replay visible in another video box after the operator cut to live.
+            if (entry is { IsVideo: true, IsCamera: false } && !replayOnAir)
             {
                 var tag = MediaLibrary.NormalizeTag(entry.Tag);
                 _activeFiles.RemoveAll(active => string.Equals(MediaLibrary.NormalizeTag(active.Tag), tag, StringComparison.OrdinalIgnoreCase));
@@ -407,11 +439,23 @@ public sealed class MediaPlayback
     public void Stage(MediaEntry? entry)
     {
         _staged = entry;
-        ReplayOnAir = false;
-        // The staged clip starts from the top until the operator seeks it; keeping the last clip's
-        // playhead here would open the new file past its end.
-        Position = 0;
-        LivePosition = 0;
+        // Keep an on-air replay exactly where it is. Staging a newer replay must not clear the
+        // audience cue or reset the playhead the old replay is using.
+        if (!ReplayOnAir)
+        {
+            // With no replay on air the staged clip starts from the top until the operator seeks
+            // it; keeping the last clip's playhead would open the new file past its end.
+            Position = 0;
+            LivePosition = 0;
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>Drops the preview cue without disturbing what is on air.</summary>
+    public void CancelStage()
+    {
+        if (_staged is null) return;
+        _staged = null;
         Changed?.Invoke();
     }
 
@@ -428,6 +472,15 @@ public sealed class MediaPlayback
         SpeakerGain = 1;
         Changed?.Invoke();
         return true;
+    }
+
+    /// <summary>Moves the on-air replay to its next recorded segment without disturbing a newer
+    /// replay that is waiting in the preview.</summary>
+    public void ShowOnAirReplay(MediaEntry entry)
+    {
+        NowPlaying = entry;
+        ReplayOnAir = true;
+        Changed?.Invoke();
     }
 
     /// <summary>Moves every scorebug video element showing this clip to the same point.</summary>
@@ -577,4 +630,5 @@ public sealed class MediaFolderClip
     public int? CameraDevice { get; set; }
     public int? MicrophoneDevice { get; set; }
     public string Transition { get; set; } = "Cut";
+    public double TransitionSeconds { get; set; } = MediaLibrary.DefaultTransitionSeconds;
 }
