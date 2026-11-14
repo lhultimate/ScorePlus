@@ -162,6 +162,21 @@ public sealed class GameState
     public List<LeagueGame> LeagueGames { get; set; } = [];
     [JsonIgnore]
     public string LeagueTickerText => LeagueTicker.Format(LeagueGames);
+    /// <summary>The league games the rotating ticker includes. Empty means every received game
+    /// until the operator makes a choice.</summary>
+    public List<string> TickerGameIds { get; set; } = [];
+    /// <summary>True once the operator has chosen games, including choosing none of them.</summary>
+    public bool TickerGamesChosen { get; set; }
+    /// <summary>Headlines that rotate between the chosen games.</summary>
+    public List<string> TickerNews { get; set; } = [];
+    /// <summary>Rotate one card at a time instead of scrolling the whole league line.</summary>
+    public bool TickerAutoRotate { get; set; } = true;
+    /// <summary>Show an interrupting card when the local game or a chosen league game scores.</summary>
+    public bool TickerScoreAlerts { get; set; } = true;
+    /// <summary>How long each game or headline stays on screen.</summary>
+    public double TickerDwellSeconds { get; set; } = 7;
+    /// <summary>How long the fade between two ticker cards takes.</summary>
+    public double TickerTransitionSeconds { get; set; } = 0.4;
     /// <summary>True when this file carries the quick-button lists, including deliberately empty ones.</summary>
     public bool QuickButtonsSaved { get; set; }
     /// <summary>Team logo imported from the control panel. Graphics draw it, the studio never edits it.</summary>
@@ -563,6 +578,30 @@ public sealed class GameEngine
     public void SetLeagueGames(IEnumerable<LeagueGame>? games)
     {
         State.LeagueGames = (games ?? []).Where(game => game is not null).Select(game => game.Copy()).Take(24).ToList();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Stores the operator's ticker rotation choices without treating them as a game edit.</summary>
+    public void SetTickerSettings(IEnumerable<string>? gameIds, IEnumerable<string>? news,
+        bool autoRotate, bool scoreAlerts, double dwellSeconds, double transitionSeconds)
+    {
+        State.TickerGamesChosen = true;
+        State.TickerGameIds = (gameIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(24)
+            .ToList();
+        State.TickerNews = (news ?? [])
+            .Where(headline => !string.IsNullOrWhiteSpace(headline))
+            .Select(headline => headline.Trim())
+            .Where(headline => headline.Length > 0)
+            .Take(30)
+            .ToList();
+        State.TickerAutoRotate = autoRotate;
+        State.TickerScoreAlerts = scoreAlerts;
+        State.TickerDwellSeconds = Math.Clamp(double.IsFinite(dwellSeconds) ? dwellSeconds : 7, 1, 60);
+        State.TickerTransitionSeconds = Math.Clamp(double.IsFinite(transitionSeconds) ? transitionSeconds : 0.4, 0, 3);
         Changed?.Invoke();
     }
 

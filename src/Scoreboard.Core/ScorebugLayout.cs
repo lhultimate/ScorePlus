@@ -146,6 +146,9 @@ public sealed class ScorebugElement
     public string Name { get; set; } = "Element";
     public ScorebugElementKind Kind { get; set; } = ScorebugElementKind.Text;
     public ScorebugShape Shape { get; set; } = ScorebugShape.Rectangle;
+
+    /// <summary>Corner radius for a rectangle shape, in design pixels. Zero gives square corners.</summary>
+    public double CornerRadius { get; set; } = 8;
     public string Content { get; set; } = "TEXT";
     public string? ImagePath { get; set; }
 

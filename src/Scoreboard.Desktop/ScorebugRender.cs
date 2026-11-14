@@ -188,7 +188,11 @@ internal static class ScorebugRender
                 Points = new PointCollection { new(0.24, 0), new(1, 0), new(0.76, 1), new(0, 1) },
                 StrokeLineJoin = PenLineJoin.Round
             },
-            _ => new Rectangle { RadiusX = 8, RadiusY = 8 }
+            _ => new Rectangle
+            {
+                RadiusX = Math.Max(0, item.CornerRadius),
+                RadiusY = Math.Max(0, item.CornerRadius)
+            }
         };
         shape.Stretch = Stretch.Fill;
         // A transparent shape has no flat fill, only its outline — unless an explicit gradient or
@@ -224,6 +228,11 @@ internal static class ScorebugRender
                 plain.Text = text ?? item.Content;
                 break;
             case Shape shape:
+                if (shape is Rectangle rounded)
+                {
+                    rounded.RadiusX = Math.Max(0, item.CornerRadius);
+                    rounded.RadiusY = Math.Max(0, item.CornerRadius);
+                }
                 shape.Fill = HostBackground(item, state);
                 shape.Stroke = HostBorder(item, state);
                 shape.StrokeThickness = Math.Max(0, item.BorderThickness);
@@ -335,10 +344,28 @@ internal static class ScorebugRender
 public sealed class TickerView : Grid, IDisposable
 {
     readonly StackPanel _track = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+    readonly System.Windows.Threading.DispatcherTimer _rotationTimer = new();
+    readonly Queue<TickerItem> _alerts = new();
+    // Previous league scores let the ticker notice a score in another game without treating the
+    // first feed as a burst of alerts.
+    readonly Dictionary<string, (int Home, int Away)> _leagueScores = [];
     ScorebugElement _item;
     string _signature = "";
+    string _rotationKey = "";
+    string _rotationStyle = "";
+    string _rotationTiming = "";
+    List<TickerItem> _rotationItems = [];
+    TextBlock? _rotationText;
+    int _rotationIndex;
+    int _transitionGeneration;
+    long _seenScoreSequence;
+    bool _scoreSequenceSeen;
     bool _loaded;
     bool _disposed;
+    bool _rotationActive;
+    bool _showingAlert;
+    double _dwellSeconds = 7;
+    double _transitionSeconds = 0.4;
     double _period;
 
     public TickerView(ScorebugElement item, Func<GameState>? state)
@@ -348,9 +375,19 @@ public sealed class TickerView : Grid, IDisposable
         IsHitTestVisible = false;
         Background = Brushes.Transparent;
         Children.Add(_track);
+        _rotationTimer.Tick += (_, _) => AdvanceRotation();
         Update(item, state);
-        Loaded += (_, _) => { _loaded = true; Start(); };
-        Unloaded += (_, _) => { _loaded = false; Stop(); };
+        Loaded += (_, _) =>
+        {
+            _loaded = true;
+            if (_rotationActive) StartRotationClock(); else Start();
+        };
+        Unloaded += (_, _) =>
+        {
+            _loaded = false;
+            StopRotationClock();
+            Stop();
+        };
     }
 
     public void Update(ScorebugElement item, GameState? state)
@@ -370,6 +407,12 @@ public sealed class TickerView : Grid, IDisposable
         if (_disposed) return;
         _item = item;
         var game = state?.Invoke();
+        if (item.Ticker && game is not null && TickerRotation.IsBound(item.Content) && game.TickerAutoRotate)
+        {
+            UpdateRotation(item, game);
+            return;
+        }
+        if (_rotationActive) StopRotation();
         var raw = game is null ? item.Content : ScoreboardTemplates.Bind(item.Content, game, item.PeriodFormat);
         raw = System.Text.RegularExpressions.Regex.Replace(raw ?? "", @"\s+", " ").Trim();
         var display = raw.Length == 0 ? " " : raw + "   \u2022   ";
@@ -382,6 +425,207 @@ public sealed class TickerView : Grid, IDisposable
         _signature = signature;
         Build(display, item, game);
     }
+
+    void UpdateRotation(ScorebugElement item, GameState game)
+    {
+        _rotationActive = true;
+        var style = string.Join('|',
+            item.FontFamily, item.FontSize.ToString("0.###"), item.Bold, item.Italic,
+            item.TextOpacity.ToString("0.###"), item.Width.ToString("0.###"),
+            Paint.TextSignature(item, game));
+        if (_rotationText is null || !string.Equals(style, _rotationStyle, StringComparison.Ordinal))
+        {
+            _rotationStyle = style;
+            BuildRotationText(item, game);
+        }
+
+        _dwellSeconds = Math.Clamp(game.TickerDwellSeconds, 1, 60);
+        _transitionSeconds = Math.Clamp(game.TickerTransitionSeconds, 0, 3);
+        var timing = $"{_dwellSeconds:0.###}|{_transitionSeconds:0.###}";
+        if (!string.Equals(timing, _rotationTiming, StringComparison.Ordinal))
+        {
+            _rotationTiming = timing;
+            if (_rotationTimer.IsEnabled && !_showingAlert)
+                _rotationTimer.Interval = Dwell;
+        }
+
+        var items = TickerRotation.Build(game);
+        var key = string.Join('|', items.Select(entry => entry.Key));
+        var listChanged = !string.Equals(key, _rotationKey, StringComparison.Ordinal);
+        _rotationItems = items.ToList();
+        _rotationKey = key;
+        if (listChanged || _rotationIndex >= _rotationItems.Count) _rotationIndex = 0;
+        if (_rotationItems.Count == 0) return;
+
+        DetectScoreAlerts(game);
+        if (_showingAlert) return;
+        var current = _rotationItems[Math.Clamp(_rotationIndex, 0, _rotationItems.Count - 1)];
+        if (_rotationText is not null && !string.Equals(_rotationText.Text, current.Text, StringComparison.Ordinal))
+            ShowRotationText(current.Text, animate: false);
+        if (_loaded && !_rotationTimer.IsEnabled) StartRotationClock();
+    }
+
+    void BuildRotationText(ScorebugElement item, GameState game)
+    {
+        Stop();
+        _rotationTimer.Stop();
+        _track.Children.Clear();
+        var typeface = new Typeface(FontCatalog.Resolve(item.FontFamily),
+            item.Italic ? FontStyles.Italic : FontStyles.Normal,
+            item.Bold ? FontWeights.Bold : FontWeights.Normal,
+            FontStretches.Normal);
+        _rotationText = new TextBlock
+        {
+            Text = " ",
+            FontFamily = typeface.FontFamily,
+            FontSize = Math.Max(1, item.FontSize),
+            FontWeight = typeface.Weight,
+            FontStyle = typeface.Style,
+            Foreground = Paint.Text(item, game),
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.None,
+            Opacity = Math.Clamp(item.TextOpacity, 0, 1),
+            IsHitTestVisible = false
+        };
+        _track.Children.Add(_rotationText);
+        _track.RenderTransform = new TranslateTransform(0, 0);
+        _track.RenderTransformOrigin = new Point(0, 0.5);
+        _track.Opacity = 1;
+    }
+
+    void DetectScoreAlerts(GameState game)
+    {
+        if (!_scoreSequenceSeen)
+        {
+            _seenScoreSequence = game.LastScoreSequence;
+            _scoreSequenceSeen = true;
+        }
+        else if (game.LastScoreSequence != _seenScoreSequence)
+        {
+            _seenScoreSequence = game.LastScoreSequence;
+            var alert = TickerRotation.LocalScoreAlert(game);
+            if (alert.Length > 0) _alerts.Enqueue(new TickerItem("alert:local", alert));
+        }
+
+        var selected = TickerRotation.SelectedGames(game)
+            .Select(entry => entry.GameId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var liveIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var league in game.LeagueGames ?? [])
+        {
+            if (league is null) continue;
+            var key = string.IsNullOrWhiteSpace(league.GameId) ? league.Label : league.GameId;
+            liveIds.Add(key);
+            var score = (league.HomeScore, league.AwayScore);
+            if (_leagueScores.TryGetValue(key, out var previous)
+                && previous != score
+                && game.TickerScoreAlerts
+                && selected.Contains(league.GameId))
+                _alerts.Enqueue(new TickerItem($"alert:{key}:{league.HomeScore}:{league.AwayScore}", TickerRotation.LeagueScoreAlert(league)));
+            _leagueScores[key] = score;
+        }
+        foreach (var stale in _leagueScores.Keys.Where(key => !liveIds.Contains(key)).ToList())
+            _leagueScores.Remove(stale);
+
+        if (_loaded && !_showingAlert && _alerts.Count > 0) StartAlert();
+    }
+
+    TimeSpan Dwell => TimeSpan.FromSeconds(_dwellSeconds);
+
+    void StartRotationClock()
+    {
+        if (_disposed || !_loaded || !_rotationActive) return;
+        if (_showingAlert) return;
+        if (_alerts.Count > 0)
+        {
+            StartAlert();
+            return;
+        }
+        if (_rotationItems.Count == 0) return;
+        _rotationTimer.Interval = Dwell;
+        _rotationTimer.Start();
+    }
+
+    void StartAlert()
+    {
+        if (_alerts.Count == 0 || _rotationText is null) return;
+        _showingAlert = true;
+        var alert = _alerts.Dequeue();
+        _rotationTimer.Stop();
+        _rotationTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(Math.Max(4, _dwellSeconds), 4, 60));
+        ShowRotationText(alert.Text, animate: true);
+        _rotationTimer.Start();
+    }
+
+    void AdvanceRotation()
+    {
+        if (_disposed || !_rotationActive) return;
+        if (_showingAlert)
+        {
+            _showingAlert = false;
+            if (_alerts.Count > 0)
+            {
+                StartAlert();
+                return;
+            }
+            if (_rotationItems.Count > 0)
+            {
+                _rotationIndex = Math.Clamp(_rotationIndex, 0, _rotationItems.Count - 1);
+                ShowRotationText(_rotationItems[_rotationIndex].Text, animate: true);
+            }
+            _rotationTimer.Interval = Dwell;
+            return;
+        }
+        if (_alerts.Count > 0)
+        {
+            StartAlert();
+            return;
+        }
+        if (_rotationItems.Count == 0) return;
+        if (_rotationItems.Count > 1) _rotationIndex = (_rotationIndex + 1) % _rotationItems.Count;
+        ShowRotationText(_rotationItems[_rotationIndex].Text, animate: true);
+        _rotationTimer.Interval = Dwell;
+    }
+
+    void ShowRotationText(string text, bool animate)
+    {
+        if (_rotationText is null) return;
+        var transition = _transitionSeconds;
+        if (!animate || transition <= 0.01)
+        {
+            _rotationText.Text = text;
+            _track.Opacity = 1;
+            return;
+        }
+        var generation = ++_transitionGeneration;
+        var half = TimeSpan.FromSeconds(transition / 2);
+        var fadeOut = new DoubleAnimation(1, 0, half);
+        fadeOut.Completed += (_, _) =>
+        {
+            if (_disposed || generation != _transitionGeneration || _rotationText is null) return;
+            _rotationText.Text = text;
+            var fadeIn = new DoubleAnimation(0, 1, half);
+            _track.BeginAnimation(OpacityProperty, fadeIn);
+        };
+        _track.BeginAnimation(OpacityProperty, fadeOut);
+    }
+
+    void StopRotation()
+    {
+        _rotationActive = false;
+        _showingAlert = false;
+        _transitionGeneration++;
+        _alerts.Clear();
+        _rotationItems.Clear();
+        _rotationKey = "";
+        _rotationStyle = "";
+        StopRotationClock();
+        _track.BeginAnimation(OpacityProperty, null);
+        _track.Opacity = 1;
+    }
+
+    void StopRotationClock() => _rotationTimer.Stop();
 
     void Build(string display, ScorebugElement item, GameState? game)
     {
@@ -452,6 +696,9 @@ public sealed class TickerView : Grid, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _transitionGeneration++;
+        _rotationTimer.Stop();
+        _alerts.Clear();
         Stop();
         Children.Clear();
     }
@@ -576,6 +823,10 @@ public sealed class ScorebugLayoutFeed : Grid, IDisposable
 public sealed class ScorebugLogoView : Grid
 {
     readonly Image _image = new() { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+    // These washes sit over the crest and use the crest's own alpha as their opacity mask, so a
+    // material slider changes the artwork itself instead of disappearing behind an opaque logo.
+    readonly Rectangle _textFinish = new() { IsHitTestVisible = false, Stretch = Stretch.Fill };
+    readonly Rectangle _plateFinish = new() { IsHitTestVisible = false, Stretch = Stretch.Fill };
     readonly TextBlock? _placeholder;
 
     public ScorebugLogoView(ScorebugElement item, GameState? state, bool showPlaceholder)
@@ -592,6 +843,8 @@ public sealed class ScorebugLogoView : Grid
             Children.Add(_placeholder);
         }
         Children.Add(_image);
+        Children.Add(_textFinish);
+        Children.Add(_plateFinish);
         Update(item, state);
     }
 
@@ -614,6 +867,10 @@ public sealed class ScorebugLogoView : Grid
             _image.Source = null;
         }
         _image.Visibility = found ? Visibility.Visible : Visibility.Collapsed;
+        // A material on either side of the Paint & Texture window follows the logo's silhouette.
+        // Keep the fallback colour neutral: a transparent logo has no plate colour of its own.
+        ApplyFinish(_textFinish, found ? Paint.TextureWash(item.TextTexture, Color.FromRgb(0xC8, 0xC8, 0xC8)) : null, found, item.TextTexture);
+        ApplyFinish(_plateFinish, found ? Paint.TextureWash(item.BackgroundTexture, Color.FromRgb(0xC8, 0xC8, 0xC8)) : null, found, item.BackgroundTexture);
         if (_placeholder is null) return;
         _placeholder.Text = item.LogoSide == ScorebugLogoSide.None ? item.Content : $"{item.LogoSide.ToString().ToUpperInvariant()} LOGO";
         _placeholder.FontFamily = FontCatalog.Resolve(item.FontFamily);
@@ -626,6 +883,18 @@ public sealed class ScorebugLogoView : Grid
         // "HOME LOGO" label would cover it, so the plate takes the placeholder's place. With no
         // team logo and no plate paint the label still identifies the empty slot.
         _placeholder.Visibility = found || ScorebugRender.HasPlatePaint(item) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    void ApplyFinish(Rectangle finish, Brush? brush, bool hasImage, ScorebugTexture? texture)
+    {
+        finish.Fill = brush;
+        finish.Visibility = brush is null || !hasImage ? Visibility.Collapsed : Visibility.Visible;
+        finish.Opacity = texture is { Enabled: true }
+            ? Math.Clamp(0.35 + texture.Opacity * 0.5, 0.25, 0.85)
+            : 1;
+        finish.OpacityMask = hasImage && _image.Source is not null
+            ? new ImageBrush(_image.Source) { Stretch = Stretch.Uniform }
+            : null;
     }
 }
 

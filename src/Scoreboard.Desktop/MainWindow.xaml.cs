@@ -102,6 +102,24 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
     // is still the empty workspace behind the launcher, so closing must never ask to save.
     bool _gameStarted;
 
+    /// <summary>Runs the replacement of the whole show without treating the loaded/new layout as an
+    /// operator hand-over. The first rebuild must not play a layout transition video.</summary>
+    void WithoutLayoutTransitions(Action action)
+    {
+        var previous = ScorebugCanvasView.SuppressTransitions;
+        ScorebugCanvasView.SuppressTransitions = true;
+        try { action(); }
+        finally { ScorebugCanvasView.SuppressTransitions = previous; }
+    }
+
+    bool WithoutLayoutTransitions(Func<bool> action)
+    {
+        var previous = ScorebugCanvasView.SuppressTransitions;
+        ScorebugCanvasView.SuppressTransitions = true;
+        try { return action(); }
+        finally { ScorebugCanvasView.SuppressTransitions = previous; }
+    }
+
     /// <summary>Lets unattended checks create windows without opening a network update dialog.</summary>
     public static bool CheckForUpdatesOnLoad { get; set; } = true;
 
@@ -1166,6 +1184,9 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
     /// profiles, keybinds, preferences, the media library and the scorebug design — are untouched.
     /// </summary>
     public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null)
+        => WithoutLayoutTransitions(() => StartNewGameCore(sportId, announce, keepDesign, restart, gameName));
+
+    void StartNewGameCore(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null)
     {
         _autoHornReady = false;
         // keepDesign is the sport switch: the teams, their rosters and the scorebug layout stay.
@@ -1218,9 +1239,14 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         _session.Stop();
     }
 
-    bool LoadGame(string path)
+    bool LoadGame(string path) => WithoutLayoutTransitions(() => LoadGameCore(path));
+
+    bool LoadGameCore(string path)
     {
         _autoHornReady = false;
+        // Opening a game replaces the show: a clip or live source left over from the previous game
+        // must not keep playing underneath the loaded one.
+        _session.Stop();
         try
         {
             var design = _engine.Load(path);
@@ -1621,6 +1647,12 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         var dialog = new LeagueCloudWindow(_leagueCloud, _preferences, _scorebug, _program, _engine) { Owner = this };
         dialog.ShowDialog();
         _leagueCloud.ApplySettings();
+    }
+
+    void Ticker_Click(object sender, RoutedEventArgs e)
+    {
+        if (_leagueCloud is null) return;
+        new TickerWindow(_engine, _leagueCloud) { Owner = this }.ShowDialog();
     }
 
     protected override void OnClosed(EventArgs e)

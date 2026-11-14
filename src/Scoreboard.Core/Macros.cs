@@ -89,7 +89,7 @@ public sealed class MacroAction
         MacroActionKind.SetPlayClock => $"Play clock {Value}s",
         MacroActionKind.SetTimeoutClock => $"Timeout clock {Value}s",
         MacroActionKind.SetPeriod => $"Period {Value}",
-        MacroActionKind.PlayVideo => $"Play {System.IO.Path.GetFileName(Path)}",
+        MacroActionKind.PlayVideo => $"Media · {(string.IsNullOrWhiteSpace(Label) ? System.IO.Path.GetFileName(Path) : Label)}",
         MacroActionKind.RosterStat => $"{(Home ? "Home" : "Visitors")} · {PlayerName} · {StatName} {(Delta ? (Value >= 0 ? "+" : "−") + Math.Abs(Value) : "= " + Value)}",
         MacroActionKind.Control => $"Console · {(string.IsNullOrWhiteSpace(Label) ? Path : Label)}",
         MacroActionKind.SportValue => $"{(string.IsNullOrWhiteSpace(Label) ? Path : Label)} {(Delta ? (Value >= 0 ? "+ " : "− ") + Math.Abs(Value) : "= " + Value)}",
@@ -108,6 +108,12 @@ public sealed class SavedMacro
     public string Label { get; set; } = "New macro";
     /// <summary>Optional button colour, stored as a hex string. Empty uses the theme accent.</summary>
     public string Color { get; set; } = "";
+    /// <summary>Legacy row-break hint for boards saved before explicit grid cells.</summary>
+    public bool StartNewRow { get; set; }
+    /// <summary>The board row this button occupies. -1 means place it automatically.</summary>
+    public int Row { get; set; } = -1;
+    /// <summary>The board column this button occupies. -1 means place it automatically.</summary>
+    public int Column { get; set; } = -1;
     public List<MacroAction> Actions { get; set; } = [];
 
     public SavedMacro Copy() => new()
@@ -115,6 +121,9 @@ public sealed class SavedMacro
         Id = Id,
         Label = Label,
         Color = Color,
+        StartNewRow = StartNewRow,
+        Row = Row,
+        Column = Column,
         Actions = (Actions ?? []).Select(action => action.Copy()).ToList()
     };
 
@@ -126,6 +135,8 @@ public sealed class SavedMacro
         Color = (Color ?? "").Trim();
         // A malformed colour is not a reason to drop the macro; it just falls back to the accent.
         if (Color.Length is not (7 or 9) || Color[0] != '#' || !Color[1..].All(char.IsAsciiHexDigit)) Color = "";
+        Row = Math.Clamp(Row, -1, 999);
+        Column = Math.Clamp(Column, -1, 999);
         Actions ??= [];
         Actions = Actions.Where(action => action is not null).Take(80).ToList();
         foreach (var action in Actions) action.Normalize();

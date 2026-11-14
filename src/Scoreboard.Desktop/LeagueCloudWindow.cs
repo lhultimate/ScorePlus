@@ -139,13 +139,20 @@ public sealed class LeagueCloudWindow : Window
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         var upload = new Button { Content = "Upload now", MinHeight = 32, Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(0, 0, 6, 0) };
         var fetch = new Button { Content = "Fetch now", MinHeight = 32, Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(0, 0, 6, 0) };
-        var ticker = new Button { Content = "Add league ticker layout", MinHeight = 32, Padding = new Thickness(12, 5, 12, 5) };
+        var ticker = new Button { Content = "Add league ticker layout", MinHeight = 32, Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(0, 0, 6, 0) };
+        var rotation = new Button { Content = "Ticker rotation…", MinHeight = 32, Padding = new Thickness(12, 5, 12, 5) };
         upload.Click += async (_, _) => { if (Save()) { _status.Text = "Uploading…"; await _service.UploadNowAsync(); } };
         fetch.Click += async (_, _) => { if (Save()) { _status.Text = "Fetching…"; await _service.FetchNowAsync(); } };
         ticker.Click += (_, _) => { if (Save()) AddTicker(); };
+        rotation.Click += (_, _) =>
+        {
+            if (!Save()) return;
+            new TickerWindow(_engine, _service) { Owner = this }.ShowDialog();
+        };
         actions.Children.Add(upload);
         actions.Children.Add(fetch);
         actions.Children.Add(ticker);
+        actions.Children.Add(rotation);
         panel.Children.Add(actions);
 
         var scroll = new ScrollViewer
@@ -287,6 +294,7 @@ public sealed class LeagueCloudWindow : Window
                 Name = "League Ticker",
                 Kind = ScorebugElementKind.Text,
                 Content = "{{LEAGUE_GAMES}}",
+                Ticker = true,
                 X = 70,
                 Y = height - 92,
                 Width = width - 140,

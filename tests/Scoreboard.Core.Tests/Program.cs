@@ -66,6 +66,26 @@ try
         +(lostFields.Length==0?"":$" (lost: {string.Join(", ",lostFields)})"));
 }
 finally { if(File.Exists(gameShapePath))File.Delete(gameShapePath); }
+// The ticker can rotate through only the games the operator chose, then their news, while score
+// alerts remain a separate interruption.
+var tickerEngine=new GameEngine();tickerEngine.NewGame("basketball");tickerEngine.SetTeams("Eagles","Tigers");
+tickerEngine.SetLeagueGames([
+    new LeagueGame{GameId="g1",Name="Early game",HomeTeam="Eagles",AwayTeam="Tigers",HomeScore=54,AwayScore=51,PeriodLabel="Q3",Clock="4:12",Status="live"},
+    new LeagueGame{GameId="g2",Name="Other court",HomeTeam="Bears",AwayTeam="Wolves",HomeScore=40,AwayScore=38,PeriodLabel="Q2",Clock="1:03",Status="live"},
+    new LeagueGame{GameId="g3",Name="Late game",HomeTeam="Hawks",AwayTeam="Falcons",HomeScore=70,AwayScore=70,PeriodLabel="Q4",Clock="0:20",Status="live"}
+]);
+tickerEngine.SetTickerSettings(["g1","g3"],["Playoff seeding is set","Doors open at six"],autoRotate:true,scoreAlerts:true,dwellSeconds:1,transitionSeconds:0.25);
+var tickerItems=TickerRotation.Build(tickerEngine.State);
+Check(TickerRotation.IsBound("Scores: {{LEAGUE_GAMES}}")&&!TickerRotation.IsBound("{{HOME_SCORE}}"),"the ticker recognizes both league ticker tokens and leaves ordinary text alone");
+Check(TickerRotation.SelectedGames(tickerEngine.State).Select(game=>game.GameId).SequenceEqual(["g1","g3"]),"the ticker includes only the games chosen by the operator");
+Check(tickerItems.Count==4&&tickerItems[0].Text.Contains("Eagles 54")&&tickerItems[1].Text.Contains("Hawks 70")&&tickerItems[2].Text.StartsWith("NEWS ·",StringComparison.Ordinal),"the ticker rotates the chosen games before the news headlines");
+tickerEngine.Score(true,3);
+var localAlert=TickerRotation.LocalScoreAlert(tickerEngine.State);
+Check(localAlert.StartsWith("SCORE ALERT",StringComparison.Ordinal)&&localAlert.Contains("Eagles +3")&&localAlert.Contains("Tigers 0 – Eagles 3"),"a local score produces a ticker alert with the team, change and score");
+tickerEngine.State.TickerScoreAlerts=false;
+Check(TickerRotation.LocalScoreAlert(tickerEngine.State).Length==0,"switching score alerts off stops the ticker alert");
+tickerEngine.SetTickerSettings([],["Only news"],autoRotate:true,scoreAlerts:true,dwellSeconds:1,transitionSeconds:0.25);
+Check(TickerRotation.Build(tickerEngine.State).Count==1&&TickerRotation.Build(tickerEngine.State)[0].Text=="NEWS · Only news","clearing every chosen game leaves the news rotation usable on its own");
 var catalogPath=Path.Combine(Path.GetTempPath(),$"sports-{Guid.NewGuid():N}.json");
 try
 {
@@ -143,7 +163,7 @@ engine.NewGame("football");engine.SetFootballDistance(3,41);engine.MarkPublished
 var hardwareDowns=new GameEngine();hardwareDowns.NewGame("football");hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:1,YardsToGo:10,BallOn:35));hardwareDowns.MarkPublished();hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));Check(hardwareDowns.State.Down==2&&hardwareDowns.State.YardsToGo==7,"a console frame moves the down");Check(!hardwareDowns.CanRecallLastDown,"recall waits for the console's new down to be published");hardwareDowns.MarkPublished();hardwareDowns.RecallLastDown();Check(hardwareDowns.State.Down==1&&hardwareDowns.State.YardsToGo==10&&hardwareDowns.State.YardsToGoal==35,"a recall restores the down that was on air before");hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));hardwareDowns.ApplyHardwareSnapshot(new DeviceSnapshot(Down:2,YardsToGo:7,BallOn:40));hardwareDowns.MarkPublished();hardwareDowns.RecallLastDown();Check(hardwareDowns.State.Down==1&&hardwareDowns.State.YardsToGo==10,"a repeated controller frame still recalls the down before it");
 engine.NewGame("football");Check(PeriodDisplay.Format(engine.State)=="Quarter 1","default period label is Quarter 1");engine.SetPeriodFormat("Short");Check(PeriodDisplay.Format(engine.State)=="Q1"&&ScoreboardTemplates.Bind("{{PERIOD}}",engine.State)=="Q1","short period label is Q1");Check(ScoreboardTemplates.Bind("{{PERIOD}}",engine.State,"Full")=="QUARTER 1"&&ScoreboardTemplates.Bind("{{PERIOD}}",engine.State,"Number")=="1","a studio element can choose its own quarter style");engine.SetPeriodFormat("Number");Check(PeriodDisplay.Format(engine.State)=="1","numeric period label is a bare number");engine.SetPeriodFormat("Ordinal");Check(PeriodDisplay.Format(engine.State)=="1st","ordinal period label is 1st");var periodReport=GameReport.Build(engine.State);Check(periodReport.Contains("1 of 4"),"game report honors the selected period format");engine.NewGame("soccer");engine.SetPeriodFormat("Short");Check(PeriodDisplay.Format(engine.State)=="Half 1","period format only applies to quarter-based sports");
 var ordinalPath=Path.Combine(Path.GetTempPath(),$"ordinal-{Guid.NewGuid():N}.json");try{var ordinalCatalog=new ScorebugCatalog(ordinalPath);ordinalCatalog.Update(layout=>layout.Elements.Add(new ScorebugElement{Name="Ordinal",Content="{{PERIOD}}",PeriodFormat="Ordinal"}));Check(new ScorebugCatalog(ordinalPath).Layout.Elements[^1].PeriodFormat=="Ordinal","an element's ordinal quarter style survives a save");}finally{if(File.Exists(ordinalPath))File.Delete(ordinalPath);}
-var shapeLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Parallelogram};var shapeCatalogPath=Path.Combine(Path.GetTempPath(),$"shape-{Guid.NewGuid():N}.json");try{var catalog=new ScorebugCatalog(shapeCatalogPath);catalog.Update(layout=>layout.Elements.Add(shapeLayout));var reloaded=new ScorebugCatalog(shapeCatalogPath);Check(reloaded.Layout.Elements[^1].Shape==ScorebugShape.Parallelogram,"scorebug shapes persist in the studio layout, including the parallelogram");}finally{if(File.Exists(shapeCatalogPath))File.Delete(shapeCatalogPath);}
+var shapeLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Parallelogram};var shapeCatalogPath=Path.Combine(Path.GetTempPath(),$"shape-{Guid.NewGuid():N}.json");try{var catalog=new ScorebugCatalog(shapeCatalogPath);catalog.Update(layout=>layout.Elements.Add(shapeLayout));var reloaded=new ScorebugCatalog(shapeCatalogPath);Check(reloaded.Layout.Elements[^1].Shape==ScorebugShape.Parallelogram,"scorebug shapes persist in the studio layout, including the parallelogram");var roundedLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Rectangle,CornerRadius=24};catalog.Update(layout=>layout.Elements.Add(roundedLayout));var roundedReloaded=new ScorebugCatalog(shapeCatalogPath);Check(Math.Abs(roundedReloaded.Layout.Elements[^1].CornerRadius-24)<0.001,"a rectangle keeps its corner radius across a save");}finally{if(File.Exists(shapeCatalogPath))File.Delete(shapeCatalogPath);}
 Check(ClockFormat.TryParse("10:30",out var parsedClock)&&parsedClock==630,"MM:SS clock entry parses minutes and seconds");Check(ClockFormat.TryParse("1:05",out var shortClock)&&shortClock==65,"single-digit minutes parse correctly");Check(ClockFormat.TryParse("720",out var rawClock)&&rawClock==720,"plain seconds still parse");Check(!ClockFormat.TryParse("10:75",out _)&&!ClockFormat.TryParse("abc",out _),"invalid clock entry is rejected");Check(ClockFormat.Format(630)=="10:30"&&ClockFormat.Format(0)=="00:00","clock formatting round trips");
 Check(LeagueCloudImport.TryParseClock("90:00",out var soccerCloudClock)&&soccerCloudClock==5400,"a cloud game clock can run past 59 minutes, including soccer's 90:00");
 var selectiveEngine=new GameEngine();selectiveEngine.NewGame("basketball");selectiveEngine.SetScore(true,7);selectiveEngine.SetScore(false,3);selectiveEngine.SetClock(321);selectiveEngine.SetPeriod(3);
@@ -363,6 +383,8 @@ try
     {
         Label="Kickoff",
         Color="#FF6B6B",
+        Row=2,
+        Column=3,
         Actions=[
             new MacroAction{Kind=MacroActionKind.Score,Home=true,Amount=3},
             new MacroAction{Kind=MacroActionKind.SetDown,Value=1},
@@ -379,6 +401,7 @@ try
     var macro=loadedMacros.Macros.Single();
     Check(loadedMacros.GameName=="Friday Night Lights","a game name survives a game save");
     Check(macro.Label=="Kickoff"&&macro.Color=="#FF6B6B"&&macro.Actions.Count==7,"macro buttons, their colour and every step survive a game save");
+    Check(macro.Row==2&&macro.Column==3,"a macro's board cell survives a game save");
     Check(macro.Actions[0].Kind==MacroActionKind.Score&&macro.Actions[1].Kind==MacroActionKind.SetDown
         &&macro.Actions[2].Kind==MacroActionKind.SetTimeouts&&macro.Actions[3].Kind==MacroActionKind.PlayVideo,
         "macro steps keep their order across a game save");

@@ -85,6 +85,9 @@ public partial class ScorebugEditorWindow : Window
     Size? _copiedSize;
     (double X,double Y,double Rotation)? _copiedPlacement;
     string? _selectedId;
+    // Custom logo file for the selected logo element. Kept here while the panel is being edited,
+    // so the normal property save can write it with the rest of the element.
+    string? _logoImagePath;
     ScorebugElement? _dragElement;
     // Where each selected element started, so dragging one object carries the whole selection.
     readonly Dictionary<string,(double X, double Y)> _dragOrigins = [];
@@ -577,7 +580,8 @@ public partial class ScorebugEditorWindow : Window
     static readonly LogoOption[] Logos =
     [
         new(ScorebugLogoSide.Home, "Home team logo"),
-        new(ScorebugLogoSide.Away, "Visitors team logo")
+        new(ScorebugLogoSide.Away, "Visitors team logo"),
+        new(ScorebugLogoSide.None, "Custom image")
     ];
 
     static readonly PlayerPhotoSideOption[] PlayerPhotoSides =
@@ -968,7 +972,7 @@ public partial class ScorebugEditorWindow : Window
             +$"{item.Opacity}:{item.TextOpacity}:{item.BackgroundOpacity}:{item.BorderOpacity}:"
             +$"{item.BorderThickness}:{item.BorderColor}:{item.BorderSource}:{item.Icon}:{item.IconScale}:"
             +$"{item.IconFillColor}:{item.IconFillSource}:{item.Animation}:{item.MotionAnimation?.Id}:{item.MotionTransition?.Id}:"
-            +$"{item.Shape}:{item.Visible}:{item.LogoSide}:{item.ImagePath}:"
+            +$"{item.Shape}:{item.CornerRadius}:{item.Visible}:{item.LogoSide}:{item.ImagePath}:"
             +$"{item.NestedLayoutId}:{item.NestedPreserveAspect}"));
 
     /// <summary>Fills the display picker from the catalog without treating the sync as a choice.</summary>
@@ -1362,7 +1366,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,CornerRadiusInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -1407,6 +1411,7 @@ public partial class ScorebugEditorWindow : Window
                 ? MotionChoice(TransitionInput,handover)
                 : (object)e.Transition;
             ShapeInput.SelectedItem=e.Shape;
+            CornerRadiusInput.Text=Math.Clamp(e.CornerRadius,0,200).ToString("0.#");
             VisibleInput.IsChecked=e.Visible; TransparentBackgroundInput.IsChecked=e.TransparentBackground;
             MediaTagInput.Text=e.MediaTag;
             PreserveAspectInput.IsChecked=e.PreserveVideoAspect;
@@ -1419,6 +1424,11 @@ public partial class ScorebugEditorWindow : Window
             ChromaKeyToleranceInput.Text=e.ChromaKeyTolerance.ToString("0.00");
             AudioDeviceInput.SelectedItem=_audioOptions.FirstOrDefault(option=>string.Equals(option.Id??"",e.AudioDevice??"",StringComparison.OrdinalIgnoreCase))??_audioOptions[0];
             LogoInput.SelectedItem=Logos.FirstOrDefault(l=>l.Side==e.LogoSide)??Logos[0];
+            _logoImagePath=e.ImagePath;
+            LogoImagePathText.Text=string.IsNullOrWhiteSpace(e.ImagePath)
+                ? e.LogoSide==ScorebugLogoSide.None?"No custom image":"Using the team logo"
+                : System.IO.Path.GetFileName(e.ImagePath);
+            LogoImagePathText.ToolTip=string.IsNullOrWhiteSpace(e.ImagePath)?null:e.ImagePath;
             PlayerPhotoSideInput.SelectedItem=PlayerPhotoSides.FirstOrDefault(o=>o.Side==e.PlayerPhotoSide)??PlayerPhotoSides[0];
             PeriodFormatInput.SelectedItem=PeriodOptions.FirstOrDefault(o=>o.Key==e.PeriodFormat)??PeriodOptions[0];
             IconInput.SelectedItem=e.Icon; IconVisitorsInput.IsChecked=e.IconVisitors; IconFlipInput.IsChecked=e.IconFlipped;
@@ -1522,6 +1532,9 @@ public partial class ScorebugEditorWindow : Window
         PlayerPhotoSection.Visibility=kind==ScorebugElementKind.Image?Visibility.Visible:Visibility.Collapsed;
         LayoutSection.Visibility=kind==ScorebugElementKind.Layout?Visibility.Visible:Visibility.Collapsed;
         ShapePanel.Visibility=kind==ScorebugElementKind.Shape?Visibility.Visible:Visibility.Collapsed;
+        var rectangleShape=kind==ScorebugElementKind.Shape&&e?.Shape==ScorebugShape.Rectangle;
+        CornerRadiusLabel.Visibility=rectangleShape?Visibility.Visible:Visibility.Collapsed;
+        CornerRadiusInput.Visibility=rectangleShape?Visibility.Visible:Visibility.Collapsed;
         VideoPanel.Visibility=kind==ScorebugElementKind.Video?Visibility.Visible:Visibility.Collapsed;
         TickerSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         // The host paints the backdrop and the outline for every kind, shapes included.
@@ -1787,6 +1800,8 @@ public partial class ScorebugEditorWindow : Window
         var transition=TransitionInput.SelectedItem is ScorebugTransition t?(ScorebugTransition?)t:null;
         var transitionClip=TransitionInput.SelectedItem as MotionClipChoice;
         var shape=ShapeInput.SelectedItem is ScorebugShape s?(ScorebugShape?)s:null;
+        var cornerRadiusOk=double.TryParse(CornerRadiusInput.Text,out var cornerRadiusRaw);
+        var cornerRadius=Math.Clamp(cornerRadiusOk?cornerRadiusRaw:8,0,200);
         var visible=VisibleInput.IsChecked==true; var transparent=TransparentBackgroundInput.IsChecked==true;
         var mediaTag=MediaTagInput.Text.Trim();
         var preserveAspect=PreserveAspectInput.IsChecked==true;
@@ -1861,7 +1876,8 @@ public partial class ScorebugEditorWindow : Window
             &&(transitionClip is not null
                 ? string.Equals(item.MotionTransition?.Id,transitionClip.Clip.Id,StringComparison.OrdinalIgnoreCase)
                 : (transition is null||item.MotionTransition is null))
-            &&(shape is null||item.Shape==shape)&&item.Visible==visible&&item.TransparentBackground==transparent
+            &&(shape is null||item.Shape==shape)&&(!cornerRadiusOk||Math.Abs(item.CornerRadius-cornerRadius)<0.001)
+            &&item.Visible==visible&&item.TransparentBackground==transparent
             &&item.MediaTag==mediaTag&&(periodFormat is null||item.PeriodFormat==periodFormat)
             &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped&&item.IconVertical==iconVertical
             &&(icon!=ScorebugIcon.Custom||string.Equals(item.CustomIconId,(IconCustomInput.SelectedItem as CustomIconChoice)?.Icon.Id,StringComparison.OrdinalIgnoreCase))
@@ -1918,6 +1934,8 @@ public partial class ScorebugEditorWindow : Window
             Group(t=>t.MotionTransition=transitionClip.Clip.Snapshot());
         else if(transition is not null&&item.Transition!=transition)Group(t=>{t.Transition=transition.Value;t.MotionTransition=null;});
         if(shape is not null&&item.Shape!=shape)Group(t=>t.Shape=shape.Value);
+        if(cornerRadiusOk&&Math.Abs(item.CornerRadius-cornerRadius)>0.001)
+            Group(t=>{if(t.Kind==ScorebugElementKind.Shape&&t.Shape==ScorebugShape.Rectangle)t.CornerRadius=cornerRadius;});
         if(item.Visible!=visible)Group(t=>t.Visible=visible);
         if(item.Ticker!=ticker)Group(t=>{if(t.Kind==ScorebugElementKind.Text)t.Ticker=ticker;});
         if(tickerSpeedOk&&Math.Abs(item.TickerSpeed-tickerSpeed)>0.001)Group(t=>{if(t.Kind==ScorebugElementKind.Text)t.TickerSpeed=tickerSpeed;});
@@ -1958,6 +1976,8 @@ public partial class ScorebugEditorWindow : Window
         if(gradientColorOk&&item.BackgroundColor2!=GradientColorInput.Text)Group(t=>t.BackgroundColor2=GradientColorInput.Text);
         if(gradientAngleOk&&Math.Abs(item.GradientAngle-gradientAngle)>0.001)Group(t=>t.GradientAngle=Math.Clamp(gradientAngle,-360,360));
         if(logoSide is not null&&item.LogoSide!=logoSide)Group(t=>t.LogoSide=logoSide.Value);
+        if(item.Kind==ScorebugElementKind.Logo&&!string.Equals(item.ImagePath,_logoImagePath,StringComparison.OrdinalIgnoreCase))
+            Group(t=>{if(t.Kind==ScorebugElementKind.Logo)t.ImagePath=_logoImagePath;});
         if(item.PlayerPhotoSide!=playerPhotoSide)Group(t=>{if(t.Kind==ScorebugElementKind.Image)t.PlayerPhotoSide=playerPhotoSide;});
         if(borderWidthOk&&Math.Abs(item.BorderThickness-borderWidth)>0.001)Group(t=>t.BorderThickness=Math.Clamp(borderWidth,0,40));
         if(borderColorOk&&item.BorderColor!=BorderColorInput.Text)Group(t=>t.BorderColor=BorderColorInput.Text);
@@ -2028,6 +2048,7 @@ public partial class ScorebugEditorWindow : Window
                 if(downOn&&downTransition is not null){target.TransitionDown=downTransition;if(downSpeedOk)target.TransitionDownSeconds=Math.Clamp(downSpeed,0,5);}
                 if(!downOn){target.TransitionDown=null;target.TransitionDownSeconds=null;}
                 if(shape is not null)target.Shape=shape.Value;
+                if(target.Kind==ScorebugElementKind.Shape&&target.Shape==ScorebugShape.Rectangle)target.CornerRadius=cornerRadius;
                 target.Visible=visible; target.TransparentBackground=transparent;
                 if(target.Kind==ScorebugElementKind.Layout)target.NestedPreserveAspect=nestedAspect;
                 if(target.Kind==ScorebugElementKind.Video)target.MediaTag=mediaTag;
@@ -2076,13 +2097,13 @@ public partial class ScorebugEditorWindow : Window
                 target.BackgroundOpacity=backgroundOpacity;
                 target.BorderOpacity=borderOpacity;
                 if(logoSide is not null)target.LogoSide=logoSide.Value;
+                if(target.Kind==ScorebugElementKind.Logo)target.ImagePath=_logoImagePath;
                 if(target.Kind==ScorebugElementKind.Image)target.PlayerPhotoSide=playerPhotoSide;
                 if(rotationOk)target.Rotation=Math.Clamp(rotation,-360,360);
                 if(borderWidthOk)target.BorderThickness=Math.Clamp(borderWidth,0,40);
                 if(borderColorOk)target.BorderColor=BorderColorInput.Text;
                 if(borderSource is not null)target.BorderSource=borderSource.Value;
                 if(transitionSpeedOk)target.TransitionSeconds=Math.Clamp(transitionSpeed,0,5);
-                if(target.Kind==ScorebugElementKind.Logo&&target.LogoSide==ScorebugLogoSide.None)target.LogoSide=ScorebugLogoSide.Home;
                 // A linked part carries the edit to every copy of it, on every layout and display.
                 _catalog.PropagateLink(target);
             }
@@ -2430,6 +2451,58 @@ public partial class ScorebugEditorWindow : Window
 
     /// <summary>The baseball diamond as one element: three bases that light up with a runner on.</summary>
     void AddLogo_Click(object sender,RoutedEventArgs e)=>Add(new ScorebugElement{Name="New logo",Kind=ScorebugElementKind.Logo,LogoSide=ScorebugLogoSide.Home,Content="HOME LOGO",X=520,Y=470,Width=140,Height=90,TransparentBackground=true});
+
+    /// <summary>
+    /// Adds a custom picture to the selected logo element. A team logo still wins when one is
+    /// configured; this is the fallback for a standalone crest or wordmark that is not tied to a
+    /// team identity.
+    /// </summary>
+    void LogoImage_Click(object sender,RoutedEventArgs e)
+    {
+        if(Selected is not {Kind:ScorebugElementKind.Logo} item)return;
+        var dialog=new OpenFileDialog
+        {
+            Title="Choose a logo image",
+            Filter="Images (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|All files (*.*)|*.*"
+        };
+        if(dialog.ShowDialog()!=true)return;
+        var path=dialog.FileName;
+        try
+        {
+            var folder=AppPaths.Combine("Images");
+            Directory.CreateDirectory(folder);
+            var name=System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
+            var extension=System.IO.Path.GetExtension(dialog.FileName);
+            var target=System.IO.Path.Combine(folder,$"logo-{name}-{DateTime.Now:yyyyMMdd-HHmmss}{extension}");
+            File.Copy(dialog.FileName,target,true);
+            path=target;
+        }
+        catch
+        {
+            // A read-only source still draws from where it is; the design keeps a usable path.
+        }
+        _logoImagePath=path;
+        _catalog.Update(layout=>
+        {
+            var target=layout.Elements.FirstOrDefault(z=>z.Id==item.Id);
+            if(target is null)return;
+            target.LogoSide=ScorebugLogoSide.None;
+            target.ImagePath=path;
+        });
+        Render(); LoadProperties();
+    }
+
+    void LogoImageClear_Click(object sender,RoutedEventArgs e)
+    {
+        if(Selected is not {Kind:ScorebugElementKind.Logo} item)return;
+        _logoImagePath=null;
+        _catalog.Update(layout=>
+        {
+            var target=layout.Elements.FirstOrDefault(z=>z.Id==item.Id);
+            if(target is not null)target.ImagePath=null;
+        });
+        Render(); LoadProperties();
+    }
 
     /// <summary>
     /// Imports a still picture onto the graphic. The file is copied into the app's Images folder so

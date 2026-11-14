@@ -2,7 +2,7 @@
 
 **A native Windows scoreboard and broadcast graphics system for live production — one operator console, unlimited displays, and a scorebug you design yourself.**
 
-> **Beta software.** ScorePlus is under active development and the beta builds are updated every few days. Expect rough edges; don't run it as the only copy of a show you care about. Release labels read like `b1.0`, `a1.41`, etc.
+> **Beta software.** ScorePlus is in beta and the beta builds are updated every few days. Expect rough edges; don't run it as the only copy of a show you care about. Current releases use labels like `b1.1` and the next beta will use `b1.2`.
 
 Everything runs locally on one Windows PC. No browser, no server, no internet connection, and no separately installed .NET runtime. The clock, the score and the graphics are all in one program, and the audience output updates the moment a value changes — there is never a "refresh" step mid-game.
 
@@ -20,6 +20,10 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 - [Tutorial: Video, Camera and Replay](#tutorial-video-camera-and-replay)
 - [Tutorial: Rosters and Player Stats](#tutorial-rosters-and-player-stats)
 - [Tutorial: Team Identity and Colors](#tutorial-team-identity-and-colors)
+- [Tutorial: Macros and Multi-Step Actions](#tutorial-macros-and-multi-step-actions)
+- [Tutorial: League Cloud and Rotating Tickers](#tutorial-league-cloud-and-rotating-tickers)
+- [Tutorial: Multiview](#tutorial-multiview)
+- [Tutorial: Conditionals](#tutorial-conditionals)
 - [Tutorial: Keybinds](#tutorial-keybinds)
 - [Tutorial: The Phone Remote](#tutorial-the-phone-remote)
 - [Tutorial: Scoreboard Controllers and the Horn](#tutorial-scoreboard-controllers-and-the-horn)
@@ -60,8 +64,12 @@ It was built around four ideas:
 | **Sports** | American Football, Australian Football, Baseball, Basketball, Cricket, Hockey, Lacrosse, Rugby, Soccer, Tennis, Volleyball, Wrestling, and a blank Custom preset |
 | **Displays** | Unlimited, each holding unlimited layouts, each layout with its own transition |
 | **Inputs** | Keyboard, mouse, phone/tablet remote, live cameras, microphones |
+| **Automation** | Reusable multi-step macros, conditionals, and keyframed motion |
+| **League tools** | Cloud score feed, per-game field import, and a rotating ticker with news and score alerts |
+| **Monitoring** | Multiview camera wall with program, audience, replay and blank tiles |
+| **Finishes** | Multi-stop gradients and material finishes on text, plates and logo artwork |
 | **Files** | `.spg` game, `.spl` layout, `.spd` display, `.spr` roster, `.spp` player, `.spf` media folder |
-| **Saving** | Portable save/load, 100-step undo, rolling autosaves every 5 seconds |
+| **Saving** | Portable save/load, 100-step undo, rolling autosaves every 15 seconds |
 
 ---
 
@@ -175,8 +183,20 @@ Options available on almost everything:
 
 - **Border** — thickness and color, fixed or from a team palette slot. Zero thickness hides it entirely, and a shape with a transparent background becomes a clean outline.
 - **Gradient background** — a second color and a direction in degrees, and both colors can be team slots.
+- **Paint & texture** — open the finish editor for any text, shape or logo. It can paint a multi-stop gradient on the text and on the plate, linear or radial, then lay a material over either one.
 - **Opacity** — per element, so a stat box can sit at 60% over live video.
 - **Color sources** — anywhere a color is offered, choose *Custom* for a hex/alpha picker, or **Home Primary**, **Home Secondary**, **Away Primary**, **Away Secondary** so the graphic recolors itself when you change a team's identity. The picker's **Pick from screen…** button hides the dialog and samples any pixel on any monitor, so a sponsor's exact color is one click away.
+
+### Paint, Material and Logo Finish
+
+Select an element and press **Paint & texture…**. The window has two columns — **text** and **plate** — and every control applies to the live graphic while you move it. You do not need to tick a separate "use this finish" box first: moving a slider or picking a material switches the finish on.
+
+1. Choose a **material** — `Matte`, `Metal`, `Chrome`, `Glass`, `Frost`, `Fabric`, `Velvet`, `Stone`, `Concrete`, `Paper` or `Hologram` — then tune roughness, glossiness, ambience, shine, metallic, grain, emboss, bevel, satin, iridescence, opacity, scale, contrast, light angle and tint.
+2. Add any number of **gradient stops** to the text or the plate, switch to radial, and set the angle or centre. The stop list is live; add, remove and recolor a stop without closing the window.
+3. For a **logo**, the plate finish still paints the area around the crest, and the same finish is washed across the logo artwork itself. The text finish follows the logo's transparent areas too, so an imported team crest is not a flat image sitting on top of an untouched material.
+4. Press **Done** when the look is right. The finish is stored with the element and travels in the layout, display and saved game.
+
+This is the quickest way to make a sponsor mark look embossed, give a score plate a brushed-metal edge, or turn a flat team logo into a glass or chrome badge without editing the source image.
 
 ### Type and Motion
 
@@ -416,6 +436,72 @@ The abbreviation is what fits where a full name won't, and it also feeds tokens 
 
 ---
 
+## Tutorial: Macros and Multi-Step Actions
+
+A **macro** is one button that changes several things in order. Use it for a recurring sequence — “timeout, stop the clock, show the sponsor card”, “period break, clear the floor, ready the next layout” — instead of pressing four controls while the play is moving.
+
+1. Open the **MACROS** tab. The board starts empty.
+2. Press **+ New macro**, give it a **name** and an optional colour, then add steps. Each step chooses an action and its value: score, down, timeouts, any clock, period, a sport value, a custom value, possession, football distance or ball spot, a console button, a media item, or a roster stat.
+3. A **media** step can play a library clip or put a camera, microphone or speaker bus on air. A **roster stat** step changes a specific player's stat. A **console button** step runs an existing control action, so a macro can reuse the same behaviour as the keyboard and the phone remote.
+4. Press **Save macro**. The card shows its name and step count; press the card to run the whole list from the current game state.
+5. Drag a card by its handle to any empty cell. The board keeps empty cells open, so a group of buttons can stay where your hand expects it. Dropping onto an occupied cell swaps the two cards, and right-clicking a card offers **Edit** and **Delete**.
+
+Macros are stored in the game (`.spg`), so the same show sequence opens with the same fixture. Actions that change staged values still wait for **Update Output**; live values such as the score and clocks publish immediately, and a media step starts playing at once.
+
+---
+
+## Tutorial: League Cloud and Rotating Tickers
+
+### Bring in league scores
+
+Press **☁** in the top row to open **League Cloud**. Configure an upload endpoint, a league feed endpoint, a league id and a poll interval; an optional bearer token stays in your local preferences. Turn the feed on and use **Upload now** and **Fetch now** while you are setting it up.
+
+The received-games list is an import desk, not an all-or-nothing sync. Select a game, tick only the values you want — **Home score**, **Away score**, **Game clock**, **Period** — and press **Import selected fields**. Everything you leave unticked keeps the current value, so a clock from one game and a score from another can be brought in independently.
+
+### Make the ticker
+
+Press **Add league ticker layout** to create a transparent layout with a text element bound to `{{LEAGUE_GAMES}}`. Set the element's **Ticker** property in the studio if you want to turn an existing text element into one; the generated layout already does. Style the text, plate, border and position like any other graphic.
+
+Then open **Ticker rotation…** from League Cloud, or press **⇄** in the main header:
+
+- Tick the **games** to include. **Select all** and **Clear** cover the whole list.
+- Add **news headlines**, one per line, below the games.
+- Set **hold** time and **fade** time. The ticker shows one card at a time and transitions to the next instead of scrolling one long line.
+- Leave **score alerts** on to interrupt the rotation when the local game scores or one of the chosen league games changes its score. The alert shows the team, the scoring change where available, and the updated score, then the rotation resumes.
+
+The rotation choices are saved in the game. The league feed itself is live data, so it refreshes from the cloud rather than being frozen into the save.
+
+---
+
+## Tutorial: Multiview
+
+Press **Multiview** in the header to open a wall for watching sources at once. Press the pencil button to edit the tiles, add or remove tiles, and choose a source for each one:
+
+- **Program preview** — a chosen display's staged layout.
+- **Audience output** — what a chosen display is actually showing.
+- **Camera** — any live camera in the media library.
+- **Replay** — the replay monitor while a replay is being reviewed.
+- **Blank** — an empty tile that keeps the wall's shape.
+
+The wall is a monitoring surface, not a second program bus: changing a tile never publishes a layout. Use it to keep the wide shot, the tight shot, the program and the replay in view while the operator works the console.
+
+---
+
+## Tutorial: Conditionals
+
+Conditionals are rules that change the artwork when the game says so. Open **Conditionals…** in the Display Studio's layout bar, press **+ Rule**, and build a condition from the game's fields — score, clock, period, possession, down, timeouts, penalty, game-ended and the rest — with the operators that field supports.
+
+Each rule can match **all** or **any** of its conditions and can carry actions that:
+
+- set text, background or border colour (including a team palette slot),
+- change opacity, position or size,
+- show, hide or set the text of an element,
+- switch the display to another layout.
+
+Actions can run on match, **after a wait**, or as an **else** branch. A **Wait until** condition holds the rule after its trigger matches and runs the after-wait actions only when that condition becomes true — useful for “show the bonus mark when the period ends, then hide it after the next basket”. A rule can **bypass Update Output** when it should react to live state immediately; otherwise it evaluates the published values, the same values the audience sees. Rules save with the display and can be exported and imported as a ScorePlus Rule bundle.
+
+---
+
 ## Tutorial: Keybinds
 
 Nothing is bound by default — every key is yours to assign.
@@ -538,6 +624,9 @@ The main window is one page, top to bottom.
 | **▦ Game report** | Export a printable HTML summary of the game |
 | **▤ Ad log** | What the show has played: impressions per clip and how long each one runs |
 | **🕹 Hardware** | Connect a scoreboard controller and watch the data it sends |
+| **☁ League Cloud** | Upload this game and fetch the league's scores |
+| **⇄ Ticker rotation** | Choose league games, news headlines, timing and score alerts |
+| **Multiview** | Watch program, audience, cameras, replay and blank sources together |
 | **Save Game** / **Open Game** | `.spg` save and load |
 | **Display Studio** | Design the on-air graphic |
 | **Sport Profiles** | Edit how the sport behaves |
@@ -560,7 +649,7 @@ Every value reads the same way: add buttons above, subtract below, and click the
 
 ### Tabs
 
-**CONTROL PANEL**, **MEDIA** and **ROSTERS**, each filling the pane at console-sized buttons. The active tab carries the accent-colored outline (also on first launch, before you've clicked anything).
+**CONTROL PANEL**, **MEDIA**, **ROSTERS** and **MACROS**, each filling the pane at console-sized buttons. The active tab carries the accent-colored outline (also on first launch, before you've clicked anything).
 
 Every notice and confirmation in ScorePlus is the app's own themed window — closing a game with unsaved changes brings up **Keep editing / Exit without saving / Save & exit**, and deleting a roster or clearing autosaves asks in the same style. There are no Windows message boxes anywhere in the app.
 
@@ -593,7 +682,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 - **Media tag** decides which clips can appear. **ANY** accepts every clip.
 - **Audio output** is per video element, independent of the clip's own speaker, so two overlays can feed two destinations.
 - **Border** and **gradient** each take a fixed color or a team palette slot.
-- **Paint & texture** opens the finish editor: a gradient on the text itself as well as the plate, with any number of stops, either linear at an angle or radial out from a centre. The same editor lays a material over the paint — `Matte`, `Metal`, `Chrome`, `Glass`, `Frost`, `Fabric`, `Velvet`, `Stone`, `Concrete`, `Paper` or `Hologram` — with fourteen knobs of its own: roughness, glossiness, ambience, shine, metallic, grain, emboss, bevel, satin, iridescence, opacity, scale, contrast and light angle, plus a tint.
+- **Paint & texture** opens the finish editor: a gradient on the text itself as well as the plate, with any number of stops, either linear at an angle or radial out from a centre. The same editor lays a material over the paint — `Matte`, `Metal`, `Chrome`, `Glass`, `Frost`, `Fabric`, `Velvet`, `Stone`, `Concrete`, `Paper` or `Hologram` — with fourteen knobs of its own: roughness, glossiness, ambience, shine, metallic, grain, emboss, bevel, satin, iridescence, opacity, scale, contrast and light angle, plus a tint. On a logo, the finish also follows the crest's own artwork rather than stopping at the plate behind it.
 - **Opacity** is four sliders, not one: the whole element, the printed value, the background plate and the outline each fade on their own. A score can dissolve away while its plate stays solid, or a border can fade without touching the text.
 - **Motion** has three routes: the built-in `None / Pulse / Drift` presets, a ready-made preset from the animation maker's list, or a saved clip that replaces them.
 - **Rotation** is in degrees; negative angles are fine.
@@ -661,6 +750,9 @@ Bind live data by typing a token into a text element's content, or by using the 
 | `{{BALL_SIDE}}` / `{{BALL_TEAM}}` | Which side the spot is on |
 | `{{BALL_SIDE_SPOT}}` | Both together (`HOME 37`) |
 | `{{SPORT}}` | The sport id, upper case |
+| `{{LEAGUE_GAMES}}` / `{{LEAGUE_TICKER}}` | The league ticker cards, including the rotating game, news and alert items |
+| `{{LAST_SCORE_TEAM}}` / `{{LAST_SCORE_ABBR}}` | The team and abbreviation from the latest scoring action |
+| `{{LAST_SCORE_CHANGE}}` / `{{LAST_SCORE_AMOUNT}}` | `+3` / `3`, or blank when the last action was not a score |
 
 ### Sport Values
 
@@ -757,13 +849,13 @@ If you had an older installation, the files in `%LOCALAPPDATA%\Scoreboard` are c
 Building needs the **.NET 10 SDK** with the Windows desktop targeting pack.
 
 ```sh
-./scripts/build-release.sh a1.5
+./scripts/build-release.sh b1.1
 ```
 
 This publishes a self-contained single-file build into its own folder:
 
 ```
-dist/ScorePlus-win-x64-a1.5/
+dist/ScorePlus-win-x64-b1.1/
 ├── ScorePlusPortable.exe   run it straight from the folder
 ├── ScorePlusSetup.exe      install it
 ├── README.md               this document, copied in for reference
@@ -775,14 +867,14 @@ Exactly two **executables** ship — there is no bare `ScorePlus.exe` left in th
 To ship an update, use the publish script. It builds, hashes the setup exe, writes the update manifest beside it, and — with `--release` — creates the GitHub release with both assets through the GitHub CLI:
 
 ```sh
-./scripts/publish-release.sh a1.4 --release --notes "Adds X, fixes Y"
+./scripts/publish-release.sh b1.2 --release --notes "Adds X, fixes Y"
 ```
 
 Asset names matter: the release must carry **`ScorePlusSetup.exe`** and **`ScorePlusPortable.exe`**. Only `ScorePlusSetup` is used for updating; the portable exe is never self-replacing.
 
 The script also writes **`win.json`** beside them. It is optional for a GitHub release: installed copies read this project's releases API and take the installer's SHA-256 from GitHub, so uploading only the two EXEs is enough. `win.json` is for hosting the installer somewhere else, or for the stable `releases/latest/download/win.json` address.
 
-`--prerelease` marks it as an alpha. Drafts are ignored by the updater, because their assets aren't served.
+`--prerelease` marks it as a prerelease, which is how the beta channel ships. Drafts are ignored by the updater, because their assets aren't served.
 
 ---
 
@@ -800,7 +892,7 @@ Things worth knowing:
 
 - **Only installed copies update.** A build run out of a folder has no install marker, so it never checks and never replaces itself. That is deliberate: your test copy can't be swapped out from under you.
 - **The check runs at startup**, plus a manual **Check now** in Preferences → Updates. If a release goes live while the app is open, it won't notice until the next launch.
-- **Release numbers must increase.** The digits in the label become the version, and the highest published number wins — not the most recent upload. A one-digit minor counts as two, so `a1.6` is 1.60.0 and sorts after `a1.51` (1.51.0); `a1.7` becomes 1.70.0, and `a1.61` (1.61.0) sorts after both. Watch out for `a1.03`: it parses to the same 1.03 → 1.3.0 as `a1.3`, so it isn't "newer" to an a1.3 install.
+- **Release numbers must increase.** The digits in the label become the version, and the highest published number wins — not the most recent upload. A one-digit minor counts as two, so `b1.6` is 2.60.0 and sorts after `b1.51` (2.51.0); `b1.7` becomes 2.70.0, and `b1.61` (2.61.0) sorts after both. Watch out for `b1.03`: it parses to the same 2.03 → 2.3.0 as `b1.3`, so it isn't "newer" to a b1.3 install.
 - **Prefer a custom host?** Preferences → Updates can point at a JSON manifest elsewhere. See [docs/updates.md](docs/updates.md).
 
 ---

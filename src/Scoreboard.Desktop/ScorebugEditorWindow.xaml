@@ -531,10 +531,19 @@
         </StackPanel>
 
         <StackPanel x:Name="LogoSection">
-          <TextBlock Text="TEAM LOGO" Style="{StaticResource SectionTitle}"/>
+          <TextBlock Text="LOGO" Style="{StaticResource SectionTitle}"/>
           <ComboBox x:Name="LogoInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="Team logos are imported in the control panel, beside the team name"/>
-          <TextBlock x:Name="LogoHintText" Text="Logos are configured in the control panel: the … button beside each team name. This element just chooses which team it shows."
+                    ToolTip="Use a team logo from the control panel, or a custom image for this element"/>
+          <DockPanel Margin="10,0,10,4">
+            <Button DockPanel.Dock="Right" Content="Choose image…" Margin="4,0,0,0" Padding="8,4" FontSize="10"
+                    Click="LogoImage_Click" ToolTip="Pick a picture file for this logo and show it as a custom image"/>
+            <Button DockPanel.Dock="Right" Content="Clear" Margin="4,0,0,0" Padding="8,4" FontSize="10"
+                    Click="LogoImageClear_Click" ToolTip="Remove the custom logo image"/>
+            <TextBlock x:Name="LogoImagePathText" Text="No custom image" Foreground="#93A0B2" FontSize="10"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                       ToolTip="The custom logo file used by this element"/>
+          </DockPanel>
+          <TextBlock x:Name="LogoHintText" Text="Choose a team logo above, or pick a custom image. A team logo comes from the … button beside the team name in the control panel."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
         </StackPanel>
 
@@ -564,6 +573,9 @@
           <TextBlock Text="SHAPE" Style="{StaticResource SectionTitle}"/>
           <TextBlock Text="Shape type" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="ShapeInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"/>
+          <TextBlock x:Name="CornerRadiusLabel" Text="Corner radius (px, rectangles)" Style="{StaticResource FieldLabel}"/>
+          <TextBox x:Name="CornerRadiusInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                   ToolTip="Round a rectangle's corners. 0 gives square corners; 8 is the original soft corner."/>
         </StackPanel>
 
         <StackPanel x:Name="IconSection">

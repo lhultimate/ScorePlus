@@ -74,6 +74,10 @@ public sealed class ScorebugCanvasView : Grid
     readonly bool _onAirVideo;
     // A nested feed must follow every game value, not just the clocks a preview copies.
     readonly bool _liveValues;
+    /// <summary>Set while a saved game or a new game replaces the show. The first layout rebuild
+    /// must not look like an operator hand-over and play a transition video just because the
+    /// loaded design changed.</summary>
+    public static bool SuppressTransitions { get; set; }
     readonly Viewbox _viewbox;
     readonly Dictionary<string, (FrameworkElement Host, FrameworkElement Content)> _visuals = [];
     // Keyed by element id so a rebuild can keep the surface (and the running picture) alive.
@@ -135,6 +139,7 @@ public sealed class ScorebugCanvasView : Grid
     /// </summary>
     public void PrepareTransition(ScorebugLayout layout)
     {
+        if (SuppressTransitions) return;
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(()=>PrepareTransition(layout));return;}
         PrepareTransition(layout.TransitionVideoPath);
     }
@@ -186,6 +191,13 @@ public sealed class ScorebugCanvasView : Grid
         // A new game or a rebuilt layout starts from the current score, never by replaying the
         // celebration that happened before it.
         ClearScoreAnimation();
+        if (SuppressTransitions)
+        {
+            // A hand-over or a preloaded transition left over from the old game must not survive
+            // the load and start playing over the newly opened show.
+            FinishSwap();
+            ReleasePreparedTransition();
+        }
         _lastScoreSequence=_stateProvider().LastScoreSequence;
         // A different layout on the same feed is a hand-over: keep what is currently on screen as a
         // still, so the new layout can be revealed through it rather than snapping into place. Any
@@ -201,7 +213,9 @@ public sealed class ScorebugCanvasView : Grid
                 return;
             _drawnSignature = signature;
         }
-        var swapping = _drawnLayoutId is not null && !string.Equals(_drawnLayoutId, incoming.Id, StringComparison.OrdinalIgnoreCase);
+        var swapping = !SuppressTransitions
+            && _drawnLayoutId is not null
+            && !string.Equals(_drawnLayoutId, incoming.Id, StringComparison.OrdinalIgnoreCase);
         var outgoing = swapping ? CaptureCanvas() : null;
         // The layout the still was taken from, so a per-piece exit can be cropped out of it.
         var outgoingLayout = swapping ? _drawnLayout : null;

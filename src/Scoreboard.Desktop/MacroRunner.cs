@@ -103,6 +103,13 @@ public sealed class MacroRunner
                 string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
         }
         if (entry is null) return false;
+        // Cameras, microphones and speaker buses are on/off sources, not transport clips. A macro
+        // should put one on air without restarting a source that is already live.
+        if (entry.IsCamera || entry.IsMicrophone || entry.IsSpeaker)
+        {
+            if (_session.IsOnAir(entry)) return true;
+            return _session.ToggleOnAir(entry);
+        }
         _session.Play(entry);
         return true;
     }

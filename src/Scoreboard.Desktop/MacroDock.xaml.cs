@@ -34,6 +34,9 @@ public partial class MacroDock : UserControl
     Point _dragOrigin;
     bool _syncing;
     bool _dirty;
+
+    sealed record MacroDropTarget(int Row, int Column, bool NewRow);
+    sealed record MacroPlacement(SavedMacro Macro, int Row, int Column);
     bool _editorVisible = true;
     bool _showHints;
 
@@ -58,6 +61,11 @@ public partial class MacroDock : UserControl
     }
 
     sealed record CustomValueChoice(string Id, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    sealed record MediaChoice(string Path, string Label)
     {
         public override string ToString() => Label;
     }
@@ -132,8 +140,8 @@ public partial class MacroDock : UserControl
             new KindChoice(MacroActionKind.SetPlayClock, "Play clock — set the clock"),
             new KindChoice(MacroActionKind.SetTimeoutClock, "Timeout clock — set the clock"),
             new KindChoice(MacroActionKind.SetPeriod, "Period — set the current period"),
-            new KindChoice(MacroActionKind.PlayVideo, "Video — play a clip"),
-            new KindChoice(MacroActionKind.RosterStat, "Roster stat — change a player's number"),
+            new KindChoice(MacroActionKind.PlayVideo, "Media — play a clip or put a camera, mic or speaker on air"),
+            new KindChoice(MacroActionKind.RosterStat, "Roster stat — change any player's stat"),
             new KindChoice(MacroActionKind.Control, "Console button — run any control action"),
             new KindChoice(MacroActionKind.SportValue, "Sport value — set any counter or flag"),
             new KindChoice(MacroActionKind.SetFootballDistance, "Football — set distance to go"),
@@ -192,7 +200,7 @@ public partial class MacroDock : UserControl
         MacroEditor.Visibility = _editorVisible ? Visibility.Visible : Visibility.Collapsed;
         MacroEditorSplitter.Visibility = _editorVisible ? Visibility.Visible : Visibility.Collapsed;
         EditorToggleButton.Content = _editorVisible ? "Hide editor" : "Show editor";
-        // The WrapPanel has not arranged at its new width yet; let layout settle, then fit the
+        // The board has not arranged at its new width yet; let layout settle, then fit the
         // cards so nine occupy each row when the editor is hidden instead of four.
         Dispatcher.BeginInvoke(new Action(RenderMacros), System.Windows.Threading.DispatcherPriority.Loaded);
     }
@@ -204,101 +212,173 @@ public partial class MacroDock : UserControl
         // Nine cards is the board's maximum and the uncluttered board always uses all nine. Every
         // card carries a right margin of 8, including the last one in the row, so the width must
         // leave room for all nine margins; subtracting only the gaps made the ninth card wrap.
-        var columns = _editorVisible ? 5 : 9;
+        var columns = MacroColumns();
         // Leave a half-pixel of slack so layout rounding can never push the ninth card onto a
         // second row when the board is exactly wide enough.
         return Math.Max(32, (available - columns * 8 - 0.5) / columns);
     }
 
+    int MacroColumns() => _editorVisible ? 5 : 9;
+
     void UpdateCardWidths()
     {
         var width = CardWidth();
-        foreach (var card in MacroButtons.Children.OfType<Border>()) card.Width = width;
+        foreach (var card in MacroButtons.Children.OfType<Border>())
+            card.Width = width;
     }
 
     void RenderMacros()
     {
         MacroButtons.Children.Clear();
+        MacroButtons.RowDefinitions.Clear();
+        MacroButtons.ColumnDefinitions.Clear();
         EmptyText.Visibility = _macros.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var macro in _macros)
+        var columns = MacroColumns();
+        for (var column = 0; column < columns; column++)
+            MacroButtons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var placements = LayoutMacros(columns);
+        var rows = placements.Count == 0 ? 0 : placements.Max(placement => placement.Row) + 1;
+        for (var row = 0; row < rows; row++)
+            MacroButtons.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        foreach (var placement in placements)
         {
-            var customColor = ParseColor(macro.Color);
-            var card = new Border
-            {
-                Width = CardWidth(),
-                Margin = new Thickness(0, 0, 8, 8),
-                Padding = new Thickness(8),
-                Background = (Brush)Resources["MacroSurfaceBrush"],
-                BorderBrush = customColor is Color cardColor ? ColorBrush(cardColor) : (Brush)Resources["MacroBorderBrush"],
-                BorderThickness = new Thickness(customColor is null ? 1 : 2),
-                CornerRadius = new CornerRadius(9),
-                Tag = macro
-            };
-            card.PreviewMouseLeftButtonDown += MacroCard_MouseDown;
-            // Use the bubbling event here, not the preview event: the header's MouseUp needs to
-            // arrive before the card clears the press, otherwise a header click never edits.
-            card.MouseLeftButtonUp += MacroCard_MouseUp;
-            var stack = new StackPanel();
-            // The handle is a real, always-visible drag surface. The old card-only preview handler
-            // was swallowed by the run Button, which is why dragging a macro did nothing.
-            var header = new Border
-            {
-                Background = Brushes.Transparent,
-                Padding = new Thickness(4, 3, 4, 5),
-                MinHeight = 20,
-                Cursor = Cursors.SizeAll,
-                Tag = macro,
-                ToolTip = "Drag to reorder · click or double-click to edit · right-click for Edit / Delete"
-            };
-            if (_showHints)
-            {
-                header.Child = new TextBlock
-                {
-                    Text = "⠿  DRAG · CLICK TO EDIT",
-                    FontSize = 9,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = (Brush)Resources["MacroMutedBrush"]
-                };
-            }
-            else
-            {
-                // Keep a thin, wordless handle so drag, click-to-edit and double-click still work;
-                // only the tip text is hidden with the heading-tip preference.
-                header.MinHeight = 8;
-                header.Padding = new Thickness(0);
-                header.ToolTip = null;
-            }
-            header.MouseLeftButtonDown += MacroHeader_MouseDown;
-            header.MouseLeftButtonUp += MacroHeader_MouseUp;
-            stack.Children.Add(header);
-            var run = new Button
-            {
-                Style = (Style)Resources["MacroAccent"],
-                Content = new TextBlock
-                {
-                    Text = $"{macro.Label}\n{macro.ActionCount} step{(macro.ActionCount == 1 ? "" : "s")}",
-                    TextWrapping = TextWrapping.Wrap
-                },
-                Tag = macro,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                ToolTip = string.Join(Environment.NewLine, macro.Actions.Select(action => action.Summary))
-            };
-            if (customColor is Color fill)
-            {
-                // A custom colour owns the button itself, not just a tiny border stripe, so a
-                // board full of macros can be read at a glance.
-                run.Background = ColorBrush(fill);
-                run.BorderBrush = ColorBrush(UiPalette.Mix(fill, Colors.Black, 0.25));
-                run.Foreground = ColorBrush(Readable(fill));
-            }
-            run.Click += RunMacro_Click;
-            stack.Children.Add(run);
-            card.Child = stack;
-            AttachMacroMenu(card, macro);
-            AttachMacroMenu(header, macro);
-            AttachMacroMenu(run, macro);
+            var card = BuildMacroCard(placement.Macro);
+            card.Width = CardWidth();
+            Grid.SetRow(card, placement.Row);
+            Grid.SetColumn(card, placement.Column);
             MacroButtons.Children.Add(card);
         }
+    }
+
+    Border BuildMacroCard(SavedMacro macro)
+    {
+        var customColor = ParseColor(macro.Color);
+        var card = new Border
+        {
+            Width = CardWidth(),
+            Margin = new Thickness(0, 0, 8, 8),
+            Padding = new Thickness(8),
+            Background = (Brush)Resources["MacroSurfaceBrush"],
+            BorderBrush = customColor is Color cardColor ? ColorBrush(cardColor) : (Brush)Resources["MacroBorderBrush"],
+            BorderThickness = new Thickness(customColor is null ? 1 : 2),
+            CornerRadius = new CornerRadius(9),
+            Tag = macro
+        };
+        card.PreviewMouseLeftButtonDown += MacroCard_MouseDown;
+        // Use the bubbling event here, not the preview event: the header's MouseUp needs to
+        // arrive before the card clears the press, otherwise a header click never edits.
+        card.MouseLeftButtonUp += MacroCard_MouseUp;
+        var stack = new StackPanel();
+        // The handle is a real, always-visible drag surface. The old card-only preview handler
+        // was swallowed by the run Button, which is why dragging a macro did nothing.
+        var header = new Border
+        {
+            Background = Brushes.Transparent,
+            Padding = new Thickness(4, 3, 4, 5),
+            MinHeight = 20,
+            Cursor = Cursors.SizeAll,
+            Tag = macro,
+            ToolTip = "Drag to any cell · click or double-click to edit · right-click for Edit / Delete"
+        };
+        if (_showHints)
+        {
+            header.Child = new TextBlock
+            {
+                Text = "⠿  DRAG · CLICK TO EDIT",
+                FontSize = 9,
+                FontWeight = FontWeights.Bold,
+                Foreground = (Brush)Resources["MacroMutedBrush"]
+            };
+        }
+        else
+        {
+            // Keep a thin, wordless handle so drag, click-to-edit and double-click still work;
+            // only the tip text is hidden with the heading-tip preference.
+            header.MinHeight = 8;
+            header.Padding = new Thickness(0);
+            header.ToolTip = null;
+        }
+        header.MouseLeftButtonDown += MacroHeader_MouseDown;
+        header.MouseLeftButtonUp += MacroHeader_MouseUp;
+        stack.Children.Add(header);
+        var run = new Button
+        {
+            Style = (Style)Resources["MacroAccent"],
+            Content = new TextBlock
+            {
+                Text = $"{macro.Label}\n{macro.ActionCount} step{(macro.ActionCount == 1 ? "" : "s")}",
+                TextWrapping = TextWrapping.Wrap
+            },
+            Tag = macro,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            ToolTip = string.Join(Environment.NewLine, macro.Actions.Select(action => action.Summary))
+        };
+        if (customColor is Color fill)
+        {
+            // A custom colour owns the button itself, not just a tiny border stripe, so a
+            // board full of macros can be read at a glance.
+            run.Background = ColorBrush(fill);
+            run.BorderBrush = ColorBrush(UiPalette.Mix(fill, Colors.Black, 0.25));
+            run.Foreground = ColorBrush(Readable(fill));
+        }
+        run.Click += RunMacro_Click;
+        stack.Children.Add(run);
+        card.Child = stack;
+        AttachMacroMenu(card, macro);
+        AttachMacroMenu(header, macro);
+        AttachMacroMenu(run, macro);
+        return card;
+    }
+
+    /// <summary>
+    /// Places buttons into board cells. Explicit Row/Column values win; every other button fills
+    /// the first free cell. Old saves without cells keep their StartNewRow layout, so a game made
+    /// before the grid still opens where the operator left it.
+    /// </summary>
+    List<MacroPlacement> LayoutMacros(int columns)
+    {
+        columns = Math.Max(1, columns);
+        var placements = new List<MacroPlacement>();
+        var occupied = new HashSet<(int Row, int Column)>();
+        var explicitCells = _macros.Any(macro => macro.Row >= 0 && macro.Column >= 0);
+        var pending = new List<SavedMacro>();
+        foreach (var macro in _macros)
+        {
+            if (macro.Row >= 0 && macro.Column >= 0)
+            {
+                var row = macro.Row;
+                var column = Math.Clamp(macro.Column, 0, columns - 1);
+                if (occupied.Add((row, column)))
+                {
+                    placements.Add(new MacroPlacement(macro, row, column));
+                    continue;
+                }
+            }
+            pending.Add(macro);
+        }
+
+        var nextRow = 0;
+        var nextColumn = 0;
+        void Advance()
+        {
+            nextColumn++;
+            if (nextColumn < columns) return;
+            nextColumn = 0;
+            nextRow++;
+        }
+        foreach (var macro in pending)
+        {
+            if (!explicitCells && macro.StartNewRow && occupied.Any(cell => cell.Row == nextRow))
+            {
+                nextRow++;
+                nextColumn = 0;
+            }
+            while (occupied.Contains((nextRow, nextColumn))) Advance();
+            occupied.Add((nextRow, nextColumn));
+            placements.Add(new MacroPlacement(macro, nextRow, nextColumn));
+            Advance();
+        }
+        return placements.OrderBy(placement => placement.Row).ThenBy(placement => placement.Column).ToList();
     }
 
     void LoadEditor()
@@ -358,6 +438,25 @@ public partial class MacroDock : UserControl
         if (kind is MacroActionKind.Control) RefreshCommandChoices();
         if (kind is MacroActionKind.SportValue) RefreshSportValueChoices();
         if (kind is MacroActionKind.CustomValue) RefreshCustomValueChoices();
+        if (kind is MacroActionKind.PlayVideo) RefreshMediaChoices();
+    }
+
+    /// <summary>Lists every routeable library item, including live cameras and audio buses.</summary>
+    void RefreshMediaChoices()
+    {
+        var selectedPath = (MediaBox.SelectedItem as MediaChoice)?.Path ?? VideoPathBox.Text.Trim();
+        var choices = _session.Library
+            .Select(entry => new MediaChoice(entry.Path, $"{entry.KindLabel} · {entry.Label} · {entry.Tag}"))
+            .ToList();
+        MediaBox.ItemsSource = choices;
+        MediaBox.SelectedItem = choices.FirstOrDefault(choice =>
+            string.Equals(choice.Path, selectedPath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    void Media_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing || MediaBox.SelectedItem is not MediaChoice choice) return;
+        VideoPathBox.Text = choice.Path;
     }
 
     void SyncRoster()
@@ -438,6 +537,24 @@ public partial class MacroDock : UserControl
         LoadEditor();
     }
 
+    void MoveMacroToNextEmpty(string id)
+    {
+        var columns = MacroColumns();
+        var placements = LayoutMacros(columns);
+        var source = placements.FirstOrDefault(placement => placement.Macro.Id == id);
+        if (source is null) return;
+        var occupied = placements.Select(placement => (placement.Row, placement.Column)).ToHashSet();
+        var row = source.Row;
+        var column = source.Column;
+        while (true)
+        {
+            column++;
+            if (column >= columns) { column = 0; row++; }
+            if (!occupied.Contains((row, column))) break;
+        }
+        MoveMacroToTarget(id, new MacroDropTarget(row, column, false));
+    }
+
     void DeleteMacroCard(SavedMacro macro)
     {
         if (_draft?.Id == macro.Id) { _draft = null; _dirty = false; }
@@ -460,9 +577,16 @@ public partial class MacroDock : UserControl
         };
         var edit = new MenuItem { Header = "Edit macro", Foreground = (Brush)Resources["MacroTextBrush"] };
         edit.Click += (_, _) => EditMacroCard(macro);
+        var row = new MenuItem
+        {
+            Header = "Move to next empty cell",
+            Foreground = (Brush)Resources["MacroTextBrush"]
+        };
+        row.Click += (_, _) => MoveMacroToNextEmpty(macro.Id);
         var delete = new MenuItem { Header = "Delete macro", Foreground = (Brush)Resources["MacroTextBrush"] };
         delete.Click += (_, _) => DeleteMacroCard(macro);
         menu.Items.Add(edit);
+        menu.Items.Add(row);
         menu.Items.Add(delete);
         element.ContextMenu = menu;
         // Open it explicitly as well as relying on ContextMenuService. A captured mouse from a
@@ -504,6 +628,13 @@ public partial class MacroDock : UserControl
     void MacroHeader_MouseUp(object sender, MouseButtonEventArgs e)
     {
         if (_dragMacro is null) return;
+        // The dock's preview release normally finishes a drag first. If the capture started on
+        // this handle and the preview did not see the release, finish it here rather than editing.
+        if (_dragging)
+        {
+            FinishMacroDrag(e.GetPosition(MacroButtons));
+            return;
+        }
         var macro = _dragMacro;
         _dragMacro = null;
         if (sender is UIElement handle) handle.ReleaseMouseCapture();
@@ -528,51 +659,79 @@ public partial class MacroDock : UserControl
         // start and then end with no drop. Capturing on the board makes the release deterministic.
         _dragging = true;
         if (Mouse.Captured is UIElement captured) captured.ReleaseMouseCapture();
-        CaptureMouse();
+        // Capture the board itself, not the whole dock: the drop is measured in board coordinates,
+        // and the release is still previewed by this UserControl on its way to the captured board.
+        MacroButtons.CaptureMouse();
     }
 
     void MacroDock_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_dragging || _dragMacro is null) return;
-        var macro = _dragMacro;
-        var dropIndex = MacroDropIndexAt(e.GetPosition(MacroButtons));
-        _dragging = false;
-        _dragMacro = null;
-        if (IsMouseCaptured) ReleaseMouseCapture();
-        if (dropIndex is int index) MoveMacroToIndex(macro.Id, index);
+        if (!_dragging) return;
+        FinishMacroDrag(e.GetPosition(MacroButtons));
         e.Handled = true;
     }
 
     /// <summary>
-    /// Where a card should be inserted for a drop at this point. The board reads the cards' own
-    /// geometry, so rows with different heights still map correctly. Dropping below the last row is
-    /// deliberately allowed: the WrapPanel has no painted empty row, but that blank space is how a
-    /// card starts a new row before the current one is full.
+    /// Completes a drag from any handler that saw the release. Keeping this in one place means a
+    /// release that starts on the captured header or card can never clear the drag before the
+    /// board gets its drop index.
     /// </summary>
-    int? MacroDropIndexAt(Point point)
+    void FinishMacroDrag(Point dropPoint)
+    {
+        var macro = _dragMacro;
+        _dragging = false;
+        _dragMacro = null;
+        if (Mouse.Captured is UIElement captured) captured.ReleaseMouseCapture();
+        if (macro is null) return;
+        var target = MacroDropTargetAt(dropPoint);
+        if (target is not null) MoveMacroToTarget(macro.Id, target);
+    }
+
+    /// <summary>
+    /// Maps a pointer position to an exact grid cell. The cell is derived from the board's column
+    /// geometry, not from the cards present in a row, so empty cells can be targeted. A point below
+    /// every row creates a new row at the chosen column.
+    /// </summary>
+    MacroDropTarget? MacroDropTargetAt(Point point)
     {
         var width = MacroButtons.ActualWidth;
         if (width <= 0) return null;
         if (point.X < -8 || point.X > width + 8 || point.Y < -8) return null;
-        var insert = _macros.Count;
-        foreach (var card in MacroButtons.Children.OfType<Border>())
+        var columns = MacroColumns();
+        var columnWidth = width / columns;
+        var column = Math.Clamp((int)Math.Floor(point.X / columnWidth), 0, columns - 1);
+        var placements = LayoutMacros(columns);
+        if (placements.Count == 0) return new MacroDropTarget(0, column, true);
+        var rowBounds = new Dictionary<int, Rect>();
+        foreach (var placement in placements)
         {
-            if (card.Tag is not SavedMacro macro) continue;
-            var index = _macros.FindIndex(candidate => candidate.Id == macro.Id);
-            if (index < 0) continue;
+            var card = MacroButtons.Children.OfType<Border>()
+                .FirstOrDefault(candidate => ReferenceEquals(candidate.Tag, placement.Macro));
+            if (card is null) continue;
             Rect bounds;
             try { bounds = card.TransformToAncestor(MacroButtons).TransformBounds(new Rect(card.RenderSize)); }
             catch { continue; }
-            // Above this row, or before the card's midpoint: insert before it.
-            if (point.Y < bounds.Top + bounds.Height / 2) { insert = index; break; }
-            if (point.Y <= bounds.Bottom)
-            {
-                if (point.X < bounds.Left + bounds.Width / 2) { insert = index; break; }
-                // Right half of this card: keep it before the new card and try the next slot.
-                insert = index + 1;
-            }
+            rowBounds[placement.Row] = rowBounds.TryGetValue(placement.Row, out var current)
+                ? Rect.Union(current, bounds)
+                : bounds;
         }
-        return insert;
+        if (rowBounds.Count == 0)
+            return new MacroDropTarget(placements.Max(placement => placement.Row) + 1, column, true);
+        foreach (var row in rowBounds.Keys.OrderBy(value => value))
+        {
+            if (point.Y <= rowBounds[row].Bottom + 1)
+                return new MacroDropTarget(row, column, false);
+        }
+        return new MacroDropTarget(rowBounds.Keys.Max() + 1, column, true);
+    }
+
+    int? MacroDropIndexAt(Point point)
+    {
+        var target = MacroDropTargetAt(point);
+        if (target is null) return null;
+        var placement = LayoutMacros(MacroColumns()).FirstOrDefault(candidate =>
+            candidate.Row == target.Row && candidate.Column == target.Column);
+        return placement is null ? _macros.Count : _macros.FindIndex(macro => macro.Id == placement.Macro.Id);
     }
 
     void NewMacro_Click(object sender, RoutedEventArgs e)
@@ -608,6 +767,11 @@ public partial class MacroDock : UserControl
         if (existing is null) _macros.Add(_draft.Copy());
         else
         {
+            // Board cells belong to the board, not the editor. Keep the current cell while saving
+            // a label or action so a drag or the cell menu is not undone by the next Save click.
+            _draft.StartNewRow = existing.StartNewRow;
+            _draft.Row = existing.Row;
+            _draft.Column = existing.Column;
             var index = _macros.IndexOf(existing);
             _macros[index] = _draft.Copy();
         }
@@ -804,6 +968,7 @@ public partial class MacroDock : UserControl
         var command = CommandBox.SelectedItem as CommandChoice;
         var sportValue = SportValueBox.SelectedItem as SportValueChoice;
         var customValue = CustomValueBox.SelectedItem as CustomValueChoice;
+        var media = MediaBox.SelectedItem as MediaChoice;
         return new MacroAction
         {
             Kind = kind,
@@ -821,7 +986,10 @@ public partial class MacroDock : UserControl
             Label = kind == MacroActionKind.Control ? command?.Label ?? ""
                 : kind == MacroActionKind.SportValue ? sportValue?.Label ?? ""
                 : kind == MacroActionKind.CustomValue ? customValue?.Label ?? ""
-                : "",
+                : kind == MacroActionKind.PlayVideo && media is not null
+                    && string.Equals(media.Path, VideoPathBox.Text.Trim(), StringComparison.OrdinalIgnoreCase)
+                    ? media.Label
+                    : "",
             PlayerId = (PlayerBox.SelectedItem as PlayerChoice)?.Id ?? "",
             PlayerName = (PlayerBox.SelectedItem as PlayerChoice)?.Label ?? "",
             StatName = StatBox.Text.Trim(),
@@ -873,6 +1041,9 @@ public partial class MacroDock : UserControl
             AmountBox.Text = action.Amount.ToString();
             ValueBox.Text = action.Value.ToString();
             VideoPathBox.Text = action.Path;
+            RefreshMediaChoices();
+            MediaBox.SelectedItem = MediaBox.Items.OfType<MediaChoice>()
+                .FirstOrDefault(choice => string.Equals(choice.Path, action.Path, StringComparison.OrdinalIgnoreCase));
             DeltaBox.IsChecked = action.Delta;
             if (action.Kind == MacroActionKind.Control)
             {
@@ -947,7 +1118,13 @@ public partial class MacroDock : UserControl
         }
     }
 
-    void MacroCard_MouseUp(object sender, MouseButtonEventArgs e) => _dragMacro = null;
+    void MacroCard_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        // While a drag is active, the dock's preview handler owns the release and the drop.
+        // Clearing the drag here first would turn a real drag into a click that never moves.
+        if (_dragging) FinishMacroDrag(e.GetPosition(MacroButtons));
+        else _dragMacro = null;
+    }
 
     void MoveMacro(string id, string? beforeId)
     {
@@ -966,22 +1143,40 @@ public partial class MacroDock : UserControl
         Status?.Invoke($"MACRO · {moved.Label} moved");
     }
 
-    /// <summary>Moves one card to a gap in the board, including the empty space of a partial row.</summary>
-    void MoveMacroToIndex(string id, int insertIndex)
+    /// <summary>
+    /// Moves a card to an exact board cell. Empty cells are real targets, so a board can have
+    /// three buttons in the first column, a gap in the second and one in the third. Dropping on
+    /// an occupied cell swaps the two buttons rather than shoving a whole row sideways.
+    /// </summary>
+    void MoveMacroToTarget(string id, MacroDropTarget target)
     {
-        var from = _macros.FindIndex(macro => macro.Id == id);
-        if (from < 0) return;
-        insertIndex = Math.Clamp(insertIndex, 0, _macros.Count);
-        // Dropping either immediately before or immediately after the card itself is a no-op.
-        if (insertIndex == from || insertIndex == from + 1) return;
-        var moved = _macros[from];
-        _macros.RemoveAt(from);
-        if (insertIndex > from) insertIndex--;
-        insertIndex = Math.Clamp(insertIndex, 0, _macros.Count);
-        if (insertIndex == from) return;
-        _macros.Insert(insertIndex, moved);
+        var columns = MacroColumns();
+        var placements = LayoutMacros(columns);
+        var source = placements.FirstOrDefault(placement => placement.Macro.Id == id);
+        if (source is null) return;
+        var rowCount = placements.Count == 0 ? 0 : placements.Max(placement => placement.Row) + 1;
+        var targetRow = target.NewRow || target.Row >= rowCount ? rowCount : Math.Max(0, target.Row);
+        var targetColumn = Math.Clamp(target.Column, 0, columns - 1);
+        if (targetRow == source.Row && targetColumn == source.Column) return;
+
+        // Materialise the current layout first. Without this, moving one card would make the
+        // automatic buttons flow around it and the other cards would not stay in their cells.
+        foreach (var placement in placements)
+        {
+            placement.Macro.Row = placement.Row;
+            placement.Macro.Column = placement.Column;
+        }
+        var occupant = placements.FirstOrDefault(placement =>
+            placement.Row == targetRow && placement.Column == targetColumn);
+        if (occupant is not null)
+        {
+            occupant.Macro.Row = source.Row;
+            occupant.Macro.Column = source.Column;
+        }
+        source.Macro.Row = targetRow;
+        source.Macro.Column = targetColumn;
         _engine.StoreMacros(_macros);
         RenderMacros();
-        Status?.Invoke($"MACRO · {moved.Label} moved");
+        Status?.Invoke($"MACRO · {source.Macro.Label} moved");
     }
 }

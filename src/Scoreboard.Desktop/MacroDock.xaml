@@ -120,12 +120,12 @@
             <TextBlock Text="MACROS" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource MacroMutedBrush}" VerticalAlignment="Center"/>
           </StackPanel>
         </DockPanel>
-        <TextBlock Style="{StaticResource MacroHint}" Text="One button, several changes, in order. Each press runs the full step list against the current game; Update Output then puts the result on air. Media steps start playing immediately."
+        <TextBlock Style="{StaticResource MacroHint}" Text="One button, several changes, in order. Each press runs the full step list against the current game; Update Output then puts the result on air. Drag the handle to any cell or column; empty cells stay open. Media steps start playing immediately."
                    Margin="0,0,0,9"/>
       </StackPanel>
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid>
-          <WrapPanel x:Name="MacroButtons" Margin="0,0,0,8" Background="Transparent"/>
+          <Grid x:Name="MacroButtons" Margin="0,0,0,8" Background="Transparent"/>
           <TextBlock x:Name="EmptyText" Style="{StaticResource MacroHint}" Margin="2,4,8,0"
                      Text="No macros yet. Choose New macro, add a few steps, then press the macro card to run them together."/>
         </Grid>
@@ -226,12 +226,17 @@
                       Foreground="{DynamicResource MacroMutedBrush}" FontSize="10" Margin="0,6,0,0"/>
           </StackPanel>
           <StackPanel x:Name="VideoPanel">
-            <TextBlock Text="VIDEO FILE" Style="{StaticResource MacroLabel}"/>
+            <TextBlock Text="MEDIA ITEM" Style="{StaticResource MacroLabel}"/>
+            <ComboBox x:Name="MediaBox" Style="{StaticResource MacroCombo}" SelectionChanged="Media_Changed"
+                      ToolTip="Clips, cameras, microphones and speaker buses from the media library"/>
+            <TextBlock Text="OR A FILE / LIVE SOURCE ADDRESS" Style="{StaticResource MacroLabel}"/>
             <Grid>
               <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
               <TextBox x:Name="VideoPathBox" Style="{StaticResource MacroBox}" Margin="0,0,5,0"/>
               <Button Grid.Column="1" Style="{StaticResource MacroAction}" Content="Browse…" Margin="0" Click="BrowseVideo_Click"/>
             </Grid>
+            <TextBlock Style="{StaticResource MacroHint}" Margin="0,3,0,0"
+                       Text="A clip or camera plays; a microphone or speaker bus is put on air. Already-live sources are left alone."/>
           </StackPanel>
 
           <WrapPanel Margin="0,9,0,0">
@@ -239,7 +244,7 @@
             <Button x:Name="UpdateStepButton" Style="{StaticResource MacroAction}" Content="Update selected" Click="UpdateStep_Click" Margin="0"/>
           </WrapPanel>
           <TextBlock Style="{StaticResource MacroHint}" Margin="0,8,0,0"
-                     Text="A macro starts from step 1 every time. Score, down, timeouts, clocks, period, video, roster stats, custom values, console buttons and any sport value can be mixed freely; a step that needs a missing player or clip is skipped and the rest still run."/>
+                     Text="A macro starts from step 1 every time. Score, down, timeouts, clocks, period, media, cameras, microphones, speaker buses, roster stats, custom values, console buttons and any sport value can be mixed freely; a step that needs a missing player or source is skipped and the rest still run."/>
         </StackPanel>
       </ScrollViewer>
     </Border>

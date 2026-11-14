@@ -127,7 +127,7 @@ public static class ScorebugHtml
         if (item.BorderThickness > 0 && !svgShape)
             style.Append(CultureInfo.InvariantCulture, $"border:{Num(item.BorderThickness)}px solid {ResolveBorder(item, state)};");
         if (item.Kind == ScorebugElementKind.Shape && item.Shape == ScorebugShape.Rectangle)
-            style.Append("border-radius:8px;");
+            style.Append(CultureInfo.InvariantCulture, $"border-radius:{Num(Math.Clamp(item.CornerRadius, 0, 200))}px;");
 
         var classes = new StringBuilder("sp-el");
         if (item.Kind == ScorebugElementKind.Shape && item.Shape == ScorebugShape.Circle) classes.Append(" sp-shape-circle");

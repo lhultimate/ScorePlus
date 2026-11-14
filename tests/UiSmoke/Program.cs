@@ -465,8 +465,133 @@ internal static class Program
                 var painted = paintCatalog.Layout.Elements.First(element => element.Id == paintElement.Id);
                 if (painted.TextTexture is not { Enabled: true } || painted.BackgroundTexture is not { Enabled: true })
                     throw new Exception("FAIL: laying a material did not reach the text and the plate");
+
+                // The material controls must edit the live texture, not only look editable. A slider
+                // and the material picker used to leave the preview untouched because they were
+                // no-ops until the finish checkbox happened to be ticked.
+                var materialSlider = FindAll<Slider>(paintWindow).FirstOrDefault()
+                    ?? throw new Exception("FAIL: paint window has no material sliders");
+                var beforeSlider = Math.Max(painted.TextTexture?.Roughness ?? 0, painted.BackgroundTexture?.Roughness ?? 0);
+                materialSlider.Value = materialSlider.Value >= materialSlider.Maximum - 0.01
+                    ? materialSlider.Minimum
+                    : Math.Min(materialSlider.Maximum, materialSlider.Value + 0.15);
+                Pump(TimeSpan.FromMilliseconds(400));
+                painted = paintCatalog.Layout.Elements.First(element => element.Id == paintElement.Id);
+                var afterSlider = Math.Max(painted.TextTexture?.Roughness ?? 0, painted.BackgroundTexture?.Roughness ?? 0);
+                if (Math.Abs(afterSlider - beforeSlider) < 0.01)
+                    throw new Exception($"FAIL: material slider did not change the texture ({beforeSlider:0.###} -> {afterSlider:0.###})");
+
+                var materialPicker = FindAll<ComboBox>(paintWindow).FirstOrDefault(box =>
+                    box.Items.Count == ScorebugTexture.Kinds.Count
+                    && box.Items.Cast<object>().Select(item => item.ToString()).SequenceEqual(ScorebugTexture.Kinds));
+                if (materialPicker is null)
+                    throw new Exception("FAIL: paint window has no material picker");
+                var chosenKind = ScorebugTexture.Kinds.First(kind =>
+                    !string.Equals(kind, painted.TextTexture?.Kind, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(kind, painted.BackgroundTexture?.Kind, StringComparison.OrdinalIgnoreCase));
+                materialPicker.SelectedItem = chosenKind;
+                Pump(TimeSpan.FromMilliseconds(400));
+                painted = paintCatalog.Layout.Elements.First(element => element.Id == paintElement.Id);
+                if (painted.TextTexture?.Kind != chosenKind && painted.BackgroundTexture?.Kind != chosenKind)
+                    throw new Exception($"FAIL: material picker did not apply {chosenKind} (text {painted.TextTexture?.Kind}, plate {painted.BackgroundTexture?.Kind})");
                 paintWindow.Close();
                 Console.WriteLine("PASS: paint & texture lays a material on the text and the plate without a parent conflict");
+            }
+
+            // The controls themselves must put a finish on the element. Waiting for the separate
+            // "Lay a material" checkbox made every slider and the material picker look broken.
+            {
+                var autoCatalog = new ScorebugCatalog(layoutPath);
+                var autoElement = autoCatalog.Layout.Elements.First(element => element.Kind == ScorebugElementKind.Text);
+                var autoCtor = typeof(PaintTextureWindow).GetConstructor(
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                    null,
+                    [typeof(ScorebugCatalog), typeof(GameEngine), typeof(ScorebugElement), typeof(string)],
+                    null) ?? throw new Exception("FAIL: paint window has no editable constructor");
+                var autoWindow = (Window)autoCtor.Invoke([autoCatalog, new GameEngine(), autoElement, "Dark"]);
+                autoWindow.Show();
+                autoWindow.UpdateLayout();
+                var autoSlider = FindAll<Slider>(autoWindow).FirstOrDefault()
+                    ?? throw new Exception("FAIL: paint window has no sliders");
+                autoSlider.Value = Math.Min(autoSlider.Maximum, autoSlider.Value + 0.2);
+                Pump(TimeSpan.FromMilliseconds(350));
+                var autoPainted = autoCatalog.Layout.Elements.First(element => element.Id == autoElement.Id);
+                if (autoPainted.TextTexture is not { Enabled: true })
+                    throw new Exception("FAIL: moving a material slider did not turn the finish on");
+                var autoPicker = FindAll<ComboBox>(autoWindow).FirstOrDefault(box =>
+                    box.Items.Count == ScorebugTexture.Kinds.Count
+                    && box.Items.Cast<object>().Select(item => item.ToString()).SequenceEqual(ScorebugTexture.Kinds));
+                if (autoPicker is null)
+                    throw new Exception("FAIL: paint window has no material picker");
+                var autoKind = ScorebugTexture.Kinds.First(kind => !string.Equals(kind, autoPainted.TextTexture?.Kind, StringComparison.OrdinalIgnoreCase));
+                autoPicker.SelectedItem = autoKind;
+                Pump(TimeSpan.FromMilliseconds(350));
+                autoPainted = autoCatalog.Layout.Elements.First(element => element.Id == autoElement.Id);
+                if (autoPainted.TextTexture?.Kind != autoKind)
+                    throw new Exception($"FAIL: choosing {autoKind} did not reach the texture ({autoPainted.TextTexture?.Kind})");
+                autoWindow.Close();
+                Console.WriteLine("PASS: material sliders and the material picker turn on a finish without the checkbox");
+            }
+
+            // A ticker with the league token rotates chosen games on a timer, and a score change
+            // interrupts the rotation with a score alert before returning to the games.
+            {
+                var tickerEngine = new GameEngine();
+                tickerEngine.NewGame("basketball");
+                tickerEngine.SetTeams("Eagles", "Tigers");
+                tickerEngine.SetLeagueGames([
+                    new LeagueGame { GameId = "ticker-a", HomeTeam = "Eagles", AwayTeam = "Tigers", HomeScore = 54, AwayScore = 51, PeriodLabel = "Q3", Clock = "4:12", Status = "live" },
+                    new LeagueGame { GameId = "ticker-b", HomeTeam = "Bears", AwayTeam = "Wolves", HomeScore = 40, AwayScore = 38, PeriodLabel = "Q2", Clock = "1:03", Status = "live" }
+                ]);
+                tickerEngine.SetTickerSettings(["ticker-a", "ticker-b"], [], autoRotate: true, scoreAlerts: true, dwellSeconds: 1, transitionSeconds: 0.1);
+                var tickerItem = new ScorebugElement
+                {
+                    Name = "Ticker probe", Kind = ScorebugElementKind.Text, Ticker = true,
+                    Content = "{{LEAGUE_GAMES}}", Width = 800, Height = 60, FontSize = 22,
+                    Foreground = "#FFFFFFFF", TextOpacity = 1
+                };
+                var tickerView = new TickerView(tickerItem, () => tickerEngine.State);
+                var tickerHost = new Window
+                {
+                    Content = tickerView, Width = 900, Height = 100, WindowStyle = WindowStyle.None,
+                    ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual
+                };
+                tickerHost.Show();
+                tickerHost.UpdateLayout();
+                Pump(TimeSpan.FromMilliseconds(250));
+                string TickerText() => FindAll<TextBlock>(tickerView).FirstOrDefault()?.Text ?? "";
+                var firstCard = TickerText();
+                if (!firstCard.Contains("Eagles", StringComparison.Ordinal))
+                    throw new Exception($"FAIL: the ticker did not show the first chosen game ({firstCard})");
+                Pump(TimeSpan.FromMilliseconds(1350));
+                var secondCard = TickerText();
+                if (string.Equals(firstCard, secondCard, StringComparison.Ordinal))
+                    throw new Exception($"FAIL: the ticker did not rotate to another chosen game ({firstCard})");
+                tickerEngine.Score(home: true, 3);
+                tickerView.Update(tickerItem, () => tickerEngine.State);
+                Pump(TimeSpan.FromMilliseconds(300));
+                if (!TickerText().StartsWith("SCORE ALERT", StringComparison.Ordinal))
+                    throw new Exception($"FAIL: a score did not interrupt the ticker with an alert ({TickerText()})");
+                tickerHost.Close();
+                tickerView.Dispose();
+
+                // The ticker setup window is the operator path for those choices: it lists the
+                // received games, accepts headlines, and writes the rotation settings to the game.
+                using var tickerService = new LeagueCloudService(tickerEngine, new UserPreferences());
+                var tickerWindow = new TickerWindow(tickerEngine, tickerService);
+                tickerWindow.Show();
+                tickerWindow.UpdateLayout();
+                var newsBox = FindAll<TextBox>(tickerWindow).FirstOrDefault(box => box.AcceptsReturn)
+                    ?? throw new Exception("FAIL: ticker rotation has no news box");
+                newsBox.Text = "League finals tonight";
+                var saveTicker = FindAll<Button>(tickerWindow).FirstOrDefault(button => (button.Content as string) == "Save")
+                    ?? throw new Exception("FAIL: ticker rotation has no Save button");
+                saveTicker.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (!tickerEngine.State.TickerGamesChosen || tickerEngine.State.TickerGameIds.Count != 2
+                    || !tickerEngine.State.TickerNews.SequenceEqual(["League finals tonight"]))
+                    throw new Exception("FAIL: the ticker setup window did not keep the selected games and headline");
+                tickerWindow.Close();
+                Console.WriteLine("PASS: the ticker rotates chosen games and interrupts with a score alert");
             }
 
             // A logo starts with a clear plate. An explicit material is still artwork: it shows on
@@ -491,6 +616,109 @@ internal static class Program
                 if (logoBrush is null || logoBrush is SolidColorBrush solidLogo && solidLogo.Color.A == 0)
                     throw new Exception("FAIL: a painted logo's plate is still transparent");
                 Console.WriteLine("PASS: a painted logo shows its material instead of the HOME LOGO placeholder");
+            }
+
+            // A logo with no team crest can still carry its own picture file. The custom image is
+            // artwork, so the studio's HOME LOGO placeholder must disappear as soon as it loads.
+            {
+                var customLogoPath = Path.Combine(Path.GetTempPath(), $"smoke-custom-logo-{Guid.NewGuid():N}.png");
+                try
+                {
+                    WritePng(customLogoPath, Color.FromRgb(0x33, 0xAA, 0x66));
+                    var customLogo = new ScorebugElement
+                    {
+                        Name = "Custom logo", Kind = ScorebugElementKind.Logo, LogoSide = ScorebugLogoSide.None,
+                        ImagePath = customLogoPath, Content = "HOME LOGO", TransparentBackground = true
+                    };
+                    var customView = new ScorebugLogoView(customLogo, null, true);
+                    var customImage = FindAll<Image>(customView).FirstOrDefault(image => image.Source is BitmapImage);
+                    var customPlaceholder = FindAll<TextBlock>(customView).FirstOrDefault();
+                    if (customImage is null || customPlaceholder is null || customPlaceholder.Visibility != Visibility.Collapsed)
+                        throw new Exception("FAIL: a custom logo image did not replace the HOME LOGO placeholder");
+                    Console.WriteLine("PASS: a custom logo image shows itself and hides the HOME LOGO placeholder");
+                }
+                finally { if (File.Exists(customLogoPath)) File.Delete(customLogoPath); }
+            }
+
+            // Use the logo the operator supplied in the project root to exercise plate paint on a
+            // real transparent PNG, not just an empty logo slot. The texture must sit behind the
+            // artwork and the image must survive the paint pass.
+            var rootLogoPath = Path.GetFullPath("new_logo-removebg-preview-2.png");
+            if (File.Exists(rootLogoPath))
+            {
+                var paintedLogoCatalogPath = Path.Combine(Path.GetTempPath(), $"smoke-painted-logo-{Guid.NewGuid():N}.json");
+                try
+                {
+                    var paintedLogoCatalog = new ScorebugCatalog(paintedLogoCatalogPath);
+                    paintedLogoCatalog.Update(layout =>
+                    {
+                        layout.Elements.Clear();
+                        layout.Elements.Add(new ScorebugElement
+                        {
+                            Name = "Root logo", Kind = ScorebugElementKind.Logo, LogoSide = ScorebugLogoSide.None,
+                            ImagePath = rootLogoPath, Width = 400, Height = 300, TransparentBackground = true,
+                            BackgroundTexture = ScorebugTexture.ForKind("Metal")
+                        });
+                    });
+                    var paintedLogoView = new ScorebugCanvasView(paintedLogoCatalog, engine);
+                    paintedLogoView.Measure(new Size(400, 300));
+                    paintedLogoView.Arrange(new Rect(0, 0, 400, 300));
+                    paintedLogoView.UpdateLayout();
+                    var paintedImage = FindAll<Image>(paintedLogoView).FirstOrDefault(image => image.Source is BitmapImage);
+                    var texturedHost = FindAll<Border>(paintedLogoView).FirstOrDefault(host => host.Background is DrawingBrush);
+                    if (paintedImage is null || texturedHost is null)
+                        throw new Exception("FAIL: a transparent logo lost its image or its plate texture");
+                    // Applying the texture after the logo is already drawn must update the reused
+                    // host; a logo created before the paint cannot keep its old transparent plate.
+                    paintedLogoCatalog.Update(layout =>
+                    {
+                        var target = layout.Elements.FirstOrDefault(element => element.Kind == ScorebugElementKind.Logo);
+                        if (target is not null) target.BackgroundTexture = null;
+                    });
+                    paintedLogoView.Rebuild();
+                    paintedLogoView.UpdateLayout();
+                    if (FindAll<Border>(paintedLogoView).Any(host => host.Background is DrawingBrush))
+                        throw new Exception("FAIL: clearing a logo texture left the old plate brush behind");
+                    paintedLogoCatalog.Update(layout =>
+                    {
+                        var target = layout.Elements.FirstOrDefault(element => element.Kind == ScorebugElementKind.Logo);
+                        if (target is not null) target.BackgroundTexture = ScorebugTexture.ForKind("Metal");
+                    });
+                    paintedLogoView.Rebuild();
+                    paintedLogoView.UpdateLayout();
+                    if (!FindAll<Border>(paintedLogoView).Any(host => host.Background is DrawingBrush))
+                        throw new Exception("FAIL: applying a logo texture after it opened did not repaint its plate");
+                    var paintedBitmap = new RenderTargetBitmap(400, 300, 96, 96, PixelFormats.Pbgra32);
+                    paintedBitmap.Render(paintedLogoView);
+                    var paintedEncoder = new PngBitmapEncoder();
+                    paintedEncoder.Frames.Add(BitmapFrame.Create(paintedBitmap));
+                    var paintedArtifact = Path.Combine(Path.GetTempPath(), "scoreplus-logo-paint-check.png");
+                    using (var stream = File.Create(paintedArtifact)) paintedEncoder.Save(stream);
+                    // The finish is also clipped to the crest itself, so a material slider changes the
+                    // artwork rather than only the transparent plate behind an opaque logo.
+                    var washedLogo = new ScorebugElement
+                    {
+                        Kind = ScorebugElementKind.Logo, LogoSide = ScorebugLogoSide.None,
+                        ImagePath = rootLogoPath, Width = 400, Height = 300, TransparentBackground = true,
+                        BackgroundTexture = ScorebugTexture.ForKind("Metal"), TextTexture = ScorebugTexture.ForKind("Glass")
+                    };
+                    var washedView = new ScorebugLogoView(washedLogo, null, showPlaceholder: false);
+                    var washes = FindAll<System.Windows.Shapes.Rectangle>(washedView)
+                        .Where(rectangle => rectangle.Fill is DrawingBrush && rectangle.OpacityMask is ImageBrush)
+                        .ToArray();
+                    if (washes.Length != 2)
+                        throw new Exception($"FAIL: a logo does not expose both text and plate finishes on its artwork ({washes.Length})");
+                    var beforeWash = washes[1].Fill;
+                    washedLogo.BackgroundTexture!.Roughness = Math.Min(1, washedLogo.BackgroundTexture.Roughness + 0.2);
+                    washedView.Update(washedLogo, null);
+                    var afterWash = FindAll<System.Windows.Shapes.Rectangle>(washedView)
+                        .Where(rectangle => rectangle.Fill is DrawingBrush && rectangle.OpacityMask is ImageBrush)
+                        .ElementAtOrDefault(1)?.Fill;
+                    if (afterWash is null || ReferenceEquals(beforeWash, afterWash))
+                        throw new Exception("FAIL: changing a material did not repaint the logo artwork");
+                    Console.WriteLine($"PASS: a painted logo keeps its transparent image and plate texture (artifact {paintedArtifact})");
+                }
+                finally { if (File.Exists(paintedLogoCatalogPath)) File.Delete(paintedLogoCatalogPath); }
             }
 
             var main = new MainWindow();
@@ -530,7 +758,7 @@ internal static class Program
             // Nine cards fit across the uncluttered board. Every card carries its own right margin,
             // so the board width divided by (card + margin) is the real column count; the old check
             // added eight pixels and hid the ninth card wrapping.
-            var macroBoard = (WrapPanel)macroDock.FindName("MacroButtons")!;
+            var macroBoard = (Grid)macroDock.FindName("MacroButtons")!;
             var boardCard = macroBoard.Children.OfType<Border>().First();
             var macroColumns = (int)Math.Floor(macroBoard.ActualWidth / (boardCard.ActualWidth + 8));
             if (macroColumns != 9)
@@ -554,11 +782,73 @@ internal static class Program
             if (!macroMenu.IsOpen)
                 throw new Exception("FAIL: the macro context menu did not open");
             macroMenu.IsOpen = false;
-            var moveMacro = typeof(MacroDock).GetMethod("MoveMacro", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new Exception("FAIL: macro reordering is missing");
-            moveMacro.Invoke(macroDock, [firstDrag.Id, secondDrag.Id]);
-            if (tabShell.Engine.State.Macros[0].Id != secondDrag.Id)
-                throw new Exception("FAIL: dragging a macro did not reorder the board");
+            // A drop that lands on another card must move the dragged card to that card's cell, and
+            // a drag released through the header/card fallback must still reach that same drop.
+            var reorderMacros = Enumerable.Range(0, 10)
+                .Select(index => new SavedMacro { Label = $"Reorder {index}", Color = "#4C9AFF" }).ToList();
+            tabShell.Engine.StoreMacros(reorderMacros);
+            macroDock.RefreshView(force: true);
+            tabShell.UpdateLayout();
+            var reorderBoard = (Grid)macroDock.FindName("MacroButtons")!;
+            var reorderCards = reorderBoard.Children.OfType<Border>()
+                .Where(card => card.Tag is SavedMacro).ToList();
+            if (reorderCards.Count != 10)
+                throw new Exception($"FAIL: expected 10 reorder cards, found {reorderCards.Count}");
+            var targetBounds = reorderCards[4].TransformToAncestor(reorderBoard)
+                .TransformBounds(new Rect(reorderCards[4].RenderSize));
+            var dropPoint = new Point(targetBounds.Left + targetBounds.Width * 0.75, targetBounds.Top + targetBounds.Height / 2);
+            var finishDrag = typeof(MacroDock).GetMethod("FinishMacroDrag", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: the macro drag release path is missing");
+            var dragMacroField = typeof(MacroDock).GetField("_dragMacro", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: the macro drag state is missing");
+            var draggingField = typeof(MacroDock).GetField("_dragging", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: the macro dragging flag is missing");
+            dragMacroField.SetValue(macroDock, reorderMacros[0]);
+            draggingField.SetValue(macroDock, true);
+            finishDrag.Invoke(macroDock, [dropPoint]);
+            var movedToCell = tabShell.Engine.State.Macros.First(macro => macro.Id == reorderMacros[0].Id);
+            var displacedFromCell = tabShell.Engine.State.Macros.First(macro => macro.Id == reorderMacros[4].Id);
+            if (movedToCell.Row != 0 || movedToCell.Column != 4
+                || displacedFromCell.Row != 0 || displacedFromCell.Column != 0)
+                throw new Exception($"FAIL: a drag onto a card did not move it to that cell (moved {movedToCell.Row},{movedToCell.Column}; displaced {displacedFromCell.Row},{displacedFromCell.Column})");
+            // Explicit cells support a real three-column board: three buttons in the first,
+            // one in the second and three in the third, with the middle cell of row two empty.
+            var columnMacros = Enumerable.Range(0, 7)
+                .Select(index => new SavedMacro { Label = $"Column {index}", Color = "#4C9AFF" }).ToList();
+            var cells = new[] { (0, 0), (1, 0), (2, 0), (0, 1), (0, 2), (1, 2), (2, 2) };
+            for (var index = 0; index < columnMacros.Count; index++)
+            {
+                columnMacros[index].Row = cells[index].Item1;
+                columnMacros[index].Column = cells[index].Item2;
+            }
+            tabShell.Engine.StoreMacros(columnMacros);
+            macroDock.RefreshView(force: true);
+            tabShell.UpdateLayout();
+            var columnBoard = (Grid)macroDock.FindName("MacroButtons")!;
+            var columnCards = columnBoard.Children.OfType<Border>().Where(card => card.Tag is SavedMacro).ToList();
+            int ColumnCount(int column) => columnCards.Count(card => Grid.GetColumn(card) == column);
+            if (columnCards.Count != 7 || ColumnCount(0) != 3 || ColumnCount(1) != 1 || ColumnCount(2) != 3)
+                throw new Exception($"FAIL: column layout is {ColumnCount(0)} + {ColumnCount(1)} + {ColumnCount(2)} instead of 3 + 1 + 3");
+            if (columnCards.Any(card => Grid.GetRow(card) == 1 && Grid.GetColumn(card) == 1))
+                throw new Exception("FAIL: the empty middle cell of row two was not preserved");
+
+            // An empty cell is a drop target, not just the space beside a filled row. Drag the
+            // first card in the third column into the empty middle cell.
+            var emptyCellSource = columnMacros[4];
+            var rowOneCard = columnCards.First(card => Grid.GetRow(card) == 1 && Grid.GetColumn(card) == 0);
+            var columnOneCard = columnCards.First(card => Grid.GetRow(card) == 0 && Grid.GetColumn(card) == 1);
+            var rowOneBounds = rowOneCard.TransformToAncestor(columnBoard)
+                .TransformBounds(new Rect(rowOneCard.RenderSize));
+            var columnOneBounds = columnOneCard.TransformToAncestor(columnBoard)
+                .TransformBounds(new Rect(columnOneCard.RenderSize));
+            dragMacroField.SetValue(macroDock, emptyCellSource);
+            draggingField.SetValue(macroDock, true);
+            finishDrag.Invoke(macroDock, [new Point(columnOneBounds.Left + columnOneBounds.Width / 2, rowOneBounds.Top + rowOneBounds.Height / 2)]);
+            tabShell.UpdateLayout();
+            var emptyCellMove = tabShell.Engine.State.Macros.First(macro => macro.Id == emptyCellSource.Id);
+            if (emptyCellMove.Row != 1 || emptyCellMove.Column != 1)
+                throw new Exception($"FAIL: dropping into an empty cell placed the macro at {emptyCellMove.Row},{emptyCellMove.Column} instead of 1,1");
+            Console.WriteLine("PASS: macro cells allow 3 + 1 + 3 columns and dropping into an empty cell");
             var macroNameBox = (TextBox)macroDock.FindName("NameBox")!;
             macroNameBox.Text = "Saved with the game";
             macroDock.CommitPendingEdits();
@@ -597,9 +887,40 @@ internal static class Program
                 if (macroEngine.State.HomeScore != 3 || macroEngine.State.Down != 1 || macroEngine.State.AwayTimeouts != 2
                     || !result.Contains("3 steps run", StringComparison.Ordinal))
                     throw new Exception($"FAIL: macro steps did not run in order ({result})");
+
+                // A speaker bus is a live source, not a file. A media macro must switch it on
+                // without trying to open it as a clip or replacing another camera/microphone.
+                var speaker = new MediaEntry(MediaLibrary.SpeakerPath(0), Tag: "Smoke", Name: "Smoke speaker", SpeakerMuted: true);
+                macroSession.Library.Add(speaker);
+                var speakerMacro = new SavedMacro
+                {
+                    Label = "Speaker on air",
+                    Actions = [new MacroAction { Kind = MacroActionKind.PlayVideo, Path = speaker.Path, Label = "Smoke speaker" }]
+                };
+                new MacroRunner(macroEngine, macroSession).Run(speakerMacro);
+                var liveSpeaker = macroSession.Library.First(entry => entry.Path == speaker.Path);
+                if (!liveSpeaker.IsSpeakerOnAir)
+                    throw new Exception("FAIL: a media macro did not put a speaker bus on air");
+
+                // Roster stats are first-class macro targets too. The live selected-player snapshot
+                // has to change with the roster, not just the stored roster row.
+                var statRoster = RosterStore.Book.Add("Macro stat squad");
+                var statPlayer = statRoster.AddPlayer();
+                statPlayer.Name = "Stat player";
+                statPlayer.SetStat("Yards", 3);
+                macroEngine.AssignRoster(true, statRoster.Id);
+                macroEngine.SelectPlayer(true, statPlayer.Id);
+                var statMacro = new SavedMacro
+                {
+                    Label = "Player stat",
+                    Actions = [new MacroAction { Kind = MacroActionKind.RosterStat, Home = true, PlayerId = statPlayer.Id, PlayerName = statPlayer.Name, StatName = "Yards", Value = 4, Delta = true }]
+                };
+                new MacroRunner(macroEngine, macroSession).Run(statMacro);
+                if (statPlayer.Stat("Yards") != 7 || macroEngine.State.HomePlayer?.Stat("Yards") != 7)
+                    throw new Exception($"FAIL: a macro did not change the live player stat (roster {statPlayer.Stat("Yards")}, graphic {macroEngine.State.HomePlayer?.Stat("Yards")})");
             }
             finally { macroSession.Stop(); macroSession.Dispose(); }
-            Console.WriteLine("PASS: a macro changes score, down and timeouts in one press");
+            Console.WriteLine("PASS: a macro changes score, down, timeouts, a speaker bus and a player stat");
 
             // Every console button and every sport/custom value is reachable from a macro, not just
             // the original score/down/clock fields.
@@ -4152,7 +4473,7 @@ internal static class Program
                     {
                         Name = "Hollow bar", Kind = ScorebugElementKind.Shape, Shape = ScorebugShape.Rectangle,
                         X = 40, Y = 200, Width = 300, Height = 80, TransparentBackground = true,
-                        BorderThickness = 6, BorderColor = "#FFFF0000", Background = "#FF0000FF"
+                        BorderThickness = 6, BorderColor = "#FFFF0000", Background = "#FF0000FF", CornerRadius = 22
                     });
                     layout.Elements.Add(new ScorebugElement { Name = "Drifter", Content = "DRIFT", X = 420, Y = 320, Width = 200, Height = 80, Animation = ScorebugAnimation.Drift });
                 });
@@ -4173,6 +4494,8 @@ internal static class Program
                     throw new Exception($"FAIL: the shape border ignored its own colour ({hollow.Stroke})");
                 if (hollow.Fill is not null && hollow.Fill != Brushes.Transparent)
                     throw new Exception("FAIL: a transparent shape still painted a fill over its background");
+                if (Math.Abs(hollow.RadiusX - 22) > 0.01 || Math.Abs(hollow.RadiusY - 22) > 0.01)
+                    throw new Exception($"FAIL: the rectangle corner radius is {hollow.RadiusX:0.#} / {hollow.RadiusY:0.#} instead of 22");
 
                 // Drift must animate its transform; animating the host itself moved nothing.
                 if (!FindAll<Border>(decorView).Any(b => b.RenderTransform is TranslateTransform drift && drift.HasAnimatedProperties))
