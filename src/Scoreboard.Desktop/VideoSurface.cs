@@ -109,6 +109,7 @@ public sealed class VideoSurface : Grid
         // A surface built from an already-cropped element must start cropped, not wait for the
         // first property edit to call SetElement.
         ApplyCrop();
+        ApplyStretch();
 
         // Re-apply once the picture is in the tree so Play() is honoured. A surface that is
         // re-attached (the studio rebuilt its canvas) picks the picture up where the transport is
@@ -139,31 +140,42 @@ public sealed class VideoSurface : Grid
             _appliedSeek = _playback?.SeekVersion ?? 0;
             if (_playback is { IsPlaying: false } && !_playing)
             {
-                // Start decoding so a paused cue still shows its frame. Pausing on the very next
-                // dispatcher turn froze some decoders before they had composited anything, which
-                // is what left a black box in the preview until the clip was started. The freeze
-                // now waits for the first frames to land.
+                // A paused cue opens on the frame at the playhead. The old code rolled the decoder
+                // for 240 ms to warm it up, which made opening the multiview look like the clip was
+                // playing from the start to the paused point. Scrubbing lets a paused MediaPlayer
+                // paint the seek frame without ever going into play.
                 var token = ++_freezeToken;
-                try { _player.ScrubbingEnabled = false; _player.Play(); } catch { }
-                var freeze = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(240) };
-                freeze.Tick += (_, _) =>
+                try
                 {
-                    freeze.Stop();
+                    _player.ScrubbingEnabled = true;
+                    _player.Position = TimeSpan.FromSeconds(Math.Max(0, resume));
+                    _player.Pause();
+                }
+                catch { }
+                _playing = false;
+                // The first seek can land before the decoder has a frame ready. Nudge it once more
+                // while remaining paused, then put the live cover away.
+                var settle = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+                settle.Tick += (_, _) =>
+                {
+                    settle.Stop();
                     if (token != _freezeToken) return;
-                    if (_live.Source is not null) _live.Visibility = Visibility.Collapsed;
-                    // Start replay may have been pressed while the decoder was opening; in that
-                    // case keep rolling instead of freezing on the first frame.
                     if (_playback is { IsPlaying: true })
                     {
                         try { _player.ScrubbingEnabled = false; _player.Play(); } catch { }
                         _playing = true;
                         return;
                     }
-                    try { _player.Pause(); } catch { }
-                    _player.ScrubbingEnabled = true;
-                    _playing = false;
+                    try
+                    {
+                        _player.ScrubbingEnabled = true;
+                        _player.Position = TimeSpan.FromSeconds(Math.Max(0, resume));
+                        _player.Pause();
+                    }
+                    catch { }
+                    if (_live.Source is not null) _live.Visibility = Visibility.Collapsed;
                 };
-                freeze.Start();
+                settle.Start();
                 return;
             }
             // The live frame only covered the decoder while it opened the file; the clip is
@@ -208,12 +220,8 @@ public sealed class VideoSurface : Grid
     public void SetElement(ScorebugElement item)
     {
         _item = item;
-        // Preserving the aspect ratio letterboxes the picture inside its box instead of cropping it.
-        var stretch = item.PreserveVideoAspect ? Stretch.Uniform : Stretch.UniformToFill;
-        _videoBrush.Stretch = stretch;
         ApplyCrop();
-        _live.Stretch = stretch;
-        _replay.Stretch = stretch;
+        ApplyStretch();
         if (_placeholder is not null)
             _placeholder.Text = string.IsNullOrWhiteSpace(item.MediaTag) ? "VIDEO" : $"VIDEO · {item.MediaTag.ToUpperInvariant()}";
         UpdateChromaKey();
@@ -265,6 +273,29 @@ public sealed class VideoSurface : Grid
         if (left + right > 0.9) right = Math.Max(0, 0.9 - left);
         if (top + bottom > 0.9) bottom = Math.Max(0, 0.9 - top);
         return new Rect(left, top, Math.Max(0.02, 1 - left - right), Math.Max(0.02, 1 - top - bottom));
+    }
+
+    bool IsCropped()
+    {
+        var crop = CropRect();
+        return Math.Abs(crop.X) > 0.0001 || Math.Abs(crop.Y) > 0.0001
+            || Math.Abs(crop.Width - 1) > 0.0001 || Math.Abs(crop.Height - 1) > 0.0001;
+    }
+
+    /// <summary>
+    /// A cropped picture fills its box without distorting the remaining pixels. Cropping is a
+    /// source cut, so the selected region is scaled proportionally until it covers the whole box;
+    /// any small overflow is hidden by the element's clip. With no crop, Preserve still means
+    /// uniform letterboxing.
+    /// </summary>
+    void ApplyStretch()
+    {
+        var stretch = IsCropped()
+            ? Stretch.UniformToFill
+            : _item.PreserveVideoAspect ? Stretch.Uniform : Stretch.UniformToFill;
+        _videoBrush.Stretch = stretch;
+        _live.Stretch = stretch;
+        _replay.Stretch = stretch;
     }
 
     void ApplyCrop()
@@ -659,6 +690,10 @@ public sealed class VideoSurface : Grid
             _switchToken++;
         }
         if (transition == "Cut" || !IsLoaded) return;
+        // The outgoing frame has to be captured after layout has settled. Calling Render on a box
+        // that had only just been resized produced a blank still, so the switch looked like a cut
+        // to black instead of a fade/slide/zoom.
+        UpdateLayout();
         var width = (int)Math.Round(ActualWidth);
         var height = (int)Math.Round(ActualHeight);
         if (width < 2 || height < 2) return;
@@ -680,6 +715,7 @@ public sealed class VideoSurface : Grid
             IsHitTestVisible = false,
             Opacity = 1
         };
+        Panel.SetZIndex(overlay, 1000);
         Children.Add(overlay);
         _switchOverlay = overlay;
         var token = ++_switchToken;

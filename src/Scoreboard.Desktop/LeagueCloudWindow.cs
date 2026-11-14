@@ -15,6 +15,7 @@ public sealed class LeagueCloudWindow : Window
     readonly UserPreferences _preferences;
     readonly ScorebugCatalog _catalog;
     readonly ProgramSelection _program;
+    readonly GameEngine _engine;
 
     readonly CheckBox _enabled = new() { Content = "Publish this game and fetch the league feed automatically" };
     readonly TextBox _upload = new();
@@ -24,13 +25,19 @@ public sealed class LeagueCloudWindow : Window
     readonly PasswordBox _key = new();
     readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 8, 0, 0) };
     readonly ListBox _games = new() { MinHeight = 120, MaxHeight = 190, FontSize = 11 };
+    readonly CheckBox _importHome = new() { Content = "Home score" };
+    readonly CheckBox _importAway = new() { Content = "Away score" };
+    readonly CheckBox _importClock = new() { Content = "Game clock" };
+    readonly CheckBox _importPeriod = new() { Content = "Period" };
 
-    public LeagueCloudWindow(LeagueCloudService service, UserPreferences preferences, ScorebugCatalog catalog, ProgramSelection program)
+    public LeagueCloudWindow(LeagueCloudService service, UserPreferences preferences, ScorebugCatalog catalog,
+        ProgramSelection program, GameEngine engine)
     {
         _service = service;
         _preferences = preferences;
         _catalog = catalog;
         _program = program;
+        _engine = engine;
         Title = "ScorePlus — League Cloud";
         Width = 620;
         Height = 610;
@@ -115,6 +122,18 @@ public sealed class LeagueCloudWindow : Window
 
         panel.Children.Add(Label("League games received"));
         panel.Children.Add(_games);
+        panel.Children.Add(Help("Pick a game, tick only the values you want, then import. Every value you leave unticked keeps the scoreboard's current value, so a home score from one game and a clock from another can be pulled in separately."));
+        var importRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        foreach (var box in new[] { _importHome, _importAway, _importClock, _importPeriod })
+        {
+            box.Margin = new Thickness(0, 0, 14, 4);
+            box.FontSize = 11;
+            importRow.Children.Add(box);
+        }
+        panel.Children.Add(importRow);
+        var import = new Button { Content = "Import selected fields", MinHeight = 30, Padding = new Thickness(12, 4, 12, 4), HorizontalAlignment = HorizontalAlignment.Left };
+        import.Click += (_, _) => ImportSelected();
+        panel.Children.Add(import);
         panel.Children.Add(_status);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
@@ -206,7 +225,40 @@ public sealed class LeagueCloudWindow : Window
     void RefreshGames(IReadOnlyList<LeagueGame>? games = null)
     {
         var list = games ?? _service.Games;
-        _games.ItemsSource = list.Select(game => game.TickerLine).ToArray();
+        var selectedId = (_games.SelectedItem as LeagueGame)?.GameId;
+        _games.ItemsSource = list.Select(game => game.Copy()).ToArray();
+        if (selectedId is not null)
+            _games.SelectedItem = _games.Items.Cast<LeagueGame>()
+                .FirstOrDefault(game => string.Equals(game.GameId, selectedId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Applies only the ticked fields from the selected cloud game to the local engine.</summary>
+    void ImportSelected()
+    {
+        if (_games.SelectedItem is not LeagueGame game)
+        {
+            _status.Text = "Select a received game first, then tick the fields to import.";
+            return;
+        }
+        var fields = new List<LeagueImportField>();
+        if (_importHome.IsChecked == true) fields.Add(LeagueImportField.HomeScore);
+        if (_importAway.IsChecked == true) fields.Add(LeagueImportField.AwayScore);
+        if (_importClock.IsChecked == true) fields.Add(LeagueImportField.GameClock);
+        if (_importPeriod.IsChecked == true) fields.Add(LeagueImportField.Period);
+        if (fields.Count == 0)
+        {
+            _status.Text = "Tick at least one field to import.";
+            return;
+        }
+        if (fields.Contains(LeagueImportField.GameClock) && !LeagueCloudImport.TryParseClock(game.Clock, out _))
+        {
+            _status.Text = $"\u201c{game.Label}\u201d has no usable game clock (\u201c{game.Clock}\u201d).";
+            return;
+        }
+        var applied = LeagueCloudImport.Apply(_engine, game, fields);
+        _status.Text = applied.Count == 0
+            ? $"Nothing changed for \u201c{game.Label}\u201d."
+            : $"Imported {string.Join(", ", applied)} from \u201c{game.Label}\u201d. Other scoreboard values were left alone.";
     }
 
     /// <summary>

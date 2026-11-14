@@ -25,6 +25,20 @@ public static class GameFiles
 {
     static readonly JsonSerializerOptions Options = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 
+    /// <summary>The name offered by Save: the game's own name, or Untitled when it has none.</summary>
+    public static string SuggestedFileName(string? gameName)
+    {
+        var name = (gameName ?? "").Trim();
+        if (name.Length == 0) return "Untitled.spg";
+        var invalid = Path.GetInvalidFileNameChars();
+        var clean = new string(name.Select(character => invalid.Contains(character) ? '-' : character).ToArray()).Trim();
+        // A name made only of dots or spaces is not a usable file name on Windows.
+        clean = clean.TrimEnd('.', ' ');
+        if (clean.Length == 0) return "Untitled.spg";
+        if (clean.Length > 80) clean = clean[..80].TrimEnd();
+        return clean + ".spg";
+    }
+
     public static string Serialize(GameState state, ScorebugDocument? design) =>
         design is null
             ? JsonSerializer.Serialize(state, Options)

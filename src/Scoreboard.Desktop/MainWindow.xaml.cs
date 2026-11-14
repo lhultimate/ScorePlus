@@ -12,7 +12,7 @@ using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
 
-public partial class MainWindow : Window, IControlPanelHost
+public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
 {
     readonly GameEngine _engine = new();
     readonly GameEngine _publishedEngine = new();
@@ -185,6 +185,7 @@ public partial class MainWindow : Window, IControlPanelHost
         RosterControl.ApplyTheme(_preferences.Theme);
         RosterControl.SetHintVisibility(_preferences.ShowHeadingHints);
         _macroDock = new MacroDock(_engine, _session, _preferences.Theme, _panel.Execute);
+        _macroDock.SetHintVisibility(_preferences.ShowHeadingHints);
         _macroDock.Status += message => StatusText.Text = message;
         MacroHost.Content = _macroDock;
         MediaControl.Attach(_session);
@@ -244,13 +245,13 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>
     /// Applies the choice made in the launch box to the window that is already open behind it.
     /// </summary>
-    public void StartFromLauncher(LaunchMode mode, string? path, string? sportId = null)
+    public void StartFromLauncher(LaunchMode mode, string? path, string? sportId = null, string? gameName = null)
     {
         if (mode == LaunchMode.Open && !string.IsNullOrWhiteSpace(path) && LoadGame(path))
             StatusText.Text = $"GAME OPENED · {Path.GetFileNameWithoutExtension(path)}";
         else
         {
-            StartNewGame(sportId ?? (string.IsNullOrWhiteSpace(_preferences.LastSport) ? "football" : _preferences.LastSport), announce: false);
+            StartNewGame(sportId ?? (string.IsNullOrWhiteSpace(_preferences.LastSport) ? "football" : _preferences.LastSport), announce: false, gameName: gameName);
             StatusText.Text = "NEW GAME · set the teams and you are live";
         }
         _savedStateJson = _engine.ExportJson();
@@ -365,6 +366,38 @@ public partial class MainWindow : Window, IControlPanelHost
     public string LayoutLabel => _program.Label;
 
     public void OpenNewPanel() => OpenControlPanel();
+
+    // The phone can preview any display and move that display's staged layout without taking the
+    // desktop preview away from whatever the operator is working on.
+    public IReadOnlyList<RemoteDisplayInfo> RemoteDisplays =>
+        _scorebug.Displays.Select(display => new RemoteDisplayInfo(display.Id, display.Name)).ToArray();
+
+    public string RemoteDisplayId => _program.DisplayId;
+
+    public string RemoteLayoutLabel(string displayId) => _program.LabelFor(displayId);
+
+    public void RemoteSelectDisplay(string displayId)
+    {
+        if (string.IsNullOrWhiteSpace(displayId)) return;
+        _program.SelectDisplay(displayId);
+        _preview?.Rebuild();
+        SyncDisplayPicker();
+        RefreshLayoutIndicators();
+        _panel.Refresh();
+        foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.Panel.Refresh();
+    }
+
+    public void RemoteShiftLayout(string displayId, int delta)
+    {
+        var target = string.IsNullOrWhiteSpace(displayId) ? _program.DisplayId : displayId;
+        _program.ShiftFor(target, delta);
+        _preview?.Rebuild();
+        RefreshLayoutIndicators();
+        var display = _scorebug.FindDisplay(target);
+        StatusText.Text = $"REMOTE LAYOUT · {display?.Name ?? "Display"} · {_program.LabelFor(target)} · preview only";
+        _panel.Refresh();
+        foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.Panel.Refresh();
+    }
 
     /// <summary>
     /// Sends the game data (score, clocks, down, stats) to the audience copies. It deliberately
@@ -744,6 +777,7 @@ public partial class MainWindow : Window, IControlPanelHost
         SportHint.Visibility = PreviewAudienceHint.Visibility = visibility;
         MediaControl.SetHintVisibility(_preferences.ShowHeadingHints);
         RosterControl.SetHintVisibility(_preferences.ShowHeadingHints);
+        _macroDock?.SetHintVisibility(_preferences.ShowHeadingHints);
         _log?.SetHintVisibility(_preferences.ShowHeadingHints);
     }
 
@@ -1082,10 +1116,11 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void NewGame_Click(object sender, RoutedEventArgs e)
     {
-        // The sport is part of starting a game; the chooser also states what a new game resets.
+        // The sport and an optional fixture name are part of starting a game; the chooser also
+        // states what a new game resets.
         var picker = new SportPickerWindow(_engine.Sports, _engine.State.SportId, _preferences.Theme) { Owner = this };
         if (picker.ShowDialog() != true || string.IsNullOrWhiteSpace(picker.SportId)) return;
-        StartNewGame(picker.SportId);
+        StartNewGame(picker.SportId, gameName: picker.GameName);
     }
 
     /// <summary>
@@ -1130,7 +1165,7 @@ public partial class MainWindow : Window, IControlPanelHost
     /// from the previous game survives on air. Operator settings that are not part of a game — sport
     /// profiles, keybinds, preferences, the media library and the scorebug design — are untouched.
     /// </summary>
-    public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false, bool restart = false)
+    public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null)
     {
         _autoHornReady = false;
         // keepDesign is the sport switch: the teams, their rosters and the scorebug layout stay.
@@ -1139,7 +1174,13 @@ public partial class MainWindow : Window, IControlPanelHost
             // A restart keeps the fixture and the design; only the game itself starts over.
             if (!_engine.RestartGame()) return;
         }
-        else _engine.NewGame(sportId, keepTeamIdentity: keepDesign);
+        else
+        {
+            _engine.NewGame(sportId, keepTeamIdentity: keepDesign);
+            // New games carry the optional name typed in the sport picker. A restart keeps the
+            // fixture's existing name; only a genuinely new game clears or replaces it.
+            _engine.SetGameName(gameName);
+        }
         _projectPath = null;
         _startNewAutosavePoint = true;
         _savedStateJson = _engine.ExportJson();
@@ -1391,7 +1432,12 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void Save_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SaveFileDialog { Filter = "ScorePlus Game (*.spg)|*.spg|JSON (*.json)|*.json", DefaultExt = "spg", FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}" };
+        var dialog = new SaveFileDialog
+        {
+            Filter = "ScorePlus Game (*.spg)|*.spg|JSON (*.json)|*.json",
+            DefaultExt = "spg",
+            FileName = GameFiles.SuggestedFileName(_engine.State.GameName)
+        };
         if (dialog.ShowDialog() != true) return;
         SaveGameTo(dialog.FileName);
     }
@@ -1480,7 +1526,7 @@ public partial class MainWindow : Window, IControlPanelHost
         {
             Filter = "ScorePlus Game (*.spg)|*.spg|JSON (*.json)|*.json",
             DefaultExt = "spg",
-            FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}"
+            FileName = GameFiles.SuggestedFileName(_engine.State.GameName)
         };
         return dialog.ShowDialog() == true && SaveGameTo(dialog.FileName);
     }
@@ -1572,7 +1618,7 @@ public partial class MainWindow : Window, IControlPanelHost
     void LeagueCloud_Click(object sender, RoutedEventArgs e)
     {
         if (_leagueCloud is null) return;
-        var dialog = new LeagueCloudWindow(_leagueCloud, _preferences, _scorebug, _program) { Owner = this };
+        var dialog = new LeagueCloudWindow(_leagueCloud, _preferences, _scorebug, _program, _engine) { Owner = this };
         dialog.ShowDialog();
         _leagueCloud.ApplySettings();
     }

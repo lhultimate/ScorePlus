@@ -34,6 +34,8 @@ public partial class MacroDock : UserControl
     Point _dragOrigin;
     bool _syncing;
     bool _dirty;
+    bool _editorVisible = true;
+    bool _showHints;
 
     sealed record KindChoice(MacroActionKind Kind, string Label)
     {
@@ -117,6 +119,8 @@ public partial class MacroDock : UserControl
         // editor all follow the active theme. Opting out keeps the window-wide theme pass from
         // flattening the card hierarchy and its accent.
         ThemeManager.SetSkipTheme(this, true);
+        _showHints = TipsEnabled();
+        MacroButtons.SizeChanged += (_, _) => UpdateCardWidths();
         BuildColorChoices();
         ApplyTheme(theme ?? PreferencesStore.Load().Theme);
         KindBox.ItemsSource = new[]
@@ -167,6 +171,51 @@ public partial class MacroDock : UserControl
         LoadEditor();
     }
 
+    /// <summary>Turns the drag/click caption on and off with Preferences → Show heading tips.</summary>
+    public void SetHintVisibility(bool show)
+    {
+        if (_showHints == show) return;
+        _showHints = show;
+        RenderMacros();
+    }
+
+    static bool TipsEnabled()
+    {
+        try { return PreferencesStore.Load().ShowHeadingHints; } catch { return false; }
+    }
+
+    void ToggleEditor_Click(object sender, RoutedEventArgs e)
+    {
+        _editorVisible = !_editorVisible;
+        MacroEditorColumn.Width = _editorVisible ? new GridLength(358) : new GridLength(0);
+        MacroEditorSplitterColumn.Width = _editorVisible ? new GridLength(8) : new GridLength(0);
+        MacroEditor.Visibility = _editorVisible ? Visibility.Visible : Visibility.Collapsed;
+        MacroEditorSplitter.Visibility = _editorVisible ? Visibility.Visible : Visibility.Collapsed;
+        EditorToggleButton.Content = _editorVisible ? "Hide editor" : "Show editor";
+        // The WrapPanel has not arranged at its new width yet; let layout settle, then fit the
+        // cards so nine occupy each row when the editor is hidden instead of four.
+        Dispatcher.BeginInvoke(new Action(RenderMacros), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    double CardWidth()
+    {
+        var available = MacroButtons.ActualWidth;
+        if (available <= 0) available = Math.Max(360, ActualWidth - (_editorVisible ? 380 : 16));
+        // Nine cards is the board's maximum and the uncluttered board always uses all nine. Every
+        // card carries a right margin of 8, including the last one in the row, so the width must
+        // leave room for all nine margins; subtracting only the gaps made the ninth card wrap.
+        var columns = _editorVisible ? 5 : 9;
+        // Leave a half-pixel of slack so layout rounding can never push the ninth card onto a
+        // second row when the board is exactly wide enough.
+        return Math.Max(32, (available - columns * 8 - 0.5) / columns);
+    }
+
+    void UpdateCardWidths()
+    {
+        var width = CardWidth();
+        foreach (var card in MacroButtons.Children.OfType<Border>()) card.Width = width;
+    }
+
     void RenderMacros()
     {
         MacroButtons.Children.Clear();
@@ -176,7 +225,7 @@ public partial class MacroDock : UserControl
             var customColor = ParseColor(macro.Color);
             var card = new Border
             {
-                Width = 226,
+                Width = CardWidth(),
                 Margin = new Thickness(0, 0, 8, 8),
                 Padding = new Thickness(8),
                 Background = (Brush)Resources["MacroSurfaceBrush"],
@@ -201,13 +250,24 @@ public partial class MacroDock : UserControl
                 Tag = macro,
                 ToolTip = "Drag to reorder · click or double-click to edit · right-click for Edit / Delete"
             };
-            header.Child = new TextBlock
+            if (_showHints)
             {
-                Text = "⠿  DRAG · CLICK TO EDIT",
-                FontSize = 9,
-                FontWeight = FontWeights.Bold,
-                Foreground = (Brush)Resources["MacroMutedBrush"]
-            };
+                header.Child = new TextBlock
+                {
+                    Text = "⠿  DRAG · CLICK TO EDIT",
+                    FontSize = 9,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = (Brush)Resources["MacroMutedBrush"]
+                };
+            }
+            else
+            {
+                // Keep a thin, wordless handle so drag, click-to-edit and double-click still work;
+                // only the tip text is hidden with the heading-tip preference.
+                header.MinHeight = 8;
+                header.Padding = new Thickness(0);
+                header.ToolTip = null;
+            }
             header.MouseLeftButtonDown += MacroHeader_MouseDown;
             header.MouseLeftButtonUp += MacroHeader_MouseUp;
             stack.Children.Add(header);
@@ -475,24 +535,44 @@ public partial class MacroDock : UserControl
     {
         if (!_dragging || _dragMacro is null) return;
         var macro = _dragMacro;
-        var (target, inBoard) = MacroDropAt(e.GetPosition(this));
+        var dropIndex = MacroDropIndexAt(e.GetPosition(MacroButtons));
         _dragging = false;
         _dragMacro = null;
         if (IsMouseCaptured) ReleaseMouseCapture();
-        if (target is not null) MoveMacro(macro.Id, target.Id);
-        else if (inBoard) MoveMacro(macro.Id, null);
+        if (dropIndex is int index) MoveMacroToIndex(macro.Id, index);
         e.Handled = true;
     }
 
-    (SavedMacro? Target, bool InBoard) MacroDropAt(Point point)
+    /// <summary>
+    /// Where a card should be inserted for a drop at this point. The board reads the cards' own
+    /// geometry, so rows with different heights still map correctly. Dropping below the last row is
+    /// deliberately allowed: the WrapPanel has no painted empty row, but that blank space is how a
+    /// card starts a new row before the current one is full.
+    /// </summary>
+    int? MacroDropIndexAt(Point point)
     {
-        var inBoard = false;
-        for (var node = InputHitTest(point) as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node))
+        var width = MacroButtons.ActualWidth;
+        if (width <= 0) return null;
+        if (point.X < -8 || point.X > width + 8 || point.Y < -8) return null;
+        var insert = _macros.Count;
+        foreach (var card in MacroButtons.Children.OfType<Border>())
         {
-            if (ReferenceEquals(node, MacroButtons)) inBoard = true;
-            if (node is FrameworkElement { Tag: SavedMacro target }) return (target, true);
+            if (card.Tag is not SavedMacro macro) continue;
+            var index = _macros.FindIndex(candidate => candidate.Id == macro.Id);
+            if (index < 0) continue;
+            Rect bounds;
+            try { bounds = card.TransformToAncestor(MacroButtons).TransformBounds(new Rect(card.RenderSize)); }
+            catch { continue; }
+            // Above this row, or before the card's midpoint: insert before it.
+            if (point.Y < bounds.Top + bounds.Height / 2) { insert = index; break; }
+            if (point.Y <= bounds.Bottom)
+            {
+                if (point.X < bounds.Left + bounds.Width / 2) { insert = index; break; }
+                // Right half of this card: keep it before the new card and try the next slot.
+                insert = index + 1;
+            }
         }
-        return (null, inBoard);
+        return insert;
     }
 
     void NewMacro_Click(object sender, RoutedEventArgs e)
@@ -881,6 +961,25 @@ public partial class MacroDock : UserControl
         // in the second position, while dragging the second onto the first puts it before it.
         target = Math.Clamp(target, 0, _macros.Count);
         _macros.Insert(target, moved);
+        _engine.StoreMacros(_macros);
+        RenderMacros();
+        Status?.Invoke($"MACRO · {moved.Label} moved");
+    }
+
+    /// <summary>Moves one card to a gap in the board, including the empty space of a partial row.</summary>
+    void MoveMacroToIndex(string id, int insertIndex)
+    {
+        var from = _macros.FindIndex(macro => macro.Id == id);
+        if (from < 0) return;
+        insertIndex = Math.Clamp(insertIndex, 0, _macros.Count);
+        // Dropping either immediately before or immediately after the card itself is a no-op.
+        if (insertIndex == from || insertIndex == from + 1) return;
+        var moved = _macros[from];
+        _macros.RemoveAt(from);
+        if (insertIndex > from) insertIndex--;
+        insertIndex = Math.Clamp(insertIndex, 0, _macros.Count);
+        if (insertIndex == from) return;
+        _macros.Insert(insertIndex, moved);
         _engine.StoreMacros(_macros);
         RenderMacros();
         Status?.Invoke($"MACRO · {moved.Label} moved");

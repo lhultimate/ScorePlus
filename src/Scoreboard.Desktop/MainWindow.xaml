@@ -66,7 +66,7 @@
           <Button Style="{StaticResource IconButton}" Content="☰" Click="EventLog_Click" ToolTip="Event log — open it in its own window"/>
           <Button Style="{StaticResource IconButton}" Content="▤" Click="AdLog_Click" ToolTip="Ad log — how many times each clip has played, and how long it runs"/>
           <Button Style="{StaticResource IconButton}" Content="▦" Click="GameReport_Click" ToolTip="Game report — export a printable HTML summary"/>
-          <Button Style="{StaticResource IconButton}" Content="⌁" Click="Hardware_Click" ToolTip="Hardware — connect a scoreboard controller and monitor its data"/>
+          <Button Style="{StaticResource IconButton}" Content="🕹" Click="Hardware_Click" ToolTip="Hardware — connect a scoreboard controller and monitor its data"/>
           <Button Style="{StaticResource IconButton}" Content="☁" Click="LeagueCloud_Click" ToolTip="League cloud — upload this game and fetch other league scores for a ticker"/>
           <Button Style="{StaticResource HeaderButton}" Content="Save Game" Click="Save_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Open Game" Click="Open_Click"/>

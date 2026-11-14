@@ -469,6 +469,30 @@ internal static class Program
                 Console.WriteLine("PASS: paint & texture lays a material on the text and the plate without a parent conflict");
             }
 
+            // A logo starts with a clear plate. An explicit material is still artwork: it shows on
+            // the host and replaces the studio's "HOME LOGO" placeholder instead of being hidden
+            // behind the transparent-background default.
+            {
+                var paintedLogo = new ScorebugElement
+                {
+                    Name = "Painted logo", Kind = ScorebugElementKind.Logo, LogoSide = ScorebugLogoSide.Home,
+                    Content = "HOME LOGO", TransparentBackground = true,
+                    BackgroundTexture = ScorebugTexture.ForKind("Metal")
+                };
+                var logoView = new ScorebugLogoView(paintedLogo, null, true);
+                var logoPlaceholder = FindAll<TextBlock>(logoView).FirstOrDefault();
+                if (logoPlaceholder is null || logoPlaceholder.Visibility != Visibility.Collapsed)
+                    throw new Exception("FAIL: a painted logo still shows its HOME LOGO placeholder");
+                var renderType = typeof(VideoSurface).Assembly.GetType("Scoreboard.Desktop.ScorebugRender")
+                    ?? throw new Exception("FAIL: shared rendering rules are missing");
+                var hostBackground = renderType.GetMethod("HostBackground", BindingFlags.Static | BindingFlags.Public)
+                    ?? throw new Exception("FAIL: the logo host background rule is missing");
+                var logoBrush = (Brush?)hostBackground.Invoke(null, [paintedLogo, null]);
+                if (logoBrush is null || logoBrush is SolidColorBrush solidLogo && solidLogo.Color.A == 0)
+                    throw new Exception("FAIL: a painted logo's plate is still transparent");
+                Console.WriteLine("PASS: a painted logo shows its material instead of the HOME LOGO placeholder");
+            }
+
             var main = new MainWindow();
             main.Show();
             main.UpdateLayout();
@@ -490,11 +514,39 @@ internal static class Program
             tabShell.Engine.StoreMacros([firstDrag, secondDrag]);
             macroDock.RefreshView(force: true);
             tabShell.UpdateLayout();
-            var macroCards = FindAll<Border>(macroDock).Where(border => border.Width >= 200 && border.Tag is SavedMacro).ToList();
+            var macroCards = FindAll<Border>(macroDock).Where(border => border.Tag is SavedMacro && border.Child is StackPanel).ToList();
             var dragStrips = FindAll<TextBlock>(macroDock).Where(text => text.Text.Contains("DRAG", StringComparison.Ordinal)).ToList();
-            if (macroCards.Count != 2 || dragStrips.Count != 2 || macroCards.Any(card => card.ContextMenu is null)
+            var hintsOn = PreferencesStore.Load().ShowHeadingHints;
+            if (macroCards.Count != 2 || dragStrips.Count != (hintsOn ? 2 : 0) || macroCards.Any(card => card.ContextMenu is null)
                 || macroCards.Any(card => FindAll<Button>(card).Any(button => (button.Content as string) is "Edit" or "Delete")))
-                throw new Exception("FAIL: macro cards lost their drag strip, context menu or removable action row");
+                throw new Exception($"FAIL: macro cards lost their drag strip, context menu, compact board or removable action row (cards {macroCards.Count}, drags {dragStrips.Count}, hints {hintsOn})");
+            // Five cards fit across the board with the editor open; hiding it gives the board more room.
+            var editorToggle = (Button)macroDock.FindName("EditorToggleButton")!;
+            var macroEditor = (Border)macroDock.FindName("MacroEditor")!;
+            editorToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump(TimeSpan.FromMilliseconds(120));
+            if (macroEditor.Visibility != Visibility.Collapsed || macroDock.FindName("MacroEditorSplitter") is not GridSplitter { Visibility: Visibility.Collapsed })
+                throw new Exception("FAIL: the macro editor could not be hidden to make room for more buttons");
+            // Nine cards fit across the uncluttered board. Every card carries its own right margin,
+            // so the board width divided by (card + margin) is the real column count; the old check
+            // added eight pixels and hid the ninth card wrapping.
+            var macroBoard = (WrapPanel)macroDock.FindName("MacroButtons")!;
+            var boardCard = macroBoard.Children.OfType<Border>().First();
+            var macroColumns = (int)Math.Floor(macroBoard.ActualWidth / (boardCard.ActualWidth + 8));
+            if (macroColumns != 9)
+                throw new Exception($"FAIL: the macro board fits {macroColumns} cards per row instead of 9 ({macroBoard.ActualWidth:0}px board, {boardCard.ActualWidth:0}px card)");
+            // A drop below the last populated row is still a real slot: this is what lets a card
+            // move into a new row before the current one is full.
+            var dropIndexAt = typeof(MacroDock).GetMethod("MacroDropIndexAt", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: macro drop geometry is missing");
+            var emptyDrop = dropIndexAt.Invoke(macroDock, [new Point(macroBoard.ActualWidth - 2, macroBoard.ActualHeight + 40)]);
+            if (emptyDrop is not int emptyIndex || emptyIndex != tabShell.Engine.State.Macros.Count)
+                throw new Exception($"FAIL: dropping below the macro rows did not append (index {emptyDrop})");
+            editorToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump(TimeSpan.FromMilliseconds(120));
+            if (macroEditor.Visibility != Visibility.Visible)
+                throw new Exception("FAIL: the macro editor could not be shown again");
+            macroCards = FindAll<Border>(macroDock).Where(border => border.Tag is SavedMacro).ToList();
             var macroMenu = macroCards[0].ContextMenu!;
             macroMenu.PlacementTarget = macroCards[0];
             macroMenu.IsOpen = true;
@@ -595,6 +647,18 @@ internal static class Program
             var multiview = Application.Current.Windows.OfType<MultiviewWindow>().LastOrDefault()
                 ?? throw new Exception("FAIL: the Multiview button opened no multiview window");
             multiview.UpdateLayout();
+            // The default wall is just cameras and an edit glyph; source/remove controls appear only
+            // after the operator asks for them.
+            if (FindAll<ComboBox>(multiview).Any(box => box.Items.Cast<object>().Any(item => (item.ToString() ?? "").Contains("AUDIENCE OUTPUT", StringComparison.Ordinal))))
+                throw new Exception("FAIL: the multiview shows its source pickers before the edit icon is pressed");
+            var editMultiview = FindAll<Button>(multiview).First(button =>
+                (button.ToolTip as string ?? "").StartsWith("Edit multiview tiles", StringComparison.Ordinal));
+            editMultiview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump(TimeSpan.FromMilliseconds(150));
+            multiview.UpdateLayout();
+            if (!FindAll<Button>(multiview).Any(button => (button.Content as string) == "Save .spml" && button.IsVisible)
+                || !FindAll<Button>(multiview).Any(button => (button.Content as string) == "Import .spml" && button.IsVisible))
+                throw new Exception("FAIL: the multiview edit menu is missing its .spml save and import buttons");
             var sourceBoxes = FindAll<ComboBox>(multiview)
                 .Where(box => box.Items.Cast<object>().Any(item => (item.ToString() ?? "").Contains("AUDIENCE OUTPUT", StringComparison.Ordinal)))
                 .ToList();
@@ -1054,8 +1118,13 @@ internal static class Program
                 throw new Exception($"FAIL: the new-game sport chooser lists {sportChoices.Items.Count} sports");
             if (sportChoices.SelectedItem is null)
                 throw new Exception("FAIL: the new-game sport chooser opens with no sport selected");
+            var pickerName = FindAll<TextBox>(newGameSportPicker).FirstOrDefault()
+                ?? throw new Exception("FAIL: the new-game prompt has no optional game-name field");
+            pickerName.Text = "Cup Final";
+            if (newGameSportPicker.GameName != "Cup Final")
+                throw new Exception("FAIL: the new-game prompt did not carry the typed game name");
             newGameSportPicker.Close();
-            Console.WriteLine("PASS: keybinds list only the current sport, media goes Back, and a new game asks for its sport");
+            Console.WriteLine("PASS: keybinds list only the current sport, media goes Back, and a new game asks for its sport and optional name");
 
             var settings = new KeybindSettings();
             settings.Bindings["home.score.plus2"] = KeybindStore.ToText(Key.D2, ModifierKeys.Control);
@@ -2109,8 +2178,15 @@ internal static class Program
                 tipStudio.UpdateLayout();
                 var headerHint = (TextBlock)tipStudio.FindName("HeaderHint")!;
                 var transitionHint = (TextBlock)tipStudio.FindName("TransitionCaption")!;
-                if (headerHint.Visibility != Visibility.Collapsed || transitionHint.Visibility != Visibility.Collapsed)
+                var scoreVideoEmpty = (TextBlock)tipStudio.FindName("ScoreVideoEmptyText")!;
+                if (headerHint.Visibility != Visibility.Collapsed || transitionHint.Visibility != Visibility.Collapsed
+                    || scoreVideoEmpty.Visibility != Visibility.Collapsed)
                     throw new Exception("FAIL: the studio showed its tips while heading tips are off");
+                // Turning tips on is what brings the score-video empty-state sentence back.
+                typeof(ScorebugEditorWindow).GetMethod("ApplyTipVisibility", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(tipStudio, [true]);
+                if (scoreVideoEmpty.Visibility != Visibility.Visible)
+                    throw new Exception("FAIL: the score-video hint stayed hidden while heading tips are on");
                 tipStudio.Close();
                 Console.WriteLine("PASS: the studio's tips follow the heading-tips preference");
             }
@@ -3745,8 +3821,11 @@ internal static class Program
                 video.VideoCropLeft = 0.1; video.VideoCropTop = 0.2;
                 video.VideoCropRight = 0.3; video.VideoCropBottom = 0.15;
                 surface.SetElement(video);
+                // A crop is a source cut: the remaining pixels scale proportionally until they
+                // fill the box, rather than being stretched or squeezed back into a letterboxed
+                // copy of the original video.
                 if (pictureBrush.Stretch != Stretch.UniformToFill)
-                    throw new Exception($"FAIL: a free video box should fill its frame, not {pictureBrush.Stretch}");
+                    throw new Exception($"FAIL: a cropped video should fill its frame proportionally, not {pictureBrush.Stretch}");
                 var crop = pictureBrush.Viewbox;
                 if (Math.Abs(crop.X - 0.1) > 0.001 || Math.Abs(crop.Y - 0.2) > 0.001
                     || Math.Abs(crop.Width - 0.6) > 0.001 || Math.Abs(crop.Height - 0.65) > 0.001)
@@ -4771,7 +4850,8 @@ internal static class Program
                 if (!coldRoot.IsEnabled)
                     throw new Exception("FAIL: choosing New Game left the workspace locked");
                 if (cold.Engine.State.HomeScore != 0 || cold.Engine.State.AwayScore != 0
-                    || cold.Engine.State.Period != 1 || cold.Engine.State.Events.Count != 0)
+                    || cold.Engine.State.Period != 1 || cold.Engine.State.Events.Count != 1
+                    || !cold.Engine.State.Events[0].Description.Contains("New", StringComparison.Ordinal))
                     throw new Exception($"FAIL: a fresh game from the launcher is not a blank slate ({cold.Engine.State.HomeScore}-{cold.Engine.State.AwayScore}, period {cold.Engine.State.Period}, {cold.Engine.State.Events.Count} events)");
                 cold.Close();
                 Console.WriteLine("PASS: the main window opens locked behind the launch box, keeps its tab outline, and starts blank");
@@ -5287,6 +5367,10 @@ internal static class Program
                         || !panelHtml.Contains("speakerNow", StringComparison.Ordinal)
                         || !panelHtml.Contains("PAUSED ·", StringComparison.Ordinal))
                         throw new Exception("FAIL: the remote media card is missing its paused state, speaker row or experimental warning");
+                    if (!panelHtml.Contains("sportValuesCard", StringComparison.Ordinal)
+                        || !panelHtml.Contains("grid-column:1/-1", StringComparison.Ordinal)
+                        || !panelHtml.Contains("controls.length ? '' : 'none'", StringComparison.Ordinal))
+                        throw new Exception("FAIL: the remote still shows an empty sport-values card or squeezes custom-value names out of the row");
                     var action = WaitWithPump(http.PostAsync(baseUrl + "/api/action", new System.Net.Http.StringContent("a=away.score.plus2", System.Text.Encoding.UTF8, "application/x-www-form-urlencoded")));
                     if ((int)action.StatusCode != 200 || remoteEngine.State.AwayScore != 2)
                         throw new Exception($"FAIL: a remote score button did not reach the game ({(int)action.StatusCode}, {remoteEngine.State.AwayScore})");

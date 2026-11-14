@@ -513,7 +513,9 @@ public sealed class GameEngine
             State.HomePlayer = CopyPlayer(previous.HomePlayer); State.AwayPlayer = CopyPlayer(previous.AwayPlayer);
             State.HomePlayerCleared = previous.HomePlayerCleared; State.AwayPlayerCleared = previous.AwayPlayerCleared;
         }
-        _undo.Clear(); ResetClockCarries(); _lastTick = _watch.ElapsedTicks; Changed?.Invoke();
+        _undo.Clear(); ResetClockCarries(); _lastTick = _watch.ElapsedTicks;
+        Log("Game", string.IsNullOrWhiteSpace(State.GameName) ? $"New {sport.Name} game" : $"New {sport.Name} game · {State.GameName}");
+        Changed?.Invoke();
     }
 
     /// <summary>Sets one of the sport's own values, clamped to what its control allows.</summary>
@@ -553,6 +555,7 @@ public sealed class GameEngine
         if (clean.Length > 120) clean = clean[..120];
         if (State.GameName == clean) return;
         State.GameName = clean;
+        Log("Game", clean.Length == 0 ? "Game name cleared" : $"Game name: {clean}");
         Changed?.Invoke();
     }
 

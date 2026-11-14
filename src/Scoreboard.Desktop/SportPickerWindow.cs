@@ -14,7 +14,14 @@ namespace Scoreboard.Desktop;
 /// </summary>
 public sealed class SportPickerWindow : Window
 {
-    readonly ListBox _sports = new() { Margin = new Thickness(0, 0, 0, 14), MinHeight = 240, MaxHeight = 330 };
+    readonly ListBox _sports = new() { Margin = new Thickness(0, 0, 0, 14), MinHeight = 220, MaxHeight = 310 };
+    readonly TextBox _gameName = new()
+    {
+        FontSize = 13,
+        MinHeight = 38,
+        Padding = new Thickness(8, 7, 8, 7),
+        ToolTip = "Optional. Leave blank and the game is saved as Untitled.spg."
+    };
     readonly TextBlock _detail = new()
     {
         FontSize = 11,
@@ -26,6 +33,9 @@ public sealed class SportPickerWindow : Window
 
     /// <summary>The sport profile the operator chose; null when the dialog was cancelled.</summary>
     public string? SportId => _selectedId;
+
+    /// <summary>The optional fixture name typed before the game starts.</summary>
+    public string GameName => _gameName.Text.Trim();
 
     sealed record SportChoice(string Id, string Label, string Detail)
     {
@@ -76,6 +86,24 @@ public sealed class SportPickerWindow : Window
 
         root.Children.Add(new TextBlock
         {
+            Text = "GAME NAME (OPTIONAL)",
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x93, 0xA0, 0xB2)),
+            Margin = new Thickness(0, 0, 0, 5)
+        });
+        root.Children.Add(_gameName);
+        root.Children.Add(new TextBlock
+        {
+            Text = "Leave it blank to save the game as Untitled.spg. You can change it later on the production bar.",
+            FontSize = 10,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x5C, 0x6B, 0x7E)),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(2, 4, 2, 12)
+        });
+
+        root.Children.Add(new TextBlock
+        {
             Text = "SPORT PROFILE",
             FontSize = 10,
             FontWeight = FontWeights.Bold,
@@ -108,7 +136,7 @@ public sealed class SportPickerWindow : Window
         var index = catalog.All.ToList().FindIndex(sport => string.Equals(sport.Id, current, StringComparison.OrdinalIgnoreCase));
         _sports.SelectedIndex = index >= 0 ? index : 0;
         if (_sports.SelectedIndex < 0 && choices.Length > 0) _sports.SelectedIndex = 0;
-        Loaded += (_, _) => _sports.Focus();
+        Loaded += (_, _) => _gameName.Focus();
     }
 
     /// <summary>The rules line under the list, so the profile is not just a name.</summary>

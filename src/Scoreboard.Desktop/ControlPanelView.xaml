@@ -488,8 +488,8 @@
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
           <ComboBox x:Name="HornType" Width="108" MinHeight="32" Margin="0,0,4,0"
                     SelectionChanged="HornType_Changed" ToolTip="Choose the horn sound">
-            <ComboBoxItem Content="Air horn" Tag="AirHorn"/>
             <ComboBoxItem Content="Buzzer" Tag="Buzzer"/>
+            <ComboBoxItem Content="Air horn" Tag="AirHorn"/>
             <ComboBoxItem Content="Siren" Tag="Siren"/>
             <ComboBoxItem Content="Custom…" Tag="Custom"/>
           </ComboBox>

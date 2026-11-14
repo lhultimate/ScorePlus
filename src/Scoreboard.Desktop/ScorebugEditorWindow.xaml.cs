@@ -24,6 +24,7 @@ public partial class ScorebugEditorWindow : Window
     readonly AutomationRuntime? _automation;
     AutomationWindow? _conditionals;
     string? _conditionalsDisplayId;
+    string? _conditionalsLayoutId;
     // Keyed by element id: a rebuild reuses the surface so a playing clip is never restarted.
     readonly Dictionary<string, VideoSurface> _videoSurfaces = [];
     // Property edits save through the catalog; the resulting Changed event must not rebuild the
@@ -44,6 +45,8 @@ public partial class ScorebugEditorWindow : Window
     Window? _motionWindow;
     Panel? _motionParent;
     int _motionIndex;
+    // The score-video empty-state line is a tip, not a control, so it follows Preferences → tips.
+    bool _showHints;
     // Set while the player-data pickers are being filled for an element, so the sync is not
     // mistaken for the operator choosing a different player or value.
     bool _bindingLoading;
@@ -188,14 +191,18 @@ public partial class ScorebugEditorWindow : Window
     void Conditionals_Click(object sender,RoutedEventArgs e)
     {
         var displayId=_catalog.ActiveDisplay.Id;
-        if(_conditionals is {IsVisible:true}&&string.Equals(_conditionalsDisplayId,displayId,StringComparison.OrdinalIgnoreCase))
+        var layoutId=_catalog.Layout.Id;
+        if(_conditionals is {IsVisible:true}
+            &&string.Equals(_conditionalsDisplayId,displayId,StringComparison.OrdinalIgnoreCase)
+            &&string.Equals(_conditionalsLayoutId,layoutId,StringComparison.OrdinalIgnoreCase))
         {
             _conditionals.Activate();
             return;
         }
         _conditionals?.Close();
-        _conditionals=new AutomationWindow(_catalog,_engine,_theme,displayId,_automation,_engine){Owner=this};
+        _conditionals=new AutomationWindow(_catalog,_engine,_theme,displayId,_automation,_engine,layoutId:layoutId){Owner=this};
         _conditionalsDisplayId=displayId;
+        _conditionalsLayoutId=layoutId;
         _conditionals.Closed+=(_,_)=>_conditionals=null;
         _conditionals.Show();
     }
@@ -362,7 +369,7 @@ public partial class ScorebugEditorWindow : Window
                     if(_scoreVideoRowParts.TryGetValue(rule.Amount,out var parts))
                         UpdateScoreVideoRow(rule,parts);
             }
-            ScoreVideoEmptyText.Visibility=rules.Length==0?Visibility.Visible:Visibility.Collapsed;
+            ScoreVideoEmptyText.Visibility=_showHints&&rules.Length==0?Visibility.Visible:Visibility.Collapsed;
             ScoreVideoHintText.Text=rules.Length==0
                 ? "One clip for each score change; key the background so the scorebug shows through."
                 : "These clips play for the exact score change, whichever team scores.";
@@ -1228,6 +1235,8 @@ public partial class ScorebugEditorWindow : Window
                 block.ApplyStyle(item,_engine.State);
                 block.UpdateText(ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat),item.Transition,item.TransitionSeconds);
             }
+            else if(visual.Content is TickerView tickerView)
+                tickerView.Update(item,_engine.State);
             else if(visual.Content is Image or ScorebugLogoView or System.Windows.Shapes.Shape)
                 ScorebugRender.ApplyToContent(visual.Content,item,_engine.State);
         }
@@ -1353,7 +1362,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -1429,6 +1438,8 @@ public partial class ScorebugEditorWindow : Window
             TextShadowSoftnessInput.Text=e.TextShadowSoftness.ToString("0.#");
             TextShadowAngleInput.Text=e.TextShadowAngle.ToString("0");
             TextAlignInput.SelectedItem=AlignOptions.FirstOrDefault(o=>o.Align==e.TextAlign)??AlignOptions[1];
+            TickerInput.IsChecked=e.Ticker;
+            TickerSpeedInput.Text=e.TickerSpeed.ToString("0.#");
             NestedAspectInput.IsChecked=e.NestedPreserveAspect;
             RefreshNestedLayoutChoices();
             var source=_catalog.FindLayout(e.NestedLayoutId);
@@ -1512,6 +1523,7 @@ public partial class ScorebugEditorWindow : Window
         LayoutSection.Visibility=kind==ScorebugElementKind.Layout?Visibility.Visible:Visibility.Collapsed;
         ShapePanel.Visibility=kind==ScorebugElementKind.Shape?Visibility.Visible:Visibility.Collapsed;
         VideoPanel.Visibility=kind==ScorebugElementKind.Video?Visibility.Visible:Visibility.Collapsed;
+        TickerSection.Visibility=text?Visibility.Visible:Visibility.Collapsed;
         // The host paints the backdrop and the outline for every kind, shapes included.
         BackgroundSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
         BorderSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
@@ -1690,7 +1702,7 @@ public partial class ScorebugEditorWindow : Window
             if(sender==IconInput){UpdatePropertyVisibility();UpdateColorAvailability();RefreshColorSwatches();}
             Render(); return;
         }
-        if(sender is CheckBox){UpdateColorAvailability();SaveProperties();RefreshAllVisuals();return;}
+        if(sender is CheckBox){UpdateColorAvailability();SaveProperties();if(sender==TickerInput)Render();else RefreshAllVisuals();return;}
         if(sender==ColorInput||sender==BackgroundInput||sender==GradientColorInput||sender==ChromaKeyInput||sender==IconColorInput){SaveProperties();RefreshAllVisuals();return;}
         if(sender==ContentInput) UpdatePropertyVisibility();
         _propertySave.Stop(); _propertySave.Start();
@@ -1779,6 +1791,9 @@ public partial class ScorebugEditorWindow : Window
         var mediaTag=MediaTagInput.Text.Trim();
         var preserveAspect=PreserveAspectInput.IsChecked==true;
         var aspectOk=double.TryParse(AspectInput.Text,out var aspect)&&aspect>0.05;
+        var ticker=TickerInput.IsChecked==true;
+        var tickerSpeedOk=double.TryParse(TickerSpeedInput.Text,out var tickerSpeedRaw)&&tickerSpeedRaw>0;
+        var tickerSpeed=Math.Clamp(tickerSpeedOk?tickerSpeedRaw:80,10,600);
         var cropLeftOk=double.TryParse(VideoCropLeftInput.Text,out var cropLeftRaw);
         var cropTopOk=double.TryParse(VideoCropTopInput.Text,out var cropTopRaw);
         var cropRightOk=double.TryParse(VideoCropRightInput.Text,out var cropRightRaw);
@@ -1830,6 +1845,7 @@ public partial class ScorebugEditorWindow : Window
         // With a group selected every field is written, because the group is allowed to differ.
         if(ids.Length==1&&item.Name==name&&item.Content==content&&(!xOk||item.X==x)&&(!yOk||item.Y==y)&&(!wOk||item.Width==w)&&(!hOk||item.Height==h)
             &&item.PreserveVideoAspect==preserveAspect&&(!aspectOk||Math.Abs(item.VideoAspect-aspect)<0.001)
+            &&item.Ticker==ticker&&(!tickerSpeedOk||Math.Abs(item.TickerSpeed-tickerSpeed)<0.001)
             &&Math.Abs(item.VideoCropLeft-cropLeft)<0.0001&&Math.Abs(item.VideoCropTop-cropTop)<0.0001
             &&Math.Abs(item.VideoCropRight-cropRight)<0.0001&&Math.Abs(item.VideoCropBottom-cropBottom)<0.0001
             &&(!chromaKeyOk||string.Equals(item.ChromaKeyColor,chromaKey,StringComparison.OrdinalIgnoreCase))
@@ -1903,6 +1919,8 @@ public partial class ScorebugEditorWindow : Window
         else if(transition is not null&&item.Transition!=transition)Group(t=>{t.Transition=transition.Value;t.MotionTransition=null;});
         if(shape is not null&&item.Shape!=shape)Group(t=>t.Shape=shape.Value);
         if(item.Visible!=visible)Group(t=>t.Visible=visible);
+        if(item.Ticker!=ticker)Group(t=>{if(t.Kind==ScorebugElementKind.Text)t.Ticker=ticker;});
+        if(tickerSpeedOk&&Math.Abs(item.TickerSpeed-tickerSpeed)>0.001)Group(t=>{if(t.Kind==ScorebugElementKind.Text)t.TickerSpeed=tickerSpeed;});
         if(item.NestedPreserveAspect!=nestedAspect)Group(t=>{if(t.Kind==ScorebugElementKind.Layout)t.NestedPreserveAspect=nestedAspect;});
         if(item.TransparentBackground!=transparent)Group(t=>t.TransparentBackground=transparent);
         if(item.MediaTag!=mediaTag)Group(t=>{if(t.Kind==ScorebugElementKind.Video)t.MediaTag=mediaTag;});
@@ -1988,6 +2006,10 @@ public partial class ScorebugEditorWindow : Window
                     var heightChanged=Math.Abs(targetH-target.Height)>0.5;
                     if(heightChanged&&!widthChanged) targetW=targetH*aspect;
                     else if(widthChanged) targetH=targetW/aspect;
+                    // Checking Preserve (or changing the ratio) is itself a resize request. Fit the
+                    // box immediately instead of waiting for the operator to drag a handle and
+                    // only then watching it snap to the picture's shape.
+                    else targetH=targetW/aspect;
                 }
                 target.Width=Math.Max(16,targetW); target.Height=Math.Max(16,targetH);
                 target.TextOpacity=textOpacity;
@@ -2011,6 +2033,11 @@ public partial class ScorebugEditorWindow : Window
                 if(target.Kind==ScorebugElementKind.Video)target.MediaTag=mediaTag;
                 if(periodFormat is not null||target.PeriodFormat is not null)target.PeriodFormat=periodFormat;
                 target.PreserveVideoAspect=preserveAspect;
+                if(target.Kind==ScorebugElementKind.Text)
+                {
+                    target.Ticker=ticker;
+                    if(tickerSpeedOk)target.TickerSpeed=tickerSpeed;
+                }
                 if(aspectOk)target.VideoAspect=Math.Clamp(aspect,0.1,10);
                 if(target.Kind==ScorebugElementKind.Video)
                 {
@@ -2061,11 +2088,26 @@ public partial class ScorebugEditorWindow : Window
             }
         });
         }
-        finally { _skipRebuild=false; }
+                finally { _skipRebuild=false; }
+        if(preserveAspect&&aspectOk) SyncSizeBoxes();
         if(artworkChanged)Render();
     }
 
-    static bool TryColor(string value,out Color color){try{color=(Color)ColorConverter.ConvertFromString(value)!;return true;}catch{color=Colors.White;return false;}}
+    /// <summary>Shows the fitted box dimensions after Preserve aspect resizes the element.</summary>
+    void SyncSizeBoxes()
+    {
+        if(Selected is not { } item) return;
+        _loading=true;
+        try
+        {
+            WidthInput.Text=item.Width.ToString("0.##");
+            HeightInput.Text=item.Height.ToString("0.##");
+        }
+        finally { _loading=false; }
+    }
+
+    static bool TryColor(string value,out Color color)
+{try{color=(Color)ColorConverter.ConvertFromString(value)!;return true;}catch{color=Colors.White;return false;}}
 
     // ---------- fonts ----------
 
@@ -2362,6 +2404,29 @@ public partial class ScorebugEditorWindow : Window
     }
 
     void AddText_Click(object sender,RoutedEventArgs e)=>Add(new ScorebugElement{Name="New text",Content="EDIT TEXT",X=480,Y=470,TransparentBackground=true});
+
+    /// <summary>A ready-to-use bottom ribbon; its text separates items with a bar and scrolls itself.</summary>
+    void AddTicker_Click(object sender,RoutedEventArgs e)
+    {
+        var layout=_catalog.Layout;
+        Add(new ScorebugElement
+        {
+            Name="Ticker",
+            Content="LATEST NEWS | SCORES | UP NEXT",
+            Kind=ScorebugElementKind.Text,
+            X=40,
+            Y=Math.Max(0,layout.Height-72),
+            Width=Math.Max(160,layout.Width-80),
+            Height=56,
+            FontSize=24,
+            Foreground="#FFFFFFFF",
+            Background="#D9080B10",
+            BorderColor="#00000000",
+            TextAlign=ScorebugTextAlign.Left,
+            Ticker=true,
+            TickerSpeed=90
+        });
+    }
 
     /// <summary>The baseball diamond as one element: three bases that light up with a runner on.</summary>
     void AddLogo_Click(object sender,RoutedEventArgs e)=>Add(new ScorebugElement{Name="New logo",Kind=ScorebugElementKind.Logo,LogoSide=ScorebugLogoSide.Home,Content="HOME LOGO",X=520,Y=470,Width=140,Height=90,TransparentBackground=true});
@@ -3357,9 +3422,11 @@ public partial class ScorebugEditorWindow : Window
     /// </summary>
     void ApplyTipVisibility(bool show)
     {
+        _showHints=show;
         var visibility=show?Visibility.Visible:Visibility.Collapsed;
-        // Score videos are a working control, not a tip: hiding the row with the explanatory text
-        // made the score-celebration options appear to be missing from the Motions window.
+        // The score-video row and its Add button are working controls, not tips; only the
+        // explanatory line and the empty-state sentence follow this preference.
+        ScoreVideoEmptyText.Visibility=show&&ScoreVideoRows.Children.Count==0?Visibility.Visible:Visibility.Collapsed;
         FrameworkElement[] tips=
         [
             HeaderHint,DisplayHintText,TransitionCaption,LinkTipText,LayersHintText,

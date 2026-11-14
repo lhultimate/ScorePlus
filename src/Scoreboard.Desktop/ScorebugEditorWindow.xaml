@@ -55,6 +55,8 @@
       <DockPanel Margin="0,0,0,8">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
           <Button Content="TEXT +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddText_Click"/>
+          <Button Content="TICKER +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddTicker_Click"
+                  ToolTip="Add a bottom-screen ribbon that scrolls automatically"/>
           <Button Content="LOGO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddLogo_Click"/>
           <Button Content="IMAGE +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddImage_Click"
                   ToolTip="Import a picture onto the graphic — a sponsor board, a crest, a full-frame image"/>
@@ -440,6 +442,16 @@
             <ComboBox x:Name="PeriodFormatInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
                       ToolTip="How {{PERIOD}} prints on this element — Quarter 1, Q1, 1 or 1st"/>
           </StackPanel>
+          <StackPanel x:Name="TickerSection">
+            <CheckBox x:Name="TickerInput" Content="Scroll as a bottom-screen ticker" FontSize="11" Margin="10,4,10,2"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="Make this text travel continuously across its box, like a stadium ribbon board."/>
+            <TextBlock Text="Ticker speed (pixels / second)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="TickerSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="Higher moves faster; 80 is a readable broadcast ribbon speed."/>
+            <TextBlock Text="Separate items with | in the text. The ticker joins them with a dot and loops without a seam."
+                       Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
+          </StackPanel>
         </StackPanel>
 
         <!-- The host box carries the angle, so rotation turns the whole item: plate, artwork and text. -->
@@ -652,7 +664,7 @@
             <StackPanel Grid.Column="2" Margin="4,0,0,0"><TextBlock Text="Right" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropRightInput" TextChanged="Property_Changed" ToolTip="Percent removed from the right edge"/></StackPanel>
             <StackPanel Grid.Column="3" Margin="4,0,0,0"><TextBlock Text="Bottom" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropBottomInput" TextChanged="Property_Changed" ToolTip="Percent removed from the bottom edge"/></StackPanel>
           </Grid>
-          <TextBlock x:Name="VideoCropHintText" Text="Crop keeps only the center you choose; 0 shows the whole picture. Left and right together must stay below 90%."
+          <TextBlock x:Name="VideoCropHintText" Text="Crop keeps only the center you choose; 0 shows the whole picture, and the cropped picture fills the box without stretching. Left and right together must stay below 90%."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
           <TextBlock Text="Chroma key color" Style="{StaticResource FieldLabel}"/>
           <DockPanel Margin="0,0,10,2">

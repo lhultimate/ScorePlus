@@ -52,6 +52,15 @@ public sealed class ProgramSelection
     /// <summary>"2 · Lower third" — the layout this window would publish.</summary>
     public string Label => $"{LayoutIndex + 1} · {Layout.Name}";
 
+    /// <summary>"2 · Lower third" for any display, used by the phone's display picker.</summary>
+    public string LabelFor(string displayId)
+    {
+        var display = _catalog.FindDisplay(displayId);
+        if (display is null || display.Layouts.Count == 0) return "";
+        var index = IndexFor(display.Id);
+        return $"{index + 1} · {display.Layouts[index].Name}";
+    }
+
     /// <summary>The display's staged layout index in this window.</summary>
     public int IndexFor(string displayId)
     {
@@ -111,12 +120,17 @@ public sealed class ProgramSelection
     }
 
     /// <summary>Moves the previewed display's layout forward or back, wrapping around.</summary>
-    public void Shift(int delta)
+    public void Shift(int delta) => ShiftFor(Display.Id, delta);
+
+    /// <summary>Moves any display's staged layout, without taking the preview away from its display.</summary>
+    public void ShiftFor(string displayId, int delta)
     {
-        var display = Display;
-        if (display.Layouts.Count == 0) return;
+        var display = _catalog.FindDisplay(displayId);
+        if (display is null || display.Layouts.Count == 0) return;
         var next = (IndexFor(display.Id) + delta + display.Layouts.Count) % display.Layouts.Count;
-        SelectLayout(next);
+        Stage(display.Id, next);
+        FollowLinks(display.Id, next);
+        Changed?.Invoke();
     }
 
     /// <summary>True when this window holds a layout that is not the one on air for that display.</summary>

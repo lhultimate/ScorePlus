@@ -191,6 +191,15 @@ public sealed class ScorebugElement
     public double VideoCropBottom { get; set; }
 
     /// <summary>
+    /// For a text element: scroll the text as a bottom-screen ticker instead of holding it still.
+    /// Separate items with a vertical bar; the ticker joins them with a dot separator.
+    /// </summary>
+    public bool Ticker { get; set; }
+
+    /// <summary>The ticker's travel speed in design pixels per second.</summary>
+    public double TickerSpeed { get; set; } = 80;
+
+    /// <summary>
     /// For video elements: a colour made transparent in the picture, so a green or blue screen
     /// can sit over the scorebug. Empty turns the key off.
     /// </summary>
@@ -1108,6 +1117,8 @@ public sealed class ScorebugCatalog
                     item.VideoCropTop = Math.Clamp(double.IsFinite(item.VideoCropTop) ? item.VideoCropTop : 0, 0, 0.49);
                     item.VideoCropRight = Math.Clamp(double.IsFinite(item.VideoCropRight) ? item.VideoCropRight : 0, 0, 0.49);
                     item.VideoCropBottom = Math.Clamp(double.IsFinite(item.VideoCropBottom) ? item.VideoCropBottom : 0, 0, 0.49);
+                    item.TickerSpeed = Math.Clamp(double.IsFinite(item.TickerSpeed) ? item.TickerSpeed : 80, 10, 600);
+                    if (item.Ticker && item.Kind != ScorebugElementKind.Text) item.Ticker = false;
                     if (item.VideoCropLeft + item.VideoCropRight > 0.9)
                         item.VideoCropRight = Math.Max(0, 0.9 - item.VideoCropLeft);
                     if (item.VideoCropTop + item.VideoCropBottom > 0.9)

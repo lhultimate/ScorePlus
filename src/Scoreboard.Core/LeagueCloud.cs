@@ -51,6 +51,8 @@ public sealed class LeagueGame
     [JsonIgnore]
     public string TickerLine => $"{AwayTeam} {AwayScore} @ {HomeTeam} {HomeScore} · {StateLine}";
 
+    public override string ToString() => TickerLine;
+
     public LeagueGame Copy() => new()
     {
         GameId = GameId,
@@ -129,6 +131,85 @@ public sealed class LeagueCloudUpload
             AwayRecord = state.AwayRecordDisplay,
             UpdatedAt = DateTimeOffset.UtcNow
         };
+    }
+}
+
+/// <summary>One value an operator can pull from a league-cloud game without importing the rest.</summary>
+public enum LeagueImportField
+{
+    HomeScore,
+    AwayScore,
+    GameClock,
+    Period
+}
+
+/// <summary>
+/// Applies only the fields an operator ticked in the cloud-import dialog. Keeping this in Core means
+/// the exact same rules are used by the desktop importer and by headless regression tests.
+/// </summary>
+public static class LeagueCloudImport
+{
+    /// <summary>Applies the checked fields and returns the labels of the values that were written.</summary>
+    public static IReadOnlyList<string> Apply(GameEngine engine, LeagueGame game, IEnumerable<LeagueImportField> fields)
+    {
+        var applied = new List<string>();
+        foreach (var field in fields.Distinct())
+        {
+            switch (field)
+            {
+                case LeagueImportField.HomeScore:
+                    engine.SetScore(home: true, game.HomeScore);
+                    applied.Add($"home score {game.HomeScore}");
+                    break;
+                case LeagueImportField.AwayScore:
+                    engine.SetScore(home: false, game.AwayScore);
+                    applied.Add($"away score {game.AwayScore}");
+                    break;
+                case LeagueImportField.GameClock:
+                    if (TryParseClock(game.Clock, out var seconds))
+                    {
+                        engine.SetClock(seconds);
+                        applied.Add($"clock {GameEngine.FormatClock(seconds)}");
+                    }
+                    break;
+                case LeagueImportField.Period:
+                    if (game.Period > 0)
+                    {
+                        engine.SetPeriod(game.Period);
+                        applied.Add($"period {game.Period}");
+                    }
+                    break;
+            }
+        }
+        return applied;
+    }
+
+    /// <summary>Accepts 12:34, 1:02:03, 12.5, and a bare number of seconds.</summary>
+    public static bool TryParseClock(string? text, out int seconds)
+    {
+        seconds = 0;
+        var value = (text ?? "").Trim();
+        if (value.Length == 0) return false;
+        if (!value.Contains(':'))
+        {
+            if (!double.TryParse(value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var raw) || raw < 0) return false;
+            seconds = (int)Math.Round(raw);
+            return true;
+        }
+        var pieces = value.Split(':');
+        if (pieces.Length is < 2 or > 3) return false;
+        if (!double.TryParse(pieces[^1], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var tail) || tail < 0 || tail >= 60) return false;
+        // MM:SS clocks can legitimately run past 59 minutes (soccer's 90:00), so only the
+        // minutes field of HH:MM:SS is capped at 59.
+        if (!int.TryParse(pieces[^2], out var minutes) || minutes < 0 || (pieces.Length == 3 && minutes >= 60)) return false;
+        var hours = 0;
+        if (pieces.Length == 3 && (!int.TryParse(pieces[0], out hours) || hours < 0)) return false;
+        var total = hours * 3600L + minutes * 60L + (int)Math.Round(tail);
+        if (total > int.MaxValue) return false;
+        seconds = (int)total;
+        return true;
     }
 }
 

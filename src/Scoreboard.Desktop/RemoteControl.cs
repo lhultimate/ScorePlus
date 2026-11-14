@@ -437,8 +437,16 @@ public sealed class RemoteControlServer : IDisposable
                         var id = form.GetValueOrDefault("id", string.Empty);
                         _engine.SetStatText(id, form.GetValueOrDefault("value", string.Empty));
                         return (true, string.Empty);
-                    case "layout.next": _host.ShiftLayout(1); return (true, string.Empty);
-                    case "layout.prev": _host.ShiftLayout(-1); return (true, string.Empty);
+                    case "display.select":
+                        if (_host is IRemoteDisplayHost displayHost && !string.IsNullOrWhiteSpace(form.GetValueOrDefault("display")))
+                            displayHost.RemoteSelectDisplay(form.GetValueOrDefault("display", string.Empty));
+                        return (true, string.Empty);
+                    case "layout.next":
+                        ShiftRemoteLayout(form.GetValueOrDefault("display", string.Empty), 1);
+                        return (true, string.Empty);
+                    case "layout.prev":
+                        ShiftRemoteLayout(form.GetValueOrDefault("display", string.Empty), -1);
+                        return (true, string.Empty);
                     case "output.publish": _host.PublishOutput(); return (true, string.Empty);
                     case "live.on": _host.LiveScoreClock = true; return (true, string.Empty);
                     case "live.off": _host.LiveScoreClock = false; return (true, string.Empty);
@@ -452,9 +460,24 @@ public sealed class RemoteControlServer : IDisposable
         catch (Exception ex) { return (false, ex.Message); }
     }
 
+    /// <summary>Moves any display's staged layout when the host supports it, or the previewed one otherwise.</summary>
+    void ShiftRemoteLayout(string displayId, int delta)
+    {
+        if (_host is IRemoteDisplayHost displayHost) displayHost.RemoteShiftLayout(displayId, delta);
+        else _host.ShiftLayout(delta);
+    }
+
     string Snapshot() => _dispatcher.Invoke(() =>
     {
         var s = _engine.State;
+        // Some saved games predate stored sport controls. Fall back to the active sport's control
+        // definitions so SPORT VALUES is never an empty card on a fresh or restored game.
+        var controls = s.Controls.Count > 0 ? s.Controls : _engine.Sport.Controls.ToList();
+        var remote = _host as IRemoteDisplayHost;
+        var displays = remote is null
+            ? new[] { new { id = "", name = "Current display", layout = _host.LayoutLabel } }
+            : remote.RemoteDisplays.Select(display => new { id = display.Id, name = display.Name, layout = remote.RemoteLayoutLabel(display.Id) }).ToArray();
+        var displayId = remote?.RemoteDisplayId ?? "";
         var state = new
         {
             ok = true,
@@ -481,7 +504,7 @@ public sealed class RemoteControlServer : IDisposable
             sportId = s.SportId,
             sportName = _engine.Sport.Name,
             scoring = s.ScoringOptions,
-            controls = s.Controls.Select(c => new
+            controls = controls.Select(c => new
             {
                 id = c.Id,
                 label = c.Label,
@@ -491,10 +514,12 @@ public sealed class RemoteControlServer : IDisposable
                 min = c.Min,
                 max = c.Max
             }),
-            stats = s.Stats.Select(x => new { id = x.Id, name = x.Name, display = x.Display }),
+            stats = s.Stats.Select(x => new { id = x.Id, name = string.IsNullOrWhiteSpace(x.Name) ? "Custom value" : x.Name, display = x.Display }),
             penalty = new { active = s.PenaltyActive, type = s.PenaltyType, home = s.PenaltyHome },
             penaltyTypes = GameEngine.PenaltyTypesFor(s.SportId),
-            layout = _host.LayoutLabel,
+            layout = remote is null ? _host.LayoutLabel : remote.RemoteLayoutLabel(displayId),
+            displayId,
+            displays,
             staged = _host.HasStagedChanges,
             live = _host.LiveScoreClock,
             locked = LockState?.Invoke() == true

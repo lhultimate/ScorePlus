@@ -142,14 +142,17 @@ public sealed class TeamIdentityWindow : Window
         fields.Children.Add(ColorRow(_primarySwatch, _primaryHex, () => PickColor(_primaryHex, _primarySwatch)));
         fields.Children.Add(Label("Secondary color"));
         fields.Children.Add(ColorRow(_secondarySwatch, _secondaryHex, () => PickColor(_secondaryHex, _secondarySwatch)));
-        fields.Children.Add(new TextBlock
+        if (TipsEnabled())
         {
-            Text = "Any colour on the scorebug can use a team's primary or secondary colour. The logo is available to logo elements on every layout.",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 10,
-            Foreground = new SolidColorBrush(Color.FromRgb(124, 138, 156)),
-            Margin = new Thickness(4, 12, 4, 0)
-        });
+            fields.Children.Add(new TextBlock
+            {
+                Text = "Any color on the scorebug can use a team's primary or secondary color. The logo is available to logo elements on every layout.",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(124, 138, 156)),
+                Margin = new Thickness(4, 12, 4, 0)
+            });
+        }
         Grid.SetColumn(fields, 2);
         body.Children.Add(fields);
 
@@ -172,6 +175,11 @@ public sealed class TeamIdentityWindow : Window
             Apply();
         };
         Loaded += (_, _) => { _name.Focus(); _name.SelectAll(); };
+    }
+
+    static bool TipsEnabled()
+    {
+        try { return PreferencesStore.Load().ShowHeadingHints; } catch { return false; }
     }
 
     static TextBlock Label(string text) => new()

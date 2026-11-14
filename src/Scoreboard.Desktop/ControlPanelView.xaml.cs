@@ -25,6 +25,22 @@ public interface IControlPanelHost
     void ShiftLayout(int delta);
 }
 
+/// <summary>One display the phone can pick for its output card.</summary>
+public sealed record RemoteDisplayInfo(string Id, string Name);
+
+/// <summary>
+/// Extra capabilities the main window offers the remote. A detached control panel implements only
+/// the base host, so the phone keeps working without pretending it can reach every display.
+/// </summary>
+public interface IRemoteDisplayHost
+{
+    IReadOnlyList<RemoteDisplayInfo> RemoteDisplays { get; }
+    string RemoteDisplayId { get; }
+    string RemoteLayoutLabel(string displayId);
+    void RemoteSelectDisplay(string displayId);
+    void RemoteShiftLayout(string displayId, int delta);
+}
+
 /// <summary>
 /// The whole operator surface: team panels, down &amp; distance, clocks, timeouts, possession,
 /// and custom values. Used full-size in the main window and inside a popped-out panel, so both

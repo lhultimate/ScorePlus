@@ -32,6 +32,7 @@ public sealed class AutomationWindow : Window
     readonly GameEngine? _liveEngine;
     readonly string _theme;
     readonly string _displayId;
+    readonly string _layoutId;
     readonly AutomationRuntime? _runtime;
     readonly List<AutomationRule> _rules = [];
     readonly ListBox _ruleList = new();
@@ -45,7 +46,8 @@ public sealed class AutomationWindow : Window
     bool _refreshingList;
     FrameworkElement? _detachedView;
 
-    public AutomationWindow(ScorebugCatalog catalog, GameEngine engine, string theme, string? displayId, AutomationRuntime? runtime, GameEngine? liveEngine = null, bool embedded = false)
+    public AutomationWindow(ScorebugCatalog catalog, GameEngine engine, string theme, string? displayId,
+        AutomationRuntime? runtime, GameEngine? liveEngine = null, bool embedded = false, string? layoutId = null)
     {
         _embedded = embedded;
         _catalog = catalog;
@@ -53,8 +55,22 @@ public sealed class AutomationWindow : Window
         _liveEngine = liveEngine;
         _theme = theme;
         _runtime = runtime;
-        _displayId = (catalog.FindDisplay(displayId) ?? catalog.ActiveDisplay).Id;
-        _rules.AddRange((catalog.FindDisplay(_displayId)?.Automations ?? []).Select(rule => rule.Copy()));
+        var display = catalog.FindDisplay(displayId) ?? catalog.ActiveDisplay;
+        _displayId = display.Id;
+        var layout = display.Layouts.FirstOrDefault(candidate =>
+                         string.Equals(candidate.Id, layoutId, StringComparison.OrdinalIgnoreCase))
+                     ?? display.Layouts.FirstOrDefault();
+        _layoutId = layout?.Id ?? "";
+        // Legacy rules had no layout scope. Adopt them into the layout whose editor is opened first,
+        // then every layout keeps its own separate list from here on.
+        var all = display.Automations;
+        if (all.Any(rule => string.IsNullOrWhiteSpace(rule.LayoutId)) && _layoutId.Length > 0)
+        {
+            foreach (var rule in all.Where(rule => string.IsNullOrWhiteSpace(rule.LayoutId))) rule.LayoutId = _layoutId;
+            catalog.UpdateAutomations(_displayId, all);
+        }
+        _rules.AddRange(all.Where(rule => string.Equals(rule.LayoutId, _layoutId, StringComparison.OrdinalIgnoreCase))
+            .Select(rule => rule.Copy()));
         _selected = _rules.FirstOrDefault();
 
         Title = "Conditionals";
@@ -124,7 +140,9 @@ public sealed class AutomationWindow : Window
         var railStack = new DockPanel();
         var header = new StackPanel();
         header.Children.Add(new TextBlock { Text = "CONDITIONALS", FontWeight = FontWeights.Bold, FontSize = 12, Foreground = AccentBrush });
-        _displayLabel.Text = "Program";
+        var display = _catalog.FindDisplay(_displayId);
+        var layout = display?.Layouts.FirstOrDefault(candidate => string.Equals(candidate.Id, _layoutId, StringComparison.OrdinalIgnoreCase));
+        _displayLabel.Text = display is null ? "Program" : $"{display.Name} · {layout?.Name ?? "Layout"}";
         _displayLabel.FontSize = 18;
         _displayLabel.FontWeight = FontWeights.Bold;
         _displayLabel.Foreground = TextBrush;
@@ -258,7 +276,7 @@ public sealed class AutomationWindow : Window
         var rule = new AutomationRule { Name = $"Rule {_rules.Count + 1}" };
         if (withExample)
         {
-            var layout = _catalog.FindDisplay(_displayId)?.Layouts.FirstOrDefault();
+            var layout = _catalog.FindDisplay(_displayId)?.Layouts.FirstOrDefault(candidate => string.Equals(candidate.Id, _layoutId, StringComparison.OrdinalIgnoreCase));
             var target = layout?.Elements.FirstOrDefault(element => element.Kind == ScorebugElementKind.Text) ?? layout?.Elements.FirstOrDefault();
             rule.Conditions.Add(new AutomationCondition
             {
@@ -319,7 +337,7 @@ public sealed class AutomationWindow : Window
     {
         if (_selected is null) CreateRule(withExample: false);
         if (_selected is null) return;
-        var layout = _catalog.FindDisplay(_displayId)?.Layouts.FirstOrDefault();
+        var layout = _catalog.FindDisplay(_displayId)?.Layouts.FirstOrDefault(candidate => string.Equals(candidate.Id, _layoutId, StringComparison.OrdinalIgnoreCase));
         var target = layout?.Elements.FirstOrDefault();
         _selected.Actions.Add(new AutomationAction
         {
@@ -378,6 +396,7 @@ public sealed class AutomationWindow : Window
             {
                 // A second import must create independent rules, never overwrite an existing one.
                 rule.Id = Guid.NewGuid().ToString("N");
+                rule.LayoutId = _layoutId;
                 _rules.Add(rule);
                 imported.Add(rule);
             }
@@ -403,8 +422,16 @@ public sealed class AutomationWindow : Window
     void Persist()
     {
         if (_building) return;
-        _catalog.UpdateAutomations(_displayId, _rules);
-        _status.Text = $"{_rules.Count} rule{(_rules.Count == 1 ? "" : "s")} · saved with “{_catalog.FindDisplay(_displayId)?.Name}” · {_runtime?.ActiveRuleCount ?? 0} active right now";
+        // Keep other layouts' rules intact: this editor owns only the current layout's slice.
+        var display = _catalog.FindDisplay(_displayId);
+        var merged = (display?.Automations ?? [])
+            .Where(rule => !string.Equals(rule.LayoutId, _layoutId, StringComparison.OrdinalIgnoreCase))
+            .Select(rule => rule.Copy())
+            .ToList();
+        foreach (var rule in _rules) rule.LayoutId = _layoutId;
+        merged.AddRange(_rules.Select(rule => rule.Copy()));
+        _catalog.UpdateAutomations(_displayId, merged);
+        _status.Text = $"{_rules.Count} rule{(_rules.Count == 1 ? "" : "s")} · {_catalog.FindDisplay(_displayId)?.Layouts.FirstOrDefault(layout => string.Equals(layout.Id, _layoutId, StringComparison.OrdinalIgnoreCase))?.Name} · {_runtime?.ActiveRuleCount ?? 0} active right now";
     }
 
     void RefreshRuleList()

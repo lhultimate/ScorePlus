@@ -1,8 +1,11 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -15,6 +18,8 @@ public sealed class MultiviewTileBinding
     public string Source { get; set; } = "preview";
     public string DisplayId { get; set; } = "";
     public int CameraIndex { get; set; } = -1;
+    /// <summary>A specific layout to show, even when it is not the one staged or on air. Empty follows the desk.</summary>
+    public string LayoutId { get; set; } = "";
 }
 
 /// <summary>
@@ -30,9 +35,10 @@ public sealed class MultiviewWindow : Window
         public MultiviewSourceKind Kind { get; set; }
         public string DisplayId { get; set; } = "";
         public int CameraIndex { get; set; } = -1;
+        public string LayoutId { get; set; } = "";
     }
 
-    sealed record SourceChoice(MultiviewSourceKind Kind, string DisplayId, int CameraIndex, string Label)
+    sealed record SourceChoice(MultiviewSourceKind Kind, string DisplayId, int CameraIndex, string Label, string LayoutId = "")
     {
         public override string ToString() => Label;
     }
@@ -47,6 +53,23 @@ public sealed class MultiviewWindow : Window
     readonly MediaPlayback _playback;
 
     readonly WrapPanel _panel = new() { Margin = new Thickness(8) };
+    // The wall itself: one UniformGrid stretching every camera to fill the window with no chrome.
+    readonly Grid _wall = new() { Background = Brushes.Black, ClipToBounds = true };
+    readonly UniformGrid _wallTiles = new();
+    readonly DockPanel _editorChrome = new() { Visibility = Visibility.Collapsed };
+    readonly Button _editButton = new()
+    {
+        Content = "✎",
+        Width = 38,
+        Height = 34,
+        Padding = new Thickness(0),
+        FontSize = 16,
+        HorizontalAlignment = HorizontalAlignment.Right,
+        VerticalAlignment = VerticalAlignment.Top,
+        Margin = new Thickness(8),
+        ToolTip = "Edit multiview tiles"
+    };
+    bool _editing;
     readonly TextBlock _title = new()
     {
         Text = "MULTIVIEW",
@@ -117,6 +140,7 @@ public sealed class MultiviewWindow : Window
         Height = 820;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Content = BuildChrome();
+        _wall.SizeChanged += (_, _) => UpdateWallColumns();
         ApplyPalette(preferences.Theme);
         BuildReplayBody();
         LoadTiles();
@@ -137,9 +161,19 @@ public sealed class MultiviewWindow : Window
 
     UIElement BuildChrome()
     {
-        var root = new DockPanel();
+        var root = new Grid();
+        _wall.Children.Add(_wallTiles);
+        root.Children.Add(_wall);
         var header = new DockPanel { Margin = new Thickness(14, 11, 14, 0), LastChildFill = true };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var done = new Button
+        {
+            Content = "✓ Done",
+            Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 6, 0),
+            ToolTip = "Close the edit menu and show the camera wall"
+        };
+        done.Click += (_, _) => ToggleEditing();
         var add = new Button
         {
             Content = "+ Add tile",
@@ -155,23 +189,95 @@ public sealed class MultiviewWindow : Window
             ToolTip = "Restore the default preview, audience, replay and camera tiles"
         };
         reset.Click += (_, _) => ResetTiles();
+        actions.Children.Add(done);
         actions.Children.Add(add);
         actions.Children.Add(reset);
         DockPanel.SetDock(actions, Dock.Right);
         header.Children.Add(actions);
         header.Children.Add(_title);
-        DockPanel.SetDock(header, Dock.Top);
-        root.Children.Add(header);
+
+        // Layout files get their own row. Keeping them beside Add/Reset was what clipped the
+        // save control into the reset button on a narrow or scaled window.
+        var layoutActions = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(14, 0, 14, 8),
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        var saveLayout = new Button
+        {
+            Content = "Save .spml",
+            Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 6, 0),
+            ToolTip = "Save every tile, display and camera choice as a ScorePlus Multiview Layout"
+        };
+        saveLayout.Click += (_, _) => SaveLayoutFile();
+        var importLayout = new Button
+        {
+            Content = "Import .spml",
+            Padding = new Thickness(12, 6, 12, 6),
+            ToolTip = "Replace this wall with a saved ScorePlus Multiview Layout"
+        };
+        importLayout.Click += (_, _) => ImportLayoutFile();
+        layoutActions.Children.Add(saveLayout);
+        layoutActions.Children.Add(importLayout);
+
+        var top = new StackPanel();
+        top.Children.Add(header);
+        top.Children.Add(layoutActions);
+        DockPanel.SetDock(top, Dock.Top);
+        _editorChrome.Children.Add(top);
 
         DockPanel.SetDock(_status, Dock.Top);
-        root.Children.Add(_status);
-        root.Children.Add(new ScrollViewer
+        _editorChrome.Children.Add(_status);
+        _editorChrome.Children.Add(new ScrollViewer
         {
             Content = _panel,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         });
+        root.Children.Add(_editorChrome);
+        _editButton.Click += (_, _) => ToggleEditing();
+        Panel.SetZIndex(_editButton, 20);
+        root.Children.Add(_editButton);
         return root;
+    }
+
+    void ToggleEditing()
+    {
+        _editing = !_editing;
+        _editorChrome.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
+        _wall.Visibility = _editing ? Visibility.Collapsed : Visibility.Visible;
+        // The edit menu has its own Done button. Leaving the floating checkmark over Reset while
+        // editing made the two controls collide on a narrow window.
+        _editButton.Visibility = _editing ? Visibility.Collapsed : Visibility.Visible;
+        _editButton.Content = "✎";
+        _editButton.ToolTip = "Edit multiview tiles";
+        RenderTiles();
+    }
+
+    void UpdateWallColumns()
+    {
+        var count = Math.Max(1, _tiles.Count);
+        var width = Math.Max(1, _wall.ActualWidth);
+        var height = Math.Max(1, _wall.ActualHeight);
+        // Pick the grid with the largest usable cell, preferring the screen's shape. This is what
+        // turns the wall into as many tiles as the window can physically show.
+        var bestColumns = 1;
+        var bestArea = -1d;
+        for (var columns = 1; columns <= count; columns++)
+        {
+            var rows = (int)Math.Ceiling(count / (double)columns);
+            var cellWidth = width / columns;
+            var cellHeight = height / rows;
+            if (cellWidth < 24 || cellHeight < 24) continue;
+            var area = Math.Min(cellWidth / 16d, cellHeight / 9d);
+            if (area <= bestArea) continue;
+            bestArea = area;
+            bestColumns = columns;
+        }
+        _wallTiles.Columns = bestColumns;
+        _wallTiles.Rows = 0;
     }
 
     void ApplyPalette(string theme)
@@ -184,6 +290,8 @@ public sealed class MultiviewWindow : Window
         _mutedBrush = Solid(light ? "#586576" : "#B0B0B0");
         Background = _windowBrush;
         Foreground = _textBrush;
+        _wall.Background = Brushes.Black;
+        _editorChrome.Background = _windowBrush;
         _title.Foreground = _textBrush;
         _status.Foreground = _mutedBrush;
         _replayTitle.Foreground = _mutedBrush;
@@ -218,7 +326,8 @@ public sealed class MultiviewWindow : Window
                 DisplayId = kind is MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput
                     ? display?.Id ?? ""
                     : "",
-                CameraIndex = kind == MultiviewSourceKind.Camera ? camera!.Value : -1
+                CameraIndex = kind == MultiviewSourceKind.Camera ? camera!.Value : -1,
+                LayoutId = kind == MultiviewSourceKind.ProgramPreview ? binding.LayoutId ?? "" : ""
             });
         }
         if (_tiles.Count == 0) DefaultTiles();
@@ -258,6 +367,116 @@ public sealed class MultiviewWindow : Window
         RenderTiles();
     }
 
+    /// <summary>Writes the wall's tile order, displays, layouts and cameras to a .spml file.</summary>
+    void SaveLayoutFile()
+    {
+        if (!_editing) return;
+        var dialog = new SaveFileDialog
+        {
+            Title = "Save multiview layout",
+            Filter = MultiviewLayoutFiles.Filter,
+            DefaultExt = "spml",
+            AddExtension = true,
+            FileName = $"multiview-{DateTime.Now:yyyyMMdd-HHmm}"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            var document = new MultiviewLayoutDocument
+            {
+                Name = Path.GetFileNameWithoutExtension(dialog.FileName),
+                Tiles = _tiles.Select(tile =>
+                {
+                    var display = tile.Kind is MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput
+                        ? ResolveDisplay(tile.DisplayId)
+                        : null;
+                    var layout = tile.Kind == MultiviewSourceKind.ProgramPreview && !string.IsNullOrWhiteSpace(tile.LayoutId)
+                        ? _catalog.FindLayout(tile.LayoutId)
+                        : null;
+                    var camera = tile.Kind == MultiviewSourceKind.Camera
+                        ? _session.Library.FirstOrDefault(entry => entry.IsCamera && entry.CameraIndex == tile.CameraIndex)
+                        : null;
+                    return new MultiviewLayoutTile
+                    {
+                        Source = SourceName(tile.Kind),
+                        DisplayId = display?.Id ?? "",
+                        DisplayName = display?.Name ?? "",
+                        LayoutId = layout?.Id ?? "",
+                        LayoutName = layout?.Name ?? "",
+                        CameraIndex = camera?.CameraIndex ?? -1,
+                        CameraName = camera?.Label ?? ""
+                    };
+                }).ToList()
+            };
+            MultiviewLayoutFiles.Save(dialog.FileName, document);
+            _status.Text = $"LAYOUT SAVED · {Path.GetFileName(dialog.FileName)} · {_tiles.Count} tiles";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"COULD NOT SAVE LAYOUT · {ex.Message}";
+        }
+    }
+
+    /// <summary>Replaces the wall with a .spml file, matching displays and cameras by id then name.</summary>
+    void ImportLayoutFile()
+    {
+        if (!_editing) return;
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import multiview layout",
+            Filter = MultiviewLayoutFiles.Filter,
+            DefaultExt = "spml",
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        var document = MultiviewLayoutFiles.Load(dialog.FileName);
+        if (document is null)
+        {
+            _status.Text = "COULD NOT IMPORT LAYOUT · not a ScorePlus Multiview Layout";
+            return;
+        }
+
+        var imported = new List<TileConfig>();
+        var hasReplay = false;
+        foreach (var source in document.Tiles)
+        {
+            var kind = ParseSource(source.Source);
+            if (kind == MultiviewSourceKind.Replay && hasReplay) kind = MultiviewSourceKind.Blank;
+            if (kind == MultiviewSourceKind.Replay) hasReplay = true;
+            var display = ResolveDisplay(source.DisplayId, source.DisplayName);
+            var camera = ResolveCamera(source.CameraIndex, source.CameraName);
+            if (kind == MultiviewSourceKind.Camera && camera is null) kind = MultiviewSourceKind.Blank;
+            if (kind is MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput && display is null)
+                kind = MultiviewSourceKind.Blank;
+            imported.Add(new TileConfig
+            {
+                Kind = kind,
+                DisplayId = kind is MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput
+                    ? display?.Id ?? ""
+                    : "",
+                CameraIndex = kind == MultiviewSourceKind.Camera ? camera!.Value : -1,
+                LayoutId = kind == MultiviewSourceKind.ProgramPreview
+                    ? ResolveLayoutId(display, source.LayoutId, source.LayoutName)
+                    : ""
+            });
+        }
+        if (imported.Count == 0) imported.Add(new TileConfig { Kind = MultiviewSourceKind.Blank });
+        _tiles.Clear();
+        _tiles.AddRange(imported);
+        SaveTiles();
+        RenderTiles();
+        _status.Text = $"LAYOUT IMPORTED · {Path.GetFileName(dialog.FileName)} · {_tiles.Count} tiles";
+    }
+
+    string ResolveLayoutId(ScorebugDisplay? display, string? id, string? name)
+    {
+        if (display is null) return "";
+        if (!string.IsNullOrWhiteSpace(id) && display.Layouts.Any(layout => string.Equals(layout.Id, id, StringComparison.OrdinalIgnoreCase)))
+            return id;
+        return display.Layouts.FirstOrDefault(layout =>
+            string.Equals(layout.Name, name, StringComparison.OrdinalIgnoreCase))?.Id ?? "";
+    }
+
     void CloseTile(TileConfig tile)
     {
         _tiles.Remove(tile);
@@ -272,7 +491,8 @@ public sealed class MultiviewWindow : Window
         {
             Source = SourceName(tile.Kind),
             DisplayId = tile.DisplayId,
-            CameraIndex = tile.CameraIndex
+            CameraIndex = tile.CameraIndex,
+            LayoutId = tile.LayoutId
         }).ToList();
         PreferencesStore.Save(_preferences);
     }
@@ -295,14 +515,35 @@ public sealed class MultiviewWindow : Window
         _ => MultiviewSourceKind.Blank
     };
 
-    ScorebugDisplay? ResolveDisplay(string? id) => _catalog.FindDisplay(id) ?? _catalog.Displays.FirstOrDefault();
+    ScorebugDisplay? ResolveDisplay(string? id, string? name = null)
+    {
+        var byId = _catalog.FindDisplay(id);
+        if (byId is not null) return byId;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var byName = _catalog.Displays.FirstOrDefault(display =>
+                string.Equals(display.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (byName is not null) return byName;
+        }
+        return _catalog.Displays.FirstOrDefault();
+    }
 
-    int? ResolveCamera(int index) => _session.Library.Any(entry => entry.IsCamera && entry.CameraIndex == index)
-        ? index : null;
+    int? ResolveCamera(int index, string? name = null)
+    {
+        if (_session.Library.Any(entry => entry.IsCamera && entry.CameraIndex == index)) return index;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var byName = _session.Library.FirstOrDefault(entry => entry.IsCamera
+                && string.Equals(entry.Label, name, StringComparison.OrdinalIgnoreCase));
+            if (byName is not null) return byName.CameraIndex;
+        }
+        return null;
+    }
 
     string BuildSignature()
     {
-        var displays = string.Join("|", _catalog.Displays.Select(display => $"{display.Id}:{display.Name}"));
+        var displays = string.Join("|", _catalog.Displays.Select(display =>
+            $"{display.Id}:{display.Name}:" + string.Join(",", display.Layouts.Select(layout => $"{layout.Id}={layout.Name}"))));
         var cameras = string.Join("|", _session.Library.Where(entry => entry.IsCamera)
             .OrderBy(entry => entry.CameraIndex)
             .Select(entry => $"{entry.CameraIndex}:{entry.Label}"));
@@ -342,16 +583,25 @@ public sealed class MultiviewWindow : Window
             // tile is rebuilt or WPF refuses to add it to the new one.
             DetachFromParent(_replayBody);
             _panel.Children.Clear();
+            _wallTiles.Children.Clear();
 
-            foreach (var tile in _tiles.ToList()) _panel.Children.Add(BuildTile(tile));
-            _status.Text = $"{_tiles.Count} tile{(_tiles.Count == 1 ? "" : "s")} · "
-                + "choose a source in each tile, or remove it with ×.";
+            if (_editing)
+            {
+                foreach (var tile in _tiles.ToList()) _panel.Children.Add(BuildTile(tile, editing: true));
+                _status.Text = $"{_tiles.Count} tile{(_tiles.Count == 1 ? "" : "s")} · "
+                    + "choose a source in each tile, or remove it with ×.";
+            }
+            else
+            {
+                foreach (var tile in _tiles.ToList()) _wallTiles.Children.Add(BuildTile(tile, editing: false));
+                UpdateWallColumns();
+            }
         }
         finally { _rendering = false; }
         SyncReplay();
     }
 
-    Border BuildTile(TileConfig tile)
+    Border BuildTile(TileConfig tile, bool editing)
     {
         var source = new ComboBox
         {
@@ -393,25 +643,28 @@ public sealed class MultiviewWindow : Window
         var body = BuildBody(tile);
         var bodyBorder = new Border
         {
-            Height = 230,
+            Height = editing ? 230 : double.NaN,
             Background = Solid("#000000"),
             BorderBrush = _borderBrush,
-            BorderThickness = new Thickness(0, 1, 0, 0),
+            BorderThickness = editing ? new Thickness(0, 1, 0, 0) : new Thickness(0),
             Child = body,
             ClipToBounds = true
         };
         var stack = new DockPanel();
-        DockPanel.SetDock(head, Dock.Top);
-        stack.Children.Add(head);
+        if (editing)
+        {
+            DockPanel.SetDock(head, Dock.Top);
+            stack.Children.Add(head);
+        }
         stack.Children.Add(bodyBorder);
         var border = new Border
         {
-            Width = 420,
-            Margin = new Thickness(6),
-            Background = _surfaceBrush,
-            BorderBrush = _borderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
+            Width = editing ? 420 : double.NaN,
+            Margin = editing ? new Thickness(6) : new Thickness(1),
+            Background = editing ? _surfaceBrush : Brushes.Black,
+            BorderBrush = editing ? _borderBrush : Brushes.Transparent,
+            BorderThickness = editing ? new Thickness(1) : new Thickness(0),
+            CornerRadius = editing ? new CornerRadius(8) : new CornerRadius(0),
             Child = stack
         };
         return border;
@@ -423,12 +676,15 @@ public sealed class MultiviewWindow : Window
         tile.DisplayId = choice.Kind is MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput
             ? choice.DisplayId : "";
         tile.CameraIndex = choice.Kind == MultiviewSourceKind.Camera ? choice.CameraIndex : -1;
+        tile.LayoutId = choice.Kind == MultiviewSourceKind.ProgramPreview ? choice.LayoutId : "";
     }
 
     static bool Matches(SourceChoice choice, TileConfig tile) =>
         choice.Kind == tile.Kind
         && (choice.Kind is not (MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput)
             || string.Equals(choice.DisplayId, tile.DisplayId, StringComparison.OrdinalIgnoreCase))
+        && (choice.Kind != MultiviewSourceKind.ProgramPreview
+            || string.Equals(choice.LayoutId, tile.LayoutId, StringComparison.OrdinalIgnoreCase))
         && (choice.Kind != MultiviewSourceKind.Camera || choice.CameraIndex == tile.CameraIndex);
 
     List<SourceChoice> SourceChoices(TileConfig tile)
@@ -436,6 +692,12 @@ public sealed class MultiviewWindow : Window
         var choices = new List<SourceChoice>();
         foreach (var display in _catalog.Displays)
             choices.Add(new SourceChoice(MultiviewSourceKind.ProgramPreview, display.Id, -1, $"PROGRAM PREVIEW · {display.Name}"));
+        // Any layout, on air or not. This lets a director check a lower third or an alternate look
+        // without staging it on the desk and risking it going out by accident.
+        foreach (var display in _catalog.Displays)
+            foreach (var layout in display.Layouts)
+                choices.Add(new SourceChoice(MultiviewSourceKind.ProgramPreview, display.Id, -1,
+                    $"LAYOUT · {display.Name} / {layout.Name}", layout.Id));
         foreach (var display in _catalog.Displays)
             choices.Add(new SourceChoice(MultiviewSourceKind.AudienceOutput, display.Id, -1, $"AUDIENCE OUTPUT · {display.Name}"));
         if (tile.Kind == MultiviewSourceKind.Replay || !_tiles.Any(other => other.Kind == MultiviewSourceKind.Replay))
@@ -462,7 +724,7 @@ public sealed class MultiviewWindow : Window
         switch (tile.Kind)
         {
             case MultiviewSourceKind.ProgramPreview:
-                return ProgramPreview(tile.DisplayId);
+                return ProgramPreview(tile.DisplayId, tile.LayoutId);
             case MultiviewSourceKind.AudienceOutput:
                 return AudienceOutput(tile.DisplayId);
             case MultiviewSourceKind.Camera:
@@ -470,17 +732,20 @@ public sealed class MultiviewWindow : Window
             case MultiviewSourceKind.Replay:
                 return _replayBody;
             default:
-                return Hint("BLANK TILE", "Choose a source above, or press × to remove this tile.");
+                // A spacer is a deliberate black hole in the wall, not a card with instructions.
+                return new Border { Background = Brushes.Black };
         }
     }
 
-    UIElement ProgramPreview(string displayId)
+    UIElement ProgramPreview(string displayId, string layoutId)
     {
         var id = ResolveDisplay(displayId)?.Id ?? _program.DisplayId;
         var view = new ScorebugCanvasView(_catalog, _engine,
             stateProvider: () => _engine.State,
             playback: _playback,
-            layoutProvider: () => _program.LayoutFor(id) ?? _catalog.PublishedCompositeOf(id),
+            layoutProvider: () => !string.IsNullOrWhiteSpace(layoutId)
+                ? _catalog.FindLayout(layoutId) ?? _program.LayoutFor(id) ?? _catalog.PublishedCompositeOf(id)
+                : _program.LayoutFor(id) ?? _catalog.PublishedCompositeOf(id),
             displayId: id,
             automation: _automation);
         _canvasViews.Add(view);

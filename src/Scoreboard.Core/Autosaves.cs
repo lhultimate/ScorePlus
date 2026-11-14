@@ -5,15 +5,18 @@ using System.Text.Json.Serialization;
 namespace Scoreboard.Core;
 
 /// <summary>One recoverable autosave, summarised for the launch screen.</summary>
-public sealed record AutosaveEntry(string Path, DateTimeOffset SavedAt, string SportId, string AwayTeam, string HomeTeam, int AwayScore, int HomeScore)
+public sealed record AutosaveEntry(string Path, DateTimeOffset SavedAt, string SportId, string AwayTeam, string HomeTeam, int AwayScore, int HomeScore, string GameName = "")
 {
     public string WhenLabel => SavedAt.ToLocalTime().ToString("MMM d · HH:mm:ss");
 
     public string ScoreLine => $"{AwayTeam} {AwayScore} – {HomeScore} {HomeTeam}";
 
+    public string Title => string.IsNullOrWhiteSpace(GameName) ? "Untitled" : GameName.Trim();
+
     public string Label => $"{WhenLabel}   {ScoreLine}";
 
-    public string Detail => $"{SportId.ToUpperInvariant()} · {WhenLabel}";
+    /// <summary>The score and sport sit below the game name on the launch box's autosave card.</summary>
+    public string Detail => $"{ScoreLine} · {SportId.ToUpperInvariant()} · {WhenLabel}";
 }
 
 /// <summary>
@@ -218,7 +221,7 @@ public static class AutosaveStore
             var (state, _) = GameFiles.Read(path);
             if (state is null) return null;
             var saved = state.SavedAt == default ? new DateTimeOffset(File.GetLastWriteTime(path)) : state.SavedAt;
-            return new AutosaveEntry(path, saved, state.SportId, state.AwayTeam, state.HomeTeam, state.AwayScore, state.HomeScore);
+            return new AutosaveEntry(path, saved, state.SportId, state.AwayTeam, state.HomeTeam, state.AwayScore, state.HomeScore, state.GameName);
         }
         catch { return null; }
     }

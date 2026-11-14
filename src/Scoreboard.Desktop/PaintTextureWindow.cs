@@ -451,7 +451,9 @@ public sealed class PaintTextureWindow : Window
             Width = 380,
             Height = 142,
             CornerRadius = new CornerRadius(8),
-            Background = _draft.TransparentBackground ? Brushes.Transparent : Paint.Background(_draft, state),
+            // Use the same host rule as the canvas: a logo's default clear plate can still take
+            // an explicit gradient or texture, and the preview must show that paint.
+            Background = ScorebugRender.HostBackground(_draft, state),
             BorderBrush = Paint.Border(_draft, state),
             BorderThickness = new Thickness(Math.Max(0, _draft.BorderThickness))
         };

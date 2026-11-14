@@ -24,6 +24,9 @@ public partial class LauncherWindow : Window
     /// <summary>The sport profile chosen for a new game; the console starts the game with it.</summary>
     public string? SportId { get; private set; }
 
+    /// <summary>The optional name typed in the new-game prompt.</summary>
+    public string? GameName { get; private set; }
+
     // Deleting needs a second click, so a stray one never wipes the recovery points.
     readonly System.Windows.Threading.DispatcherTimer _deleteReset = new() { Interval = TimeSpan.FromSeconds(5) };
     bool _deleteArmed;
@@ -93,6 +96,7 @@ public partial class LauncherWindow : Window
         var picker = new SportPickerWindow(new SportCatalog(), preferences.LastSport, preferences.Theme) { Owner = this };
         if (picker.ShowDialog() != true || string.IsNullOrWhiteSpace(picker.SportId)) return;
         SportId = picker.SportId;
+        GameName = picker.GameName;
         Mode = LaunchMode.New;
         GamePath = null;
         DialogResult = true;

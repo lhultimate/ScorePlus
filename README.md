@@ -95,9 +95,9 @@ Two windows open together: the compact **launch box** with the ScorePlus mark an
 
 The launch box offers:
 
-- **New Game** — a truly blank slate. It asks which sport the game is for and then gives you one factory scorebug on one display: clean teams, 0–0, the sport's own opening clock.
+- **New Game** — a truly blank slate. It asks for the sport and an optional game name, then gives you one factory scorebug on one display: clean teams, 0–0, the sport's own opening clock. Leave the name blank and the game saves as `Untitled.spg`.
 - **Open Game** — a saved `.spg` file.
-- **Autosaves** — the recovery points listed down the side, each labelled with its time. Click one to load it.
+- **Autosaves** — the recovery points listed down the side, each shown with its game name and score below it. Click one to load it.
 - **Delete all** — clears every autosave. It arms for a few seconds and needs a second click, so a stray click can never throw away a season. Saved `.spg` files are never touched.
 
 > **What a new game keeps and what it clears.** A new game resets the teams, logo, score, clocks, sport values, custom stats, rosters-in-play, media folders and playlists, and any extra layouts or displays — it goes back to one scorebug. It keeps the things that describe *you*, not the game: imported media files, sport profiles, rosters and their stat columns, keybinds, fonts, preferences and your accent colors.
@@ -108,7 +108,7 @@ The launch box offers:
 
 This walkthrough takes you from a cold launch to a scorebug on a second screen. Budget five minutes.
 
-**Step 1 — Start a new game.** Launch ScorePlus and click **New Game**. Pick the sport from the list. The launch box dismisses and the console unlocks.
+**Step 1 — Start a new game.** Launch ScorePlus and click **New Game**. Pick the sport from the list and, if you like, type a name for the game. The launch box dismisses and the console unlocks.
 
 **Step 2 — Name the teams.** Click the **…** button beside **Visitors** and beside **Home**. The team box that pops up holds the name, the abbreviation (used in tight spots on the graphic), the logo, and the team's primary and secondary colors. Type the real names, pick their colors, and close it. The graphic already shows the changes — team names are live.
 
@@ -120,7 +120,7 @@ This walkthrough takes you from a cold launch to a scorebug on a second screen. 
 
 **Step 6 — Publish the staged values.** Set the down, the distance, who has the ball and how many timeouts are left. Nothing appears until you press **Update Output** — then all of it lands at once. The **Live: ON** toggle pauses that live feed for scores, clocks and names (useful when you're correcting a typo and don't want it on air); click it again to resume.
 
-**Step 7 — Save.** Press **Save Game** and choose a folder. You get a `.spg` file you can double-click next week, and it carries every display and layout with it — reopening the game returns to the same screens and the same layout on air. If you forget, autosaves run every five seconds and the newest eight points are kept on the launch screen.
+**Step 7 — Save.** Press **Save Game** and choose a folder. The suggested file name is the game's own name (or `Untitled.spg` when it has none). You get a `.spg` file you can double-click next week, and it carries every display and layout with it — reopening the game returns to the same screens and the same layout on air. If you forget, autosaves run every fifteen seconds and the newest eight points are kept on the launch screen.
 
 That's a working show. Everything from here is refinement.
 
@@ -440,7 +440,7 @@ Preferences can serve the whole control panel to a phone or tablet on the same W
 
 The remote is three tabs, the same shape as the desktop:
 
-- **Console** — both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance with **Next down / Previous down / New series / Last down**, the ball spot and its side, possession, the sport's own values, custom stats, layout switching, **Update Output**, **Live**, **Undo** and **New panel**.
+- **Console** — both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance with **Next down / Previous down / New series / Last down**, the ball spot and its side, possession, the sport's own values, custom stats, a display picker with layout switching, **Update Output**, **Live** and **Undo**.
 - **Media** — the library as a list, with one tap to put a clip on air, one to take it off, and a **Play / Pause** for whatever is on air now.
 - **Roster** — both sides, the roster each one draws from, and its players; tap a roster to assign it and a player to put them on the graphic.
 
@@ -478,7 +478,7 @@ For a controller whose native format is not published, **Raw serial capture** lo
 
 ### The horn
 
-The **HORN** button sits beside the quick-layout controls. Choose **Air horn**, **Buzzer** or **Siren**, or choose **Custom…** and pick a WAV, MP3 or AIFF file with the **…** button. The custom file is remembered in Preferences. A second press replaces the sound that is playing; the built-in sounds stop on their own.
+The **HORN** button sits beside the quick-layout controls. **Buzzer** is the first choice and the default; choose **Air horn** or **Siren**, or choose **Custom…** and pick a WAV, MP3 or AIFF file with the **…** button. The buzzer holds for four seconds; a second press replaces the sound that is playing, and the built-in sounds stop on their own.
 
 The horn plays through Windows' default playback device. Set that device in Windows before the show if the horn needs to follow the program feed. The built-in **Air horn**, **Buzzer** and **Siren** use Mixkit recordings under the [Mixkit License](https://mixkit.co/license/#sfxFree); see [third-party notices](docs/third-party-notices.md).
 
@@ -537,7 +537,7 @@ The main window is one page, top to bottom.
 | **☰ Event log** | The game's event history in its own movable window |
 | **▦ Game report** | Export a printable HTML summary of the game |
 | **▤ Ad log** | What the show has played: impressions per clip and how long each one runs |
-| **⌁ Hardware** | Connect a scoreboard controller and watch the data it sends |
+| **🕹 Hardware** | Connect a scoreboard controller and watch the data it sends |
 | **Save Game** / **Open Game** | `.spg` save and load |
 | **Display Studio** | Design the on-air graphic |
 | **Sport Profiles** | Edit how the sport behaves |
@@ -779,6 +779,8 @@ To ship an update, use the publish script. It builds, hashes the setup exe, writ
 ```
 
 Asset names matter: the release must carry **`ScorePlusSetup.exe`** and **`ScorePlusPortable.exe`**. Only `ScorePlusSetup` is used for updating; the portable exe is never self-replacing.
+
+The script also writes **`win.json`** beside them. It is optional for a GitHub release: installed copies read this project's releases API and take the installer's SHA-256 from GitHub, so uploading only the two EXEs is enough. `win.json` is for hosting the installer somewhere else, or for the stable `releases/latest/download/win.json` address.
 
 `--prerelease` marks it as an alpha. Drafts are ignored by the updater, because their assets aren't served.
 

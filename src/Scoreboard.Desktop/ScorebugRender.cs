@@ -52,14 +52,26 @@ internal static class ScorebugRender
     /// <summary>The outline an element draws around its own box, or nothing when it is switched off.</summary>
     public static Brush HostBorder(ScorebugElement item, GameState? state = null) => Paint.Border(item, state);
 
+    /// <summary>True when the element carries a plate paint beyond its flat default: a gradient or
+    /// a material finish. Such a paint is explicit artwork, so it shows even on a logo or shape
+    /// whose default plate is transparent.</summary>
+    public static bool HasPlatePaint(ScorebugElement item) =>
+        item.BackgroundTexture is { Enabled: true }
+        || item.BackgroundGradientPaint is { IsUsable: true }
+        || item.BackgroundGradient;
+
     /// <summary>Background painted behind an element. Text always has its plate; shapes and logos
-    /// keep their old clear host until a background is actually chosen for them.</summary>
+    /// keep their old clear host until a background is actually chosen for them. A gradient or
+    /// texture counts as choosing a background, which is what lets a logo be painted and textured
+    /// instead of only showing its studio placeholder.</summary>
     public static Brush HostBackground(ScorebugElement item, GameState? state = null)
     {
-        if (item.TransparentBackground) return Brushes.Transparent;
+        var platePaint = HasPlatePaint(item);
+        if (item.TransparentBackground && !platePaint) return Brushes.Transparent;
         if (item.Kind is ScorebugElementKind.Shape or ScorebugElementKind.Logo
             && item.BackgroundSource == ScorebugColorSource.Custom
-            && string.Equals(item.Background, "#CC141D28", StringComparison.OrdinalIgnoreCase))
+            && string.Equals(item.Background, "#CC141D28", StringComparison.OrdinalIgnoreCase)
+            && !platePaint)
             return Brushes.Transparent;
         return BackgroundBrush(item, state);
     }
@@ -115,6 +127,9 @@ internal static class ScorebugRender
             return new ScorebugLayoutFeed(catalog, engine, state, playback, muteVideo, item, displayId, layoutChain, onAirVideo);
         }
         if (item.Kind == ScorebugElementKind.Video) return new VideoSurface(item, playback, muteVideo, showVideoPlaceholder, onAirVideo);
+        // A text element can be a bottom-screen ticker: it travels continuously instead of sitting
+        // still, with its items separated by the same dot used by the league ticker.
+        if (item.Kind == ScorebugElementKind.Text && item.Ticker) return new TickerView(item, state);
         // HTML is drawn by a browser engine and captured as a frame, so every feed shows the same
         // picture at the element's design size.
         if (item.Kind == ScorebugElementKind.Html) return new HtmlSurface(item, showVideoPlaceholder);
@@ -176,9 +191,9 @@ internal static class ScorebugRender
             _ => new Rectangle { RadiusX = 8, RadiusY = 8 }
         };
         shape.Stretch = Stretch.Fill;
-        // A transparent shape has no fill, only its outline — the old code always painted the
-        // background, which is why a hollow shape could never be made.
-        shape.Fill = item.TransparentBackground ? Brushes.Transparent : Paint.Background(item, state);
+        // A transparent shape has no flat fill, only its outline — unless an explicit gradient or
+        // material paint was chosen, in which case that artwork is the fill.
+        shape.Fill = HostBackground(item, state);
         shape.Stroke = HostBorder(item, state);
         shape.StrokeThickness = Math.Max(0, item.BorderThickness);
         shape.StrokeStartLineCap = PenLineCap.Round;
@@ -202,11 +217,14 @@ internal static class ScorebugRender
                 block.ApplyStyle(item, state);
                 block.UpdateText(text ?? item.Content, item.Transition, item.TransitionSeconds);
                 break;
+            case TickerView ticker:
+                ticker.Update(item, state);
+                break;
             case TextBlock plain:
                 plain.Text = text ?? item.Content;
                 break;
             case Shape shape:
-                shape.Fill = item.TransparentBackground ? Brushes.Transparent : Paint.Background(item, state);
+                shape.Fill = HostBackground(item, state);
                 shape.Stroke = HostBorder(item, state);
                 shape.StrokeThickness = Math.Max(0, item.BorderThickness);
                 break;
@@ -305,6 +323,137 @@ internal static class ScorebugRender
             TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap
         };
+    }
+}
+
+/// <summary>
+/// A text element that scrolls across its box like a lower-screen ticker. The text is duplicated
+/// once with a gap, then the pair travels exactly one period so the loop has no seam. Every value
+/// change keeps the same animation unless the words, style or speed actually changed, which is what
+/// makes the ticker immune to the editor's normal once-a-second repaint.
+/// </summary>
+public sealed class TickerView : Grid, IDisposable
+{
+    readonly StackPanel _track = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+    ScorebugElement _item;
+    string _signature = "";
+    bool _loaded;
+    bool _disposed;
+    double _period;
+
+    public TickerView(ScorebugElement item, Func<GameState>? state)
+    {
+        _item = item;
+        ClipToBounds = true;
+        IsHitTestVisible = false;
+        Background = Brushes.Transparent;
+        Children.Add(_track);
+        Update(item, state);
+        Loaded += (_, _) => { _loaded = true; Start(); };
+        Unloaded += (_, _) => { _loaded = false; Stop(); };
+    }
+
+    public void Update(ScorebugElement item, GameState? state)
+    {
+        if (_disposed) return;
+        UpdateCore(item, state is null ? null : () => state);
+    }
+
+    public void Update(ScorebugElement item, Func<GameState>? state)
+    {
+        if (_disposed) return;
+        UpdateCore(item, state);
+    }
+
+    void UpdateCore(ScorebugElement item, Func<GameState>? state)
+    {
+        if (_disposed) return;
+        _item = item;
+        var game = state?.Invoke();
+        var raw = game is null ? item.Content : ScoreboardTemplates.Bind(item.Content, game, item.PeriodFormat);
+        raw = System.Text.RegularExpressions.Regex.Replace(raw ?? "", @"\s+", " ").Trim();
+        var display = raw.Length == 0 ? " " : raw + "   \u2022   ";
+        var foreground = Paint.Text(item, game);
+        var color = foreground is SolidColorBrush solid ? solid.Color.ToString() : foreground.ToString();
+        var signature = string.Join('|',
+            display, item.FontFamily, item.FontSize.ToString("0.###"), item.Bold, item.Italic,
+            item.TextOpacity.ToString("0.###"), item.TickerSpeed.ToString("0.###"), color);
+        if (string.Equals(signature, _signature, StringComparison.Ordinal)) return;
+        _signature = signature;
+        Build(display, item, game);
+    }
+
+    void Build(string display, ScorebugElement item, GameState? game)
+    {
+        Stop();
+        _track.Children.Clear();
+        var typeface = new Typeface(FontCatalog.Resolve(item.FontFamily),
+            item.Italic ? FontStyles.Italic : FontStyles.Normal,
+            item.Bold ? FontWeights.Bold : FontWeights.Normal,
+            FontStretches.Normal);
+        var brush = Paint.Text(item, game);
+        var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        double width;
+        try
+        {
+            var formatted = new FormattedText(display, System.Globalization.CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight, typeface, Math.Max(1, item.FontSize), brush, dpi)
+            {
+                MaxTextWidth = 100000,
+                Trimming = TextTrimming.None
+            };
+            width = Math.Max(1, formatted.WidthIncludingTrailingWhitespace);
+        }
+        catch { width = Math.Max(1, item.Width * 0.8); }
+        var gap = Math.Max(20, item.FontSize * 1.5);
+        _period = width + gap;
+        for (var copy = 0; copy < 2; copy++)
+        {
+            var block = new TextBlock
+            {
+                Text = display,
+                FontFamily = typeface.FontFamily,
+                FontSize = Math.Max(1, item.FontSize),
+                FontWeight = typeface.Weight,
+                FontStyle = typeface.Style,
+                Foreground = brush,
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.None,
+                Opacity = Math.Clamp(item.TextOpacity, 0, 1),
+                Margin = new Thickness(0, 0, copy == 0 ? gap : 0, 0),
+                IsHitTestVisible = false
+            };
+            _track.Children.Add(block);
+        }
+        _track.RenderTransform = new TranslateTransform(0, 0);
+        _track.RenderTransformOrigin = new Point(0, 0.5);
+        if (_loaded) Start();
+    }
+
+    void Start()
+    {
+        if (_disposed || _period <= 0 || _track.RenderTransform is not TranslateTransform transform) return;
+        var speed = Math.Clamp(_item.TickerSpeed, 10, 600);
+        var seconds = Math.Max(0.25, _period / speed);
+        var animation = new DoubleAnimation(0, -_period, new Duration(TimeSpan.FromSeconds(seconds)))
+        {
+            RepeatBehavior = RepeatBehavior.Forever
+        };
+        transform.BeginAnimation(TranslateTransform.XProperty, animation, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    void Stop()
+    {
+        if (_track.RenderTransform is TranslateTransform transform)
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Stop();
+        Children.Clear();
     }
 }
 
@@ -473,7 +622,10 @@ public sealed class ScorebugLogoView : Grid
         _placeholder.FontStyle = item.Italic ? FontStyles.Italic : FontStyles.Normal;
         _placeholder.Foreground = Paint.Text(item, state);
         _placeholder.Opacity = Math.Clamp(item.TextOpacity, 0, 1);
-        _placeholder.Visibility = found ? Visibility.Collapsed : Visibility.Visible;
+        // A painted or textured logo plate is the artwork the operator made; the studio's
+        // "HOME LOGO" label would cover it, so the plate takes the placeholder's place. With no
+        // team logo and no plate paint the label still identifies the empty slot.
+        _placeholder.Visibility = found || ScorebugRender.HasPlatePaint(item) ? Visibility.Collapsed : Visibility.Visible;
     }
 }
 
