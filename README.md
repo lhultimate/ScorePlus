@@ -961,8 +961,9 @@ The console and studio reflow onto portrait monitors and high-DPI scaling. The s
 ScorePlus is an evolving production tool, not yet a full broadcast package. Still ahead:
 
 - Network and hardware control (Major WIP right now)
-- Multi-game communication
-- More of the console reachable from the phone (the media and roster tabs are in, but the live camera fixes and UI enhancements are not)
+- Multi-game communication (Also major WIP right now)
+- Media launch from remote (very buggy right now)
+- More stuff to make this the ultimate production software.
 - Professional/commercial use
 
 Also worth knowing: video sound plays through the audience output window while the preview and studio stay muted, so you never hear a cue twice — and a video element with its own audio output is only routed when it is on an audience screen, so several preview windows never open the same speaker more than once.
