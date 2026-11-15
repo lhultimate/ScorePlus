@@ -12,7 +12,8 @@ public enum FootballDownMode
     Goal,
     Pat,
     TwoPoint,
-    None
+    None,
+    Inches
 }
 
 /// <summary>What replaces the game clock on the graphic.</summary>
@@ -154,6 +155,8 @@ public sealed class GameState
     public List<SavedQuickMedia> QuickMedia { get; set; } = [];
     /// <summary>Saved macro buttons, with their ordered steps, so a game reopens with the show's shortcuts.</summary>
     public List<SavedMacro> Macros { get; set; } = [];
+    /// <summary>How many macro board pages exist. A blank page is a valid page.</summary>
+    public int MacroPages { get; set; } = 1;
     /// <summary>
     /// The latest league cloud snapshot. It is live data rather than part of the fixture, so it is
     /// deliberately not written into a saved game; the ticker refreshes from the cloud on sync.
@@ -229,7 +232,7 @@ public sealed class GameState
     public int[] ScoringOptions { get; set; } = [1, 2, 3];
     public int ShotClockSeconds { get; set; } = 30;
     public int Down { get; set; } = 1;
-    /// <summary>Normal, goal-to-go, PAT, two-point attempt, or no down line at all.</summary>
+    /// <summary>Normal, goal-to-go, PAT, two-point attempt, inches, or no down line at all.</summary>
     public FootballDownMode FootballDownMode { get; set; }
     /// <summary>Clock, Final or End of Reg. on the graphic.</summary>
     public GameClockMessage ClockMessage { get; set; }
@@ -249,7 +252,8 @@ public sealed class GameState
     public string ToGoDisplay => FootballDownMode switch
     {
         FootballDownMode.Normal => YardsToGo.ToString(),
-        FootballDownMode.Goal => GameEngine.UppercaseDownWordsEnabled ? "GOAL" : "Goal",
+        FootballDownMode.Inches => "Inches",
+        FootballDownMode.Goal => "Goal",
         _ => ""
     };
 
@@ -261,7 +265,8 @@ public sealed class GameState
         FootballDownMode.TwoPoint => "2 PT ATT",
         FootballDownMode.None => "",
         FootballDownMode.Goal => $"{DownDisplay} & {ToGoDisplay}",
-        _ => DownPending ? $"{DownDisplay} {(GameEngine.UppercaseDownWordsEnabled ? "DOWN" : "Down")}" : $"{DownDisplay} & {ToGoDisplay}"
+        FootballDownMode.Inches => $"{DownDisplay} & {ToGoDisplay}",
+        _ => DownPending ? $"{DownDisplay} Down" : $"{DownDisplay} & {ToGoDisplay}"
     };
 
     /// <summary>The words or time the audience clock carries.</summary>
@@ -1037,6 +1042,7 @@ public sealed class GameEngine
         Log("Down", mode switch
         {
             FootballDownMode.Goal => $"{State.DownDisplay} & Goal",
+            FootballDownMode.Inches => $"{State.DownDisplay} & Inches",
             FootballDownMode.Pat => "PAT",
             FootballDownMode.TwoPoint => "2 PT ATT",
             FootballDownMode.None => "Down and distance hidden",
@@ -1165,12 +1171,6 @@ public sealed class GameEngine
         Changed?.Invoke();
     }
 
-    /// <summary>
-    /// When on, the down line's words print in full caps: "1st & GOAL" and "2nd DOWN". The
-    /// ordinal, the distance and the PAT labels do not change. Off by default.
-    /// </summary>
-    public static bool UppercaseDownWordsEnabled { get; set; }
-
     /// <summary>Whether Next down shows the new down alone until the distance is set.</summary>
     public static bool DownPreviewEnabled { get; set; }
 
@@ -1184,6 +1184,19 @@ public sealed class GameEngine
 
     /// <summary>True once after New series asked to go straight to air; the host publishes it.</summary>
     public bool TakePublishRequest() { var requested = _publishNewSeries; _publishNewSeries = false; return requested; }
+
+    /// <summary>
+    /// Set by a macro step that is not allowed to bypass Update Output. Live publishing must not
+    /// move any value while this is set; the next full publish (Update Output) clears it.
+    /// </summary>
+    [JsonIgnore]
+    public bool MacroOutputHold { get; private set; }
+
+    /// <summary>Holds live output until the operator presses Update Output.</summary>
+    public void HoldMacroOutput() => MacroOutputHold = true;
+
+    /// <summary>Clears the hold after a full publish.</summary>
+    public void ClearMacroOutputHold() => MacroOutputHold = false;
     public void SetPeriodFormat(string format) { if(format is not ("Full" or "Short" or "Number" or "Ordinal"))return; if(State.QuarterDisplayFormat==format)return; SaveUndo("Period format"); State.QuarterDisplayFormat=format; Log("Period", $"Period display: {PeriodDisplay.Format(State)}"); Changed?.Invoke(); }
     /// <summary>Yard line is 0–50: a ball spot never goes past midfield, whichever team has it.</summary>
     public void SetFootballDistance(int yardsToGo,int? yardsToGoal=null) { if (State.SportId != "football") return; SaveUndo("Football distance"); State.FootballDownMode = FootballDownMode.Normal; State.DownPending = false; State.YardsToGo=Math.Clamp(yardsToGo,1,99); if(yardsToGoal is not null)State.YardsToGoal=Math.Clamp(yardsToGoal.Value,0,50); Log("Yards", $"{State.YardsToGo} to go, ball at {State.YardsToGoal}"); Changed?.Invoke(); }
@@ -1393,9 +1406,10 @@ public sealed class GameEngine
     }
 
     /// <summary>Replaces the saved macro buttons without adding an undo point for every keystroke.</summary>
-    public void StoreMacros(IEnumerable<SavedMacro> macros)
+    public void StoreMacros(IEnumerable<SavedMacro> macros, int? pageCount = null)
     {
         State.Macros = macros.Select(macro => macro.Copy()).ToList();
+        if (pageCount is int pages) State.MacroPages = Math.Clamp(pages, 1, 99);
         Changed?.Invoke();
     }
 
@@ -1439,6 +1453,10 @@ public sealed class GameEngine
         State.SportValues ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         State.Macros ??= [];
         foreach (var macro in State.Macros) macro.Normalize();
+        // Older saves have no page count; make room for every page a saved macro already names.
+        State.MacroPages = Math.Clamp(State.MacroPages, 1, 99);
+        if (State.Macros.Count > 0)
+            State.MacroPages = Math.Max(State.MacroPages, State.Macros.Max(macro => macro.Page) + 1);
         State.Controls ??= [];
         if (State.Controls.Count == 0)
             State.Controls = (Sports.Find(State.SportId)?.Controls ?? []).Select(c => c with { }).ToList();

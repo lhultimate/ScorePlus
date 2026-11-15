@@ -23,6 +23,9 @@ public sealed class CustomIconState
     };
 
     public string Glyph { get; set; } = "★";
+
+    /// <summary>A photo used instead of the glyph. Kept beside this state's own colour and plate.</summary>
+    public string ImagePath { get; set; } = "";
     public string Color { get; set; } = "#FFFFFF";
     public string Plate { get; set; } = "#00000000";
     public bool Round { get; set; } = true;
@@ -61,6 +64,7 @@ public sealed class CustomIconState
         Condition.Key = (Condition.Key ?? "").Trim();
         Glyph = string.IsNullOrWhiteSpace(Glyph) ? "★" : Glyph.Trim();
         if (Glyph.Length > 3) Glyph = Glyph[..3];
+        ImagePath = (ImagePath ?? string.Empty).Trim();
         Color = CustomIcon.Hex(Color, "#FFFFFF");
         Plate = CustomIcon.Hex(Plate, "#00000000");
         OffsetX = double.IsFinite(OffsetX) ? Math.Clamp(OffsetX, -2000, 2000) : 0;
@@ -88,6 +92,7 @@ public sealed class CustomIconState
 /// <summary>What a made icon draws at this moment, after any matching data state is chosen.</summary>
 public sealed record CustomIconLook(
     string Glyph,
+    string ImagePath,
     string Color,
     string Plate,
     bool Round,
@@ -109,6 +114,9 @@ public sealed class CustomIcon
 
     /// <summary>One to three characters — a star, a ball, a flag — drawn as the icon itself.</summary>
     public string Glyph { get; set; } = "★";
+
+    /// <summary>A photo used instead of the fallback glyph. Empty falls back to the glyph.</summary>
+    public string ImagePath { get; set; } = "";
 
     /// <summary>The glyph's colour.</summary>
     public string Color { get; set; } = "#FFFFFF";
@@ -149,11 +157,11 @@ public sealed class CustomIcon
             foreach (var candidate in States ?? [])
             {
                 if (candidate is null || !candidate.Matches(state)) continue;
-                return new CustomIconLook(candidate.Glyph, candidate.Color, candidate.Plate, candidate.Round,
+                return new CustomIconLook(candidate.Glyph, candidate.ImagePath, candidate.Color, candidate.Plate, candidate.Round,
                     candidate.OffsetX, candidate.OffsetY, candidate.Scale, candidate.Opacity, candidate.Rotation);
             }
         }
-        return new CustomIconLook(Glyph, Color, Plate, Round, OffsetX, OffsetY, Scale, Opacity, Rotation);
+        return new CustomIconLook(Glyph, ImagePath, Color, Plate, Round, OffsetX, OffsetY, Scale, Opacity, Rotation);
     }
 
     public void Normalize()
@@ -162,6 +170,7 @@ public sealed class CustomIcon
         Name = string.IsNullOrWhiteSpace(Name) ? "Icon" : Name.Trim();
         Glyph = string.IsNullOrWhiteSpace(Glyph) ? "★" : Glyph.Trim();
         if (Glyph.Length > 3) Glyph = Glyph[..3];
+        ImagePath = (ImagePath ?? string.Empty).Trim();
         Color = Hex(Color, "#FFFFFF");
         Plate = Hex(Plate, "#00000000");
         OffsetX = double.IsFinite(OffsetX) ? Math.Clamp(OffsetX, -2000, 2000) : 0;

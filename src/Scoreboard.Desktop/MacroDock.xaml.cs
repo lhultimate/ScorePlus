@@ -39,6 +39,8 @@ public partial class MacroDock : UserControl
     sealed record MacroPlacement(SavedMacro Macro, int Row, int Column);
     bool _editorVisible = true;
     bool _showHints;
+    int _page;
+    int _pageCount = 1;
 
     sealed record KindChoice(MacroActionKind Kind, string Label)
     {
@@ -170,9 +172,12 @@ public partial class MacroDock : UserControl
         if (force) { _draft = null; _dirty = false; }
         var selectedId = _draft?.Id;
         _macros = _engine.State.Macros.Select(macro => macro.Copy()).ToList();
+        _pageCount = Math.Clamp(_engine.State.MacroPages, 1, 99);
+        if (_macros.Count > 0) _pageCount = Math.Max(_pageCount, _macros.Max(macro => macro.Page) + 1);
+        _page = Math.Clamp(_page, 0, _pageCount - 1);
         if (_draft is null || !_dirty)
         {
-            var selected = _macros.FirstOrDefault(macro => macro.Id == selectedId) ?? _macros.FirstOrDefault();
+            var selected = MacrosOnPage.FirstOrDefault(macro => macro.Id == selectedId) ?? MacrosOnPage.FirstOrDefault();
             _draft = selected?.Copy();
         }
         RenderMacros();
@@ -190,6 +195,44 @@ public partial class MacroDock : UserControl
     static bool TipsEnabled()
     {
         try { return PreferencesStore.Load().ShowHeadingHints; } catch { return false; }
+    }
+
+    void UpdatePageBar()
+    {
+        PageLabel.Text = $"PAGE {_page + 1} / {_pageCount}";
+        PrevPageButton.IsEnabled = _page > 0;
+        NextPageButton.IsEnabled = _page < _pageCount - 1;
+        AddPageButton.IsEnabled = _pageCount < 99;
+    }
+
+    void PreviousPage_Click(object sender, RoutedEventArgs e) => SwitchPage(-1);
+    void NextPage_Click(object sender, RoutedEventArgs e) => SwitchPage(1);
+
+    void SwitchPage(int delta)
+    {
+        var target = Math.Clamp(_page + delta, 0, _pageCount - 1);
+        if (target == _page) return;
+        SaveDraft(false);
+        _page = target;
+        _draft = MacrosOnPage.FirstOrDefault()?.Copy();
+        _dirty = false;
+        RenderMacros();
+        LoadEditor();
+        Status?.Invoke($"MACRO · Page {_page + 1} of {_pageCount}");
+    }
+
+    void AddPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pageCount >= 99) return;
+        SaveDraft(false);
+        _pageCount++;
+        _page = _pageCount - 1;
+        _draft = null;
+        _dirty = false;
+        StoreBoard();
+        RenderMacros();
+        LoadEditor();
+        Status?.Invoke($"MACRO · Added blank page {_page + 1}");
     }
 
     void ToggleEditor_Click(object sender, RoutedEventArgs e)
@@ -227,12 +270,19 @@ public partial class MacroDock : UserControl
             card.Width = width;
     }
 
+    IEnumerable<SavedMacro> MacrosOnPage => _macros.Where(macro => macro.Page == _page);
+
+    void StoreBoard() => _engine.StoreMacros(_macros, _pageCount);
+
     void RenderMacros()
     {
         MacroButtons.Children.Clear();
         MacroButtons.RowDefinitions.Clear();
         MacroButtons.ColumnDefinitions.Clear();
-        EmptyText.Visibility = _macros.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyText.Visibility = MacrosOnPage.Any() ? Visibility.Collapsed : Visibility.Visible;
+        EmptyText.Text = _pageCount > 1
+            ? $"Page {_page + 1} is empty. Press + New macro to put a button here, or use ◀ / ▶ to change pages."
+            : "No macros yet. Choose New macro, add a few steps, then press the macro card to run them together.";
         var columns = MacroColumns();
         for (var column = 0; column < columns; column++)
             MacroButtons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -306,7 +356,7 @@ public partial class MacroDock : UserControl
             Style = (Style)Resources["MacroAccent"],
             Content = new TextBlock
             {
-                Text = $"{macro.Label}\n{macro.ActionCount} step{(macro.ActionCount == 1 ? "" : "s")}",
+                Text = macro.Label,
                 TextWrapping = TextWrapping.Wrap
             },
             Tag = macro,
@@ -342,7 +392,7 @@ public partial class MacroDock : UserControl
         var occupied = new HashSet<(int Row, int Column)>();
         var explicitCells = _macros.Any(macro => macro.Row >= 0 && macro.Column >= 0);
         var pending = new List<SavedMacro>();
-        foreach (var macro in _macros)
+        foreach (var macro in MacrosOnPage)
         {
             if (macro.Row >= 0 && macro.Column >= 0)
             {
@@ -395,6 +445,7 @@ public partial class MacroDock : UserControl
             UpdateFields();
             UpdateColorPreview();
             UpdateColorChoiceHighlight();
+            UpdatePageBar();
         }
         finally { _syncing = false; }
     }
@@ -439,6 +490,11 @@ public partial class MacroDock : UserControl
         if (kind is MacroActionKind.SportValue) RefreshSportValueChoices();
         if (kind is MacroActionKind.CustomValue) RefreshCustomValueChoices();
         if (kind is MacroActionKind.PlayVideo) RefreshMediaChoices();
+        // Media is always direct: there is no staged playback state to publish. The checkbox stays
+        // checked and disabled for that step so the rule is visible instead of merely implicit.
+        var mediaStep = kind == MacroActionKind.PlayVideo;
+        if (mediaStep) BypassOutputBox.IsChecked = true;
+        BypassOutputBox.IsEnabled = !mediaStep;
     }
 
     /// <summary>Lists every routeable library item, including live cameras and audio buses.</summary>
@@ -559,8 +615,8 @@ public partial class MacroDock : UserControl
     {
         if (_draft?.Id == macro.Id) { _draft = null; _dirty = false; }
         _macros.RemoveAll(item => item.Id == macro.Id);
-        _engine.StoreMacros(_macros);
-        if (_draft is null) _draft = _macros.FirstOrDefault()?.Copy();
+        StoreBoard();
+        if (_draft is null) _draft = MacrosOnPage.FirstOrDefault()?.Copy();
         RenderMacros();
         LoadEditor();
         Status?.Invoke($"MACRO · {macro.Label} deleted");
@@ -729,17 +785,18 @@ public partial class MacroDock : UserControl
     {
         var target = MacroDropTargetAt(point);
         if (target is null) return null;
+        var page = MacrosOnPage.ToList();
         var placement = LayoutMacros(MacroColumns()).FirstOrDefault(candidate =>
             candidate.Row == target.Row && candidate.Column == target.Column);
-        return placement is null ? _macros.Count : _macros.FindIndex(macro => macro.Id == placement.Macro.Id);
+        return placement is null ? page.Count : page.FindIndex(macro => macro.Id == placement.Macro.Id);
     }
 
     void NewMacro_Click(object sender, RoutedEventArgs e)
     {
         SaveDraft(false);
-        var macro = new SavedMacro { Label = $"Macro {_macros.Count + 1}" };
+        var macro = new SavedMacro { Label = $"Macro {MacrosOnPage.Count() + 1}", Page = _page };
         _macros.Add(macro);
-        _engine.StoreMacros(_macros);
+        StoreBoard();
         _draft = macro.Copy();
         _dirty = false;
         RenderMacros();
@@ -750,8 +807,8 @@ public partial class MacroDock : UserControl
     {
         if (_draft is null) return;
         _macros.RemoveAll(item => item.Id == _draft.Id);
-        _engine.StoreMacros(_macros);
-        _draft = _macros.FirstOrDefault()?.Copy();
+        StoreBoard();
+        _draft = MacrosOnPage.FirstOrDefault()?.Copy();
         _dirty = false;
         RenderMacros();
         LoadEditor();
@@ -764,7 +821,11 @@ public partial class MacroDock : UserControl
         if (_draft is null) return;
         _draft.Label = string.IsNullOrWhiteSpace(NameBox.Text) ? "Macro" : NameBox.Text.Trim();
         var existing = _macros.FirstOrDefault(item => item.Id == _draft.Id);
-        if (existing is null) _macros.Add(_draft.Copy());
+        if (existing is null)
+        {
+            _draft.Page = _page;
+            _macros.Add(_draft.Copy());
+        }
         else
         {
             // Board cells belong to the board, not the editor. Keep the current cell while saving
@@ -772,10 +833,11 @@ public partial class MacroDock : UserControl
             _draft.StartNewRow = existing.StartNewRow;
             _draft.Row = existing.Row;
             _draft.Column = existing.Column;
+            _draft.Page = existing.Page;
             var index = _macros.IndexOf(existing);
             _macros[index] = _draft.Copy();
         }
-        _engine.StoreMacros(_macros);
+        StoreBoard();
         _dirty = false;
         if (NameBox.Text != _draft.Label)
         {
@@ -993,6 +1055,7 @@ public partial class MacroDock : UserControl
             PlayerId = (PlayerBox.SelectedItem as PlayerChoice)?.Id ?? "",
             PlayerName = (PlayerBox.SelectedItem as PlayerChoice)?.Label ?? "",
             StatName = StatBox.Text.Trim(),
+            BypassOutput = kind == MacroActionKind.PlayVideo || BypassOutputBox.IsChecked == true,
             Delta = kind == MacroActionKind.SportValue
                 ? SportDeltaBox.IsChecked == true
                 : kind == MacroActionKind.CustomValue
@@ -1025,6 +1088,7 @@ public partial class MacroDock : UserControl
         action.PlayerName = replacement.PlayerName;
         action.StatName = replacement.StatName;
         action.Delta = replacement.Delta;
+        action.BypassOutput = replacement.BypassOutput;
         _dirty = true;
         StepList.Items.Refresh();
         EditStatus.Text = "UNSAVED";
@@ -1040,6 +1104,7 @@ public partial class MacroDock : UserControl
             SideBox.SelectedIndex = action.Home ? 0 : 1;
             AmountBox.Text = action.Amount.ToString();
             ValueBox.Text = action.Value.ToString();
+            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind == MacroActionKind.PlayVideo;
             VideoPathBox.Text = action.Path;
             RefreshMediaChoices();
             MediaBox.SelectedItem = MediaBox.Items.OfType<MediaChoice>()
@@ -1072,6 +1137,7 @@ public partial class MacroDock : UserControl
                 StatBox.Text = action.StatName;
             }
             UpdateFields();
+            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind == MacroActionKind.PlayVideo;
         }
         finally { _syncing = false; }
     }
@@ -1128,17 +1194,22 @@ public partial class MacroDock : UserControl
 
     void MoveMacro(string id, string? beforeId)
     {
-        var from = _macros.FindIndex(macro => macro.Id == id);
+        var page = MacrosOnPage.ToList();
+        var from = page.FindIndex(macro => macro.Id == id);
         if (from < 0) return;
-        var target = beforeId is null ? _macros.Count : _macros.FindIndex(macro => macro.Id == beforeId);
+        var target = beforeId is null ? page.Count : page.FindIndex(macro => macro.Id == beforeId);
         if (target < 0 || target == from) return;
-        var moved = _macros[from];
-        _macros.RemoveAt(from);
+        var moved = page[from];
+        page.RemoveAt(from);
         // A drop uses the target's original slot: dragging the first card onto the second puts it
         // in the second position, while dragging the second onto the first puts it before it.
-        target = Math.Clamp(target, 0, _macros.Count);
-        _macros.Insert(target, moved);
-        _engine.StoreMacros(_macros);
+        target = Math.Clamp(target, 0, page.Count);
+        page.Insert(target, moved);
+        // Rebuild the full list in page order, leaving the other pages untouched.
+        var before = _macros.Where(macro => macro.Page < _page).ToList();
+        var after = _macros.Where(macro => macro.Page > _page).ToList();
+        _macros = before.Concat(page).Concat(after).ToList();
+        StoreBoard();
         RenderMacros();
         Status?.Invoke($"MACRO · {moved.Label} moved");
     }
@@ -1175,7 +1246,7 @@ public partial class MacroDock : UserControl
         }
         source.Macro.Row = targetRow;
         source.Macro.Column = targetColumn;
-        _engine.StoreMacros(_macros);
+        StoreBoard();
         RenderMacros();
         Status?.Invoke($"MACRO · {source.Macro.Label} moved");
     }

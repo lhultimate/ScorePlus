@@ -381,11 +381,11 @@ public partial class ControlPanelView : UserControl
 
     static readonly FootballDownMode[] FootballModes =
     [
-        FootballDownMode.Normal, FootballDownMode.Goal, FootballDownMode.Pat,
+        FootballDownMode.Normal, FootballDownMode.Inches, FootballDownMode.Goal, FootballDownMode.Pat,
         FootballDownMode.TwoPoint, FootballDownMode.None
     ];
 
-    static readonly string[] FootballModeLabels = ["Yards", "Goal", "PAT", "2 PT ATT", "No line"];
+    static readonly string[] FootballModeLabels = ["Yards", "Inches", "Goal", "PAT", "2 PT ATT", "None"];
 
     void UpdateFootballMode(GameState s)
     {

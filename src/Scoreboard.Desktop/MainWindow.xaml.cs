@@ -561,6 +561,8 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
 
     public void PublishGameState()
     {
+        // Update Output is the explicit release for a macro that held its live values back.
+        _engine.ClearMacroOutputHold();
         // Remember the down going to air, so Last down can put back the one before it.
         _engine.MarkPublished();
         _publishedEngine.LoadFromState(_engine.CloneState());
@@ -1382,7 +1384,11 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
     {
         CheckAutoHorns();
         // New series can ask to go on air by itself; publish the whole staged state in that case.
-        if (_engine.TakePublishRequest()) { PublishGameState(); return; }
+        var publishRequested = _engine.TakePublishRequest();
+        // A macro step that did not bypass Update Output owns the output until the operator
+        // publishes. Consume a queued publish request, but do not let it jump the hold.
+        if (_engine.MacroOutputHold) return;
+        if (publishRequested) { PublishGameState(); return; }
         if (_liveScoreClock) PublishLiveValues();
     }
 
@@ -1425,6 +1431,7 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
 
     void PublishLiveValues()
     {
+        if (_engine.MacroOutputHold) return;
         // A connected console owns down and distance as well as the score and clocks, so an
         // operator's recall of the console's last down has to ride the same live path as the
         // console's own frames. Without this the audience kept the wrong down.

@@ -123,25 +123,29 @@ Check(overtimeLabel.State.GameClockText=="FINAL/OT"&&ScoreboardTemplates.Bind("{
 GameEngine.OvertimeFinalLabelEnabled=false;
 engine.NewGame("football");engine.SetPeriod(5);Check(PeriodDisplay.Format(engine.State)=="OT","a fifth football period prints OT");engine.SetPeriod(6);Check(PeriodDisplay.Format(engine.State)=="2OT","a sixth football period prints 2OT");
 engine.NewGame("soccer");engine.AddCard(true);engine.AddCard(false,true);Check(engine.State.HomeYellowCards==1&&engine.State.AwayRedCards==1,"soccer yellow and red cards track per side");Check(engine.Undo()&&engine.State.AwayRedCards==0,"soccer card can be undone");
-Check(!GameEngine.UppercaseDownWordsEnabled,"the full-caps down line is off by default");
 engine.NewGame("football");engine.SetFootballDownMode(FootballDownMode.Goal);
 Check(engine.State.DownDistanceDisplay=="1st & Goal"&&engine.State.ToGoDisplay=="Goal",
     "the down line prints mixed case by default");
-try
-{
-    GameEngine.UppercaseDownWordsEnabled=true;
-    Check(engine.State.DownDistanceDisplay=="1st & GOAL"&&engine.State.ToGoDisplay=="GOAL",
-        "the full-caps option prints 1st & GOAL");
-    engine.SetFootballDownMode(FootballDownMode.Normal);engine.State.Down=2;engine.State.DownPending=true;
-    Check(engine.State.DownDistanceDisplay=="2nd DOWN"&&ScoreboardTemplates.Bind("{{DOWNS}}",engine.State)=="2nd DOWN",
-        "the full-caps option prints 2nd DOWN on the graphic");
-}
-finally
-{
-    GameEngine.UppercaseDownWordsEnabled=false;
-    engine.State.DownPending=false;
-}
-Check(engine.State.DownDistanceDisplay=="2nd & 10","the down line returns to mixed case when the option is off");
+Check(ScoreboardTemplates.Bind("{{DOWNS}}",engine.State)=="1st & Goal"
+    &&ScoreboardTemplates.Bind("{{DOWNS}}",engine.State,null,downCaps:true)=="1st & GOAL",
+    "the full-caps down line is an element property, not a global preference");
+engine.SetFootballDownMode(FootballDownMode.Inches);
+Check(engine.State.ToGoDisplay=="Inches"&&engine.State.DownDistanceDisplay=="1st & Inches"
+    &&ScoreboardTemplates.Bind("{{DOWNS}}",engine.State)=="1st & Inches"
+    &&ScoreboardTemplates.Bind("{{DOWNS}}",engine.State,null,downCaps:true)=="1st & INCHES",
+    "the inches down line reads 1st & Inches and caps only when the element asks");
+engine.SetFootballDownMode(FootballDownMode.Normal);engine.State.Down=2;engine.State.DownPending=true;
+Check(ScoreboardTemplates.Bind("{{DOWNS}}",engine.State,null,downCaps:true)=="2nd DOWN",
+    "the full-caps element prints 2nd DOWN on the graphic");
+engine.State.DownPending=false;
+Check(engine.State.DownDistanceDisplay=="2nd & 10","the down line returns to mixed case when the element option is off");
+engine.NewGame("football");engine.SetPlayClock(22);
+Check(ScoreboardTemplates.Bind("{{PLAY_CLOCK}}",engine.State)=="22"
+    &&ScoreboardTemplates.Bind("{{PLAY_CLOCK}}",engine.State,null,playClockColon:true)==":22",
+    "the play-clock colon is an element property and prints :22");
+engine.SetPlayClock(5);
+Check(ScoreboardTemplates.Bind("{{PLAY_CLOCK}}",engine.State,null,playClockColon:true)==":05",
+    "a one-digit play clock is padded after the colon");
 var sportsGame=Path.Combine(Path.GetTempPath(),$"sports-state-{Guid.NewGuid():N}.scoreboard");engine.NewGame("football");engine.SetFootballDistance(3,17);engine.AdvanceDown();engine.Save(sportsGame);var restored=new GameEngine();restored.Load(sportsGame);Check(restored.State.Down==2&&restored.State.YardsToGo==3&&restored.State.YardsToGoal==17,"sport-specific state persists in saved game");File.Delete(sportsGame);
 engine.NewGame("baseball");engine.BaseballBall();engine.BaseballBall();engine.BaseballBall();engine.BaseballBall();Check(engine.State.Balls==0&&engine.State.Strikes==0,"four baseball balls reset the count");
 engine.BaseballStrike();engine.BaseballStrike();engine.BaseballStrike(true);Check(engine.State.Strikes==2&&engine.State.Outs==0,"baseball foul at two strikes does not record a third strike");
@@ -395,13 +399,24 @@ try
             new MacroAction{Kind=MacroActionKind.CustomValue,Path="stat-id",Value=7,Label="Turnovers"}
         ]
     }]);
+    macroEngine.State.MacroPages=2;
+    macroEngine.State.Macros[0].Page=1;
+    macroEngine.State.Macros[0].Actions[4].BypassOutput=true;
     macroEngine.SetGameName("Friday Night Lights");
     File.WriteAllText(macroPath,GameFiles.Serialize(macroEngine.State,null));
     var (loadedMacros,_)=GameFiles.Read(macroPath);
     var macro=loadedMacros.Macros.Single();
     Check(loadedMacros.GameName=="Friday Night Lights","a game name survives a game save");
     Check(macro.Label=="Kickoff"&&macro.Color=="#FF6B6B"&&macro.Actions.Count==7,"macro buttons, their colour and every step survive a game save");
-    Check(macro.Row==2&&macro.Column==3,"a macro's board cell survives a game save");
+    Check(macro.Row==2&&macro.Column==3&&macro.Page==1&&loadedMacros.MacroPages==2,
+        "a macro's board cell, page and the page count survive a game save");
+    Check(!macro.Actions[0].BypassOutput&&macro.Actions[4].BypassOutput,
+        "a macro step's bypass-output choice survives a game save");
+    Check(!macroEngine.MacroOutputHold,"macro live output is not held before a held step");
+    macroEngine.HoldMacroOutput();
+    Check(macroEngine.MacroOutputHold,"a macro step can hold live output until Update Output");
+    macroEngine.ClearMacroOutputHold();
+    Check(!macroEngine.MacroOutputHold,"pressing Update Output releases the macro output hold");
     Check(macro.Actions[0].Kind==MacroActionKind.Score&&macro.Actions[1].Kind==MacroActionKind.SetDown
         &&macro.Actions[2].Kind==MacroActionKind.SetTimeouts&&macro.Actions[3].Kind==MacroActionKind.PlayVideo,
         "macro steps keep their order across a game save");
@@ -1212,7 +1227,7 @@ try
         made.States.Add(new CustomIconState
         {
             Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Away"},
-            Glyph="A",Color="#FF112233",Plate="#FF445566",Round=false,OffsetX=8,OffsetY=-4,Scale=1.4,Opacity=0.6,Rotation=20
+            Glyph="A",ImagePath=@"C:\art\away.png",Color="#FF112233",Plate="#FF445566",Round=false,OffsetX=8,OffsetY=-4,Scale=1.4,Opacity=0.6,Rotation=20
         });
         made.States.Add(new CustomIconState
         {
@@ -1223,8 +1238,9 @@ try
         var away=stored.Resolve(new GameState{HomePossession=false});
         var home=stored.Resolve(new GameState{HomePossession=true});
         Check(stored.States.Count==2&&away.Glyph=="A"&&home.Glyph=="H"
-            &&away.Color=="#FF112233"&&away.OffsetX==8&&Math.Abs(away.Scale-1.4)<0.001&&Math.Abs(away.Opacity-0.6)<0.001,
-            "a made icon chooses the first matching data state, including its colour, location, scale and opacity");
+            &&away.Color=="#FF112233"&&away.OffsetX==8&&Math.Abs(away.Scale-1.4)<0.001&&Math.Abs(away.Opacity-0.6)<0.001
+            &&away.ImagePath==@"C:\art\away.png"&&home.ImagePath=="",
+            "a made icon chooses the first matching data state, including its image, colour, location, scale and opacity");
         Check(home.Color=="#FF778899"&&home.Round,"each icon state keeps its own plate and roundness");
         var fallback=new CustomIcon{Glyph="F",Color="#FFFFFFFF"};
         fallback.States.Add(new CustomIconState{Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Neither"},Glyph="X"});
@@ -1240,11 +1256,11 @@ try
         try
         {
             var shared=new CustomIcon{Name="Shared icon",Glyph="◆",Color="#FF102030",Plate="#FF405060",Round=false,OffsetX=3,Scale=1.2,Opacity=0.8,Rotation=15};
-            shared.States.Add(new CustomIconState{Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Home"},Glyph="H",Color="#FF00FF00",OffsetY=-2});
+            shared.States.Add(new CustomIconState{Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Home"},Glyph="H",ImagePath=@"C:\art\home.png",Color="#FF00FF00",OffsetY=-2});
             IconFiles.Save(iconFile,shared);
             var imported=IconFiles.Load(iconFile);
             Check(imported is not null&&imported.Name=="Shared icon"&&imported.Glyph=="◆"
-                &&imported.States.Count==1&&imported.States[0].Glyph=="H"&&imported.States[0].Condition.Text=="Home"
+                &&imported.States.Count==1&&imported.States[0].Glyph=="H"&&imported.States[0].ImagePath==@"C:\art\home.png"&&imported.States[0].Condition.Text=="Home"
                 &&imported.Id!=shared.Id&&imported.States[0].Id!=shared.States[0].Id,
                 "a .spi file carries an icon and its data states and imports as an independent copy");
             File.WriteAllText(iconFile,"not a ScorePlus icon");

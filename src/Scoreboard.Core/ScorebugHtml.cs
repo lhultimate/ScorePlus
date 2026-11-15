@@ -217,7 +217,7 @@ public static class ScorebugHtml
     static string TextHtml(ScorebugElement item, GameState? state, string colour)
     {
         var text = state is not null
-            ? ScoreboardTemplates.Bind(item.Content ?? string.Empty, state, item.PeriodFormat)
+            ? ScoreboardTemplates.Bind(item.Content ?? string.Empty, state, item.PeriodFormat, item.DownCaps, item.PlayClockColon)
             : item.Content ?? string.Empty;
         var font = FontFamily(item.FontFamily);
         var weight = item.Bold ? "font-weight:700;" : "font-weight:400;";
@@ -261,7 +261,7 @@ public static class ScorebugHtml
     {
         if (item.Icon != ScorebugIcon.None && state is not null && !string.IsNullOrWhiteSpace(item.IconToken))
         {
-            var bound = ScoreboardTemplates.Bind(item.IconToken, state, item.PeriodFormat).Trim();
+            var bound = ScoreboardTemplates.Bind(item.IconToken, state, item.PeriodFormat, item.DownCaps, item.PlayClockColon).Trim();
             if (bound.Length == 0
                 || bound == "0"
                 || bound.Equals("false", StringComparison.OrdinalIgnoreCase)
@@ -324,10 +324,16 @@ public static class ScorebugHtml
                 var iconColour = string.IsNullOrWhiteSpace(item.IconColor) ? look.Color : item.IconColor;
                 var transform = $"translate({Num(look.OffsetX)}px,{Num(look.OffsetY)}px) scale({Num(look.Scale)}) rotate({Num(look.Rotation)}deg)";
                 var iconSize = Math.Clamp(Math.Min(item.Width, item.Height) * 0.62, 8, 260);
+                // A state can carry a photo instead of a glyph. Embed it like a logo, so the
+                // exported HTML is still one self-contained file.
+                var picture = DataUri(look.ImagePath);
+                var inner = picture is null
+                    ? System.Net.WebUtility.HtmlEncode(look.Glyph)
+                    : $"<img src=\"{picture}\" alt=\"\" style=\"width:100%;height:100%;object-fit:contain;display:block;\">";
                 return "<span style=\"display:flex;align-items:center;justify-content:center;width:100%;height:100%;"
                        + $"font-size:{Num(iconSize)}px;font-weight:700;line-height:1;color:{Css(iconColour)};background:{plate};border-radius:{radius};"
                        + $"opacity:{Num(Math.Clamp(look.Opacity, 0, 1))};transform:{transform};transform-origin:center;\">"
-                       + System.Net.WebUtility.HtmlEncode(look.Glyph) + "</span>";
+                       + inner + "</span>";
             }
             case ScorebugIcon.Bases:
                 var first = SportValues.Read(state, "baseball.first") != 0;

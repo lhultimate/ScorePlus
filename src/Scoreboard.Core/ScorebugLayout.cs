@@ -292,6 +292,12 @@ public sealed class ScorebugElement
     /// <summary>How this element prints a quarter: "Full", "Short", "Number", "Ordinal", or null for the game default.</summary>
     public string? PeriodFormat { get; set; }
 
+    /// <summary>Print the words in this element's down line in full caps, e.g. 1st &amp; GOAL.</summary>
+    public bool DownCaps { get; set; }
+
+    /// <summary>Print {{PLAY_CLOCK}} with a leading colon, e.g. :22, on this element.</summary>
+    public bool PlayClockColon { get; set; }
+
     /// <summary>Optional artwork from live data: timeout bars or a possession dot.</summary>
     public ScorebugIcon Icon { get; set; } = ScorebugIcon.None;
 

@@ -27,6 +27,7 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 - [Tutorial: Keybinds](#tutorial-keybinds)
 - [Tutorial: The Phone Remote](#tutorial-the-phone-remote)
 - [Tutorial: Scoreboard Controllers and the Horn](#tutorial-scoreboard-controllers-and-the-horn)
+- [Tutorial: Hardware, Cloud and the Display](#tutorial-hardware-cloud-and-the-display)
 - [Tutorial: Sport Profiles](#tutorial-sport-profiles)
 - [Reference: The Control Panel](#reference-the-control-panel)
 - [Reference: The Display Studio](#reference-the-display-studio)
@@ -450,10 +451,13 @@ A **macro** is one button that changes several things in order. Use it for a rec
 1. Open the **MACROS** tab. The board starts empty.
 2. Press **+ New macro**, give it a **name** and an optional colour, then add steps. Each step chooses an action and its value: score, down, timeouts, any clock, period, a sport value, a custom value, possession, football distance or ball spot, a console button, a media item, or a roster stat.
 3. A **media** step can play a library clip or put a camera, microphone or speaker bus on air. A **roster stat** step changes a specific player's stat. A **console button** step runs an existing control action, so a macro can reuse the same behaviour as the keyboard and the phone remote.
-4. Press **Save macro**. The card shows its name and step count; press the card to run the whole list from the current game state.
+4. Press **Save macro**. The card shows only its name, leaving room for more buttons; press the card to run the whole list from the current game state.
 5. Drag a card by its handle to any empty cell. The board keeps empty cells open, so a group of buttons can stay where your hand expects it. Dropping onto an occupied cell swaps the two cards, and right-clicking a card offers **Edit** and **Delete**.
+6. Use **◀ / ▶** beside **PAGE** to move between boards, or **+ Page** to add a blank canvas. A blank page is a real page: it can hold the next set of macros, and it saves with the game.
 
-Macros are stored in the game (`.spg`), so the same show sequence opens with the same fixture. Actions that change staged values still wait for **Update Output**; live values such as the score and clocks publish immediately, and a media step starts playing at once.
+Each step also has **Bypass Update Output for this step**. Leave it unchecked when the step should stay staged until you press **Update Output**; check it when that step must publish immediately. Media steps always bypass, because playback is never staged. If a macro contains a held step, later checked steps stay held too, so they cannot publish the earlier staged values by accident.
+
+Macros are stored in the game (`.spg`), so the same show sequence opens with the same fixture.
 
 ---
 
@@ -579,6 +583,43 @@ Preferences → **Clock horns** can sound the selected horn automatically when t
 
 ---
 
+## Tutorial: Hardware, Cloud and the Display
+
+This walkthrough follows one complete signal path: a scoreboard controller feeds ScorePlus, ScorePlus publishes to a league server and reads the rest of the league back, and the result is what the audience display shows. Do it once in the venue before the doors open, then save the game so the wiring, layouts and ticker are ready for the next fixture.
+
+### 1. Connect the hardware controller
+
+1. Connect the controller to the PC with the cable its manual specifies. For a **Daktronics All Sport 5000**, use a USB-serial adapter and a null-modem cable into the console's 25-pin RTD output. Set the adapter to **19200, 8 data bits, no parity, 1 stop bit, no flow control**.
+2. Press **Hardware** in the top row, choose the controller and its COM port, then press **Connect**. The link is read-only: the console remains the scorekeeper and ScorePlus follows it.
+3. Press **STOP** once on the console after connecting. The All Sport sends changes rather than dumping its full state on connection, and the stop gives ScorePlus a clean starting frame.
+4. Turn on **Connect automatically** so the same controller reconnects when ScorePlus opens.
+5. No controller on the bench? Choose **Simulator — no hardware**, press **Connect**, and watch the console and preview update. That proves the rest of the path before the real console arrives.
+
+### 2. Point ScorePlus at the league server
+
+ScorePlus does not host a league service; it talks to an HTTPS service you or your league run. The service needs two addresses:
+
+- **Upload endpoint (POST)** — receives the current game after a change. The body uses camelCase fields such as `league`, `gameId`, `homeTeam`, `awayTeam`, `homeScore`, `awayScore`, `period`, `clock` and `status`.
+- **League feed endpoint (GET)** — returns an array of games, or an object with a `games` array. Each game needs at least `gameId` or `homeTeam` plus the score, period, clock and status fields; unknown fields are ignored.
+
+In ScorePlus, press **☁** in the top row, fill in **Upload endpoint**, **League feed endpoint**, **League id** and a **poll interval**, then turn the feed on. Add a bearer token if the server requires one; the token stays in your local preferences. Press **Upload now** and **Fetch now** while you set it up and read the status line. A successful upload says **uploaded**; a good feed reports the number of games. If the server returns 401 or 404, fix the URL or token before touching the graphics.
+
+When the feed arrives, the received-games list becomes an import desk. Select a game and tick only the values you want — home score, away score, game clock, period — then press **Import selected fields**. Everything unticked keeps its current value.
+
+### 3. Put it on the display
+
+1. Open **Display Studio**, add the elements that should follow the controller: `{{HOME_SCORE}}`, `{{AWAY_SCORE}}`, `{{GAME_CLOCK}}`, `{{PERIOD}}`, `{{DOWNS}}` and the rest. The controller writes the same game state those tokens read, so the graphic needs no special hardware token.
+2. For the league round-up, press **Add league ticker layout** in League Cloud. The generated transparent layout carries `{{LEAGUE_GAMES}}`; style it and place it where the ticker belongs.
+3. Open the display's **Audience Output** with **▶** in the top row. If the game has several displays, choose the one the venue screen is connected to.
+4. Press **Update Output** to put the staged layout and values on air, then **F11** for fullscreen. Leave **Live: ON** if score and clocks should follow the controller immediately; down, distance, possession and layout changes still wait for **Update Output** by design.
+5. Score a test point on the controller and confirm three things in order: the ScorePlus console changes, the preview changes, and the audience display changes. Then change a league game and confirm the ticker picks it up on the next poll.
+
+### 4. Save the working setup
+
+Press **Save Game**. The `.spg` file carries the displays, layouts, ticker choices and macros, but not the API token or the live feed. Reopen it next week, check the Hardware window says **Connected**, press **Update Output**, and the same signal path is live again. Keep the league token in Preferences on the show machine; never put it in a layout, a screenshot or a public repository.
+
+---
+
 ## Tutorial: Sport Profiles
 
 **Sport Profiles** edits how a sport behaves — not how it looks.
@@ -674,7 +715,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 
 | Type | What it draws | Notable properties |
 | --- | --- | --- |
-| **Text** | Any bound or typed string | Font, size, bold/italic/underline/strike, rotation, color or text gradient, texture, value transition, icon, quarter style |
+| **Text** | Any bound or typed string | Font, size, bold/italic/underline/strike, rotation, color or text gradient, texture, value transition, icon, quarter style, per-element down caps and play-clock colon |
 | **Logo** | One team's logo | Which side (Home/Away); the artwork itself comes from the console |
 | **Image** | A still picture imported with **IMAGE +** | The file is copied into the app, so the design survives the original being moved |
 | **Shape** | Rectangle, circle or triangle | Shape type, fill or gradient, border, opacity |
@@ -683,6 +724,8 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 | **Layout** | Another layout, playing live inside this one | Source layout, keep the source's shape or stretch to the box |
 
 ### Properties Worth Knowing
+
+Down-line capitals and the play-clock colon are per element, not global preferences. Select a text element that contains `{{DOWNS}}`, `{{DOWN}}`, `{{TO_GO}}` or `{{YARDS_TO_GO}}` and tick **Print the down words in full caps** to get `1st & GOAL`, `2nd DOWN` or `3rd & INCHES` on that element alone. A text element with `{{PLAY_CLOCK}}` can tick **Print the play clock with a colon (:22)** and prints `:22` instead of `22`; the rest of the graphics keep their own choice.
 
 - **Quarter style** is per element (`Quarter 1`, `Q1`, `1` or `1st`), so two graphics can print the period differently in the same game.
 - **Preserve video aspect ratio** locks the box to the clip's shape — nothing is stretched or cropped. Turn it off and the box can be any shape, with the picture filling it.
@@ -716,6 +759,10 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 ### Making Icons
 
 The **ICON** section of the element panel draws live artwork — timeout bars, the possession dot or arrow, the baseball diamond, the referee's yellow and red cards — or an icon you make. Choose **Custom** in the Icon list, press **Icon creator…**, and draw one: a glyph (one to three characters — ★ ⚑ ▲ ⬤ or a letter), its colour and its plate, round or squared. Saved icons go into one shared library, so a house badge works in every layout and every display, and it travels inside any layout you export. Use **Import .spi…** and **Export .spi…** in the Icon Creator to move one icon, including its data states, between machines; a `.spi` is a ScorePlus Icon file.
+
+**One design per data state.** In the Icon Creator, the **DESIGN FOR** picker chooses the fallback look or one data state. Select a state in the **DATA STATES** list and edit its glyph, colour, plate, offset, scale, opacity and rotation; those fields belong to that state alone, so the home and away marks can look completely different. **Add data state** creates another design, and the first matching state wins when the game runs.
+
+**Photos as icons.** Select the fallback or a data state, press **Use photo…** and choose a PNG, JPEG, GIF, WebP or BMP. ScorePlus copies it into its own `IconImages` folder and draws the photo in place of the glyph for that design only. **Clear photo** returns to the glyph. Exported HTML embeds the picture, so the report remains self-contained.
 
 ### Display and Layout Bars
 

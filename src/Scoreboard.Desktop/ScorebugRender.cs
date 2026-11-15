@@ -148,7 +148,7 @@ internal static class ScorebugRender
         // after the graphic was built appears immediately instead of waiting for a rebuild.
         if (item.Kind == ScorebugElementKind.Logo) return new ScorebugLogoView(item, state?.Invoke(), showVideoPlaceholder);
         if (item.Kind == ScorebugElementKind.Shape) return CreateShape(item, state?.Invoke());
-        var text = state is null ? item.Content : ScoreboardTemplates.Bind(item.Content, state(), item.PeriodFormat);
+        var text = state is null ? item.Content : ScoreboardTemplates.Bind(item.Content, state(), item.PeriodFormat, item.DownCaps, item.PlayClockColon);
         return MakeText(item, text, state?.Invoke());
     }
 
@@ -424,7 +424,7 @@ public sealed class TickerView : Grid, IDisposable
             return;
         }
         if (_rotationActive) StopRotation();
-        var raw = game is null ? item.Content : ScoreboardTemplates.Bind(item.Content, game, item.PeriodFormat);
+        var raw = game is null ? item.Content : ScoreboardTemplates.Bind(item.Content, game, item.PeriodFormat, item.DownCaps, item.PlayClockColon);
         raw = System.Text.RegularExpressions.Regex.Replace(raw ?? "", @"\s+", " ").Trim();
         var display = raw.Length == 0 ? " " : raw + "   \u2022   ";
         var foreground = Paint.Text(item, game);
@@ -1453,6 +1453,8 @@ public sealed class ScorebugIconView : Grid
     // An icon made in the Icon Creator: a glyph on its plate.
     Border? _customHost;
     TextBlock? _customText;
+    Image? _customImage;
+    string _customImagePath = "";
 
     /// <summary>
     /// Which live artwork this view was built for, so the studio can tell one icon from another.
@@ -1543,11 +1545,21 @@ public sealed class ScorebugIconView : Grid
                 TextAlignment = TextAlignment.Center,
                 FontWeight = FontWeights.Bold
             };
+            _customImage = new Image
+            {
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed
+            };
+            var customContent = new Grid();
+            customContent.Children.Add(_customText);
+            customContent.Children.Add(_customImage);
             _customHost = new Border
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Child = _customText
+                Child = customContent
             };
             Children.Add(_customHost);
         }
@@ -1569,12 +1581,35 @@ public sealed class ScorebugIconView : Grid
         if (icon is null)
         {
             _customText.Text = string.Empty;
+            _customImagePath = "";
+            if (_customImage is not null) { _customImage.Source = null; _customImage.Visibility = Visibility.Collapsed; }
             _customHost.Background = Brushes.Transparent;
             return;
         }
         var width = Math.Max(12, _item.Width);
         var height = Math.Max(12, _item.Height);
         var look = icon.Resolve(_state?.Invoke());
+        var imagePath = (look.ImagePath ?? "").Trim();
+        var hasImage = imagePath.Length > 0 && File.Exists(imagePath);
+        if (_customImage is not null)
+        {
+            if (hasImage)
+            {
+                if (!string.Equals(_customImagePath, imagePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { _customImage.Source = ScorebugRender.LoadLogo(imagePath); _customImagePath = imagePath; }
+                    catch { _customImage.Source = null; _customImagePath = ""; hasImage = false; }
+                }
+                _customImage.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
+            }
+            else
+            {
+                _customImage.Source = null;
+                _customImagePath = "";
+                _customImage.Visibility = Visibility.Collapsed;
+            }
+        }
+        _customText.Visibility = hasImage ? Visibility.Collapsed : Visibility.Visible;
         _customText.Text = look.Glyph;
         _customText.FontSize = Math.Clamp(Math.Min(width, height) * 0.62, 8, 260);
         _customText.Foreground = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? look.Color : _item.IconColor);
@@ -1607,7 +1642,7 @@ public sealed class ScorebugIconView : Grid
         // value is set again.
         if (!string.IsNullOrWhiteSpace(_item.IconToken))
         {
-            var bound = _state is null ? string.Empty : ScoreboardTemplates.Bind(_item.IconToken, _state(), _item.PeriodFormat);
+            var bound = _state is null ? string.Empty : ScoreboardTemplates.Bind(_item.IconToken, _state(), _item.PeriodFormat, _item.DownCaps, _item.PlayClockColon);
             var showing = !string.IsNullOrWhiteSpace(bound)
                 && !string.Equals(bound.Trim(), "0", StringComparison.Ordinal)
                 && !bound.Trim().Equals("false", StringComparison.OrdinalIgnoreCase)

@@ -19,8 +19,8 @@ public static class ScoreboardTemplates
     /// </summary>
     static readonly Regex SportToken = new(@"\{\{SPORT:(?<id>[^}]+)\}\}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public static string Bind(string content, GameState state, string? periodFormat = null) =>
-        PlayerToken.Replace(StatToken.Replace(SportToken.Replace(ReplaceFixed(content, state, periodFormat), match =>
+    public static string Bind(string content, GameState state, string? periodFormat = null, bool downCaps = false, bool playClockColon = false) =>
+        PlayerToken.Replace(StatToken.Replace(SportToken.Replace(ReplaceFixed(content, state, periodFormat, downCaps, playClockColon), match =>
         {
             var control = SportValues.FindControl(state, match.Groups["id"].Value.Trim());
             return control is null ? string.Empty : SportValues.Display(state, control);
@@ -48,7 +48,7 @@ public static class ScoreboardTemplates
             return player?.Field(field) ?? string.Empty;
         });
 
-    static string ReplaceFixed(string content, GameState state, string? periodFormat) => content
+    static string ReplaceFixed(string content, GameState state, string? periodFormat, bool downCaps, bool playClockColon) => content
         // Team names render exactly as the operator typed them: full text, original case.
         .Replace("{{HOME_TEAM}}", state.HomeTeam)
         .Replace("{{AWAY_TEAM}}", state.AwayTeam)
@@ -79,7 +79,9 @@ public static class ScoreboardTemplates
         // Final and End of Reg. replace the clock's digits on the graphic.
         .Replace("{{GAME_CLOCK}}", state.GameClockText)
         .Replace("{{STOPPAGE}}", GameEngine.FormatClock(state.StoppageSeconds))
-        .Replace("{{PLAY_CLOCK}}", state.PlayClockSeconds.ToString())
+        .Replace("{{PLAY_CLOCK}}", playClockColon
+            ? $":{Math.Clamp(state.PlayClockSeconds, 0, 99):00}"
+            : state.PlayClockSeconds.ToString())
         .Replace("{{TIMEOUT_CLOCK}}", GameEngine.FormatClock(state.TimeoutClockSeconds))
         .Replace("{{TIMEOUTS}}", $"TOL {state.HomeTimeouts}–{state.AwayTimeouts}")
         .Replace("{{POSSESSION}}", state.HomePossession ? state.HomeAbbreviation : state.AwayAbbreviation)
@@ -88,8 +90,8 @@ public static class ScoreboardTemplates
         .Replace("{{PENALTY_TYPE}}", state.PenaltyActive ? state.PenaltyType : string.Empty)
         .Replace("{{PENALTY_TEAM}}", state.PenaltyActive ? (state.PenaltyHome ? state.HomeTeam : state.AwayTeam) : string.Empty)
         .Replace("{{PENALTY}}", state.PenaltyActive ? $"{(state.PenaltyHome ? state.HomeTeam : state.AwayTeam)} — {state.PenaltyType}" : string.Empty)
-        .Replace("{{DOWN}}", state.DownDisplay)
-        .Replace("{{TO_GO}}", state.ToGoDisplay)
+        .Replace("{{DOWN}}", DownCaps(state.DownDisplay, downCaps))
+        .Replace("{{TO_GO}}", DownCaps(state.ToGoDisplay, downCaps))
         // The ball spot is a plain yard line (0-50) with its own side, independent of possession.
         .Replace("{{BALL_ON}}", state.YardsToGoal.ToString())
         .Replace("{{BALL_SIDE}}", state.BallOnHomeSide ? state.HomeAbbreviation : state.AwayAbbreviation)
@@ -97,10 +99,10 @@ public static class ScoreboardTemplates
         .Replace("{{BALL_SIDE_SPOT}}", $"{(state.BallOnHomeSide ? state.HomeAbbreviation : state.AwayAbbreviation)} {state.YardsToGoal}")
         // Next down shows the new down alone until the distance catches up, then 2nd & 4.
         // PAT, 2 PT ATT, goal-to-go and an intentionally blank line all come from the state.
-        .Replace("{{DOWNS}}", state.DownDistanceDisplay)
+        .Replace("{{DOWNS}}", DownCaps(state.DownDistanceDisplay, downCaps))
         .Replace("{{BALL_SPOT}}", $"BALL {state.YardsToGoal}")
         .Replace("{{SPORT}}", state.SportId.ToUpperInvariant())
-        .Replace("{{YARDS_TO_GO}}", state.ToGoDisplay)
+        .Replace("{{YARDS_TO_GO}}", DownCaps(state.ToGoDisplay, downCaps))
         .Replace("{{HOME_YARDS}}", state.HomeYards.ToString())
         .Replace("{{AWAY_YARDS}}", state.AwayYards.ToString())
         .Replace("{{SOCCER_CARDS}}", $"Y {state.HomeYellowCards}/{state.AwayYellowCards} · R {state.HomeRedCards}/{state.AwayRedCards}")
@@ -134,4 +136,10 @@ public static class ScoreboardTemplates
         .Replace("{{DATE}}", DateTime.Now.ToString("yyyy-MM-dd"))
         .Replace("{{TIME}}", DateTime.Now.ToString("HH:mm:ss"));
 
+    /// <summary>The full-caps option uppercases the words of the down line, not the ordinal.</summary>
+    static string DownCaps(string value, bool enabled) => enabled
+        ? value.Replace("Down", "DOWN", StringComparison.Ordinal)
+            .Replace("Goal", "GOAL", StringComparison.Ordinal)
+            .Replace("Inches", "INCHES", StringComparison.Ordinal)
+        : value;
 }

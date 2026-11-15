@@ -1177,7 +1177,7 @@ public sealed class ScorebugCanvasView : Grid
             }
             if(visual.Content is ScorebugTextBlock block)
             {
-                var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat);
+                var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat,item.DownCaps,item.PlayClockColon);
                 block.ApplyStyle(item,state);
                 ShowValue(item,block,text);
             }

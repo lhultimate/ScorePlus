@@ -29,12 +29,19 @@ public sealed class MacroRunner
         var skipped = 0;
         foreach (var action in macro.Actions)
         {
+            // A media step is never staged: playback is immediate. Every other step defaults to
+            // staged, so a macro cannot accidentally put a score or clock on air before the
+            // operator presses Update Output. Once a step holds output, later checked steps stay
+            // held too; otherwise they would publish the earlier staged values along with their own.
+            var bypass = action.BypassOutput || action.Kind == MacroActionKind.PlayVideo;
+            if (!bypass) _engine.HoldMacroOutput();
             if (Execute(action)) completed++;
             else skipped++;
         }
+        var waiting = _engine.MacroOutputHold ? " · press Update Output to publish" : string.Empty;
         return skipped == 0
-            ? $"MACRO · {macro.Label} · {completed} step{(completed == 1 ? "" : "s")} run"
-            : $"MACRO · {macro.Label} · {completed} run, {skipped} skipped (missing player or video)";
+            ? $"MACRO · {macro.Label} · {completed} step{(completed == 1 ? "" : "s")} run{waiting}"
+            : $"MACRO · {macro.Label} · {completed} run, {skipped} skipped (missing player or video){waiting}";
     }
 
     bool Execute(MacroAction action)

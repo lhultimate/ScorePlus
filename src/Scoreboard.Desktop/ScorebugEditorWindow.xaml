@@ -442,6 +442,19 @@
             <ComboBox x:Name="PeriodFormatInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
                       ToolTip="How {{PERIOD}} prints on this element — Quarter 1, Q1, 1 or 1st"/>
           </StackPanel>
+          <StackPanel x:Name="DownFormatSection">
+            <TextBlock Text="Down and distance for this element" Style="{StaticResource FieldLabel}"/>
+            <CheckBox x:Name="DownCapsInput" Content="Print the down words in full caps" FontSize="11" Margin="10,2,10,2"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="This element only: 1st &amp; GOAL, 2nd DOWN, 3rd &amp; INCHES. The ordinal keeps its normal case."/>
+            <TextBlock Text="Use on any element that prints {{DOWNS}}, {{DOWN}}, {{TO_GO}} or {{YARDS_TO_GO}}."
+                       Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,4"/>
+          </StackPanel>
+          <StackPanel x:Name="PlayClockFormatSection">
+            <CheckBox x:Name="PlayClockColonInput" Content="Print the play clock with a colon (:22)" FontSize="11" Margin="10,2,10,2"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="This element only. {{PLAY_CLOCK}} prints :22 instead of 22."/>
+          </StackPanel>
           <StackPanel x:Name="TickerSection">
             <CheckBox x:Name="TickerInput" Content="Scroll as a bottom-screen ticker" FontSize="11" Margin="10,4,10,2"
                       Checked="Property_Changed" Unchecked="Property_Changed"

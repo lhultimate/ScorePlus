@@ -121,7 +121,23 @@
           </StackPanel>
         </DockPanel>
         <TextBlock Style="{StaticResource MacroHint}" Text="One button, several changes, in order. Each press runs the full step list against the current game; Update Output then puts the result on air. Drag the handle to any cell or column; empty cells stay open. Media steps start playing immediately."
-                   Margin="0,0,0,9"/>
+                   Margin="0,0,0,6"/>
+        <DockPanel Margin="0,0,0,7">
+          <TextBlock Text="PAGE" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource MacroMutedBrush}"
+                     VerticalAlignment="Center" Margin="0,0,6,0"/>
+          <Button x:Name="PrevPageButton" Style="{StaticResource MacroAction}" Content="◀"
+                  MinWidth="30" Padding="6,3" Margin="0,0,4,0" Click="PreviousPage_Click"
+                  ToolTip="Previous page of macros"/>
+          <TextBlock x:Name="PageLabel" Text="PAGE 1 / 1" FontSize="10" FontWeight="Bold"
+                     Foreground="{DynamicResource MacroTextBrush}" VerticalAlignment="Center"
+                     Margin="2,0,6,0"/>
+          <Button x:Name="NextPageButton" Style="{StaticResource MacroAction}" Content="▶"
+                  MinWidth="30" Padding="6,3" Margin="0,0,8,0" Click="NextPage_Click"
+                  ToolTip="Next page of macros"/>
+          <Button x:Name="AddPageButton" Style="{StaticResource MacroAction}" Content="+ Page"
+                  Padding="8,3" Margin="0" Click="AddPage_Click"
+                  ToolTip="Add a blank page for another board of macros"/>
+        </DockPanel>
       </StackPanel>
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid>
@@ -239,6 +255,11 @@
                        Text="A clip or camera plays; a microphone or speaker bus is put on air. Already-live sources are left alone."/>
           </StackPanel>
 
+          <CheckBox x:Name="BypassOutputBox" Content="Bypass Update Output for this step"
+                    Foreground="{DynamicResource MacroMutedBrush}" FontSize="10" Margin="0,9,0,2"
+                    ToolTip="When checked, this step publishes immediately. When unchecked, its values wait for Update Output. Media steps always bypass."/>
+          <TextBlock Style="{StaticResource MacroHint}" Margin="0,0,0,3"
+                     Text="Unchecked steps stay staged until Update Output; media always publishes at once."/>
           <WrapPanel Margin="0,9,0,0">
             <Button x:Name="AddStepButton" Style="{StaticResource MacroAccent}" Content="+ Add step" Click="AddStep_Click" Margin="0,0,6,0"/>
             <Button x:Name="UpdateStepButton" Style="{StaticResource MacroAction}" Content="Update selected" Click="UpdateStep_Click" Margin="0"/>

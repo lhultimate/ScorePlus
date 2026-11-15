@@ -1199,7 +1199,7 @@ public partial class ScorebugEditorWindow : Window
         {
             if(!_visuals.TryGetValue(item.Id,out var visual))continue;
             if(visual.Content is ScorebugTextBlock block)
-                ScorebugRender.ApplyToContent(block,item,_engine.State,ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat));
+                ScorebugRender.ApplyToContent(block,item,_engine.State,ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat,item.DownCaps,item.PlayClockColon));
             else if(visual.Content is ScorebugIconView iconView)
                 iconView.Update();
             else if(visual.Content is VideoSurface videoSurface)
@@ -1237,7 +1237,7 @@ public partial class ScorebugEditorWindow : Window
             else if(visual.Content is ScorebugTextBlock block)
             {
                 block.ApplyStyle(item,_engine.State);
-                block.UpdateText(ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat),item.Transition,item.TransitionSeconds);
+                block.UpdateText(ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat,item.DownCaps,item.PlayClockColon),item.Transition,item.TransitionSeconds);
             }
             else if(visual.Content is TickerView tickerView)
                 tickerView.Update(item,_engine.State);
@@ -1341,7 +1341,7 @@ public partial class ScorebugEditorWindow : Window
             PlayerBindingHint.Text="This text is not tied to a player yet. Pick a team, player and value above, or type any binding in CONTENT.";
             return;
         }
-        var printed=ScoreboardTemplates.Bind(ContentInput.Text,_engine.State,Selected?.PeriodFormat);
+        var printed=ScoreboardTemplates.Bind(ContentInput.Text,_engine.State,Selected?.PeriodFormat,DownCapsInput.IsChecked==true,PlayClockColonInput.IsChecked==true);
         PlayerBindingHint.Text=printed.Length==0
             ? "Prints nothing: that player or value is empty right now."
             : $"Prints now: \"{printed}\"";
@@ -1366,7 +1366,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,CornerRadiusInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput,TickerReverseInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,CornerRadiusInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,DownCapsInput,PlayClockColonInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput,TickerReverseInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -1387,6 +1387,8 @@ public partial class ScorebugEditorWindow : Window
             TransitionDownInput.SelectedItem=e.TransitionDown??ScorebugTransition.Fade;
             DownTransitionInput.IsChecked=e.TransitionDown is not null;
             TransitionDownSpeedInput.Text=(e.TransitionDownSeconds??e.TransitionSeconds).ToString("0.00");
+            DownCapsInput.IsChecked=e.DownCaps;
+            PlayClockColonInput.IsChecked=e.PlayClockColon;
             GradientInput.IsChecked=e.BackgroundGradient;
             GradientColorInput.Text=e.BackgroundColor2;
             GradientAngleInput.Text=e.GradientAngle.ToString("0");
@@ -1545,6 +1547,16 @@ public partial class ScorebugEditorWindow : Window
         BackgroundSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
         BorderSection.Visibility=any?Visibility.Visible:Visibility.Collapsed;
         PeriodSection.Visibility=text&&e!.Content.Contains("{{PERIOD}}",StringComparison.OrdinalIgnoreCase)?Visibility.Visible:Visibility.Collapsed;
+        // Down caps and the play-clock colon belong to the element, so each one can choose its
+        // own typography without changing every other value on every display. Icons and HTML can
+        // carry the same tokens as a text block, so their options stay reachable too.
+        var boundSource=$"{e?.Content} {e?.IconToken}";
+        var downContent=any&&(boundSource.Contains("{{DOWNS}}",StringComparison.OrdinalIgnoreCase)
+            ||boundSource.Contains("{{DOWN}}",StringComparison.OrdinalIgnoreCase)
+            ||boundSource.Contains("{{TO_GO}}",StringComparison.OrdinalIgnoreCase)
+            ||boundSource.Contains("{{YARDS_TO_GO}}",StringComparison.OrdinalIgnoreCase));
+        DownFormatSection.Visibility=downContent?Visibility.Visible:Visibility.Collapsed;
+        PlayClockFormatSection.Visibility=any&&boundSource.Contains("{{PLAY_CLOCK}}",StringComparison.OrdinalIgnoreCase)?Visibility.Visible:Visibility.Collapsed;
         // Player data only means something on text that actually prints a player value. On a stats
         // element the pickers would overwrite {{YARDS}} with a player binding, and on a plain label
         // they change nothing at all; unbound text becomes a player element through the studio's
@@ -1841,6 +1853,8 @@ public partial class ScorebugEditorWindow : Window
         chromaTolerance=Math.Clamp(chromaToleranceOk?chromaTolerance:0.16,0,1);
         var audioDevice=(AudioDeviceInput.SelectedItem as AudioOption)?.Id;
         var periodFormat=PeriodFormatInput.SelectedItem is PeriodOption period?(string?)period.Key:null;
+        var downCaps=DownCapsInput.IsChecked==true;
+        var playClockColon=PlayClockColonInput.IsChecked==true;
         var icon=IconInput.SelectedItem is ScorebugIcon chosenIcon?(ScorebugIcon?)chosenIcon:null;
         var iconToken=IconTokenInput.Text.Trim();
         var iconColor=IconColorInput.Text.Trim();
@@ -1891,6 +1905,7 @@ public partial class ScorebugEditorWindow : Window
             &&(shape is null||item.Shape==shape)&&(!cornerRadiusOk||Math.Abs(item.CornerRadius-cornerRadius)<0.001)
             &&item.Visible==visible&&item.TransparentBackground==transparent
             &&item.MediaTag==mediaTag&&(periodFormat is null||item.PeriodFormat==periodFormat)
+            &&item.DownCaps==downCaps&&item.PlayClockColon==playClockColon
             &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped&&item.IconVertical==iconVertical
             &&(icon!=ScorebugIcon.Custom||string.Equals(item.CustomIconId,(IconCustomInput.SelectedItem as CustomIconChoice)?.Icon.Id,StringComparison.OrdinalIgnoreCase))
             &&(!iconScaleOk||Math.Abs(item.IconScale-iconScale)<0.001)
@@ -1956,6 +1971,8 @@ public partial class ScorebugEditorWindow : Window
         if(item.TransparentBackground!=transparent)Group(t=>t.TransparentBackground=transparent);
         if(item.MediaTag!=mediaTag)Group(t=>{if(t.Kind==ScorebugElementKind.Video)t.MediaTag=mediaTag;});
         if(periodFormat is not null&&item.PeriodFormat!=periodFormat)Group(t=>t.PeriodFormat=periodFormat);
+        if(item.DownCaps!=downCaps)Group(t=>t.DownCaps=downCaps);
+        if(item.PlayClockColon!=playClockColon)Group(t=>t.PlayClockColon=playClockColon);
         if(item.PreserveVideoAspect!=preserveAspect)Group(t=>t.PreserveVideoAspect=preserveAspect);
         if(aspectOk&&Math.Abs(item.VideoAspect-aspect)>0.001)Group(t=>t.VideoAspect=Math.Clamp(aspect,0.1,10));
         if(item.Kind==ScorebugElementKind.Video&&(Math.Abs(item.VideoCropLeft-cropLeft)>0.0001||Math.Abs(item.VideoCropTop-cropTop)>0.0001
@@ -2066,6 +2083,8 @@ public partial class ScorebugEditorWindow : Window
                 if(target.Kind==ScorebugElementKind.Layout)target.NestedPreserveAspect=nestedAspect;
                 if(target.Kind==ScorebugElementKind.Video)target.MediaTag=mediaTag;
                 if(periodFormat is not null||target.PeriodFormat is not null)target.PeriodFormat=periodFormat;
+                target.DownCaps=downCaps;
+                target.PlayClockColon=playClockColon;
                 target.PreserveVideoAspect=preserveAspect;
                 if(target.Kind==ScorebugElementKind.Text)
                 {
@@ -2124,6 +2143,9 @@ public partial class ScorebugEditorWindow : Window
         });
         }
                 finally { _skipRebuild=false; }
+        // Typing {{DOWNS}} or {{PLAY_CLOCK}} changes which per-element options apply. The text
+        // handler sees the old model value, so refresh the panel again after the save lands.
+        UpdatePropertyVisibility();
         if(preserveAspect&&aspectOk) SyncSizeBoxes();
         if(artworkChanged)Render();
     }
@@ -3377,7 +3399,7 @@ public partial class ScorebugEditorWindow : Window
                     Canvas.SetLeft(visual.Host,target.X); Canvas.SetTop(visual.Host,target.Y);
                     visual.Content.Width=double.NaN; visual.Content.Height=double.NaN;
                     ScorebugRender.ApplyToContent(visual.Content,target,_engine.State,
-                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat));
+                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat,target.DownCaps,target.PlayClockColon));
                 }
             }
             UpdateGroupSelectionAdorners();
@@ -3401,7 +3423,7 @@ public partial class ScorebugEditorWindow : Window
                     visual.Host.Width=target.Width; visual.Host.Height=target.Height;
                     visual.Content.Width=double.NaN; visual.Content.Height=double.NaN;
                     ScorebugRender.ApplyToContent(visual.Content,target,_engine.State,
-                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat));
+                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat,target.DownCaps,target.PlayClockColon));
                 }
             }
             if(ctrl)RefreshAllVisuals();

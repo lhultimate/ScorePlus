@@ -50,12 +50,6 @@ public sealed class UserPreferences
     /// </summary>
     public bool NextDownPreview { get; set; }
 
-    /// <summary>
-    /// Off by default: print the down line's words in full caps — "1st & GOAL", "2nd DOWN" —
-    /// while the ordinal and the distance keep their normal case.
-    /// </summary>
-    public bool UppercaseDownWords { get; set; }
-
     /// <summary>New series goes straight to air instead of waiting for Update Output.</summary>
     public bool NewSeriesLive { get; set; }
 
@@ -185,7 +179,6 @@ public sealed class UserPreferences
         LeagueCloudApiKey = LeagueCloudApiKey,
         LeagueCloudPollSeconds = LeagueCloudPollSeconds,
         NextDownPreview = NextDownPreview,
-        UppercaseDownWords = UppercaseDownWords,
         NewSeriesLive = NewSeriesLive,
         AnnotationWidth = AnnotationWidth,
         AnnotationFadeSeconds = AnnotationFadeSeconds,
@@ -326,7 +319,6 @@ public static class PreferencesStore
             ? Math.Clamp(preferences.TieAllowPeriod, 1, 99)
             : 0;
         GameEngine.OvertimeFinalLabelEnabled = preferences.ShowOvertimeFinal;
-        GameEngine.UppercaseDownWordsEnabled = preferences.UppercaseDownWords;
     }
 
     public static void Save(UserPreferences preferences)

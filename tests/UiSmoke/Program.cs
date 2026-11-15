@@ -902,6 +902,9 @@ internal static class Program
             macroDock.CommitPendingEdits();
             if (!tabShell.Engine.State.Macros.Any(macro => macro.Label == "Saved with the game"))
                 throw new Exception("FAIL: a pending macro edit was not committed to the game");
+            var macroBypassBox = (CheckBox)macroDock.FindName("BypassOutputBox")!;
+            if (macroBypassBox.IsChecked != false)
+                throw new Exception("FAIL: a macro step bypasses Update Output by default");
             if (tabShell.FindName("ConditionalsTab") is not null || tabShell.FindName("ConditionalsHost") is not null)
                 throw new Exception("FAIL: the Conditionals editor still owns a main-window tab");
             var gameNameBox = (TextBox)tabShell.FindName("GameNameBox")!;
@@ -1176,8 +1179,11 @@ internal static class Program
             control.Execute("clock.minus1");
             control.Execute("clock.plus1");
             var keySettings = new KeybindSettings();
-            keySettings.Bindings["home.score.plus2"] = "F9";
-            keySettings.Bindings["football.series.new"] = "F10";
+            // Use whatever modifier state the desktop reports, so an operator holding Shift while
+            // the smoke test runs cannot make the shortcut itself look broken.
+            var ambientModifiers = Keyboard.Modifiers;
+            keySettings.Bindings["home.score.plus2"] = KeybindStore.ToText(Key.F9, ambientModifiers);
+            keySettings.Bindings["football.series.new"] = KeybindStore.ToText(Key.F10, ambientModifiers);
             control.ApplyKeybinds(keySettings);
             var panelSource = PresentationSource.FromVisual(control);
             var scoreBeforeKey = engine.State.HomeScore;
@@ -1185,7 +1191,7 @@ internal static class Program
             RaiseKey(control, panelSource, Key.F9);
             RaiseKey(control, panelSource, Key.F10);
             if (engine.State.HomeScore != scoreBeforeKey + 2 || engine.State.Down != 1 || engine.State.YardsToGo != 10)
-                throw new Exception("FAIL: keybinds did not run their buttons");
+                throw new Exception($"FAIL: keybinds did not run their buttons (score {scoreBeforeKey}->{engine.State.HomeScore}, down {engine.State.Down}, to go {engine.State.YardsToGo})");
             Console.WriteLine("PASS: keybinds run their assigned buttons");
 
             control.Close();
@@ -1675,15 +1681,10 @@ internal static class Program
             ((ComboBox)saveWindow.FindName("ThemeSelector")!).SelectedItem = "Light";
             saveWindow.FindName("ThemeSelector");
             var saveButton = FindAll<Button>(saveWindow).First(b => (b.Content as string) == "Save");
-            var capsBox = FindAll<CheckBox>(saveWindow).FirstOrDefault(box => (box.Content as string) == "Down line prints in full caps")
-                ?? throw new Exception("FAIL: preferences have no full-caps down line option");
-            if (capsBox.IsChecked == true)
-                throw new Exception("FAIL: the full-caps down line is on by default");
-            capsBox.IsChecked = true;
             saveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (prefsProbe.Theme != "Light") throw new Exception("FAIL: saving preferences did not apply the theme");
-            if (!prefsProbe.UppercaseDownWords || !GameEngine.UppercaseDownWordsEnabled)
-                throw new Exception("FAIL: the full-caps down line preference did not save or apply");
+            if (FindAll<CheckBox>(saveWindow).Any(box => (box.Content as string) == "Down line prints in full caps"))
+                throw new Exception("FAIL: the global full-caps down line is still in Preferences");
             // System is offered alongside the pinned themes and can be saved.
             var systemChoices = ((ComboBox)saveWindow.FindName("ThemeSelector")!).ItemsSource as string[];
             if (systemChoices is null || !systemChoices.Contains("System"))
@@ -1692,16 +1693,10 @@ internal static class Program
             systemWindow.Show();
             systemWindow.UpdateLayout();
             ((ComboBox)systemWindow.FindName("ThemeSelector")!).SelectedItem = "System";
-            var capsOff = FindAll<CheckBox>(systemWindow).First(box => (box.Content as string) == "Down line prints in full caps");
-            if (capsOff.IsChecked != true)
-                throw new Exception("FAIL: the saved full-caps down line did not reload");
-            capsOff.IsChecked = false;
             FindAll<Button>(systemWindow).First(b => (b.Content as string) == "Save")
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (prefsProbe.Theme != "System")
                 throw new Exception($"FAIL: the System theme saved as '{prefsProbe.Theme}'");
-            if (prefsProbe.UppercaseDownWords || GameEngine.UppercaseDownWordsEnabled)
-                throw new Exception("FAIL: turning the full-caps down line off did not save or apply");
             Console.WriteLine("PASS: preferences only apply when saved, and System is a saved option");
 
             // Enter while typing in a preference field saves the value but keeps the page open:
@@ -1928,7 +1923,8 @@ internal static class Program
                 addEditor.UpdateLayout();
                 var studioLayers = (ListBox)addEditor.FindName("Layers")!;
                 studioLayers.SelectedItems.Clear();
-                foreach (var row in studioLayers.Items.Cast<object>().Take(2)) studioLayers.SelectedItems.Add(row);
+                var groupRows = studioLayers.Items.Cast<object>().Take(2).ToArray();
+                foreach (var row in groupRows) studioLayers.SelectedItems.Add(row);
                 addEditor.UpdateLayout();
                 var transparentToggle = (CheckBox)addEditor.FindName("TransparentBackgroundInput")!;
                 transparentToggle.IsChecked = false;
@@ -1939,6 +1935,28 @@ internal static class Program
                 if (applied != group.Length)
                     throw new Exception($"FAIL: a property change reached {applied} of {group.Length} selected elements");
                 Console.WriteLine("PASS: a property change lands on every selected element at once");
+
+                // Down caps and the play-clock colon are element properties, not global preferences.
+                // Both selected text blocks start with the same tokens, then one is changed alone.
+                ((TextBox)addEditor.FindName("ContentInput")!).Text = "{{DOWNS}} {{PLAY_CLOCK}}";
+                Pump(TimeSpan.FromMilliseconds(700));
+                var downCapsInput = (CheckBox)addEditor.FindName("DownCapsInput")!;
+                var clockColonInput = (CheckBox)addEditor.FindName("PlayClockColonInput")!;
+                if (!downCapsInput.IsVisible || !clockColonInput.IsVisible)
+                    throw new Exception("FAIL: the down-caps and play-clock options are not shown for a bound element");
+                downCapsInput.IsChecked = true;
+                clockColonInput.IsChecked = true;
+                Pump(TimeSpan.FromMilliseconds(700));
+                if (group.Any(element => !element.DownCaps || !element.PlayClockColon))
+                    throw new Exception("FAIL: per-element down caps or play-clock colon did not reach every selected element");
+                studioLayers.SelectedItems.Clear();
+                studioLayers.SelectedItems.Add(groupRows[0]);
+                addEditor.UpdateLayout();
+                downCapsInput.IsChecked = false;
+                Pump(TimeSpan.FromMilliseconds(700));
+                if (group.Count(element => element.DownCaps) != group.Length - 1)
+                    throw new Exception("FAIL: unchecking down caps on one element changed every selected element");
+                Console.WriteLine("PASS: down caps and play-clock colon are per-element studio properties");
 
                 // History and the object clipboard use the same saves as the rest of the studio.
                 var beforeAdd = freshCatalog.Layout.Elements.Count;
@@ -2070,8 +2088,11 @@ internal static class Program
                 if (modeLabel.Text != "Yards")
                     throw new Exception($"FAIL: the down-line arrows start on {modeLabel.Text}, not Yards");
                 modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (modeLabel.Text != "Inches" || engine.State.FootballDownMode != FootballDownMode.Inches)
+                    throw new Exception($"FAIL: next from Yards did not reach Inches ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (modeLabel.Text != "Goal" || engine.State.FootballDownMode != FootballDownMode.Goal)
-                    throw new Exception($"FAIL: next from Yards did not reach Goal ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                    throw new Exception($"FAIL: next from Inches did not reach Goal ({modeLabel.Text}, {engine.State.FootballDownMode})");
                 modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (modeLabel.Text != "PAT" || engine.State.FootballDownMode != FootballDownMode.Pat)
                     throw new Exception($"FAIL: next from Goal did not reach PAT ({modeLabel.Text}, {engine.State.FootballDownMode})");
@@ -2079,14 +2100,14 @@ internal static class Program
                 if (modeLabel.Text != "2 PT ATT" || engine.State.FootballDownMode != FootballDownMode.TwoPoint)
                     throw new Exception($"FAIL: the arrows did not reach 2 PT ATT ({modeLabel.Text}, {engine.State.FootballDownMode})");
                 modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                if (modeLabel.Text != "No line" || engine.State.FootballDownMode != FootballDownMode.None)
-                    throw new Exception($"FAIL: the arrows did not reach No line ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                if (modeLabel.Text != "None" || engine.State.FootballDownMode != FootballDownMode.None)
+                    throw new Exception($"FAIL: the arrows did not reach None ({modeLabel.Text}, {engine.State.FootballDownMode})");
                 modeNext.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (modeLabel.Text != "Yards" || engine.State.FootballDownMode != FootballDownMode.Normal)
                     throw new Exception($"FAIL: the arrows did not wrap back to Yards ({modeLabel.Text}, {engine.State.FootballDownMode})");
                 modePrev.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                if (modeLabel.Text != "No line" || engine.State.FootballDownMode != FootballDownMode.None)
-                    throw new Exception($"FAIL: previous from Yards did not wrap to No line ({modeLabel.Text}, {engine.State.FootballDownMode})");
+                if (modeLabel.Text != "None" || engine.State.FootballDownMode != FootballDownMode.None)
+                    throw new Exception($"FAIL: previous from Yards did not wrap to None ({modeLabel.Text}, {engine.State.FootballDownMode})");
                 engine.SetFootballDownMode(FootballDownMode.Normal);
                 view.Refresh();
                 var ballSide = FindAll<Button>(view).FirstOrDefault(b => (b.Tag as string) == "football.ball.side")
@@ -2372,6 +2393,8 @@ internal static class Program
             // The window is named Icon Creator, and the optional state label is separated from the
             // condition that actually decides when a design applies.
             {
+                var creatorPath = Path.Combine(appDataPath, $"creator-icons-{Guid.NewGuid():N}.json");
+                CustomIconStore.UsePath(creatorPath);
                 var creator = new IconMakerWindow("Dark");
                 creator.Show();
                 creator.UpdateLayout();
@@ -2385,6 +2408,8 @@ internal static class Program
                 if (!FindAll<Button>(creator).Any(button => (button.Content as string) == "Import .spi…")
                     || !FindAll<Button>(creator).Any(button => (button.Content as string) == "Export .spi…"))
                     throw new Exception("FAIL: the Icon Creator does not offer .spi import and export");
+                if (!FindAll<Button>(creator).Any(button => (button.Content as string) == "Use photo…"))
+                    throw new Exception("FAIL: the Icon Creator does not offer a photo as an icon");
                 var colourInput = FindAll<TextBox>(creator).FirstOrDefault(box => box.Name == "IconColor");
                 var colourSwatch = FindAll<Border>(creator).FirstOrDefault(border => border.Name == "IconColorSwatch");
                 if (colourInput is null || colourSwatch is null)
@@ -2393,7 +2418,23 @@ internal static class Program
                 creator.UpdateLayout();
                 if (colourSwatch.Background is not SolidColorBrush colourBrush || colourBrush.Color != Colors.Red)
                     throw new Exception($"FAIL: the Icon Creator colour thumbnail did not follow the typed colour (found={colourSwatch.Background})");
+                // Each data state keeps its own glyph; editing the second must not rewrite the first
+                // with the design that happened to be on screen when it was added.
+                var addState = FindAll<Button>(creator).First(button => (button.Content as string) == "Add data state");
+                var glyphInput = FindAll<TextBox>(creator).First(box => box.Name == "IconGlyph");
+                addState.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                glyphInput.Text = "A";
+                addState.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                glyphInput.Text = "B";
+                FindAll<Button>(creator).First(button => (button.Content as string) == "Save icon")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var stateIcon = CustomIconStore.All().LastOrDefault();
+                if (stateIcon is null || stateIcon.States.Count != 2
+                    || stateIcon.States[0].Glyph != "A" || stateIcon.States[1].Glyph != "B")
+                    throw new Exception("FAIL: editing one icon data state changed another state");
                 creator.Close();
+                CustomIconStore.UsePath(null);
+                if (File.Exists(creatorPath)) File.Delete(creatorPath);
                 Console.WriteLine("PASS: the Icon Creator labels state names separately and offers .spi import and export");
             }
 
@@ -2948,7 +2989,7 @@ internal static class Program
             publishPanel.Show();
             publishPanel.UpdateLayout();
             var publishKeys = new KeybindSettings();
-            publishKeys.Bindings["output.publish"] = "F8";
+            publishKeys.Bindings["output.publish"] = KeybindStore.ToText(Key.F8, Keyboard.Modifiers);
             publishPanel.ApplyKeybinds(publishKeys);
             RaiseKey(publishPanel, PresentationSource.FromVisual(publishPanel), Key.F8);
             if (publishCount != 1) throw new Exception($"FAIL: the Update Output keybind fired {publishCount} times");

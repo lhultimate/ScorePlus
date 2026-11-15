@@ -46,6 +46,12 @@ public sealed class MacroAction
     /// <summary>Add to the current roster stat instead of replacing it.</summary>
     public bool Delta { get; set; }
 
+    /// <summary>
+    /// Let this step publish its change immediately. When false the step stays staged until
+    /// Update Output is pressed. Media steps always bypass, because playback is never staged.
+    /// </summary>
+    public bool BypassOutput { get; set; }
+
     /// <summary>The video path, console action id, or sport-control id for this step.</summary>
     public string Path { get; set; } = "";
     /// <summary>A readable name for a console action or sport value, kept for the step list.</summary>
@@ -61,6 +67,7 @@ public sealed class MacroAction
         Amount = Amount,
         Value = Value,
         Delta = Delta,
+        BypassOutput = BypassOutput,
         Path = Path,
         Label = Label,
         PlayerId = PlayerId,
@@ -114,6 +121,8 @@ public sealed class SavedMacro
     public int Row { get; set; } = -1;
     /// <summary>The board column this button occupies. -1 means place it automatically.</summary>
     public int Column { get; set; } = -1;
+    /// <summary>The board page this macro belongs to. Page 0 is the first page.</summary>
+    public int Page { get; set; }
     public List<MacroAction> Actions { get; set; } = [];
 
     public SavedMacro Copy() => new()
@@ -124,6 +133,7 @@ public sealed class SavedMacro
         StartNewRow = StartNewRow,
         Row = Row,
         Column = Column,
+        Page = Page,
         Actions = (Actions ?? []).Select(action => action.Copy()).ToList()
     };
 
@@ -137,6 +147,7 @@ public sealed class SavedMacro
         if (Color.Length is not (7 or 9) || Color[0] != '#' || !Color[1..].All(char.IsAsciiHexDigit)) Color = "";
         Row = Math.Clamp(Row, -1, 999);
         Column = Math.Clamp(Column, -1, 999);
+        Page = Math.Clamp(Page, 0, 98);
         Actions ??= [];
         Actions = Actions.Where(action => action is not null).Take(80).ToList();
         foreach (var action in Actions) action.Normalize();

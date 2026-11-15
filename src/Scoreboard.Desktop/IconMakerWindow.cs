@@ -16,10 +16,10 @@ public sealed class IconMakerWindow : Window
 {
     readonly string _theme;
     readonly ListBox _list = new();
-    readonly ListBox _states = new() { Height = 92, DisplayMemberPath = "Label" };
+    readonly ListBox _states = new() { Name = "IconStates", Height = 92, DisplayMemberPath = "Label" };
     readonly TextBox _name = new() { MinWidth = 220 };
-    readonly ComboBox _designFor = new() { MinHeight = 30, Margin = new Thickness(0, 3, 0, 0) };
-    readonly TextBox _glyph = new() { MinWidth = 64, MaxWidth = 100 };
+    readonly ComboBox _designFor = new() { Name = "IconDesignFor", MinHeight = 30, Margin = new Thickness(0, 3, 0, 0) };
+    readonly TextBox _glyph = new() { Name = "IconGlyph", MinWidth = 64, MaxWidth = 100 };
     readonly TextBox _color = new() { Name = "IconColor", MinWidth = 100 };
     readonly Border _colorSwatch = new()
     {
@@ -38,7 +38,9 @@ public sealed class IconMakerWindow : Window
     readonly ComboBox _stateField = new() { MinHeight = 28, MinWidth = 150 };
     readonly ComboBox _stateOperator = new() { MinHeight = 28, MinWidth = 140, Margin = new Thickness(6, 0, 0, 0) };
     readonly TextBox _stateValue = new() { MinWidth = 110, Margin = new Thickness(6, 0, 0, 0) };
+    readonly TextBlock _imageLabel = new() { FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
     readonly Button _removeState;
+    string _imagePath = "";
     readonly Border _previewStage = new()
     {
         Height = 150,
@@ -63,6 +65,15 @@ public sealed class IconMakerWindow : Window
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center
     };
+    readonly Image _previewImage = new()
+    {
+        Width = 96,
+        Height = 96,
+        Stretch = Stretch.Uniform,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+        Visibility = Visibility.Collapsed
+    };
     readonly TextBlock _status = new() { FontSize = 11, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center };
     readonly Button _delete;
     CustomIcon _editing = new();
@@ -85,7 +96,10 @@ public sealed class IconMakerWindow : Window
         FontFamily = new FontFamily("Segoe UI");
         ScreenFit.Track(this);
 
-        _preview.Child = _previewGlyph;
+        var previewContent = new Grid();
+        previewContent.Children.Add(_previewGlyph);
+        previewContent.Children.Add(_previewImage);
+        _preview.Child = previewContent;
         _preview.RenderTransformOrigin = new Point(0.5, 0.5);
         _previewStage.Child = _preview;
         ThemeManager.SetSkipTheme(_previewStage, true);
@@ -207,6 +221,12 @@ public sealed class IconMakerWindow : Window
             if (_filling || _designFor.SelectedItem is not DesignChoice choice) return;
             CommitDesign();
             _designTarget = choice.State;
+            // Keep the data-state list on the same design. The two pickers must never point at
+            // different states, or an edit can look like it belongs to one state while it is
+            // actually being written into another.
+            _filling = true;
+            try { _states.SelectedItem = choice.State; }
+            finally { _filling = false; }
             LoadDesign();
         };
         editor.Children.Add(_designFor);
@@ -219,6 +239,25 @@ public sealed class IconMakerWindow : Window
         editor.Children.Add(new TextBlock
         {
             Text = "The glyph is one to three characters — ★ ● ▲ ⚑ ⬤ ✚ or a letter. Colours take #RRGGBB or #AARRGGBB; a plate starting #00 is transparent.",
+            FontSize = 10, Opacity = 0.65, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0)
+        });
+        // A photograph can stand in for the glyph, either as the fallback design or for one data
+        // state. That is the point of a per-state image: the home mark can be a logo and the away
+        // mark a different one, while both keep the same scorebug element.
+        var imageRow = new DockPanel { Margin = new Thickness(0, 7, 0, 0) };
+        var usePhoto = new Button { Content = "Use photo…", MinHeight = 30, Padding = new Thickness(10, 3, 10, 3) };
+        usePhoto.Click += (_, _) => ImportPhoto();
+        var clearPhoto = new Button { Content = "Clear photo", MinHeight = 30, Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(6, 0, 0, 0) };
+        clearPhoto.Click += (_, _) => ClearPhoto();
+        DockPanel.SetDock(usePhoto, Dock.Left);
+        DockPanel.SetDock(clearPhoto, Dock.Left);
+        imageRow.Children.Add(usePhoto);
+        imageRow.Children.Add(clearPhoto);
+        imageRow.Children.Add(_imageLabel);
+        editor.Children.Add(imageRow);
+        editor.Children.Add(new TextBlock
+        {
+            Text = "A photo replaces the glyph in this design only. Add or select a data state first to give that state its own picture.",
             FontSize = 10, Opacity = 0.65, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0)
         });
         _round.Margin = new Thickness(0, 8, 0, 0);
@@ -333,6 +372,17 @@ public sealed class IconMakerWindow : Window
             if (_filling || _states.SelectedItem is not CustomIconState state) return;
             CommitDesign();
             _designTarget = state;
+            // Selecting a row in DATA STATES is selecting the design the fields edit. Point the
+            // DESIGN FOR picker at it too, so the two controls can never disagree about which
+            // state a typed glyph or imported photo belongs to.
+            _filling = true;
+            try
+            {
+                _designFor.SelectedItem = _designFor.Items
+                    .OfType<DesignChoice>()
+                    .FirstOrDefault(choice => ReferenceEquals(choice.State, state));
+            }
+            finally { _filling = false; }
             LoadDesign();
         };
 
@@ -417,13 +467,22 @@ public sealed class IconMakerWindow : Window
 
     void RebuildDesignChoices(CustomIconState? select = null)
     {
-        var choices = new List<DesignChoice> { new(null) };
-        choices.AddRange(_editing.States.Select(state => new DesignChoice(state)));
-        _designFor.ItemsSource = choices;
-        if (select is not null) _designTarget = select;
-        _designFor.SelectedItem = choices.FirstOrDefault(choice => ReferenceEquals(choice.State, _designTarget)) ?? choices[0];
-        _states.SelectedItem = select;
-        _removeState.IsEnabled = select is not null;
+        // Rebuild both pickers without letting their SelectionChanged handlers commit the old
+        // fields. Without this guard, adding a state overwrote it with the design that happened to
+        // be on screen, so every new state looked like the previous one until it was edited again.
+        var previous = _filling;
+        _filling = true;
+        try
+        {
+            var choices = new List<DesignChoice> { new(null) };
+            choices.AddRange(_editing.States.Select(state => new DesignChoice(state)));
+            _designFor.ItemsSource = choices;
+            if (select is not null) _designTarget = select;
+            _designFor.SelectedItem = choices.FirstOrDefault(choice => ReferenceEquals(choice.State, _designTarget)) ?? choices[0];
+            _states.SelectedItem = select;
+            _removeState.IsEnabled = select is not null;
+        }
+        finally { _filling = previous; }
     }
 
     void LoadDesign()
@@ -433,6 +492,8 @@ public sealed class IconMakerWindow : Window
         {
             var design = _designTarget;
             _glyph.Text = design?.Glyph ?? _editing.Glyph;
+            _imagePath = design?.ImagePath ?? _editing.ImagePath;
+            UpdateImageLabel();
             _color.Text = design?.Color ?? _editing.Color;
             _plate.Text = design?.Plate ?? _editing.Plate;
             _round.IsChecked = design?.Round ?? _editing.Round;
@@ -493,6 +554,7 @@ public sealed class IconMakerWindow : Window
         if (design is null)
         {
             _editing.Glyph = _glyph.Text.Trim();
+            _editing.ImagePath = _imagePath;
             _editing.Color = _color.Text.Trim();
             _editing.Plate = _plate.Text.Trim();
             _editing.Round = _round.IsChecked == true;
@@ -505,6 +567,7 @@ public sealed class IconMakerWindow : Window
         else
         {
             design.Glyph = _glyph.Text.Trim();
+            design.ImagePath = _imagePath;
             design.Color = _color.Text.Trim();
             design.Plate = _plate.Text.Trim();
             design.Round = _round.IsChecked == true;
@@ -529,6 +592,7 @@ public sealed class IconMakerWindow : Window
         var state = new CustomIconState
         {
             Glyph = _editing.Glyph,
+            ImagePath = _editing.ImagePath,
             Color = _editing.Color,
             Plate = _editing.Plate,
             Round = _editing.Round,
@@ -567,9 +631,62 @@ public sealed class IconMakerWindow : Window
         _status.Text = "Data state removed. The fallback look is used when no state matches.";
     }
 
+    void UpdateImageLabel()
+    {
+        _imageLabel.Text = string.IsNullOrWhiteSpace(_imagePath)
+            ? "No photo: the glyph is used"
+            : System.IO.Path.GetFileName(_imagePath);
+        _imageLabel.ToolTip = string.IsNullOrWhiteSpace(_imagePath) ? null : _imagePath;
+    }
+
+    void ImportPhoto()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Choose an icon photo",
+            Filter = "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp|All files (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            // Keep a private copy beside the icon library. The original can then be moved or
+            // deleted after import without breaking the show graphic.
+            var folder = AppPaths.Combine("IconImages");
+            System.IO.Directory.CreateDirectory(folder);
+            var extension = System.IO.Path.GetExtension(dialog.FileName);
+            var target = System.IO.Path.Combine(folder, $"{Guid.NewGuid():N}{extension}");
+            System.IO.File.Copy(dialog.FileName, target, true);
+            _imagePath = target;
+            UpdateImageLabel();
+            UpdatePreview();
+            _status.Text = $"Photo added to {(_designTarget is null ? "the fallback design" : "this data state")}.";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"Could not import the photo: {ex.Message}";
+        }
+    }
+
+    void ClearPhoto()
+    {
+        _imagePath = "";
+        UpdateImageLabel();
+        UpdatePreview();
+    }
+
     void UpdatePreview()
     {
         if (_designTarget is not null) CommitDesign();
+        var imagePath = (_imagePath ?? "").Trim();
+        var hasImage = imagePath.Length > 0 && System.IO.File.Exists(imagePath);
+        _previewGlyph.Visibility = hasImage ? Visibility.Collapsed : Visibility.Visible;
+        _previewImage.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
+        if (hasImage)
+        {
+            try { _previewImage.Source = ScorebugRender.LoadLogo(imagePath); }
+            catch { _previewImage.Source = null; _previewImage.Visibility = Visibility.Collapsed; _previewGlyph.Visibility = Visibility.Visible; }
+        }
         var glyph = _glyph.Text.Trim();
         var colour = _color.Text.Trim();
         var plate = _plate.Text.Trim();
