@@ -1,6 +1,6 @@
-using System.Runtime.InteropServices;
-using Avalonia;
-using Avalonia.Media;
+using System;
+using Avalonia.Controls;
+using Avalonia.Platform;
 
 namespace Scoreboard.Desktop;
 
@@ -12,39 +12,18 @@ namespace Scoreboard.Desktop;
 /// </summary>
 internal static class ScreenFit
 {
-    const uint MonitorDefaultToNearest = 2;
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct Rect
-    {
-        public int Left, Top, Right, Bottom;
-        public int Width => Right - Left;
-        public int Height => Bottom - Top;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct MonitorInfo
-    {
-        public int Size;
-        public Rect Monitor;
-        public Rect Work;
-        public uint Flags;
-    }
-
-    [DllImport("user32.dll")]
-    static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
-
     /// <summary>Follows the window from monitor to monitor and keeps its bounds on the current one.</summary>
     public static void Track(Window window)
     {
-        window.SourceInitialized += (_, _) => Apply(window);
-        window.LocationChanged += (_, _) => Apply(window);
-        // Maximizing is a size change too: without this the clamp set while the window was still
-        // small stayed in place and the window never filled the screen.
-        window.StateChanged += (_, _) => Apply(window);
+        // WPF's SourceInitialized is Avalonia's Opened, LocationChanged is PositionChanged, and the
+        // maximized state arrives as a WindowState property change rather than its own event.
+        window.Opened += (_, _) => Apply(window);
+        window.PositionChanged += (_, _) => Apply(window);
+        window.Resized += (_, _) => Apply(window);
+        window.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == Avalonia.Controls.Window.WindowStateProperty) Apply(window);
+        };
     }
 
     /// <summary>
@@ -52,26 +31,37 @@ internal static class ScreenFit
     /// against the whole monitor rather than the work area: clamping it to the work area minus a
     /// frame margin left a strip of desktop down the side and bottom, which is exactly the window
     /// that would not go full screen on any monitor, portrait included.
+    /// <para>
+    /// Monitor geometry comes from Avalonia's screen backend — xrandr under X11, the portal under
+    /// Wayland — divided by that monitor's scale factor, which is the same division the Windows port
+    /// did with GetDpi. No win32 handles, and Wayland's no-coordinate model cannot be measured any
+    /// other way.
+    /// </para>
     /// </summary>
     public static void Apply(Window window)
     {
-        var handle = WpfInterop.HandleFor(window);
-        if (handle == IntPtr.Zero) return;
-        var monitor = MonitorFromWindow(handle, MonitorDefaultToNearest);
-        if (monitor == IntPtr.Zero) return;
-        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        if (!GetMonitorInfo(monitor, ref info)) return;
+        Avalonia.Platform.Screen? screen;
+        try
+        {
+            var screens = window.Screens;
+            screen = screens?.ScreenFromWindow(window) ?? screens?.Primary;
+        }
+        // A window that has never been shown has no platform screen to measure against yet.
+        catch (Exception) { return; }
+        if (screen is null) return;
 
-        var dpi = VisualTreeHelper.GetDpi(window);
+        var scaling = screen.Scaling > 0 ? screen.Scaling : window.RenderScaling;
+        if (scaling <= 0) scaling = 1;
+
         var maximized = window.WindowState == WindowState.Maximized;
-        var area = maximized ? info.Monitor : info.Work;
-        var width = Math.Max(320, area.Width / dpi.DpiScaleX);
-        var height = Math.Max(240, area.Height / dpi.DpiScaleY);
+        var area = maximized ? screen.Bounds : screen.WorkingArea;
+        var width = Math.Max(320, area.Width / scaling);
+        var height = Math.Max(240, area.Height / scaling);
 
         window.MaxWidth = width;
         window.MaxHeight = height;
         // Only a floating window is pulled back in; resizing a maximized one would knock it out of
-        // the maximized state Windows just applied.
+        // the maximized state the desktop just applied.
         if (maximized) return;
         if (window.Width > width) window.Width = width;
         if (window.Height > height) window.Height = height;

@@ -41,7 +41,8 @@ public sealed class SportPickerWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
         FontFamily = new FontFamily("Segoe UI");
-        WindowStyle = WindowStyle.SingleBorderWindow;
+        // WPF's WindowStyle.SingleBorderWindow is Avalonia's default decorated window: SystemDecorations
+        // stays Full and ResizeMode.NoResize already pins the chrome, so nothing to set here.
 
         var root = new StackPanel { Margin = new Thickness(24, 22, 24, 20) };
 
@@ -87,7 +88,8 @@ public sealed class SportPickerWindow : Window
         _sports.ItemsSource = choices;
         _sports.DisplayMemberPath = nameof(SportChoice.Label);
         _sports.SelectionChanged += (_, _) => _detail.Text = (_sports.SelectedItem as SportChoice)?.Detail ?? "";
-        _sports.MouseDoubleClick += (_, _) => Start();
+        // Avalonia's double-tap is the double-click equivalent for list choices.
+        _sports.DoubleTapped += (_, _) => Start();
         root.Children.Add(_sports);
         root.Children.Add(_detail);
 

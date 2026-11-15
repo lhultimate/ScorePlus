@@ -168,7 +168,7 @@ public sealed class VideoSurface : Grid
         Apply();
     }
 
-    void SyncClip() => _clip.Rect = new Rect(0, 0, Math.Max(0, ActualWidth), Math.Max(0, ActualHeight));
+    void SyncClip() => _clip.Rect = new Rect(0, 0, Math.Max(0, Bounds.Width), Math.Max(0, Bounds.Height));
 
     /// <summary>
     /// The clip this surface should be showing. A muted surface is a preview (studio, program

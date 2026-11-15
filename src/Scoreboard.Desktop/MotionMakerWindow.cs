@@ -735,7 +735,7 @@ public sealed class MotionMakerWindow : Window
     void UpdateTemporaryPiece()
     {
         if (SelectedPiece is not { } piece) { _status.Text = "Select a temporary piece first."; return; }
-        piece.Name = string.IsNullOrWhiteSpace(_pieceName.Text) ? piece.Name : _pieceName.Text.Trim();
+        piece.Name = string.IsNullOrWhiteSpace(_pieceName.Text) ? piece.Name : _pieceName.Text?.Trim() ?? "";
         piece.Text = _pieceText.Text;
         piece.Width = Number(_pieceWidth.Text, piece.Width, 4, 7680);
         piece.Height = Number(_pieceHeight.Text, piece.Height, 4, 7680);
@@ -851,13 +851,13 @@ public sealed class MotionMakerWindow : Window
     {
         var phase = CurrentPhase;
         if (phase is null) return;
-        if (!string.IsNullOrWhiteSpace(_phaseName.Text)) phase.Name = _phaseName.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(_phaseName.Text)) phase.Name = _phaseName.Text?.Trim() ?? "";
         phase.Seconds = Number(_phaseSeconds.Text, phase.Seconds, 0, 30);
         phase.Enabled = _phaseOn.IsChecked == true;
         _clip.Loop = _loopBox.IsChecked == true;
         _clip.PingPong = _pingBox.IsChecked == true;
         _clip.UseOnValueChange = _valueBox.IsChecked == true;
-        _clip.Name = string.IsNullOrWhiteSpace(_nameBox.Text) ? _clip.Name : _nameBox.Text.Trim();
+        _clip.Name = string.IsNullOrWhiteSpace(_nameBox.Text) ? _clip.Name : _nameBox.Text?.Trim() ?? "";
         phase.Normalize();
         RefreshAll();
         BuildStage();
@@ -1521,7 +1521,7 @@ public sealed class MotionMakerWindow : Window
     void SaveToLibrary()
     {
         _clip.Normalize();
-        _clip.Name = string.IsNullOrWhiteSpace(_nameBox.Text) ? _clip.Name : _nameBox.Text.Trim();
+        _clip.Name = string.IsNullOrWhiteSpace(_nameBox.Text) ? _clip.Name : _nameBox.Text?.Trim() ?? "";
         if (_kind == MotionKind.Transition) _catalog.SaveTransition(_clip);
         else _catalog.SaveAnimation(_clip);
         RefreshAll();

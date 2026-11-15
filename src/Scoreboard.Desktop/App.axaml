@@ -1,140 +1,138 @@
-<Application x:Class="Scoreboard.Desktop.App" xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Scoreboard.Desktop">
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Scoreboard.Desktop"
+             x:Class="Scoreboard.Desktop.App">
+
+  <!-- One flat, high-contrast look for the whole operator console: dark chrome, one accent,
+       roomy click targets, and no gradient bevels anywhere. The console can be driven entirely
+       by keyboard or touchscreen in a bright arena, so contrast and target size beat ornament.
+
+       The Operator* keys are the ones ThemeManager rewrites per window when a .sport file names a
+       theme, so every style below reads them through DynamicResource: switching sports repaints a
+       live console instead of leaving the startup shades behind. The values here are the fallback
+       for surfaces ThemeManager never touches (a dialog that was never themed). -->
   <Application.Resources>
-    <SolidColorBrush x:Key="Panel" Color="#080808"/>
-    <SolidColorBrush x:Key="Surface" Color="#141414"/>
-    <SolidColorBrush x:Key="Accent" Color="#38D7A3"/>
-    <SolidColorBrush x:Key="Muted" Color="#A8B4C3"/>
-
-    <!-- The controls read these, not hard-coded shades, so a button created after the theme pass
-         (a score stepper, a rebuilt sport row) is painted like the ones around it. ThemeManager
-         replaces them per window; the dark values here are the startup fallback. -->
-    <SolidColorBrush x:Key="OperatorPanelBrush" Color="#080808"/>
+    <SolidColorBrush x:Key="OperatorPanelBrush"   Color="#080808"/>
     <SolidColorBrush x:Key="OperatorSurfaceBrush" Color="#141414"/>
-    <SolidColorBrush x:Key="OperatorInputBrush" Color="#050505"/>
-    <SolidColorBrush x:Key="OperatorTextBrush" Color="#F4F7FB"/>
-    <SolidColorBrush x:Key="OperatorBorderBrush" Color="#383838"/>
+    <SolidColorBrush x:Key="OperatorInputBrush"   Color="#050505"/>
+    <SolidColorBrush x:Key="OperatorTextBrush"    Color="#F4F7FB"/>
+    <SolidColorBrush x:Key="OperatorBorderBrush"  Color="#383838"/>
 
-    <Style TargetType="Button">
-      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
-      <Setter Property="Background" Value="{DynamicResource OperatorSurfaceBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
-      <Setter Property="Padding" Value="14,10"/>
-      <Setter Property="Margin" Value="4"/>
-      <Setter Property="FontSize" Value="14"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6" local:ThemeManager.SkipTheme="True">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Foreground}"/>
-            </Border>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-      <Style.Triggers>
-        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
-      </Style.Triggers>
-    </Style>
+    <!-- The shipped accent is the console green; a chosen colour in the .sport file replaces all
+         four shades at once, so nothing may mix a literal accent into chrome. -->
+    <SolidColorBrush x:Key="AccentBrush"       Color="#38D7A3"/>
+    <SolidColorBrush x:Key="AccentFillBrush"   Color="#123C33"/>
+    <SolidColorBrush x:Key="AccentActionBrush" Color="#0B6B50"/>
+    <SolidColorBrush x:Key="AccentHoverBrush"  Color="#14A67C"/>
 
-    <Style TargetType="TextBox">
-      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
-      <Setter Property="Background" Value="{DynamicResource OperatorInputBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
-      <Setter Property="Padding" Value="9"/>
-      <Setter Property="Margin" Value="4"/>
-      <Setter Property="FontSize" Value="16"/>
-      <Setter Property="CaretBrush" Value="{DynamicResource OperatorTextBrush}"/>
-    </Style>
+    <!-- Hover and selected states sit one step above the surface, whatever theme is active. -->
+    <SolidColorBrush x:Key="ControlHoverBrush" Color="#262C36"/>
+    <SolidColorBrush x:Key="DangerBrush"       Color="#FF6B6B"/>
+    <SolidColorBrush x:Key="WarnBrush"         Color="#FFD166"/>
+    <SolidColorBrush x:Key="MutedBrush"        Color="#B0B0B0"/>
 
-    <Style TargetType="ComboBox">
-      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
-      <Setter Property="Background" Value="{DynamicResource OperatorInputBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
-      <Setter Property="Padding" Value="6"/>
-      <Setter Property="Margin" Value="4"/>
-      <Setter Property="MinHeight" Value="32"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ComboBox">
-            <Grid>
-              <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6" local:ThemeManager.SkipTheme="True"/>
-              <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press" Background="Transparent" BorderThickness="0"
-                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
-                <ToggleButton.Template>
-                  <ControlTemplate TargetType="ToggleButton"><Border Background="Transparent"/></ControlTemplate>
-                </ToggleButton.Template>
-              </ToggleButton>
-              <ContentPresenter x:Name="ContentSite" Margin="10,4,32,4" VerticalAlignment="Center" HorizontalAlignment="Left" IsHitTestVisible="False"
-                                Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                                TextElement.Foreground="{TemplateBinding Foreground}"/>
-              <!-- Editable combos (the media tag box) type into this; without it the text is invisible. -->
-              <TextBox x:Name="PART_EditableTextBox" Margin="8,2,28,2" Padding="0" VerticalAlignment="Center"
-                       Background="Transparent" BorderThickness="0" FontSize="12"
-                       Foreground="{TemplateBinding Foreground}" CaretBrush="{TemplateBinding Foreground}"
-                       Visibility="Collapsed" IsReadOnly="{TemplateBinding IsReadOnly}"/>
-              <Path HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0" IsHitTestVisible="False"
-                    Fill="{TemplateBinding Foreground}" Data="M 0 0 L 4 4 L 8 0 Z"/>
-              <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6" MinWidth="{TemplateBinding ActualWidth}" local:ThemeManager.SkipTheme="True">
-                  <ScrollViewer MaxHeight="300" CanContentScroll="True">
-                    <ItemsPresenter/>
-                  </ScrollViewer>
-                </Border>
-              </Popup>
-            </Grid>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsEditable" Value="True">
-                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
-                <Setter TargetName="ContentSite" Property="Visibility" Value="Collapsed"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-      <Setter Property="ItemContainerStyle">
-        <Setter.Value>
-          <Style TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
-            <Setter Property="Background" Value="{DynamicResource OperatorPanelBrush}"/>
-            <Setter Property="Padding" Value="10,7"/>
-            <Style.Triggers>
-              <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#2B3949"/></Trigger>
-              <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#1E2A36"/></Trigger>
-            </Style.Triggers>
-          </Style>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style TargetType="ToggleButton">
-      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
-      <Setter Property="Background" Value="{DynamicResource OperatorSurfaceBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
-      <Setter Property="Padding" Value="12,10"/>
-      <Setter Property="Margin" Value="4"/>
-      <Setter Property="FontSize" Value="13"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ToggleButton">
-            <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6" local:ThemeManager.SkipTheme="True">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Foreground}"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="Chrome" Property="Background" Value="#0B6B50"/>
-                <Setter TargetName="Chrome" Property="BorderBrush" Value="#14A67C"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style TargetType="CheckBox">
-      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
-      <Setter Property="Margin" Value="4"/>
-    </Style>
+    <!-- The roster editor's own shades: it sits on top of the console chrome, so it runs a step
+         lighter than the window it lives in. The code-behind looks these up by key as it builds
+         each row, and they must resolve before the first paint. -->
+    <SolidColorBrush x:Key="RosterPanelBrush"       Color="#151B25"/>
+    <SolidColorBrush x:Key="RosterSurfaceBrush"     Color="#1B2431"/>
+    <SolidColorBrush x:Key="RosterSurfaceAltBrush"  Color="#222D3C"/>
+    <SolidColorBrush x:Key="RosterInputBrush"       Color="#10161F"/>
+    <SolidColorBrush x:Key="RosterTextBrush"        Color="#EEF2F7"/>
+    <SolidColorBrush x:Key="RosterHeaderTextBrush"  Color="#EEF2F7"/>
+    <SolidColorBrush x:Key="RosterMutedBrush"       Color="#93A0B2"/>
+    <SolidColorBrush x:Key="RosterBorderBrush"      Color="#2C3846"/>
+    <SolidColorBrush x:Key="RosterHeaderBrush"      Color="#1B2431"/>
+    <SolidColorBrush x:Key="RosterPillBrush"        Color="#24303F"/>
+    <SolidColorBrush x:Key="RosterPillBorderBrush"  Color="#33404F"/>
+    <SolidColorBrush x:Key="RosterTabBrush"         Color="#1B2431"/>
+    <SolidColorBrush x:Key="RosterAccentBrush"      Color="#38D7A3"/>
+    <SolidColorBrush x:Key="RosterAccentTextBrush"  Color="#04120D"/>
+    <SolidColorBrush x:Key="RosterDangerBrush"      Color="#FF6B6B"/>
   </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <!-- Buttons: flat, square, a clear pressed/hover state. -->
+    <Style Selector="Button">
+      <Setter Property="Background" Value="{DynamicResource OperatorSurfaceBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="Padding" Value="10,5"/>
+      <Setter Property="MinHeight" Value="30"/>
+    </Style>
+    <Style Selector="Button:pointerover">
+      <Setter Property="Background" Value="{DynamicResource ControlHoverBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <Style Selector="Button:pressed">
+      <Setter Property="Background" Value="{DynamicResource AccentActionBrush}"/>
+    </Style>
+    <Style Selector="Button:disabled">
+      <Setter Property="Opacity" Value="0.4"/>
+    </Style>
+
+    <!-- Toggle buttons (toolbars, quarter pickers) — checked means "on". -->
+    <Style Selector="ToggleButton">
+      <Setter Property="Background" Value="{DynamicResource OperatorSurfaceBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="Padding" Value="10,5"/>
+      <Setter Property="MinHeight" Value="30"/>
+    </Style>
+    <Style Selector="ToggleButton:pointerover">
+      <Setter Property="Background" Value="{DynamicResource ControlHoverBrush}"/>
+    </Style>
+    <Style Selector="ToggleButton:checked">
+      <Setter Property="Background" Value="{DynamicResource AccentActionBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+
+    <Style Selector="CheckBox">
+      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
+    </Style>
+
+    <!-- Entry fields: one quiet inset look, accent edge while typing. -->
+    <Style Selector="TextBox">
+      <Setter Property="Background" Value="{DynamicResource OperatorInputBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="Padding" Value="6,4"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource OperatorTextBrush}"/>
+      <Setter Property="MinHeight" Value="30"/>
+    </Style>
+    <Style Selector="TextBox:focus">
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+
+    <!-- Combos: the same box as the entry fields; the chevron is the theme's own. -->
+    <Style Selector="ComboBox">
+      <Setter Property="Background" Value="{DynamicResource OperatorInputBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource OperatorBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="Padding" Value="6,4"/>
+      <Setter Property="MinHeight" Value="30"/>
+    </Style>
+    <Style Selector="ComboBoxItem">
+      <Setter Property="Foreground" Value="{DynamicResource OperatorTextBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource OperatorSurfaceBrush}"/>
+      <Setter Property="Padding" Value="8,5"/>
+    </Style>
+    <Style Selector="ComboBoxItem:pointerover">
+      <Setter Property="Background" Value="{DynamicResource ControlHoverBrush}"/>
+    </Style>
+    <Style Selector="ComboBoxItem:selected">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="#04120D"/>
+    </Style>
+  </Application.Styles>
 </Application>

@@ -19,27 +19,13 @@
     <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../Scoreboard.Core/Scoreboard.Core.csproj" /></ItemGroup>
-  <ItemGroup Label="Avalonia compiled surfaces and embedded media">
-    <Resource Include="Assets/logo.png" />
-    <Resource Include="App.axaml" />
-    <!-- Phase 2 renames+converts each window XAML to Avalonia markup; listed now so the
-         build system owns every surface from the start. -->
-    <Resource Include="MainWindow.axaml" />
-    <Resource Include="LauncherWindow.xaml" />
-    <Resource Include="OutputWindow.xaml" />
-    <Resource Include="GameControlWindow.xaml" />
-    <Resource Include="MediaDock.xaml" />
-    <Resource Include="ScorebugEditorWindow.xaml" />
-    <Resource Include="SettingsWindow.xaml" />
-    <Resource Include="ControlPanelView.xaml" />
-    <Resource Include="RosterPanel.xaml" />
-    <Resource Include="RosterDock.xaml" />
-    <Resource Include="SportProfileWindow.xaml" />
-    <Resource Include="EventLogWindow.xaml" />
-  </ItemGroup>
-  <ItemGroup>
-    <!-- Kept as a plain resource: the .ico is Windows taskbar chrome, unused at runtime here. -->
-    <Resource Include="app.ico" />
+  <ItemGroup Label="Avalonia embedded media, reached by avares:// URIs (logo, scorebug art)">
+    <!-- The .axaml surfaces need no listing: Avalonia's targets glob **/*.axaml as AvaloniaXaml
+         and compile them. WPF-era <Resource> items did nothing here, so they are gone. -->
+    <AvaloniaResource Include="Assets/*.png" />
+    <!-- Window markup says Icon="app.ico". Avalonia only sees what is registered here, which is
+         why the WPF-era ApplicationIcon alone left every window throwing on load. -->
+    <AvaloniaResource Include="app.ico" />
   </ItemGroup>
   <ItemGroup>
     <!-- WebView2 stays until HtmlSurface is ported (browser-handler path); NAudio and

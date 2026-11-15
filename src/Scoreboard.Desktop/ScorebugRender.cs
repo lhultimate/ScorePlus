@@ -15,7 +15,7 @@ internal static class ScorebugRender
     public static Brush ParseBrush(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return Brushes.Transparent;
-        try { return (Brush)Brush.Parse(value); }
+        try { return new SolidColorBrush(Color.Parse(value)); }
         catch { return Brushes.Transparent; }
     }
 
@@ -265,8 +265,8 @@ public sealed class ScorebugTextBlock : TextBlock
         Foreground = Paint.Text(item, state);
         Opacity = Math.Clamp(item.TextOpacity, 0, 1);
         var decorations = new TextDecorationCollection();
-        if (item.Underline) decorations.Add(TextDecorations.Underline[0]);
-        if (item.StrikeThrough) decorations.Add(TextDecorations.Strikethrough[0]);
+        if (item.Underline) decorations.Add(Avalonia.Media.TextDecorations.Underline[0]);
+        if (item.StrikeThrough) decorations.Add(Avalonia.Media.TextDecorations.Strikethrough[0]);
         TextDecorations = decorations.Count == 0 ? null : decorations;
         // Slanted text: rotation is part of the element's design, not part of the animation.
         _rotate.Angle = item.Rotation;
@@ -366,7 +366,8 @@ public sealed class ScorebugTextBlock : TextBlock
     void ClearPhase()
     {
         MotionPlayback.Stop(this);
-        BeginAnimation(OpacityProperty, null);
+        // The WPF-shaped animation runner is an extension method, so the implicit receiver is written out.
+        this.BeginAnimation(OpacityProperty, null);
         _scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         _scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         _translate.BeginAnimation(TranslateTransform.XProperty, null);
@@ -503,7 +504,7 @@ public sealed class ScorebugTextBlock : TextBlock
             ClearPhase();
             done();
         };
-        BeginAnimation(OpacityProperty, fade);
+        this.BeginAnimation(OpacityProperty, fade);
 
         if (xFrom is double || xTo is double)
             _translate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(xFrom ?? 0, xTo ?? 0, duration) { EasingFunction = ease, FillBehavior = FillBehavior.HoldEnd });
@@ -775,8 +776,9 @@ public sealed class ScorebugIconView : Grid
     /// </summary>
     (double Width, double Height) DotBox()
     {
-        var width = ActualWidth;
-        var height = ActualHeight;
+        // WPF's ActualWidth/ActualHeight: Avalonia reports the laid-out size on Bounds.
+        var width = Bounds.Width;
+        var height = Bounds.Height;
         if (double.IsNaN(width) || width <= 0) width = _item.Width;
         if (double.IsNaN(height) || height <= 0) height = _item.Height;
         return (double.IsNaN(width) ? 0 : width, double.IsNaN(height) ? 0 : height);

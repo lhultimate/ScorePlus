@@ -5,7 +5,7 @@
         Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
   <DockPanel Margin="14">
     <DockPanel DockPanel.Dock="Top" Margin="2,0,2,10">
-      <Button DockPanel.Dock="Right" Content="Clear view" FontSize="11" Padding="8,5" Click="Clear_Click" ToolTip="Clear this window's list only — the game history is untouched"/>
+      <Button DockPanel.Dock="Right" Content="Clear view" FontSize="11" Padding="8,5" Click="Clear_Click" ToolTip.Tip="Clear this window's list only — the game history is untouched"/>
       <StackPanel Orientation="Horizontal">
         <TextBlock Text="●" Foreground="#38D7A3" FontSize="16" Margin="0,0,8,0"/>
         <TextBlock Text="EVENT LOG" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -15,12 +15,14 @@
     <Border Background="#10151D" CornerRadius="8" Padding="4">
       <ListBox x:Name="LogList" Background="Transparent" Foreground="#D6DCE5" BorderThickness="0"
                FontFamily="Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-        <ListBox.ItemContainerStyle>
+        <!-- Avalonia has no ItemContainerStyle: the ListBox's own style scope
+             reaches the containers it generates. -->
+        <ListBox.Styles>
           <Style Selector="ListBoxItem">
             <Setter Property="Padding" Value="6,4"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
           </Style>
-        </ListBox.ItemContainerStyle>
+        </ListBox.Styles>
         <ListBox.ItemTemplate>
           <DataTemplate>
             <TextBlock Text="{Binding}" TextWrapping="Wrap"/>

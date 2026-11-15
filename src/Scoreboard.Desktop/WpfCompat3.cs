@@ -227,6 +227,15 @@ public sealed class PropertyMetadata
 // styling once each window's themes are rebuilt; mouse capture via Pointer.Capture.
 public static class WpfCompat3Extensions
 {
+    // WPF hands a clone its own gradient stops; sharing the list would let a faded or textured
+    // copy repaint the brush it was cloned from.
+    static GradientStops CopyStops(GradientStops stops)
+    {
+        var copy = new GradientStops();
+        foreach (var stop in stops) copy.Add(new GradientStop(stop.Color, stop.Offset));
+        return copy;
+    }
+
     extension (Control c)
     {
         // Theme.cs walks a heterogeneous Control tree, while Avalonia puts these properties on
@@ -295,7 +304,10 @@ public static class WpfCompat3Extensions
         }
         public void SetResourceReference(Avalonia.AvaloniaProperty property, object key)
         {
-            if (c.TryFindResource(key, out var value)) { try { c[property] = value; } catch { } }
+            // WPF's SetResourceReference is a live link, not a snapshot: switching sports
+            // repaints rows that were built long ago. GetResourceObservable gives the same.
+            try { c.Bind(property, c.GetResourceObservable(key.ToString()!)); }
+            catch { try { if (c.TryFindResource(key, out var value)) c[property] = value; } catch { } }
         }
         public bool CaptureMouse() { return c.IsPointerOver; } // dirty: reports, never captures
         public void ReleaseMouseCapture() { }
@@ -319,11 +331,11 @@ public static class WpfCompat3Extensions
         public bool IsFrozen => true;
         public Brush Clone() => b switch
         {
-            SolidColorBrush sb => new SolidColorBrush(sb.Color),
-            LinearGradientBrush lg => new LinearGradientBrush { StartPoint = lg.StartPoint, EndPoint = lg.EndPoint, GradientStops = lg.GradientStops },
-            RadialGradientBrush rg => new RadialGradientBrush { Center = rg.Center, GradientOrigin = rg.GradientOrigin, RadiusX = rg.RadiusX, RadiusY = rg.RadiusY, GradientStops = rg.GradientStops },
-            DrawingBrush db => new DrawingBrush { Drawing = db.Drawing, Stretch = db.Stretch },
-            ImageBrush ib => new ImageBrush { Source = ib.Source, Stretch = ib.Stretch },
+            SolidColorBrush sb => new SolidColorBrush(sb.Color) { Opacity = b.Opacity },
+            LinearGradientBrush lg => new LinearGradientBrush { StartPoint = lg.StartPoint, EndPoint = lg.EndPoint, GradientStops = CopyStops(lg.GradientStops), Opacity = b.Opacity },
+            RadialGradientBrush rg => new RadialGradientBrush { Center = rg.Center, GradientOrigin = rg.GradientOrigin, RadiusX = rg.RadiusX, RadiusY = rg.RadiusY, GradientStops = CopyStops(rg.GradientStops), Opacity = b.Opacity },
+            DrawingBrush db => new DrawingBrush { Drawing = db.Drawing, Stretch = db.Stretch, Opacity = b.Opacity },
+            ImageBrush ib => new ImageBrush { Source = ib.Source, Stretch = ib.Stretch, Opacity = b.Opacity },
             _ => (b as Brush) ?? new SolidColorBrush(global::Avalonia.Media.Colors.Transparent),
         };
     }

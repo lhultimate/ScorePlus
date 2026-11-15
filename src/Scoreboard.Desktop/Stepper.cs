@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 
 namespace Scoreboard.Desktop;
@@ -74,8 +75,12 @@ public sealed class Stepper : Grid
         _value.BorderBrush = new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
         _value.BorderThickness = new Thickness(1);
         _value.ToolTip = "Click and type a value to set it exactly, then press Enter";
-        _value.GotKeyboardFocus += (_, _) => { _typing = true; _value.SelectAll(); };
-        _value.LostKeyboardFocus += (_, _) => { CommitTyped(); _typing = false; ShowValue(); };
+        // Avalonia has no Got/LostKeyboardFocus events; the focus routed events are the same moment
+        // for the operator: typing starts on focus and commits when focus leaves.
+        _value.AddHandler(InputElement.GotFocusEvent, new EventHandler<GotFocusEventArgs>(
+            (_, _) => { _typing = true; _value.SelectAll(); }), RoutingStrategies.Bubble);
+        _value.AddHandler(InputElement.LostFocusEvent, new EventHandler<RoutedEventArgs>(
+            (_, _) => { CommitTyped(); _typing = false; ShowValue(); }), RoutingStrategies.Bubble);
         _value.KeyDown += Value_KeyDown;
         SetRow(_value, 2);
         Children.Add(_value);
@@ -161,7 +166,7 @@ public sealed class Stepper : Grid
     {
         if (!_typing) return;
         _typing = false;
-        var text = _value.Text.Trim();
+        var text = _value.Text?.Trim() ?? "";
         if (AcceptText)
         {
             // Any text is a legal value: the box keeps exactly what was typed.

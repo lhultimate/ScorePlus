@@ -6,6 +6,8 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Media;
 using Scoreboard.Core;
+// Both System.IO and Avalonia's shapes expose a "Path"; this file only needs the file-system one.
+using Path = System.IO.Path;
 
 namespace Scoreboard.Desktop;
 
@@ -162,8 +164,11 @@ public static class PreferencesStore
 /// </summary>
 public static class ThemeManager
 {
+    /// <summary>Avalonia needs a real owner type for an attached property, and ThemeManager is static.</summary>
+    sealed class SkipThemeOwner { }
+
     public static readonly AttachedProperty<bool> SkipThemeProperty =
-        AvaloniaProperty.RegisterAttached<ThemeManager, AvaloniaObject, bool>("SkipTheme", false);
+        AvaloniaProperty.RegisterAttached<SkipThemeOwner, AvaloniaObject, bool>("SkipTheme", false);
 
     public static void SetSkipTheme(AvaloniaObject element, bool value) => element.SetValue(SkipThemeProperty, value);
     public static bool GetSkipTheme(AvaloniaObject element) => (bool)element.GetValue(SkipThemeProperty);
@@ -221,6 +226,8 @@ public static class ThemeManager
         var accent = UiPalette.Accent(preferences);
         var secondary = UiPalette.Secondary(preferences);
         window.Resources["Accent"] = UiPalette.Frozen(accent);
+        window.Resources["AccentBrush"] = UiPalette.Frozen(accent);
+        window.Resources["AccentHoverBrush"] = UiPalette.Frozen(UiPalette.Lift(accent));
         window.Resources["AccentFillBrush"] = UiPalette.Frozen(UiPalette.Soft(accent));
         window.Resources["AccentActionBrush"] = UiPalette.Frozen(secondary);
 
@@ -233,7 +240,7 @@ public static class ThemeManager
         if (window.IsLoaded) window.Dispatcher.BeginInvoke(ApplyTheme);
     }
 
-    static Brush Brush(string color) => (Brush)Brush.Parse(color);
+    static Brush Brush(string color) => new SolidColorBrush(Color.Parse(color));
 
     static void SetDescendants(AvaloniaObject? root, string panel, string surface, string foreground, string input, string border)
     {
@@ -261,7 +268,7 @@ public static class ThemeManager
                 case Button: control.Background = Brush(surface); control.BorderBrush = Brush(border); break;
                 case ListBox: control.Background = Brush(input); control.BorderBrush = Brush(border); break;
                 case ComboBox: control.Background = Brush(input); control.BorderBrush = Brush(border); break;
-                case ToggleButton: control.Background = Brush(surface); control.BorderBrush = Brush(border); break;
+                // Avalonia's ToggleButton is a Button, so the case above already dresses it.
             }
         }
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)

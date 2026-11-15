@@ -1,3 +1,4 @@
+using Avalonia.Interactivity;
 using Avalonia;
 using Avalonia.Controls;
 
@@ -54,7 +55,7 @@ public partial class OutputWindow : Window
     public void RefreshGraphic(){Update();_scorebugView.ApplyNow();}
     // The audience window is intentionally never restyled by ThemeManager: a theme change must not recolor on-air graphics.
     public void SetBroadcastTheme(string theme){_broadcastTheme=theme;Update();}
-    void Window_Loaded(object sender, object e){Update();_scorebugView.Refresh();}
+    void Window_Loaded(object sender, RoutedEventArgs e){Update();_scorebugView.Refresh();}
     void Update()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(Update); return; }
@@ -94,7 +95,7 @@ public partial class OutputWindow : Window
             HomeExtraLabel.Text=AwayExtraLabel.Text="YARDS · TURNOVERS";HomeTimeouts.Text=$"{s.HomeYards} yards   ·   {s.HomeTurnovers} turnovers";AwayTimeouts.Text=$"{s.AwayYards} yards   ·   {s.AwayTurnovers} turnovers";
         }
     }
-    static Avalonia.Media.Brush ColorBrush(string value)=>(Avalonia.Media.Brush)new Avalonia.Media.BrushConverter().ConvertFromString(value)!;
+    static Avalonia.Media.Brush ColorBrush(string value)=>new SolidColorBrush(Color.Parse(value));
     static string Dots(int count) => string.Join(" ", Enumerable.Repeat("●", count));
     static string OrdinalSuffix(int value)=>value switch{1=>"st",2=>"nd",3=>"rd",_=>"th"};
     /// <summary>True while this window is filling its screen.</summary>

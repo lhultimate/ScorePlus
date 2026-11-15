@@ -20,6 +20,10 @@ public partial class SettingsWindow : Window
     public SettingsWindow(UserPreferences prefs)
     {
         InitializeComponent();
+        // Enter while typing in a preference field must settle that field, not fire the window's
+        // default Save button. Avalonia has no PreviewKeyDown event, so the tunnel route of the
+        // KeyDown routed event is the same moment WPF's preview handler fired.
+        AddHandler(Avalonia.Input.InputElement.KeyDownEvent, new EventHandler<Avalonia.Input.KeyEventArgs>(InterceptEnterKey), Avalonia.Interactivity.RoutingStrategies.Tunnel);
         _original = prefs;
         _draft = prefs.Clone();
         ThemeSelector.ItemsSource = new[] { "System", "Dark", "Light" };
@@ -54,8 +58,8 @@ public partial class SettingsWindow : Window
     void Accent_Changed(object sender, TextChangedEventArgs e)
     {
         if (_loading || AccentInput is null || Accent2Input is null) return;
-        if (IsColor(AccentInput.Text)) _draft.AccentColor = AccentInput.Text.Trim();
-        if (IsColor(Accent2Input.Text)) _draft.AccentColor2 = Accent2Input.Text.Trim();
+        if (IsColor(AccentInput.Text)) _draft.AccentColor = AccentInput.Text?.Trim() ?? "";
+        if (IsColor(Accent2Input.Text)) _draft.AccentColor2 = Accent2Input.Text?.Trim() ?? "";
         PaintSwatches();
     }
 
@@ -67,7 +71,7 @@ public partial class SettingsWindow : Window
         return digits.Length is 3 or 4 or 6 or 8 && digits.All(Uri.IsHexDigit);
     }
 
-    void AccentPick_Click(object sender, object e)
+    void AccentPick_Click(object sender, RoutedEventArgs e)
     {
         if (ColorPickerWindow.Pick(this, _draft.AccentColor) is not string picked) return;
         _draft.AccentColor = picked;
@@ -76,7 +80,7 @@ public partial class SettingsWindow : Window
         ThemeManager.Apply(this, _draft.Theme);
     }
 
-    void Accent2Pick_Click(object sender, object e)
+    void Accent2Pick_Click(object sender, RoutedEventArgs e)
     {
         if (ColorPickerWindow.Pick(this, _draft.AccentColor2) is not string picked) return;
         _draft.AccentColor2 = picked;
@@ -85,7 +89,7 @@ public partial class SettingsWindow : Window
         ThemeManager.Apply(this, _draft.Theme);
     }
 
-    void ResetColors_Click(object sender, object e)
+    void ResetColors_Click(object sender, RoutedEventArgs e)
     {
         _draft.AccentColor = "#FF38D7A3";
         _draft.AccentColor2 = "#FF0B6B50";
@@ -97,12 +101,12 @@ public partial class SettingsWindow : Window
 
     // ---------- remote control ----------
 
-    void Remote_Changed(object sender, object e)
+    void Remote_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || RemoteEnabledInput is null) return;
         _draft.RemoteEnabled = RemoteEnabledInput.IsChecked == true;
         _draft.RemotePassword = RemotePasswordInput.Password;
-        if (int.TryParse(RemotePortInput.Text.Trim(), out var port) && port is >= 1024 and <= 65535) _draft.RemotePort = port;
+        if (int.TryParse(RemotePortInput.Text?.Trim() ?? "", out var port) && port is >= 1024 and <= 65535) _draft.RemotePort = port;
         UpdateRemoteStatus();
     }
 
@@ -124,7 +128,7 @@ public partial class SettingsWindow : Window
         RemoteStatus.Text = $"Ready on port {_draft.RemotePort}. On this computer http://localhost:{_draft.RemotePort} · on a phone on the same Wi-Fi {lan}";
     }
 
-    void OpenRemote_Click(object sender, object e)
+    void OpenRemote_Click(object sender, RoutedEventArgs e)
     {
         // The address on the network, not localhost: the operator usually copies it from the URL
         // bar onto a phone, and a localhost URL is useless there.
@@ -140,10 +144,10 @@ public partial class SettingsWindow : Window
     {
         if (_loading || CheckUpdatesInput is null || UpdateFeedInput is null) return;
         _draft.CheckForUpdates = CheckUpdatesInput.IsChecked == true;
-        _draft.UpdateFeedUrl = UpdateFeedInput.Text.Trim();
+        _draft.UpdateFeedUrl = UpdateFeedInput.Text?.Trim() ?? "";
     }
 
-    async void CheckUpdates_Click(object sender, object e)
+    async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
         if (!AppInfo.IsInstalled)
         {
@@ -165,14 +169,14 @@ public partial class SettingsWindow : Window
         if (!_loading && ThemeSelector.SelectedItem is string theme) _draft.Theme = theme;
     }
 
-    void Controls_Changed(object sender, object e)
+    void Controls_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || ShowHints is null) return;
         _draft.ShowHeadingHints = ShowHints.IsChecked == true;
     }
 
     /// <summary>A quick button either stages or publishes; the choice is saved with everything else.</summary>
-    void QuickLayout_Changed(object sender, object e)
+    void QuickLayout_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || QuickPublishInput is null) return;
         _draft.QuickLayoutsPublish = QuickPublishInput.IsChecked == true;
@@ -185,12 +189,12 @@ public partial class SettingsWindow : Window
     void Delay_Changed(object sender, TextChangedEventArgs e)
     {
         if (_loading || DelayInput is null) return;
-        if (!double.TryParse(DelayInput.Text.Trim(), NumberStyles.Float, CultureInfo.CurrentCulture, out var seconds)) return;
+        if (!double.TryParse(DelayInput.Text?.Trim() ?? "", NumberStyles.Float, CultureInfo.CurrentCulture, out var seconds)) return;
         _draft.ValueSwitchDelay = Math.Clamp(seconds, 0, MaxDelay);
     }
 
     /// <summary>Clears every recovery point; a second click confirms, so one tap cannot wipe them.</summary>
-    void DeleteAutosaves_Click(object sender, object e)
+    void DeleteAutosaves_Click(object sender, RoutedEventArgs e)
     {
         var remaining = AutosaveStore.List().Count;
         if (remaining == 0)
@@ -220,9 +224,10 @@ public partial class SettingsWindow : Window
     /// Save is the window's default button, so without this a stray Enter mid-edit saved and
     /// dismissed the whole page. Enter anywhere else still reaches its own control.
     /// </summary>
-    void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    void InterceptEnterKey(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Enter || e.OriginalSource is not (TextBox or PasswordBox)) return;
+        // Avalonia reports the keystroke source as Source (WPF's OriginalSource).
+        if (e.Key != Key.Enter || e.Source is not (TextBox or PasswordBox)) return;
         e.Handled = true;
         Commit();
         _committed = true;
@@ -252,7 +257,7 @@ public partial class SettingsWindow : Window
         DisplayTiming.Apply(_original);
     }
 
-    void Save_Click(object sender, object e)
+    void Save_Click(object sender, RoutedEventArgs e)
     {
         Commit();
         // DialogResult is only valid for a modal dialog; the window may also be shown modelessly.
@@ -264,7 +269,7 @@ public partial class SettingsWindow : Window
     /// Without an Enter save, Cancel reports false and MainWindow leaves the live theme untouched.
     /// After one, the values are already stored, so closing reports true and the owner repaints.
     /// </summary>
-    void Done_Click(object sender, object e)
+    void Done_Click(object sender, RoutedEventArgs e)
     {
         if (_committed && false)
         {

@@ -12,7 +12,19 @@
     <SolidColorBrush x:Key="DockInput" Color="#050505"/>
     <SolidColorBrush x:Key="DockTrack" Color="#26313D"/>
     <SolidColorBrush x:Key="DockThumb" Color="#EAF0F7"/>
-
+    
+    
+    
+    
+    <!-- The dock is also used as a full-width tab. These are the same controls at console size,
+         defined after their small twins so the BasedOn lookups resolve while parsing. -->
+    
+    
+    <!-- Scrollbars are part of the dock, not the operating system: slim rounded thumbs in the
+         dock's own palette, scoped to the tile scroller (as WPF's Resources override did). -->
+  
+</UserControl.Resources>
+  <UserControl.Styles>
     <Style Selector="TextBlock.tile-glyph">
       <Setter Property="FontSize" Value="20"/>
       <Setter Property="Foreground" Value="#38D7A3"/>
@@ -39,11 +51,10 @@
       <Setter Property="BorderBrush" Value="{DynamicResource DockBorder}"/>
       <Setter Property="Foreground" Value="{DynamicResource DockText}"/>
     </Style>
-    <Style Selector="Button.dock-action clear-action">
+    <Style Selector="Button.dock-action.clear-action">
       <Setter Property="Foreground" Value="#FFD166"/>
       <Setter Property="BorderBrush" Value="#6B5A2A"/>
     </Style>
-
     <Style Selector="TextBlock.dock-label">
       <Setter Property="FontSize" Value="9"/>
       <Setter Property="FontWeight" Value="Bold"/>
@@ -78,26 +89,23 @@
       <Setter Property="Foreground" Value="{DynamicResource DockText}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource DockBorder}"/>
     </Style>
-
-    <!-- The dock is also used as a full-width tab. These are the same controls at console size,
-         defined after their small twins so the BasedOn lookups resolve while parsing. -->
-    <Style Selector="Button.dock-action-large">
+    <Style Selector="Button.dock-action.dock-action-large">
       <Setter Property="FontSize" Value="13"/>
       <Setter Property="Padding" Value="14,10"/>
       <Setter Property="MinHeight" Value="44"/>
       <Setter Property="Margin" Value="4,0,0,0"/>
     </Style>
-    <Style Selector="Button.transport-button transport-button-large">
+    <Style Selector="Button.transport-button.transport-button-large">
       <Setter Property="Width" Value="58"/>
       <Setter Property="Height" Value="44"/>
       <Setter Property="FontSize" Value="18"/>
       <Setter Property="Margin" Value="0,0,8,0"/>
     </Style>
-    <Style Selector="ComboBox.dock-combo dock-combo-large">
+    <Style Selector="ComboBox.dock-combo.dock-combo-large">
       <Setter Property="FontSize" Value="13"/>
       <Setter Property="MinHeight" Value="38"/>
     </Style>
-    <Style Selector="TextBox.dock-search dock-search-large">
+    <Style Selector="TextBox.dock-search.dock-search-large">
       <Setter Property="FontSize" Value="13"/>
       <Setter Property="MinHeight" Value="40"/>
       <Setter Property="Padding" Value="10,8"/>
@@ -108,35 +116,33 @@
       <Setter Property="Margin" Value="0,2,8,0"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
-    <!-- Scrollbars are part of the dock, not the operating system: slim rounded thumbs in the
-         dock's own palette, scoped to the tile scroller (as WPF's Resources override did). -->
     <Style Selector="Slider.transport-slider">
       <Setter Property="Height" Value="26"/>
-      <Setter Property="IsMoveToPointEnabled" Value="True"/>
+      <!-- No IsMoveToPointEnabled in Avalonia: Scrub_Start/Scrub_End, wired in code, put the bar where the pointer went. -->
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Slider">
             <Grid VerticalAlignment="Center">
               <Border Height="7" CornerRadius="4" Background="{DynamicResource DockTrack}"/>
               <Track x:Name="PART_Track">
-                <Track.DecreaseRepeatButton>
-                  <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
+                <Track.DecreaseButton>
+                  <RepeatButton Focusable="False">
                     <RepeatButton.Template>
                       <ControlTemplate TargetType="RepeatButton">
                         <Border Height="7" CornerRadius="4" Background="#38D7A3"/>
                       </ControlTemplate>
                     </RepeatButton.Template>
                   </RepeatButton>
-                </Track.DecreaseRepeatButton>
-                <Track.IncreaseRepeatButton>
-                  <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False">
+                </Track.DecreaseButton>
+                <Track.IncreaseButton>
+                  <RepeatButton Focusable="False">
                     <RepeatButton.Template>
                       <ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate>
                     </RepeatButton.Template>
                   </RepeatButton>
-                </Track.IncreaseRepeatButton>
+                </Track.IncreaseButton>
                 <Track.Thumb>
-                  <Thumb Width="16" Height="16" Cursor="Hand">
+                  <Thumb x:Name="PART_Thumb" Width="16" Height="16" Cursor="Hand">
                     <Thumb.Template>
                       <ControlTemplate TargetType="Thumb">
                         <Ellipse Width="16" Height="16" Fill="{DynamicResource DockThumb}" Stroke="#38D7A3" StrokeThickness="2"/>
@@ -150,7 +156,7 @@
         </Setter.Value>
       </Setter>
     </Style>
-  </UserControl.Resources>
+</UserControl.Styles>
 
   <Border x:Name="Chrome" Background="{DynamicResource DockPanel}" CornerRadius="9" Padding="11,9">
     <Grid>
@@ -173,52 +179,52 @@
       <StackPanel Margin="0,0,0,5">
         <DockPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-            <Button x:Name="RemoveButton" Content="Remove" Classes="dock-action" Click="Remove_Click" ToolTip="Remove the selected clip from the library"/>
-            <Button Content="Import" Classes="dock-action" Click="Import_Click" ToolTip="Import audio or video clips"/>
+            <Button x:Name="RemoveButton" Content="Remove" Classes="dock-action" Click="Remove_Click" ToolTip.Tip="Remove the selected clip from the library"/>
+            <Button Content="Import" Classes="dock-action" Click="Import_Click" ToolTip.Tip="Import audio or video clips"/>
             <Button Content="Clear" Classes="dock-action clear-action" Click="Clear_Click"
-                    ToolTip="Stop playback, close the camera and blank every scorebug video box"/>
+                    ToolTip.Tip="Stop playback, close the camera and blank every scorebug video box"/>
           </StackPanel>
           <StackPanel Orientation="Horizontal">
             <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,6,0"/>
             <TextBlock Text="MEDIA" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center"/>
-            <TextBlock x:Name="HintText" Text="  tags route to the scorebug · folders organise" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.7" VerticalAlignment="Center" Visibility="Collapsed"/>
+            <TextBlock x:Name="HintText" Text="  tags route to the scorebug · folders organise" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.7" VerticalAlignment="Center" IsVisible="False"/>
           </StackPanel>
         </DockPanel>
         <!-- Camera items: add one, rename/re-route one, and scrub the last two minutes. -->
-        <WrapFlow Margin="0,4,0,0">
+        <WrapPanel Margin="0,4,0,0">
           <TextBlock Text="CAMERA" Classes="dock-label" VerticalAlignment="Center" Margin="0,0,4,0"/>
-          <Button Content="Add camera" Classes="dock-action" Click="Camera_Click" ToolTip="Add the next capture device to the library — it routes by tag like any other clip"/>
+          <Button Content="Add camera" Classes="dock-action" Click="Camera_Click" ToolTip.Tip="Add the next capture device to the library — it routes by tag like any other clip"/>
           <Button x:Name="RouteButton" Content="Route…" Classes="dock-action" Click="Route_Click"
-                  ToolTip="Rename the selected camera item and choose which camera it uses"/>
+                  ToolTip.Tip="Rename the selected camera item and choose which camera it uses"/>
           <Button x:Name="ReplayButton" Content="Replay" Classes="dock-action" Click="Replay_Click"
-                  ToolTip="Freeze the last two minutes of the live camera on the scorebug so you can drag back to the start of the play"/>
+                  ToolTip.Tip="Freeze the last two minutes of the live camera on the scorebug so you can drag back to the start of the play"/>
           <Button x:Name="LiveButton" Content="Live" Classes="dock-action" Click="Live_Click"
-                  ToolTip="Jump back to the live camera"/>
-        </WrapFlow>
+                  ToolTip.Tip="Jump back to the live camera"/>
+        </WrapPanel>
         <!-- Microphones: live commentary, captured from a device and monitored on its own output. -->
-        <WrapFlow Margin="0,3,0,0">
+        <WrapPanel Margin="0,3,0,0">
           <TextBlock Text="MICROPHONE" Classes="dock-label" VerticalAlignment="Center" Margin="0,0,4,0"/>
           <Button Content="Add microphone" Classes="dock-action" Click="Microphone_Click"
-                  ToolTip="Add a capture device to the library. Cue it and its sound goes live on the output set below"/>
+                  ToolTip.Tip="Add a capture device to the library. Cue it and its sound goes live on the output set below"/>
           <Button x:Name="MicrophoneRouteButton" Content="Route…" Classes="dock-action" Click="MicrophoneRoute_Click"
-                  ToolTip="Rename the selected microphone item and choose which microphone it listens to"/>
+                  ToolTip.Tip="Rename the selected microphone item and choose which microphone it listens to"/>
           <TextBlock x:Name="MicrophoneStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
                      VerticalAlignment="Center" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
-        </WrapFlow>
+        </WrapPanel>
         <!-- Which camera item is live: pick another and it takes over on air. -->
         <DockPanel Margin="0,3,0,0">
           <TextBlock Text="LIVE" Classes="dock-label" VerticalAlignment="Center" Margin="0,0,4,0"/>
           <ComboBox x:Name="CameraBox" Classes="dock-combo" SelectionChanged="Camera_Changed"
-                    ToolTip="Choose which camera item is on air"/>
+                    ToolTip.Tip="Choose which camera item is on air"/>
         </DockPanel>
         <DockPanel Margin="0,3,0,0">
           <TextBlock Text="REPLAY" Classes="dock-label" VerticalAlignment="Center" Margin="0,0,4,0"/>
           <Button x:Name="StartReplayButton" Classes="dock-action" Content="Start replay" Click="StartReplay_Click"
                   IsEnabled="False"
-                  ToolTip="Play the replay from where you have scrubbed to, on air"/>
+                  ToolTip.Tip="Play the replay from where you have scrubbed to, on air"/>
           <Button x:Name="SaveReplayButton" Classes="dock-action" Content="Save replay…" Click="SaveReplay_Click"
                   IsEnabled="False"
-                  ToolTip="Save everything from where the replay is paused through to now as a clip on your computer"/>
+                  ToolTip.Tip="Save everything from where the replay is paused through to now as a clip on your computer"/>
           <TextBlock x:Name="ReplayHint" Text="  scrub back, start it, then save from there to now" FontSize="10"
                      Foreground="{DynamicResource DockMuted}" Opacity="0.7" VerticalAlignment="Center"/>
         </DockPanel>
@@ -235,14 +241,14 @@
         <TextBlock Text="SEARCH" Classes="dock-label"/>
         <Grid Grid.Column="1">
           <TextBox x:Name="SearchBox" Classes="dock-search" TextChanged="Search_Changed"
-                   ToolTip="Search every clip, folder and playlist, wherever it is filed"/>
+                   ToolTip.Tip="Search every clip, folder and playlist, wherever it is filed"/>
           <TextBlock x:Name="SearchPrompt" Text="clips, folders, playlists" FontSize="10"
                      Foreground="{DynamicResource DockMuted}" Opacity="0.65"
                      VerticalAlignment="Center" Margin="8,0,0,0" IsHitTestVisible="False"/>
         </Grid>
         <Button x:Name="SearchClearButton" Grid.Column="2" Classes="dock-action"
-                Content="✕" Width="30" Padding="0" Margin="3,0,0,0" Visibility="Collapsed"
-                Click="ClearSearch_Click" ToolTip="Clear the search"/>
+                Content="✕" Width="30" Padding="0" Margin="3,0,0,0" IsVisible="False"
+                Click="ClearSearch_Click" ToolTip.Tip="Clear the search"/>
       </Grid>
 
       <!-- The browser is a file explorer: folders and playlists are items in the grid below,
@@ -250,21 +256,21 @@
       <StackPanel x:Name="BrowserBar" Grid.Row="2" Margin="0,0,0,5">
         <DockPanel Margin="0,0,0,4">
           <Button x:Name="UpButton" DockPanel.Dock="Right" Classes="dock-action" Content="← Back"
-                  Click="Up_Click" ToolTip="Back to the folder you came from"/>
+                  Click="Up_Click" ToolTip.Tip="Back to the folder you came from"/>
           <TextBlock Text="PATH" Classes="dock-label"/>
           <TextBlock x:Name="BreadcrumbText" Text="LIBRARY" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"
-                     TextTrimming="CharacterEllipsis" ToolTip="Where you are in the media library"/>
+                     TextTrimming="CharacterEllipsis" ToolTip.Tip="Where you are in the media library"/>
         </DockPanel>
-        <WrapFlow x:Name="BrowserActions">
+        <WrapPanel x:Name="BrowserActions">
           <Button Content="+ Folder" Classes="dock-action" Click="NewFolder_Click"
-                  ToolTip="Make a folder inside the open folder — folders can hold folders"/>
+                  ToolTip.Tip="Make a folder inside the open folder — folders can hold folders"/>
           <Button Content="+ Playlist" Classes="dock-action" Click="NewPlaylist_Click"
-                  ToolTip="Make a playlist of clips that run one after another"/>
+                  ToolTip.Tip="Make a playlist of clips that run one after another"/>
           <Button Content="Import folder…" Classes="dock-action" Click="ImportFolder_Click"
-                  ToolTip="Bring in a ScorePlus Folder (.spf) — clips, nested folders, tags and all"/>
+                  ToolTip.Tip="Bring in a ScorePlus Folder (.spf) — clips, nested folders, tags and all"/>
           <Button x:Name="ExportFolderButton" Content="Export folder…" Classes="dock-action" Click="ExportFolder_Click"
-                  ToolTip="Save the selected folder and everything inside it as a ScorePlus Folder (.spf)"/>
-        </WrapFlow>
+                  ToolTip.Tip="Save the selected folder and everything inside it as a ScorePlus Folder (.spf)"/>
+        </WrapPanel>
       </StackPanel>
 
       <Grid Grid.Row="4" Margin="0,0,0,5">
@@ -274,23 +280,23 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <Button x:Name="BackToLibraryButton" Classes="dock-action" Content="← Back" Margin="0,0,8,0"
-                Visibility="Collapsed" Click="BackToLibrary_Click" ToolTip="Back to the media library"/>
+                IsVisible="False" Click="BackToLibrary_Click" ToolTip.Tip="Back to the media library"/>
         <DockPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,5,0">
           <TextBlock x:Name="ViewTitle" DockPanel.Dock="Left" Text="LIBRARY" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
           <TextBlock x:Name="ViewMeta" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Margin="7,0,0,0" VerticalAlignment="Center"
                      TextTrimming="CharacterEllipsis"/>
         </DockPanel>
-        <StackPanel x:Name="PlaylistActions" Grid.Column="2" Orientation="Horizontal" Visibility="Collapsed">
-          <Button x:Name="PlaylistAddButton" Content="Add clip" Classes="dock-action" Click="PlaylistAdd_Click" ToolTip="Add the selected library clip to this playlist"/>
-          <Button x:Name="PlaylistRunButton" Content="Play" Classes="dock-action" Click="PlaylistRun_Click" ToolTip="Play this playlist from the first clip"/>
-          <Button x:Name="PlaylistStopButton" Content="Stop" Classes="dock-action" Click="PlaylistStop_Click" ToolTip="Stop playback"/>
-          <Button x:Name="PlaylistDeleteButton" Content="Delete" Classes="dock-action" Click="PlaylistDelete_Click" ToolTip="Delete this playlist (the clips stay in the library)"/>
+        <StackPanel x:Name="PlaylistActions" Grid.Column="2" Orientation="Horizontal" IsVisible="False">
+          <Button x:Name="PlaylistAddButton" Content="Add clip" Classes="dock-action" Click="PlaylistAdd_Click" ToolTip.Tip="Add the selected library clip to this playlist"/>
+          <Button x:Name="PlaylistRunButton" Content="Play" Classes="dock-action" Click="PlaylistRun_Click" ToolTip.Tip="Play this playlist from the first clip"/>
+          <Button x:Name="PlaylistStopButton" Content="Stop" Classes="dock-action" Click="PlaylistStop_Click" ToolTip.Tip="Stop playback"/>
+          <Button x:Name="PlaylistDeleteButton" Content="Delete" Classes="dock-action" Click="PlaylistDelete_Click" ToolTip.Tip="Delete this playlist (the clips stay in the library)"/>
         </StackPanel>
       </Grid>
 
       <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,1,0,6">
-        <ScrollViewer.Resources>
-          <Style Selector="ScrollBar">
+        <ScrollViewer.Styles>
+    <Style Selector="ScrollBar">
             <Setter Property="Width" Value="10"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Template">
@@ -298,13 +304,13 @@
                 <ControlTemplate TargetType="ScrollBar">
                   <Border Width="7" Margin="1,0" CornerRadius="4" HorizontalAlignment="Center" Background="{DynamicResource DockTrack}" ClipToBounds="True">
                     <Track x:Name="PART_Track" IsDirectionReversed="True">
-                      <Track.DecreaseRepeatButton>
-                        <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Focusable="False">
+                      <Track.DecreaseButton>
+                        <RepeatButton Focusable="False">
                           <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template>
                         </RepeatButton>
-                      </Track.DecreaseRepeatButton>
+                      </Track.DecreaseButton>
                       <Track.Thumb>
-                        <Thumb Width="7" MinHeight="24" Cursor="Hand">
+                        <Thumb x:Name="PART_Thumb" Width="7" MinHeight="24" Cursor="Hand">
                           <Thumb.Template>
                             <ControlTemplate TargetType="Thumb">
                               <Border Background="{DynamicResource DockMuted}" CornerRadius="4" Opacity="0.55"/>
@@ -312,19 +318,19 @@
                           </Thumb.Template>
                         </Thumb>
                       </Track.Thumb>
-                      <Track.IncreaseRepeatButton>
-                        <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Focusable="False">
+                      <Track.IncreaseButton>
+                        <RepeatButton Focusable="False">
                           <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template>
                         </RepeatButton>
-                      </Track.IncreaseRepeatButton>
+                      </Track.IncreaseButton>
                     </Track>
                   </Border>
                 </ControlTemplate>
               </Setter.Value>
             </Setter>
           </Style>
-        </ScrollViewer.Resources>
-        <WrapFlow x:Name="Tiles"/>
+</ScrollViewer.Styles>
+        <WrapPanel x:Name="Tiles"/>
       </ScrollViewer>
       <TextBlock x:Name="EmptyText" Grid.Row="5" Text="No media yet — Import adds anthems, ads and clips. Give each clip a tag so scorebug video elements know what to show."
                  Foreground="{DynamicResource DockMuted}" FontSize="11" TextWrapping="Wrap" Margin="2,6,8,0"/>
@@ -337,15 +343,15 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="PlayPauseButton" Classes="transport-button" Content="▶" Click="PlayPause_Click" ToolTip="Play or pause the selected clip"/>
+        <Button x:Name="PlayPauseButton" Classes="transport-button" Content="▶" Click="PlayPause_Click" ToolTip.Tip="Play or pause the selected clip"/>
         <TextBlock x:Name="ElapsedText" Grid.Column="1" Text="00:00" Foreground="{DynamicResource DockText}" FontFamily="Consolas" FontSize="13" VerticalAlignment="Center" Margin="2,0,8,0"/>
         <Slider x:Name="ScrubBar" Grid.Column="2" Minimum="0" Maximum="1" Value="0" VerticalAlignment="Center"
                 Classes="transport-slider" SmallChange="1" LargeChange="10"
-                ToolTip="Click or drag to jump anywhere in the clip"
-                PreviewMouseLeftButtonDown="Scrub_Start" PreviewMouseLeftButtonUp="Scrub_End"
+                ToolTip.Tip="Click or drag to jump anywhere in the clip"
+                
                 ValueChanged="Scrub_Changed"/>
         <TextBlock x:Name="DurationText" Grid.Column="3" Text="—" Foreground="{DynamicResource DockMuted}" FontFamily="Consolas" FontSize="13" VerticalAlignment="Center" Margin="8,0,8,0"/>
-        <Button x:Name="StopButton" Grid.Column="4" Classes="transport-button" Content="■" Click="Stop_Click" Margin="0" ToolTip="Stop playback and clear the scorebug video overlay"/>
+        <Button x:Name="StopButton" Grid.Column="4" Classes="transport-button" Content="■" Click="Stop_Click" Margin="0" ToolTip.Tip="Stop playback and clear the scorebug video overlay"/>
       </Grid>
 
       <!-- Tags stay a picker: they are a routing rule, not a place in the library. -->
@@ -357,8 +363,8 @@
         </Grid.ColumnDefinitions>
         <TextBlock Text="TAG" Classes="dock-label"/>
         <ComboBox x:Name="TagBox" Grid.Column="1" Classes="dock-combo" IsEditable="True"
-                  ToolTip="Clips with this tag are the only ones a matching scorebug video element will show"/>
-        <Button Grid.Column="2" Content="Set tag" Classes="dock-action" Click="TagApply_Click" ToolTip="Apply this tag to the selected clip"/>
+                  ToolTip.Tip="Clips with this tag are the only ones a matching scorebug video element will show"/>
+        <Button Grid.Column="2" Content="Set tag" Classes="dock-action" Click="TagApply_Click" ToolTip.Tip="Apply this tag to the selected clip"/>
       </Grid>
 
       <Grid Grid.Row="8" Margin="0,0,0,0">
@@ -369,11 +375,11 @@
         <StackPanel Orientation="Horizontal">
           <CheckBox x:Name="ClipLoopBox" Content="Loop this clip" Classes="dock-check"
                     Checked="ClipLoop_Changed" Unchecked="ClipLoop_Changed"
-                    ToolTip="Play this clip again when it ends (a playlist still moves on)"/>
+                    ToolTip.Tip="Play this clip again when it ends (a playlist still moves on)"/>
           <CheckBox x:Name="PlaylistLoopBox" Content="Loop playlist" Classes="dock-check"
                     Checked="PlaylistLoop_Changed" Unchecked="PlaylistLoop_Changed"
-                    Visibility="Collapsed"
-                    ToolTip="Start the playlist again after the last clip"/>
+                    IsVisible="False"
+                    ToolTip.Tip="Start the playlist again after the last clip"/>
         </StackPanel>
         <TextBlock x:Name="ClipCountText" Grid.Column="1" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center"/>
       </Grid>
@@ -388,7 +394,7 @@
         <TextBlock Text="VOLUME" Classes="dock-label" VerticalAlignment="Center"/>
         <Slider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="100"
                 Classes="transport-slider" VerticalAlignment="Center" Margin="4,0,6,0"
-                SmallChange="5" LargeChange="10" ToolTip="This clip's own output level"
+                SmallChange="5" LargeChange="10" ToolTip.Tip="This clip's own output level"
                 ValueChanged="Volume_Changed"/>
         <TextBlock x:Name="VolumeText" Grid.Column="2" Text="100%" FontFamily="Consolas" FontSize="11"
                    Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center" Width="42" TextAlignment="Right"/>
@@ -401,7 +407,7 @@
         </Grid.ColumnDefinitions>
         <TextBlock Text="SPEAKER" Classes="dock-label" VerticalAlignment="Center" Margin="0,0,4,0"/>
         <ComboBox x:Name="AudioDeviceBox" Grid.Column="1" Classes="dock-combo" SelectionChanged="AudioDevice_Changed"
-                  ToolTip="Play this clip's sound on a specific speaker; Default uses the Windows output"/>
+                  ToolTip.Tip="Play this clip's sound on a specific speaker; Default uses the Windows output"/>
       </Grid>
     </Grid>
   </Border>

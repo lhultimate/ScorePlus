@@ -1,3 +1,4 @@
+using Avalonia.Interactivity;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -118,7 +119,9 @@ public partial class GameControlWindow : Window
         {
             _tabHook = true;
             Loaded += (_, _) => ApplyTabVisuals();
-            ContentRendered += (_, _) => ApplyTabVisuals();
+            // WPF's ContentRendered: Avalonia has no such event, but Opened is the point where the
+            // window's template (and with it the tab outlines) is first on screen.
+            Opened += (_, _) => ApplyTabVisuals();
         }
         MediaControl.ApplyTheme(theme);
         RosterControl.ApplyTheme(theme);
@@ -205,9 +208,9 @@ public partial class GameControlWindow : Window
         Program.SelectDisplay(display.Id);
     }
 
-    void LayoutPrev_Click(object sender, object e) => Program?.Shift(-1);
+    void LayoutPrev_Click(object sender, RoutedEventArgs e) => Program?.Shift(-1);
 
-    void LayoutNext_Click(object sender, object e) => Program?.Shift(1);
+    void LayoutNext_Click(object sender, RoutedEventArgs e) => Program?.Shift(1);
 
     // ---------- tabs ----------
 
@@ -219,11 +222,11 @@ public partial class GameControlWindow : Window
     /// <summary>Which desk this window is showing, for the checks and for restoring a view.</summary>
     public ConsoleTab Tab => _tab;
 
-    void ControlTab_Click(object sender, object e) => ShowTab(ConsoleTab.Control);
+    void ControlTab_Click(object sender, RoutedEventArgs e) => ShowTab(ConsoleTab.Control);
 
-    void MediaTab_Click(object sender, object e) => ShowTab(ConsoleTab.Media);
+    void MediaTab_Click(object sender, RoutedEventArgs e) => ShowTab(ConsoleTab.Media);
 
-    void RosterTab_Click(object sender, object e) => ShowTab(ConsoleTab.Rosters);
+    void RosterTab_Click(object sender, RoutedEventArgs e) => ShowTab(ConsoleTab.Rosters);
 
     /// <summary>Switches between the console, the media desk and the roster desk; all fill one pane.</summary>
     void ShowTab(ConsoleTab tab)
@@ -246,10 +249,10 @@ public partial class GameControlWindow : Window
         // The operator's own accent, the same one the main window's tabs use.
         var accent = UiPalette.Accent(PreferencesStore.Load());
         var on = UiPalette.Frozen(UiPalette.Soft(accent));
-        var off = (Brush)new BrushConverter().ConvertFromString("#141A23")!;
+        var off = new SolidColorBrush(Color.Parse("#141A23"));
         var onBorder = UiPalette.Frozen(accent);
-        var offBorder = (Brush)new BrushConverter().ConvertFromString("#28323F")!;
-        var muted = (Brush)new BrushConverter().ConvertFromString("#93A0B2")!;
+        var offBorder = new SolidColorBrush(Color.Parse("#28323F"));
+        var muted = new SolidColorBrush(Color.Parse("#93A0B2"));
         Button[] tabs = [ControlTab, MediaTab, RosterTab];
         var active = (int)_tab;
         for (var i = 0; i < tabs.Length; i++)
@@ -260,15 +263,17 @@ public partial class GameControlWindow : Window
         }
     }
 
-    void Undo_Click(object sender, object e) => Panel.Execute("global.undo");
+    void Undo_Click(object sender, RoutedEventArgs e) => Panel.Execute("global.undo");
 
-    void Keybinds_Click(object sender, object e) => Panel.ShowKeybindsDialog();
+    void Keybinds_Click(object sender, RoutedEventArgs e) => Panel.ShowKeybindsDialog();
 
-    void NewPanel_Click(object sender, object e) => NewPanelRequested?.Invoke();
+    void NewPanel_Click(object sender, RoutedEventArgs e) => NewPanelRequested?.Invoke();
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        // Avalonia reports the real key straight out of KeyDown: there is no Key.System indirection
+        // and no SystemKey to unwrap.
+        var key = e.Key;
         // Enter commits the field being typed in and keeps this panel open.
         if (key == Key.Enter && Keyboard.FocusedElement is TextBox box && !box.AcceptsReturn)
         {
@@ -276,7 +281,7 @@ public partial class GameControlWindow : Window
             e.Handled = true;
             return;
         }
-        if (Panel.TryHandleKey(key, Keyboard.Modifiers)) { e.Handled = true; return; }
+        if (Panel.TryHandleKey(key, e.KeyModifiers)) { e.Handled = true; return; }
         base.OnKeyDown(e);
     }
 
@@ -380,7 +385,7 @@ internal sealed class AddStatDialog : Window
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         add.Click += (_, _) =>
         {
-            var name = _custom.Text.Trim();
+            var name = _custom.Text?.Trim() ?? "";
             if (name.Length == 0) name = (_presets.SelectedItem as string ?? "").Trim();
             if (name.Length == 0) { error.Text = "Choose a stat or type a name."; return; }
             if (existing.Contains(name, StringComparer.OrdinalIgnoreCase)) { error.Text = "That stat already exists."; return; }

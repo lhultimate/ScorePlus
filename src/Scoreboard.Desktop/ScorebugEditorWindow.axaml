@@ -4,7 +4,7 @@
         xmlns:local="clr-namespace:Scoreboard.Desktop"
         Title="ScorePlus — Scorebug Studio" Width="1360" Height="900" MinWidth="1120" MinHeight="720"
         WindowStartupLocation="CenterOwner" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI">
-  <Window.Resources>
+  <Window.Styles>
     <Style Selector="Button.tool-button">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Padding" Value="12,8"/>
@@ -25,15 +25,13 @@
     <Style Selector="TextBox.field-box">
       <Setter Property="Margin" Value="10,0,10,2"/>
     </Style>
-    <!-- The Avalonia world has no keyed ItemContainerStyle: the row's Padding and stretch
-         live in the item template below, wrapped in a Border so every row keeps 8,7 of air. -->
     <Style Selector="Button.layout-button">
       <Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="10,6"/>
       <Setter Property="MinHeight" Value="30"/>
       <Setter Property="Margin" Value="4,0,0,0"/>
     </Style>
-  </Window.Resources>
+</Window.Styles>
 
   <Grid Margin="14">
     <Grid.ColumnDefinitions>
@@ -54,17 +52,17 @@
           <Button Content="TEXT +" Classes="tool-button" FontWeight="SemiBold" Click="AddText_Click"/>
           <Button Content="LOGO +" Classes="tool-button" FontWeight="SemiBold" Click="AddLogo_Click"/>
           <Button Content="IMAGE +" Classes="tool-button" FontWeight="SemiBold" Click="AddImage_Click"
-                  ToolTip="Import a picture onto the graphic — a sponsor board, a crest, a full-frame image"/>
+                  ToolTip.Tip="Import a picture onto the graphic — a sponsor board, a crest, a full-frame image"/>
           <Button Content="SHAPE +" Classes="tool-button" FontWeight="SemiBold" Click="AddShape_Click"/>
           <Button Content="SPORT DATA +" Classes="tool-button" FontWeight="SemiBold" Click="AddData_Click"/>
           <Button Content="PLAYER DATA +" Classes="tool-button" FontWeight="SemiBold" Click="AddPlayerData_Click"
-                  ToolTip="A value from the player currently on the graphic, set in the Rosters tab"/>
+                  ToolTip.Tip="A value from the player currently on the graphic, set in the Rosters tab"/>
           <Button Content="VIDEO +" Classes="tool-button" FontWeight="SemiBold" Click="AddVideo_Click"/>
           <Button Content="HTML +" Classes="tool-button" FontWeight="SemiBold" Click="AddHtml_Click"
-                  ToolTip="A live HTML/CSS widget, drawn by a browser engine on every screen"/>
+                  ToolTip.Tip="A live HTML/CSS widget, drawn by a browser engine on every screen"/>
           <Button Content="PARTS +" Classes="tool-button" FontWeight="SemiBold" Click="ImportParts_Click"
-                  ToolTip="Copy elements from another layout instead of rebuilding them"/>
-          <Button Content="REMOVE" Classes="tool-button" FontWeight="SemiBold" Click="Remove_Click" ToolTip="Delete the selected element"/>
+                  ToolTip.Tip="Copy elements from another layout instead of rebuilding them"/>
+          <Button Content="REMOVE" Classes="tool-button" FontWeight="SemiBold" Click="Remove_Click" ToolTip.Tip="Delete the selected element"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal">
           <TextBlock Text="SCOREPLUS · SCOREBUG STUDIO" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -77,16 +75,16 @@
         <StackPanel>
           <DockPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-              <Button Content="New display…" Classes="layout-button" Click="DisplayNew_Click" ToolTip="Add another screen, for example a lower-thirds display"/>
-              <Button Content="Import .spd…" Classes="layout-button" Click="DisplayImport_Click" ToolTip="Add a whole ScorePlus Display file — every layout it holds — to this game"/>
-              <Button Content="Export .spd…" Classes="layout-button" Click="DisplayExport_Click" ToolTip="Write this display and all its layouts to a ScorePlus Display file"/>
+              <Button Content="New display…" Classes="layout-button" Click="DisplayNew_Click" ToolTip.Tip="Add another screen, for example a lower-thirds display"/>
+              <Button Content="Import .spd…" Classes="layout-button" Click="DisplayImport_Click" ToolTip.Tip="Add a whole ScorePlus Display file — every layout it holds — to this game"/>
+              <Button Content="Export .spd…" Classes="layout-button" Click="DisplayExport_Click" ToolTip.Tip="Write this display and all its layouts to a ScorePlus Display file"/>
               <Button Content="Rename…" Classes="layout-button" Click="DisplayRename_Click"/>
-              <Button Content="Delete" Classes="layout-button" Click="DisplayDelete_Click" ToolTip="Remove this display and its layouts (the last one cannot be deleted)"/>
+              <Button Content="Delete" Classes="layout-button" Click="DisplayDelete_Click" ToolTip.Tip="Remove this display and its layouts (the last one cannot be deleted)"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal">
               <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,7,0"/>
               <TextBlock Text="DISPLAY" FontSize="11" FontWeight="Bold" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,8,0"/>
-              <ComboBox x:Name="DisplayBox" Width="220" SelectionChanged="DisplayBox_Changed" ToolTip="Which screen these layouts belong to"/>
+              <ComboBox x:Name="DisplayBox" Width="220" SelectionChanged="DisplayBox_Changed" ToolTip.Tip="Which screen these layouts belong to"/>
               <TextBlock x:Name="DisplayHintText" Text="  Each display gets its own audience window." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
@@ -96,22 +94,22 @@
               <Border Width="3" Height="12" CornerRadius="2" Background="#38D7A3" Margin="0,0,7,0"/>
               <TextBlock Text="TRANSITION IN" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
               <ComboBox x:Name="TransitionBox" Width="128" FontSize="11" SelectionChanged="Transition_Changed"
-                        ToolTip="How this layout arrives on air when it goes to output"/>
+                        ToolTip.Tip="How this layout arrives on air when it goes to output"/>
               <TextBox x:Name="TransitionSecondsInput" Width="54" FontSize="11" Margin="6,0,0,0" TextChanged="TransitionSeconds_Changed"
-                       ToolTip="Seconds this layout's hand-over takes: 0 cuts, 5 is a slow dissolve"/>
+                       ToolTip.Tip="Seconds this layout's hand-over takes: 0 cuts, 5 is a slow dissolve"/>
               <TextBlock Text="s" FontSize="10" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="2,0,0,0"/>
               <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
           <DockPanel Margin="0,7,0,0">
-            <Button DockPanel.Dock="Right" Content="Clear link" Classes="layout-button" Click="LinkClear_Click" ToolTip="Stop this layout, and the layout it links to, from switching the other display"/>
+            <Button DockPanel.Dock="Right" Content="Clear link" Classes="layout-button" Click="LinkClear_Click" ToolTip.Tip="Stop this layout, and the layout it links to, from switching the other display"/>
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="LINK THIS LAYOUT TO" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
-              <ComboBox x:Name="LinkDisplayBox" Width="140" FontSize="11" SelectionChanged="LinkDisplay_Changed" ToolTip="Another display that should change whenever this layout does"/>
-              <ComboBox x:Name="LinkLayoutBox" Width="165" FontSize="11" Margin="6,0,0,0" SelectionChanged="LinkLayout_Changed" ToolTip="The layout that display switches to"/>
+              <ComboBox x:Name="LinkDisplayBox" Width="140" FontSize="11" SelectionChanged="LinkDisplay_Changed" ToolTip.Tip="Another display that should change whenever this layout does"/>
+              <ComboBox x:Name="LinkLayoutBox" Width="165" FontSize="11" Margin="6,0,0,0" SelectionChanged="LinkLayout_Changed" ToolTip.Tip="The layout that display switches to"/>
               <CheckBox x:Name="LinkBothWaysInput" Content="Both ways" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"
                         Checked="LinkBothWays_Changed" Unchecked="LinkBothWays_Changed"
-                        ToolTip="Also switch this layout whenever the other one changes"/>
+                        ToolTip.Tip="Also switch this layout whenever the other one changes"/>
               <TextBlock x:Name="LinkTipText" Text="  One Update Output can change both screens." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
             </StackPanel>
           </DockPanel>
@@ -136,16 +134,16 @@
                        Text="Pick a layout here — Update Output puts it on air."/>
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="New layout" Classes="layout-button" Click="LayoutNew_Click" ToolTip="Start a blank scorebug layout"/>
-            <Button Content="Duplicate" Classes="layout-button" Click="LayoutDuplicate_Click" ToolTip="Copy this layout, artwork and all"/>
+            <Button Content="New layout" Classes="layout-button" Click="LayoutNew_Click" ToolTip.Tip="Start a blank scorebug layout"/>
+            <Button Content="Duplicate" Classes="layout-button" Click="LayoutDuplicate_Click" ToolTip.Tip="Copy this layout, artwork and all"/>
             <Button Content="Move to…" Classes="layout-button" Click="LayoutMove_Click"
-                    ToolTip="Move this layout, artwork and all, onto another display"/>
+                    ToolTip.Tip="Move this layout, artwork and all, onto another display"/>
             <Button Content="Copy to…" Classes="layout-button" Click="LayoutCopy_Click"
-                    ToolTip="Copy this layout onto another display, leaving this one untouched"/>
-            <Button Content="Import .spl…" Classes="layout-button" Click="LayoutImport_Click" ToolTip="Add a ScorePlus Layout file to this display"/>
-            <Button Content="Export .spl…" Classes="layout-button" Click="LayoutExport_Click" ToolTip="Write this layout to a ScorePlus Layout file"/>
+                    ToolTip.Tip="Copy this layout onto another display, leaving this one untouched"/>
+            <Button Content="Import .spl…" Classes="layout-button" Click="LayoutImport_Click" ToolTip.Tip="Add a ScorePlus Layout file to this display"/>
+            <Button Content="Export .spl…" Classes="layout-button" Click="LayoutExport_Click" ToolTip.Tip="Write this layout to a ScorePlus Layout file"/>
             <Button Content="Rename…" Classes="layout-button" Click="LayoutRename_Click"/>
-            <Button Content="Delete" Classes="layout-button" Click="LayoutDelete_Click" ToolTip="Remove this layout (the last one cannot be deleted)"/>
+            <Button Content="Delete" Classes="layout-button" Click="LayoutDelete_Click" ToolTip.Tip="Remove this layout (the last one cannot be deleted)"/>
           </StackPanel>
           <!-- Every layout on this display as a picture with its name underneath, so switching
                layouts is a click on the one you can see instead of a name in a list. -->
@@ -172,17 +170,16 @@
                      FontSize="10" Foreground="#5C6B7E" TextWrapping="Wrap" Margin="2,0,2,6"/>
           <UniformGrid Columns="2" Margin="0,0,0,6">
             <Button x:Name="LayerFrontButton" Content="▲ Bring forward" FontSize="11" Padding="6,7" Margin="0,0,3,0"
-                    Click="LayerFront_Click" ToolTip="Move the selected element in front of the one above it"/>
+                    Click="LayerFront_Click" ToolTip.Tip="Move the selected element in front of the one above it"/>
             <Button x:Name="LayerBackButton" Content="▼ Send back" FontSize="11" Padding="6,7" Margin="3,0,0,0"
-                    Click="LayerBack_Click" ToolTip="Move the selected element behind the one below it"/>
+                    Click="LayerBack_Click" ToolTip.Tip="Move the selected element behind the one below it"/>
           </UniformGrid>
         </StackPanel>
         <ListBox x:Name="Layers" Background="#10151D" Foreground="White" BorderBrush="#364151"
-                 SelectionMode="Extended"
-                 SelectionChanged="Layers_SelectionChanged"
-                 PreviewMouseLeftButtonDown="Layers_MouseDown"
-                 PreviewMouseMove="Layers_MouseMove"
-                 AllowDrop="True" Drop="Layers_Drop">
+                 SelectionMode="Multiple"
+                 SelectionChanged="Layers_SelectionChanged">
+          <!-- Avalonia has no keyed ItemContainerStyle: the row's padding and stretch live in
+               the item template below, wrapped in a Border so every row keeps 8,7 of air. -->
           <ListBox.ItemTemplate>
             <DataTemplate>
               <Border Padding="8,7">
@@ -213,10 +210,10 @@
         <StackPanel Margin="4,0,0,10">
           <DockPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-              <ComboBox x:Name="CanvasPreset" Width="170" FontSize="11" SelectedIndex="0" ToolTip="Canvas size presets" SelectionChanged="CanvasPreset_Changed"/>
-              <TextBox x:Name="CanvasWidthInput" Width="58" FontSize="11" Margin="4,0,0,0" ToolTip="Canvas width in pixels"/>
-              <TextBox x:Name="CanvasHeightInput" Width="58" FontSize="11" Margin="4,0,0,0" ToolTip="Canvas height in pixels"/>
-              <Button Content="Resize" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasResize_Click" ToolTip="Scale the whole layout into this canvas size"/>
+              <ComboBox x:Name="CanvasPreset" Width="170" FontSize="11" SelectedIndex="0" ToolTip.Tip="Canvas size presets" SelectionChanged="CanvasPreset_Changed"/>
+              <TextBox x:Name="CanvasWidthInput" Width="58" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Canvas width in pixels"/>
+              <TextBox x:Name="CanvasHeightInput" Width="58" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Canvas height in pixels"/>
+              <Button Content="Resize" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasResize_Click" ToolTip.Tip="Scale the whole layout into this canvas size"/>
             </StackPanel>
             <TextBlock x:Name="CanvasInfo" Text="drag elements to reposition · bindings update live" Foreground="#93A0B2" VerticalAlignment="Center"/>
           </DockPanel>
@@ -226,23 +223,23 @@
               <!-- The two named colors share one width: "Navy" is a shorter word, and letting the
                    text size the button made it read as a smaller control than "Black". -->
               <Button Content="Navy" FontSize="11" Padding="8,4" MinWidth="66" Click="CanvasBackgroundNavy_Click"
-                      ToolTip="Reset the artwork backdrop to ScorePlus navy"/>
+                      ToolTip.Tip="Reset the artwork backdrop to ScorePlus navy"/>
               <Button Content="Black" FontSize="11" Padding="8,4" MinWidth="66" Margin="4,0,0,0" Click="CanvasBackgroundBlack_Click"/>
               <Button Content="Choose…" FontSize="11" Padding="8,4" Margin="4,0,0,0" Click="CanvasBackground_Click"
-                      ToolTip="Pick any color for the artwork backdrop"/>
+                      ToolTip.Tip="Pick any color for the artwork backdrop"/>
               <Border x:Name="CanvasBackgroundSwatch" Width="26" Height="26" CornerRadius="4" Margin="6,0,0,0"
                       BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                      local:ThemeManager.SkipTheme="True" ToolTip="The color behind this layout's artwork"/>
+                      local:ThemeManager.SkipTheme="True" ToolTip.Tip="The color behind this layout's artwork"/>
             </StackPanel>
             <TextBlock Text="CANVAS BACKGROUND" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E"
                        VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <TextBox x:Name="CanvasBackgroundInput" Width="110" FontSize="11" ToolTip="#AARRGGBB or #RRGGBB"
+            <TextBox x:Name="CanvasBackgroundInput" Width="110" FontSize="11" ToolTip.Tip="#AARRGGBB or #RRGGBB"
                      TextChanged="CanvasBackgroundInput_Changed"/>
             <TextBlock x:Name="CanvasBackgroundHintText" Text="Applies to this layout on every screen." FontSize="10" Foreground="#5C6B7E"
                        VerticalAlignment="Center" Margin="10,0,0,0"/>
           </DockPanel>
         </StackPanel>
-        <Border Grid.Row="1" x:Name="CanvasFrame" Background="#171C25" ClipToBounds="True" MouseMove="Canvas_MouseMove" MouseLeftButtonUp="Canvas_MouseUp">
+        <Border Grid.Row="1" x:Name="CanvasFrame" Background="#171C25" ClipToBounds="True" PointerMoved="Canvas_MouseMove" PointerReleased="Canvas_MouseUp">
           <!-- The artwork keeps its real pixel size and the Viewbox scales it to the panel. A
                layout transform used to fight the frame, so the canvas grew on the first drag. The
                edge border shows exactly where the artwork ends, so the letterbox never reads as
@@ -267,7 +264,7 @@
           <TextBlock x:Name="LinkHint" Text="" Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
           <Button x:Name="BreakLinkButton" Content="Break link" Margin="10,0,10,8" Padding="10,5" FontSize="11"
                   Click="BreakLink_Click"
-                  ToolTip="Leave this copy where it is: from now on it changes on its own"/>
+                  ToolTip.Tip="Leave this copy where it is: from now on it changes on its own"/>
         </StackPanel>
 
         <TextBlock Text="NAME" Classes="section-title"/>
@@ -305,7 +302,7 @@
           <TextBlock Text="TEXT" Classes="section-title"/>
           <TextBox x:Name="ContentInput" Classes="field-box" TextChanged="Property_Changed"
                    AcceptsReturn="True" TextWrapping="Wrap" MinHeight="52" MaxHeight="180"
-                   VerticalScrollBarVisibility="Auto" ToolTip="Text, a {{TOKEN}}, or the markup of an HTML element"/>
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" ToolTip.Tip="Text, a {{TOKEN}}, or the markup of an HTML element"/>
           <!-- Which player and stat this element prints, whatever is selected on the desk. -->
           <StackPanel x:Name="PlayerDataSection">
             <TextBlock Text="PLAYER DATA" Classes="section-title"/>
@@ -322,7 +319,7 @@
           <StackPanel x:Name="PeriodSection">
             <TextBlock Text="Quarter style for this element" Classes="field-label"/>
             <ComboBox x:Name="PeriodFormatInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                      ToolTip="How {{PERIOD}} prints on this element — Quarter 1, Q1 or 1"/>
+                      ToolTip.Tip="How {{PERIOD}} prints on this element — Quarter 1, Q1 or 1"/>
           </StackPanel>
         </StackPanel>
 
@@ -332,7 +329,7 @@
           <TextBlock Text="TRANSFORM" Classes="section-title"/>
           <TextBlock Text="Rotation (degrees)" Classes="field-label"/>
           <TextBox x:Name="RotationInput" Classes="field-box" TextChanged="Property_Changed"
-                   ToolTip="Rotate this element clockwise, for example −8 for rising text"/>
+                   ToolTip.Tip="Rotate this element clockwise, for example −8 for rising text"/>
         </StackPanel>
 
         <StackPanel x:Name="FontSection">
@@ -340,27 +337,27 @@
           <TextBlock Text="Font" Classes="field-label"/>
           <DockPanel Margin="0,0,10,2">
             <Button DockPanel.Dock="Right" Content="Import font…" Margin="4,0,0,0" Padding="8,4" FontSize="11"
-                    Click="ImportFont_Click" ToolTip="Copy a .ttf or .otf into ScorePlus and use it on the graphic"/>
+                    Click="ImportFont_Click" ToolTip.Tip="Copy a .ttf or .otf into ScorePlus and use it on the graphic"/>
             <ComboBox x:Name="FontInput" Margin="10,0,0,0" IsTextSearchEnabled="True" MaxDropDownHeight="320"
-                      SelectionChanged="Property_Changed" ToolTip="Pick any installed font, or import your own"/>
+                      SelectionChanged="Property_Changed" ToolTip.Tip="Pick any installed font, or import your own"/>
           </DockPanel>
           <TextBlock Text="Font size" Classes="field-label"/>
           <TextBox x:Name="FontInputSize" Classes="field-box" TextChanged="Property_Changed"/>
           <TextBlock Text="Text style" Classes="field-label"/>
-          <WrapFlow Margin="8,0,8,2">
+          <WrapPanel Margin="8,0,8,2">
             <CheckBox x:Name="BoldInput" Content="Bold" Margin="2,2,10,2" Checked="Property_Changed" Unchecked="Property_Changed"/>
             <CheckBox x:Name="ItalicInput" Content="Italic" Margin="2,2,10,2" Checked="Property_Changed" Unchecked="Property_Changed"/>
             <CheckBox x:Name="UnderlineInput" Content="Underline" Margin="2,2,10,2" Checked="Property_Changed" Unchecked="Property_Changed"/>
             <CheckBox x:Name="StrikeInput" Content="Strike" Margin="2,2,10,2" Checked="Property_Changed" Unchecked="Property_Changed"/>
-          </WrapFlow>
+          </WrapPanel>
           <TextBlock Text="Text color" Classes="field-label"/>
           <ComboBox x:Name="ForegroundSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                    ToolTip="Use a fixed color or one of the team palette colors"/>
+                    ToolTip.Tip="Use a fixed color or one of the team palette colors"/>
           <DockPanel Margin="0,0,10,4">
-            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="TextColor_Click" ToolTip="Open the color palette"/>
+            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="TextColor_Click" ToolTip.Tip="Open the color palette"/>
             <Border x:Name="TextColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                     BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                    local:ThemeManager.SkipTheme="True" ToolTip="The color this element actually draws"/>
+                    local:ThemeManager.SkipTheme="True" ToolTip.Tip="The color this element actually draws"/>
             <TextBox x:Name="ColorInput" Margin="0" TextChanged="Property_Changed"/>
           </DockPanel>
         </StackPanel>
@@ -368,7 +365,7 @@
         <StackPanel x:Name="LogoSection">
           <TextBlock Text="TEAM LOGO" Classes="section-title"/>
           <ComboBox x:Name="LogoInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="Team logos are imported in the control panel, beside the team name"/>
+                    ToolTip.Tip="Team logos are imported in the control panel, beside the team name"/>
           <TextBlock x:Name="LogoHintText" Text="Logos are configured in the control panel: the … button beside each team name. This element just chooses which team it shows."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
         </StackPanel>
@@ -383,7 +380,7 @@
           <TextBlock Text="ICON" Classes="section-title"/>
           <TextBlock Text="Live artwork instead of (or beside) typed text" Classes="field-label"/>
           <ComboBox x:Name="IconInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="Timeout bars, or a dot on the side of the team with the ball"/>
+                    ToolTip.Tip="Timeout bars, or a dot on the side of the team with the ball"/>
           <CheckBox x:Name="IconVisitorsInput" Content="Count the visitors' timeouts" Margin="10,2,10,4"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
           <CheckBox x:Name="IconFlipInput" Content="Put the home side on the left" Margin="10,2,10,8"
@@ -392,15 +389,15 @@
           <StackPanel x:Name="BaseFillPanel">
             <TextBlock Text="Base fill" Classes="field-label"/>
             <ComboBox x:Name="IconFillSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                      ToolTip="Fill a base with a fixed color or one of the team palette colors"/>
+                      ToolTip.Tip="Fill a base with a fixed color or one of the team palette colors"/>
             <DockPanel Margin="0,0,10,8">
               <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconFillColor_Click"
-                      ToolTip="Open the color palette for the base fill"/>
+                      ToolTip.Tip="Open the color palette for the base fill"/>
               <Border x:Name="IconFillSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                       BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                      local:ThemeManager.SkipTheme="True" ToolTip="What a lit base is filled with"/>
+                      local:ThemeManager.SkipTheme="True" ToolTip.Tip="What a lit base is filled with"/>
               <TextBox x:Name="IconFillInput" Margin="0" TextChanged="Property_Changed"
-                       ToolTip="Leave empty to use the element's text color"/>
+                       ToolTip.Tip="Leave empty to use the element's text color"/>
             </DockPanel>
           </StackPanel>
         </StackPanel>
@@ -409,18 +406,18 @@
           <TextBlock Text="VIDEO" Classes="section-title"/>
           <TextBlock Text="Media tag" Classes="field-label"/>
           <TextBox x:Name="MediaTagInput" Classes="field-box" TextChanged="Property_Changed"
-                   ToolTip="Leave empty to show any playing clip, or name a tag so only that tag's clips appear"/>
+                   ToolTip.Tip="Leave empty to show any playing clip, or name a tag so only that tag's clips appear"/>
           <TextBlock x:Name="VideoTagHintText" Text="Only media with this tag plays inside this element. The tag label is drawn in the studio only; the audience screen stays blank until a clip is cued."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
           <CheckBox x:Name="PreserveAspectInput" Content="Preserve the video's aspect ratio" Margin="10,2,10,2"
                     Checked="Property_Changed" Unchecked="Property_Changed"
-                    ToolTip="On: the box is locked to the picture's shape, so nothing is stretched or cropped. Off: the box is free and the clip fills it."/>
+                    ToolTip.Tip="On: the box is locked to the picture's shape, so nothing is stretched or cropped. Off: the box is free and the clip fills it."/>
           <TextBlock Text="Aspect (width ÷ height)" Classes="field-label"/>
           <TextBox x:Name="AspectInput" Classes="field-box" TextChanged="Property_Changed"
-                   ToolTip="16:9 is 1.7778 · 4:3 is 1.3333 · vertical 9:16 is 0.5625"/>
+                   ToolTip.Tip="16:9 is 1.7778 · 4:3 is 1.3333 · vertical 9:16 is 0.5625"/>
           <TextBlock Text="Audio output for this element" Classes="field-label"/>
           <ComboBox x:Name="AudioDeviceInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="Each video element can play through its own speaker, so two clips never share one output"/>
+                    ToolTip.Tip="Each video element can play through its own speaker, so two clips never share one output"/>
           <TextBlock x:Name="AudioHintText" Text="This element's own clip plays its sound on this output. Default uses the Windows output."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
         </StackPanel>
@@ -428,31 +425,31 @@
         <StackPanel x:Name="BackgroundSection">
           <TextBlock Text="BACKGROUND" Classes="section-title"/>
           <ComboBox x:Name="BackgroundSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                    ToolTip="Use a fixed color or one of the team palette colors"/>
+                    ToolTip.Tip="Use a fixed color or one of the team palette colors"/>
           <TextBlock Text="Background color" Classes="field-label"/>
           <DockPanel Margin="0,0,10,4">
-            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="BackgroundColor_Click" ToolTip="Open the color palette"/>
+            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="BackgroundColor_Click" ToolTip.Tip="Open the color palette"/>
             <Border x:Name="BackgroundColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                     BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                    local:ThemeManager.SkipTheme="True" ToolTip="The color painted behind this element"/>
+                    local:ThemeManager.SkipTheme="True" ToolTip.Tip="The color painted behind this element"/>
             <TextBox x:Name="BackgroundInput" Margin="0" TextChanged="Property_Changed"/>
           </DockPanel>
           <CheckBox x:Name="GradientInput" Content="Gradient background" Margin="10,2,10,2"
                     Checked="Property_Changed" Unchecked="Property_Changed"
-                    ToolTip="Blend the background from the color above into a second color"/>
+                    ToolTip.Tip="Blend the background from the color above into a second color"/>
           <TextBlock Text="Second color" Classes="field-label"/>
           <ComboBox x:Name="GradientSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                    ToolTip="Use a fixed color or one of the team palette colors"/>
+                    ToolTip.Tip="Use a fixed color or one of the team palette colors"/>
           <DockPanel Margin="0,0,10,4">
-            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="GradientColor2_Click" ToolTip="Open the color palette"/>
+            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="GradientColor2_Click" ToolTip.Tip="Open the color palette"/>
             <Border x:Name="GradientColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                     BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                    local:ThemeManager.SkipTheme="True" ToolTip="The second color this element's gradient ends on"/>
+                    local:ThemeManager.SkipTheme="True" ToolTip.Tip="The second color this element's gradient ends on"/>
             <TextBox x:Name="GradientColorInput" Margin="0" TextChanged="Property_Changed"/>
           </DockPanel>
           <TextBlock Text="Gradient angle (degrees)" Classes="field-label"/>
           <TextBox x:Name="GradientAngleInput" Classes="field-box" TextChanged="Property_Changed"
-                   ToolTip="0 runs left to right, 90 top to bottom"/>
+                   ToolTip.Tip="0 runs left to right, 90 top to bottom"/>
           <CheckBox x:Name="TransparentBackgroundInput" Content="No background box (transparent)" Margin="10,4,10,6"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
         </StackPanel>
@@ -462,15 +459,15 @@
           <TextBlock Text="BORDER" Classes="section-title"/>
           <TextBlock Text="Border width (0 = none)" Classes="field-label"/>
           <TextBox x:Name="BorderWidthInput" Classes="field-box" TextChanged="Property_Changed"
-                   ToolTip="Outline thickness in design pixels"/>
+                   ToolTip.Tip="Outline thickness in design pixels"/>
           <TextBlock Text="Border color" Classes="field-label"/>
           <ComboBox x:Name="BorderSourceInput" Margin="10,0,10,3" SelectionChanged="Property_Changed"
-                    ToolTip="Use a fixed color or one of the team palette colors"/>
+                    ToolTip.Tip="Use a fixed color or one of the team palette colors"/>
           <DockPanel Margin="0,0,10,4">
-            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="BorderColor_Click" ToolTip="Open the color palette"/>
+            <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="BorderColor_Click" ToolTip.Tip="Open the color palette"/>
             <Border x:Name="BorderColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
                     BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
-                    local:ThemeManager.SkipTheme="True" ToolTip="The color this element's outline draws"/>
+                    local:ThemeManager.SkipTheme="True" ToolTip.Tip="The color this element's outline draws"/>
             <TextBox x:Name="BorderColorInput" Margin="0" TextChanged="Property_Changed"/>
           </DockPanel>
         </StackPanel>
@@ -480,50 +477,50 @@
         <StackPanel x:Name="TransitionSection">
           <TextBlock Text="Value change" Classes="field-label"/>
           <ComboBox x:Name="TransitionInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="How this value crosses to a new number or name"/>
+                    ToolTip.Tip="How this value crosses to a new number or name"/>
           <TextBlock Text="Transition time (0–5 seconds)" Classes="field-label"/>
           <TextBox x:Name="TransitionSpeedInput" Classes="field-box" TextChanged="Property_Changed"
-                   ToolTip="0 is an instant swap, 5 a very slow dissolve. The value leaves slightly faster than it arrives."/>
+                   ToolTip.Tip="0 is an instant swap, 5 a very slow dissolve. The value leaves slightly faster than it arrives."/>
         </StackPanel>
         <TextBlock Text="Motion preset" Classes="field-label"/>
         <ComboBox x:Name="AnimationInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"/>
         <!-- The value keeps the hidden box the property writer already understands; the slider is
              what the operator actually sees, and each layer has its own. -->
-        <TextBox x:Name="OpacityInput" Visibility="Collapsed" Text="1"/>
+        <TextBox x:Name="OpacityInput" IsVisible="False" Text="1"/>
         <TextBlock Text="Element opacity" Classes="field-label"/>
         <DockPanel Margin="10,0,10,2">
           <TextBlock x:Name="OpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
                      VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
           <Slider x:Name="OpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
-                  ValueChanged="Opacity_Changed" ToolTip="How solid the whole element is — plate, outline and text together"/>
+                  ValueChanged="Opacity_Changed" ToolTip.Tip="How solid the whole element is — plate, outline and text together"/>
         </DockPanel>
         <TextBlock Text="Text opacity" Classes="field-label"/>
         <DockPanel Margin="10,0,10,2">
           <TextBlock x:Name="TextOpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
                      VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
           <Slider x:Name="TextOpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
-                  ValueChanged="Opacity_Changed" ToolTip="Fade just the printed value, leaving the plate and outline solid"/>
+                  ValueChanged="Opacity_Changed" ToolTip.Tip="Fade just the printed value, leaving the plate and outline solid"/>
         </DockPanel>
         <TextBlock Text="Background opacity" Classes="field-label"/>
         <DockPanel Margin="10,0,10,2">
           <TextBlock x:Name="BackgroundOpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
                      VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
           <Slider x:Name="BackgroundOpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
-                  ValueChanged="Opacity_Changed" ToolTip="Fade just the background plate"/>
+                  ValueChanged="Opacity_Changed" ToolTip.Tip="Fade just the background plate"/>
         </DockPanel>
         <TextBlock Text="Border opacity" Classes="field-label"/>
         <DockPanel Margin="10,0,10,4">
           <TextBlock x:Name="BorderOpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
                      VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
           <Slider x:Name="BorderOpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
-                  ValueChanged="Opacity_Changed" ToolTip="Fade just the outline"/>
+                  ValueChanged="Opacity_Changed" ToolTip.Tip="Fade just the outline"/>
         </DockPanel>
         <Button Content="Paint &amp; texture…" Margin="10,0,10,4" Padding="10,5" FontSize="11" Click="PaintTexture_Click"
-                ToolTip="Gradients with any number of stops on the text and plate, plus metal, glass, grain and the other finishes"/>
+                ToolTip.Tip="Gradients with any number of stops on the text and plate, plus metal, glass, grain and the other finishes"/>
         <Button Content="Transition maker…" Margin="10,0,10,3" Padding="10,5" FontSize="11" Click="MotionMakerTransition_Click"
-                ToolTip="Key how this element's value leaves and arrives"/>
+                ToolTip.Tip="Key how this element's value leaves and arrives"/>
         <Button Content="Animation maker…" Margin="10,0,10,8" Padding="10,5" FontSize="11" Click="MotionMakerAnimation_Click"
-                ToolTip="Key motion this element follows while it is up, or when its value changes"/>
+                ToolTip.Tip="Key motion this element follows while it is up, or when its value changes"/>
         <CheckBox x:Name="VisibleInput" Content="Visible on output" Margin="10,4,10,8" Checked="Property_Changed" Unchecked="Property_Changed"/>
 
         <TextBlock x:Name="CanvasFitTipText" Text="The artwork always fits this panel; the framed edge is the canvas, so every side is reachable."
@@ -534,7 +531,7 @@
     </ScrollViewer>
 
     <DockPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,12,0,0">
-      <Button DockPanel.Dock="Right" Content="Done" Padding="16,8" Click="Done_Click" ToolTip="Close the studio (Enter only commits the value you are editing)"/>
+      <Button DockPanel.Dock="Right" Content="Done" Padding="16,8" Click="Done_Click" ToolTip.Tip="Close the studio (Enter only commits the value you are editing)"/>
       <TextBlock x:Name="AllValuesHintText" Text="Every value can go on the graphic: team names and abbreviations, scores, period, game clock, play clock, timeout clock, timeouts left, possession, down, to go, down &amp; distance, ball on, sport, yards, turnovers, fouls, shot clock, baseball count and outs, hits, cards, shots, corners, date, time, and custom stats such as {{STAT:Turnovers}}. Use Add sport data for the full list. Player values such as {{PLAYER:HOME:Yards}} come from whoever is on the graphic — switch the selected player in the Rosters tab and every one of them follows."
                  Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
     </DockPanel>

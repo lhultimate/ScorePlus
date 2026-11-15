@@ -41,7 +41,8 @@ internal static class Paint
                 faded.Freeze();
                 return faded;
             case GradientBrush gradient:
-                var copy = gradient.Clone();
+                // Clone hands back a Brush, so the stops are reached through the gradient type.
+                var copy = (GradientBrush)gradient.Clone();
                 foreach (var stop in copy.GradientStops) stop.Color = Fade(stop.Color, factor);
                 copy.Freeze();
                 return copy;
@@ -279,8 +280,9 @@ internal static class Paint
         {
             Stretch = Stretch.Fill,
             TileMode = TileMode.None,
-            ViewboxUnits = BrushMappingMode.RelativeToBoundingBox,
-            Viewbox = new Rect(0, 0, 1, 1)
+            // Avalonia's TileBrush already maps the drawing onto the filled bounds (its destination
+            // and source rectangles default to the whole box), so WPF's Viewbox/ViewboxUnits pair
+            // has nothing left to say here.
         };
         brush.Freeze();
         return brush;
@@ -290,7 +292,7 @@ internal static class Paint
     static Brush ApplyTextureToBrush(Brush brush, ScorebugTexture texture, Color flat)
     {
         if (brush is not GradientBrush gradient) return brush;
-        var copy = gradient.Clone();
+        var copy = (GradientBrush)gradient.Clone();
         copy.GradientStops.Clear();
         var baseHex = ToHex(flat);
         var textureColour = ColorOf(texture.Tint, flat);

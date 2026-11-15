@@ -1,3 +1,4 @@
+using Avalonia.Interactivity;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -18,7 +19,7 @@ public partial class SportProfileWindow : Window
         public int ReadDefault(int fallback)
         {
             if (Control.Kind == SportControlKind.Flag) return OnBox.IsChecked == true ? 1 : 0;
-            return int.TryParse(ValueBox.Text.Trim(), out var value) ? Math.Clamp(value, Control.Min, Math.Max(Control.Min, Control.Max)) : fallback;
+            return int.TryParse(ValueBox.Text?.Trim() ?? "", out var value) ? Math.Clamp(value, Control.Min, Math.Max(Control.Min, Control.Max)) : fallback;
         }
     }
 
@@ -29,6 +30,9 @@ public partial class SportProfileWindow : Window
     public SportProfileWindow(SportCatalog catalog)
     {
         InitializeComponent();
+        // Enter in a field settles that field instead of firing the window's default Save button;
+        // Avalonia has no PreviewKeyDown event, so KeyDown's tunnel route is that same moment.
+        AddHandler(Avalonia.Input.InputElement.KeyDownEvent, new EventHandler<Avalonia.Input.KeyEventArgs>(InterceptEnterKey), Avalonia.Interactivity.RoutingStrategies.Tunnel);
         _catalog = catalog;
         RefreshList();
         Profiles.SelectedIndex = 0;
@@ -76,7 +80,7 @@ public partial class SportProfileWindow : Window
         DeleteButton.IsEnabled = !builtIn;
     }
 
-    void Save_Click(object sender, object e)
+    void Save_Click(object sender, RoutedEventArgs e)
     {
         if (_selected is null) return;
         try
@@ -96,12 +100,12 @@ public partial class SportProfileWindow : Window
 
     SportDefinition ReadInputs(SportDefinition source)
     {
-        var scores = ScoringInput.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray();
+        var scores = (ScoringInput.Text ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray();
         if (scores.Length == 0) throw new FormatException("Enter at least one scoring value, for example 1, 2, 3.");
         return source with
         {
-            Name = NameInput.Text.Trim(),
-            Unit = UnitInput.Text.Trim(),
+            Name = NameInput.Text?.Trim() ?? "",
+            Unit = UnitInput.Text?.Trim() ?? "",
             Periods = int.Parse(PeriodsInput.Text),
             PeriodSeconds = checked(int.Parse(MinutesInput.Text) * 60),
             Timeouts = int.Parse(TimeoutsInput.Text),
@@ -201,7 +205,7 @@ public partial class SportProfileWindow : Window
     }
 
     /// <summary>Adds a sport value of the operator's own: a number to step, or an on/off switch.</summary>
-    void AddValue_Click(object sender, object e)
+    void AddValue_Click(object sender, RoutedEventArgs e)
     {
         if (_selected is null) return;
         var dialog = new Window
@@ -239,11 +243,11 @@ public partial class SportProfileWindow : Window
         ThemeManager.SetSkipTheme(add, true);
         add.Click += (_, _) =>
         {
-            var text = label.Text.Trim();
+            var text = label.Text?.Trim() ?? "";
             if (text.Length == 0) { hint.Text = "Give the value a label so it can be read on the console."; return; }
             var flag = kind.SelectedIndex == 1;
-            var highest = int.TryParse(max.Text.Trim(), out var parsedMax) ? Math.Clamp(parsedMax, 1, 999) : 99;
-            var starts = int.TryParse(start.Text.Trim(), out var parsedStart) ? parsedStart : 0;
+            var highest = int.TryParse(max.Text?.Trim() ?? "", out var parsedMax) ? Math.Clamp(parsedMax, 1, 999) : 99;
+            var starts = int.TryParse(start.Text?.Trim() ?? "", out var parsedStart) ? parsedStart : 0;
             var id = $"{_selected.Id}.{Guid.NewGuid().ToString("N")[..8]}";
             var control = new SportControl(id, text, flag ? SportControlKind.Flag : SportControlKind.Counter,
                 Max: flag ? 1 : highest, Default: Math.Clamp(starts, 0, flag ? 1 : highest),
@@ -271,9 +275,10 @@ public partial class SportProfileWindow : Window
     /// Enter in a field settles that field instead of dismissing the whole profile page: Save is the
     /// window's default button, so without this a stray Enter threw away the edit being typed.
     /// </summary>
-    void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    void InterceptEnterKey(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Enter || e.OriginalSource is not TextBox) return;
+        // Avalonia reports the keystroke source as Source (WPF's OriginalSource).
+        if (e.Key != Key.Enter || e.Source is not TextBox) return;
         e.Handled = true;
         Keyboard.ClearFocus();
         ErrorText.Text = "Value stored — press Save profile to keep it.";
@@ -283,7 +288,7 @@ public partial class SportProfileWindow : Window
     /// Starts a custom sport with blank settings rather than a copy of an existing one, selects it,
     /// and leaves the cursor in the name so the operator can just type over it.
     /// </summary>
-    void NewProfile_Click(object sender, object e)
+    void NewProfile_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -302,12 +307,12 @@ public partial class SportProfileWindow : Window
         catch (Exception ex) { ErrorText.Text = ex.Message; }
     }
 
-    void Duplicate_Click(object sender, object e)
+    void Duplicate_Click(object sender, RoutedEventArgs e)
     {
         if (_selected is null) return;
         try
         {
-            var name = NameInput.Text.Trim();
+            var name = NameInput.Text?.Trim() ?? "";
             if (string.IsNullOrWhiteSpace(name) || _catalog.All.Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase) && s.Id != _selected.Id))
                 name = "Copy of " + _selected.Name;
             _catalog.Duplicate(_selected.Id, name);
@@ -320,7 +325,7 @@ public partial class SportProfileWindow : Window
         catch (Exception ex) { ErrorText.Text = ex.Message; }
     }
 
-    void Reset_Click(object sender, object e)
+    void Reset_Click(object sender, RoutedEventArgs e)
     {
         if (_selected is null || !_catalog.IsOverridden(_selected.Id)) return;
         if (!ConfirmWindow.Ask(this, PreferencesStore.Load().Theme, "RESET TO PRESET",
@@ -332,7 +337,7 @@ public partial class SportProfileWindow : Window
         ErrorText.Text = "Restored the original preset.";
     }
 
-    void Delete_Click(object sender, object e)
+    void Delete_Click(object sender, RoutedEventArgs e)
     {
         if (_selected is null || _catalog.IsBuiltIn(_selected.Id)) return;
         if (!ConfirmWindow.Ask(this, PreferencesStore.Load().Theme, "DELETE CUSTOM SPORT",
@@ -343,7 +348,7 @@ public partial class SportProfileWindow : Window
         RefreshList();
     }
 
-    void Done_Click(object sender, object e) => Close();
+    void Done_Click(object sender, RoutedEventArgs e) => Close();
 
     sealed record ProfileItem(SportDefinition Profile, string Text) { public override string ToString() => Text; }
 }

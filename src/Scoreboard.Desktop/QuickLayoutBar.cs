@@ -89,7 +89,9 @@ public sealed class QuickLayoutBar : Border
             };
             ThemeManager.SetSkipTheme(button, true);
             button.Click += (_, _) => Activate(slot);
-            button.MouseRightButtonUp += (_, e) => { e.Handled = true; ShowMenu(slot, button); };
+            // WPF's MouseRightButtonUp: the compatibility adapter filters PointerReleased to the
+            // right button (see WpfMouseEvents).
+            button.MouseRightButtonUp((_, e) => { e.Handled = true; ShowMenu(slot, button); });
             _buttons[index] = button;
             row.Children.Add(button);
         }
@@ -153,7 +155,8 @@ public sealed class QuickLayoutBar : Border
         clear.Click += (_, _) => Clear(slot);
         menu.Items.Add(assign);
         menu.Items.Add(clear);
-        menu.IsOpen = true;
+        // Avalonia opens a context menu through Open(); IsOpen is read-only from outside the control.
+        menu.Open();
     }
 
     void Clear(int slot)
@@ -311,7 +314,7 @@ internal sealed class QuickLayoutPickerWindow : Window
         {
             DisplayId = display.Id,
             LayoutId = layout.Id,
-            Label = _label.Text.Trim()
+            Label = _label.Text?.Trim() ?? ""
         };
         DialogResult = true;
         Close();

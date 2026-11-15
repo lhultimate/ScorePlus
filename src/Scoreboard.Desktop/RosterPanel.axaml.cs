@@ -1,3 +1,4 @@
+using Avalonia.Interactivity;
 using System.IO;
 using Avalonia;
 using Avalonia.Controls;
@@ -580,7 +581,7 @@ public partial class RosterPanel : UserControl
         Refresh(force: true);
     }
 
-    void RenameRoster_Click(object sender, object e)
+    void RenameRoster_Click(object sender, RoutedEventArgs e)
     {
         if (_engine is null || _roster is null) return;
         var name = TextPromptWindow.Ask(Window.GetWindow(this), "Rename roster", "Roster name", _roster.Name);
@@ -589,7 +590,7 @@ public partial class RosterPanel : UserControl
         SaveAndReload();
     }
 
-    void DeleteRoster_Click(object sender, object e)
+    void DeleteRoster_Click(object sender, RoutedEventArgs e)
     {
         if (_engine is null || _roster is null) return;
         var owner = Window.GetWindow(this);
@@ -613,7 +614,7 @@ public partial class RosterPanel : UserControl
     void Search_Changed(object sender, TextChangedEventArgs e)
     {
         if (_syncing) return;
-        _search = SearchInput.Text.Trim();
+        _search = SearchInput.Text?.Trim() ?? "";
         _signature = "";
         Refresh();
     }
@@ -628,7 +629,7 @@ public partial class RosterPanel : UserControl
         Refresh();
     }
 
-    void AddPlayer_Click(object sender, object e)
+    void AddPlayer_Click(object sender, RoutedEventArgs e)
     {
         if (_engine is null || _roster is null) return;
         _player = _roster.AddPlayer();
@@ -638,7 +639,7 @@ public partial class RosterPanel : UserControl
         NameInput.SelectAll();
     }
 
-    void RemovePlayer_Click(object sender, object e)
+    void RemovePlayer_Click(object sender, RoutedEventArgs e)
     {
         if (_engine is null || _roster is null || _player is null) return;
         var wasSelected = (_home ? _engine.State.HomePlayer : _engine.State.AwayPlayer)?.PlayerId == _player.Id;
@@ -648,7 +649,7 @@ public partial class RosterPanel : UserControl
         SaveAndReload();
     }
 
-    void Select_Click(object sender, object e)
+    void Select_Click(object sender, RoutedEventArgs e)
     {
         if (_engine is null || _player is null) return;
         _engine.SelectPlayer(_home, _player.Id);
@@ -656,7 +657,7 @@ public partial class RosterPanel : UserControl
     }
 
     /// <summary>Takes this side's player off the graphic, leaving the row highlighted for editing.</summary>
-    void ClearPlayer_Click(object sender, object e)
+    void ClearPlayer_Click(object sender, RoutedEventArgs e)
     {
         if (_engine is null) return;
         _engine.ClearSelectedPlayer(_home);
@@ -678,14 +679,14 @@ public partial class RosterPanel : UserControl
     {
         if (_syncing || _engine is null || _roster is null || _player is null) return;
         var changed = false;
-        if (int.TryParse(NumberInput.Text.Trim(), out var number))
+        if (int.TryParse(NumberInput.Text?.Trim() ?? "", out var number))
         {
             number = Math.Clamp(number, 0, 999);
             if (_player.Number != number) { _player.Number = number; changed = true; }
         }
-        var name = NameInput.Text.Trim();
+        var name = NameInput.Text?.Trim() ?? "";
         if (name != _player.Name) { _player.Name = name; changed = true; }
-        var position = PositionInput.Text.Trim();
+        var position = PositionInput.Text?.Trim() ?? "";
         if (position != _player.Position) { _player.Position = position; changed = true; }
         if (!changed) return;
         RosterStore.Save();
@@ -695,7 +696,7 @@ public partial class RosterPanel : UserControl
 
     // ---------- stats ----------
 
-    void AddStat_Click(object sender, object e)
+    void AddStat_Click(object sender, RoutedEventArgs e)
     {
         if (_engine is null || _roster is null || _player is null) return;
         var name = (StatPresetBox.Text ?? "").Trim();
@@ -709,7 +710,7 @@ public partial class RosterPanel : UserControl
         StatPresetBox.Text = "";
     }
 
-    void RemoveStat_Click(object sender, object e)
+    void RemoveStat_Click(object sender, RoutedEventArgs e)
     {
         if (_roster is null || sender is not Button { Tag: string name }) return;
         foreach (var player in _roster.Players)
@@ -731,7 +732,7 @@ public partial class RosterPanel : UserControl
     {
         if (_syncing || _engine is null || _player is null) return;
         if (sender is not TextBox { Tag: string name } box) return;
-        var text = box.Text.Trim();
+        var text = box.Text?.Trim() ?? "";
         var stat = _player.Stats.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
         if (stat is null) return;
         if (stat.Display == text) return;

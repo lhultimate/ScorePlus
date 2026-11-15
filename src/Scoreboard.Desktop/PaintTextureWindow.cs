@@ -254,7 +254,7 @@ public sealed class PaintTextureWindow : Window
         {
             var texture = ExistingTexture(text);
             if (texture is null || string.IsNullOrWhiteSpace(tint.Text)) return;
-            texture.Tint = tint.Text.Trim();
+            texture.Tint = tint.Text?.Trim() ?? "";
             Touch();
         };
         tintRow.Children.Add(tint);

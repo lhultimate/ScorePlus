@@ -1,3 +1,4 @@
+using Avalonia.Interactivity;
 using System.IO;
 using Avalonia;
 using Avalonia.Controls;
@@ -59,7 +60,7 @@ public partial class LauncherWindow : Window
     }
 
     /// <summary>Deletes every autosave, after a second click confirms it.</summary>
-    void ClearAutosaves_Click(object sender, object e)
+    void ClearAutosaves_Click(object sender, RoutedEventArgs e)
     {
         if (!_deleteArmed)
         {
@@ -87,7 +88,7 @@ public partial class LauncherWindow : Window
         ClearAutosavesButton.Content = "Delete all";
     }
 
-    void NewGame_Click(object sender, object e)
+    void NewGame_Click(object sender, RoutedEventArgs e)
     {
         // A new game opens with the sport it is played in, not whatever ran last: baseball has no
         // downs and hockey has no quarter, so the profile is the first thing the operator decides.
@@ -101,7 +102,7 @@ public partial class LauncherWindow : Window
         Close();
     }
 
-    void OpenGame_Click(object sender, object e)
+    void OpenGame_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
@@ -116,9 +117,9 @@ public partial class LauncherWindow : Window
     void AutosaveList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         => LoadAutosaveButton.IsEnabled = AutosaveList.SelectedItem is AutosaveEntry;
 
-    void AutosaveList_DoubleClick(object sender, Avalonia.Input.PointerEventArgs e) => LoadSelectedAutosave();
+    void AutosaveList_DoubleClick(object sender, Avalonia.Input.TappedEventArgs e) => LoadSelectedAutosave();
 
-    void LoadAutosave_Click(object sender, object e) => LoadSelectedAutosave();
+    void LoadAutosave_Click(object sender, RoutedEventArgs e) => LoadSelectedAutosave();
 
     void LoadSelectedAutosave()
     {

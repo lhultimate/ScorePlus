@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Scoreboard.Desktop"
              FontFamily="Segoe UI" FontSize="12" Background="{DynamicResource RosterPanelBrush}">
-  <UserControl.Resources>
+  <UserControl.Styles>
     <Style Selector="Button.header-pill">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
@@ -26,7 +26,7 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Foreground" Value="{DynamicResource RosterMutedBrush}"/>
     </Style>
-  </UserControl.Resources>
+</UserControl.Styles>
 
   <DockPanel>
     <!-- Title bar: the desk's identity, the side switch, and the library action. -->
@@ -36,11 +36,11 @@
           <TextBlock x:Name="LibraryText" Text="" FontSize="11" Foreground="{DynamicResource RosterHeaderTextBrush}"
                      Opacity="0.8" VerticalAlignment="Center" Margin="0,0,4,0"/>
           <Button Classes="header-pill" Content="Import…" Click="Import_Click"
-                  ToolTip="Add a ScorePlus Roster (.spr) to the library, or a ScorePlus Player (.spp) to this side's roster"/>
+                  ToolTip.Tip="Add a ScorePlus Roster (.spr) to the library, or a ScorePlus Player (.spp) to this side's roster"/>
           <Button Classes="header-pill" Content="Export…" Click="Export_Click"
-                  ToolTip="Save this side's roster as a .spr file, or the highlighted player as a .spp file"/>
+                  ToolTip.Tip="Save this side's roster as a .spr file, or the highlighted player as a .spp file"/>
           <Button Classes="header-pill" Content="New roster…" Click="NewRoster_Click"
-                  ToolTip="Create a roster in the library for this team"/>
+                  ToolTip.Tip="Create a roster in the library for this team"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <Border Width="26" Height="26" CornerRadius="13" Background="{DynamicResource RosterPillBrush}" Margin="0,0,10,0">
@@ -49,9 +49,9 @@
           <TextBlock Text="Players" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"
                      Foreground="{DynamicResource RosterHeaderTextBrush}" Margin="0,0,16,0"/>
           <Button x:Name="AwaySideTab" Classes="side-tab" Content="VISITORS" Click="SideTab_Click" Tag="away"
-                  ToolTip="Edit the visitors' roster"/>
+                  ToolTip.Tip="Edit the visitors' roster"/>
           <Button x:Name="HomeSideTab" Classes="side-tab" Content="HOME" Click="SideTab_Click" Tag="home"
-                  ToolTip="Edit the home roster"/>
+                  ToolTip.Tip="Edit the home roster"/>
         </StackPanel>
       </DockPanel>
     </Border>
@@ -69,7 +69,7 @@
 
     <Grid Margin="12">
       <local:RosterPanel x:Name="AwayPanel" Grid.Column="0"/>
-      <local:RosterPanel x:Name="HomePanel" Grid.Column="0" Visibility="Collapsed"/>
+      <local:RosterPanel x:Name="HomePanel" Grid.Column="0" IsVisible="False"/>
     </Grid>
   </DockPanel>
 </UserControl>

@@ -1,4 +1,4 @@
-<Window x:Class="Scoreboard.Desktop.SettingsWindow" xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Scoreboard.Desktop" Title="ScorePlus — Preferences" PreviewKeyDown="Window_PreviewKeyDown" Width="560" SizeToContent="Height" MaxHeight="940" MinHeight="380" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" Background="#171C25" Foreground="#F4F7FB" FontFamily="Segoe UI">
+<Window x:Class="Scoreboard.Desktop.SettingsWindow" xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Scoreboard.Desktop" Title="ScorePlus — Preferences" Width="560" SizeToContent="Height" MaxHeight="940" MinHeight="380" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" Background="#171C25" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <DockPanel Margin="22">
     <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0">
       <TextBlock Text="Preferences are stored locally." VerticalAlignment="Center" Foreground="#93A0B2" FontSize="11"/>
@@ -22,7 +22,7 @@
           <TextBlock DockPanel.Dock="Right" Text="seconds · 0 is instant, 5 is the longest" VerticalAlignment="Center"
                      Foreground="#93A0B2" FontSize="11" Margin="8,0,0,0"/>
           <TextBox x:Name="DelayInput" Width="90" MinHeight="30" Padding="8,4" TextChanged="Delay_Changed"
-                   ToolTip="Any value from 0 to 5, for example 0.35"/>
+                   ToolTip.Tip="Any value from 0 to 5, for example 0.35"/>
         </DockPanel>
         <TextBlock Text="How long every graphic holds an old value before it switches to the new one. Type any value from 0 to 5; 0 prints instantly and is the default." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
         <CheckBox x:Name="QuickPublishInput" Content="Quick layout buttons also update output" Checked="QuickLayout_Changed" Unchecked="QuickLayout_Changed"/>
@@ -40,7 +40,7 @@
           <Border x:Name="AccentSwatch" Width="38" Height="32" CornerRadius="6" BorderThickness="1" BorderBrush="#3A4552"
                   VerticalAlignment="Center" local:ThemeManager.SkipTheme="True"/>
           <TextBox x:Name="AccentInput" Grid.Column="1" MinHeight="32" Padding="8,4" FontFamily="Consolas"
-                   TextChanged="Accent_Changed" ToolTip="Accent color, for example #38D7A3"/>
+                   TextChanged="Accent_Changed" ToolTip.Tip="Accent color, for example #38D7A3"/>
           <Button Grid.Column="2" Content="Choose…" MinHeight="32" Padding="10,4" Margin="6,0,0,0" Click="AccentPick_Click"/>
         </Grid>
         <Grid Margin="4,4,4,8">
@@ -52,7 +52,7 @@
           <Border x:Name="Accent2Swatch" Width="38" Height="32" CornerRadius="6" BorderThickness="1" BorderBrush="#3A4552"
                   VerticalAlignment="Center" local:ThemeManager.SkipTheme="True"/>
           <TextBox x:Name="Accent2Input" Grid.Column="1" MinHeight="32" Padding="8,4" FontFamily="Consolas"
-                   TextChanged="Accent_Changed" ToolTip="Secondary color for filled actions, for example #0B6B50"/>
+                   TextChanged="Accent_Changed" ToolTip.Tip="Secondary color for filled actions, for example #0B6B50"/>
           <Button Grid.Column="2" Content="Choose…" MinHeight="32" Padding="10,4" Margin="6,0,0,0" Click="Accent2Pick_Click"/>
         </Grid>
         <Button x:Name="ResetColorsButton" Content="Reset to the ScorePlus colors" HorizontalAlignment="Left"
@@ -69,19 +69,19 @@
           </Grid.ColumnDefinitions>
           <StackPanel>
             <TextBlock Text="Password" Foreground="#93A0B2" FontSize="11" Margin="2,0,0,2"/>
-            <PasswordBox x:Name="RemotePasswordInput" MinHeight="32" Padding="8,4" Background="#050505"
+            <local:PasswordBox x:Name="RemotePasswordInput" MinHeight="32" Padding="8,4" Background="#050505"
                          Foreground="#F4F7FB" BorderBrush="#383838" PasswordChanged="Remote_Changed"
-                         ToolTip="Required before the remote turns on"/>
+                         ToolTip.Tip="Required before the remote turns on"/>
           </StackPanel>
           <StackPanel Grid.Column="1" Margin="10,0,0,0">
             <TextBlock Text="Port" Foreground="#93A0B2" FontSize="11" Margin="2,0,0,2"/>
             <TextBox x:Name="RemotePortInput" Width="92" MinHeight="32" Padding="8,4" TextChanged="Remote_Changed"
-                     ToolTip="1024–65535. The address is shown below."/>
+                     ToolTip.Tip="1024–65535. The address is shown below."/>
           </StackPanel>
         </Grid>
         <TextBlock x:Name="RemoteStatus" Text="Remote is off." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,6,6,4"/>
         <Button x:Name="OpenRemoteButton" Content="Open remote in browser" HorizontalAlignment="Left" MinHeight="30"
-                Padding="12,4" Margin="4,2,4,2" Click="OpenRemote_Click" ToolTip="Open the phone console on this computer"/>
+                Padding="12,4" Margin="4,2,4,2" Click="OpenRemote_Click" ToolTip.Tip="Open the phone console on this computer"/>
         <Border Height="1" Background="#F4F7FB" Margin="0,9"/>
         <TextBlock Text="UPDATES" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <CheckBox x:Name="CheckUpdatesInput" Content="Check for a newer version when ScorePlus starts" Checked="Update_Changed" Unchecked="Update_Changed"/>
@@ -90,14 +90,14 @@
         <DockPanel Margin="4,0,4,0">
           <Button DockPanel.Dock="Right" Content="Check now" MinHeight="32" Padding="12,4" Margin="8,0,0,0" Click="CheckUpdates_Click"/>
           <TextBox x:Name="UpdateFeedInput" MinHeight="32" Padding="8,4" TextChanged="Update_Changed"
-                   ToolTip="Empty uses the built-in GitHub feed. Or paste https://example.com/scoreplus/win.json"/>
+                   ToolTip.Tip="Empty uses the built-in GitHub feed. Or paste https://example.com/scoreplus/win.json"/>
         </DockPanel>
         <TextBlock x:Name="UpdateStatus" Text="Updates are checked only when the app was installed." TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,4,6,8"/>
         <Border Height="1" Background="#F4F7FB" Margin="0,9"/>
         <TextBlock Text="GAME SAFETY" Foreground="#93A0B2" FontSize="11" Margin="4,14,0,2"/>
         <Button x:Name="DeleteAutosavesButton" Content="Delete all autosaves" HorizontalAlignment="Left" MinHeight="32"
                 Padding="14,6" Click="DeleteAutosaves_Click" Margin="4,4,4,2"
-                ToolTip="Remove every recoverable point from this computer. Saved .spg games are not touched."/>
+                ToolTip.Tip="Remove every recoverable point from this computer. Saved .spg games are not touched."/>
         <TextBlock x:Name="AutosaveStatus" Text="Autosave keeps a recovery point every few seconds while you work."
                    TextWrapping="Wrap" Foreground="#93A0B2" FontSize="11" Margin="6,2,6,4"/>
       </StackPanel>

@@ -101,7 +101,7 @@ public sealed class UnsavedChangesWindow : Window
             Padding = new Thickness(14, 9, 14, 9),
             Margin = new Thickness(6, 0, 0, 0),
             MinHeight = 38,
-            Cursor = Avalonia.Input.Cursors.Hand
+            Cursor = Cursors.Hand
         };
         if (primary)
         {

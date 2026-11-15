@@ -132,13 +132,14 @@ public sealed class TeamIdentityWindow : Window
         ThemeManager.Apply(this, theme);
         PaintSwatches();
         // Enter settles the field being typed instead of dismissing the window, so a whole identity
-        // (name, abbreviation, colours) can be filled in without reopening it.
-        PreviewKeyDown += (_, e) =>
+        // (name, abbreviation, colours) can be filled in without reopening it. Avalonia has no
+        // PreviewKeyDown event; the tunnel route of the KeyDown routed event is the same moment.
+        AddHandler(Avalonia.Input.InputElement.KeyDownEvent, new EventHandler<Avalonia.Input.KeyEventArgs>((_, e) =>
         {
-            if (e.Key != Avalonia.Input.Key.Enter || e.OriginalSource is not TextBox) return;
+            if (e.Key != Avalonia.Input.Key.Enter || e.Source is not TextBox) return;
             e.Handled = true;
             Apply();
-        };
+        }), Avalonia.Interactivity.RoutingStrategies.Tunnel);
         Loaded += (_, _) => { _name.Focus(); _name.SelectAll(); };
     }
 
@@ -170,12 +171,13 @@ public sealed class TeamIdentityWindow : Window
         var picked = ColorPickerWindow.Pick(this, hex.Text);
         if (picked is null) return;
         hex.Text = picked;
-        try { swatch.Background = (Brush)new BrushConverter().ConvertFromString(picked)!; } catch { }
+        try { swatch.Background = new SolidColorBrush(Color.Parse(picked)); } catch { }
     }
 
     void ChooseLogo()
     {
-        var dialog = new OpenFileDialog
+        // Avalonia 11 also ships a Controls.OpenFileDialog, so the Microsoft.Win32 stub stays explicit.
+        var dialog = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Choose a team logo",
             Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|All files (*.*)|*.*"
@@ -209,8 +211,8 @@ public sealed class TeamIdentityWindow : Window
 
     void PaintSwatches()
     {
-        try { _primarySwatch.Background = (Brush)new BrushConverter().ConvertFromString(_primaryHex.Text)!; } catch { }
-        try { _secondarySwatch.Background = (Brush)new BrushConverter().ConvertFromString(_secondaryHex.Text)!; } catch { }
+        try { _primarySwatch.Background = new SolidColorBrush(Color.Parse(_primaryHex.Text)); } catch { }
+        try { _secondarySwatch.Background = new SolidColorBrush(Color.Parse(_secondaryHex.Text)); } catch { }
     }
 
     /// <summary>Publishes what is typed. Returns false when a pending logo could not be copied.</summary>

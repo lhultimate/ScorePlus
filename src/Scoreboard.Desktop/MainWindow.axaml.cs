@@ -3,6 +3,7 @@ using System.IO;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -123,9 +124,9 @@ public partial class MainWindow : Window, IControlPanelHost
             if (!waitForLaunch) { StartRemote(); _ = CheckForUpdatesAsync(); }
         };
 
-        // Exit prompt: the world has no OnClosing override; the Closing routed event carries the
+        // Exit prompt: the world has no OnClosing override; Avalonia's Closing event carries the same
         // CancelEventArgs-style cancel. Set cancel, prompt, then re-post Close on the UI thread.
-        Closing.Add((_, e) =>
+        Closing += (_, e) =>
         {
             if (PromptOnExit && !_closingAfterPrompt && HasUnsavedChanges())
             {
@@ -140,10 +141,12 @@ public partial class MainWindow : Window, IControlPanelHost
                 Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(Close));
                 return;
             }
-        });
-        // Keyboard preview: no OnPreviewKeyDown override in the world; register the routed preview-key
-        // event instead. The world reports the real key directly (no Key.System indirection).
-        InputElement.PreviewKeyDownEvent.Add((e, p) =>
+        };
+        // Keyboard preview: no OnPreviewKeyDown override in the world. Avalonia has no separate
+        // preview-key event, but KeyDownEvent is registered Tunnel|Bubble, so a tunnel handler on the
+        // window runs on the way down — the same moment WPF's PreviewKeyDown fires. The world reports
+        // the real key directly (no Key.System indirection) and carries the modifiers on the args.
+        AddHandler(InputElement.KeyDownEvent, new EventHandler<KeyEventArgs>((_, e) =>
         {
             var key = e.Key;
             // Enter settles whatever is being typed and leaves the window open. There is no default
@@ -154,8 +157,8 @@ public partial class MainWindow : Window, IControlPanelHost
                 e.Handled = true;
                 return;
             }
-            if (_panel.TryHandleKey(key, Keyboard.Modifiers)) { e.Handled = true; return; }
-        });
+            if (_panel.TryHandleKey(key, e.KeyModifiers)) { e.Handled = true; return; }
+        }), RoutingStrategies.Tunnel);
 
         _panel = new ControlPanelView(_engine, this);
         ControlHost.Content = _panel;
@@ -349,11 +352,11 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>Switches the operator surface between the console and the media desk.</summary>
     public void ShowMediaTab(bool media) => ShowTab(media ? GameControlWindow.ConsoleTab.Media : GameControlWindow.ConsoleTab.Control);
 
-    void ControlTab_Click(object sender, object e) => ShowTab(GameControlWindow.ConsoleTab.Control);
+    void ControlTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Control);
 
-    void MediaTab_Click(object sender, object e) => ShowTab(GameControlWindow.ConsoleTab.Media);
+    void MediaTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Media);
 
-    void RosterTab_Click(object sender, object e) => ShowTab(GameControlWindow.ConsoleTab.Rosters);
+    void RosterTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Rosters);
 
     /// <summary>Switches the operator surface between the console, the media desk and the roster desk.</summary>
     void ShowTab(GameControlWindow.ConsoleTab tab)
@@ -376,10 +379,10 @@ public partial class MainWindow : Window, IControlPanelHost
         // Active-tab colours follow the operator's accent from Preferences.
         var accent = UiPalette.Accent(_preferences);
         var on = UiPalette.Frozen(UiPalette.Soft(accent));
-        var off = (Brush)new BrushConverter().ConvertFromString("#141A23")!;
+        var off = new SolidColorBrush(Color.Parse("#141A23"));
         var onBorder = UiPalette.Frozen(accent);
-        var offBorder = (Brush)new BrushConverter().ConvertFromString("#28323F")!;
-        var muted = (Brush)new BrushConverter().ConvertFromString("#93A0B2")!;
+        var offBorder = new SolidColorBrush(Color.Parse("#28323F"));
+        var muted = new SolidColorBrush(Color.Parse("#93A0B2"));
         Button[] tabs = [ControlTab, MediaTab, RosterTab];
         var active = (int)_tab;
         for (var i = 0; i < tabs.Length; i++)
@@ -390,9 +393,9 @@ public partial class MainWindow : Window, IControlPanelHost
         }
     }
 
-    void LayoutPrev_Click(object sender, object e) => ShiftLayout(-1);
+    void LayoutPrev_Click(object sender, RoutedEventArgs e) => ShiftLayout(-1);
 
-    void LayoutNext_Click(object sender, object e) => ShiftLayout(1);
+    void LayoutNext_Click(object sender, RoutedEventArgs e) => ShiftLayout(1);
 
     // ---------- window chrome ----------
     void Refresh()
@@ -451,7 +454,7 @@ public partial class MainWindow : Window, IControlPanelHost
         if (lit != _meterLit)
         {
             _meterLit = lit;
-            var unlit = (Brush)new BrushConverter().ConvertFromString("#1B2430")!;
+            var unlit = new SolidColorBrush(Color.Parse("#1B2430"));
             for (var index = 0; index < _meterBars.Length; index++)
                 _meterBars[index].Background = index < lit ? new SolidColorBrush((Color)_meterBars[index].Tag) : unlit;
         }
@@ -473,7 +476,7 @@ public partial class MainWindow : Window, IControlPanelHost
         _log?.SetHintVisibility(_preferences.ShowHeadingHints);
     }
 
-    void EventLog_Click(object sender, object e)
+    void EventLog_Click(object sender, RoutedEventArgs e)
     {
         if (_log is { IsVisible: true }) { _log.Activate(); return; }
         _log = new EventLogWindow(_engine, _preferences.Theme, _preferences.ShowHeadingHints) { Owner = this };
@@ -481,7 +484,7 @@ public partial class MainWindow : Window, IControlPanelHost
         _log.Show();
     }
 
-    void ScorebugStudio_Click(object sender, object e)
+    void ScorebugStudio_Click(object sender, RoutedEventArgs e)
     {
         // The studio edits exactly the display and layout this window is previewing.
         var displayIndex = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
@@ -516,11 +519,11 @@ public partial class MainWindow : Window, IControlPanelHost
         _quickLayouts?.Refresh();
     }
 
-    void TransitionMaker_Click(object sender, object e) => OpenMotionMaker(MotionKind.Transition);
+    void TransitionMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Transition);
 
-    void AnimationMaker_Click(object sender, object e) => OpenMotionMaker(MotionKind.Animation);
+    void AnimationMaker_Click(object sender, RoutedEventArgs e) => OpenMotionMaker(MotionKind.Animation);
 
-    void Preferences_Click(object sender, object e)
+    void Preferences_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SettingsWindow(_preferences) { Owner = this };
         ThemeManager.Apply(dialog, _preferences.Theme);
@@ -555,7 +558,7 @@ public partial class MainWindow : Window, IControlPanelHost
         _remote?.Dispose();
         _remote = null;
         if (!_preferences.RemoteEnabled || string.IsNullOrWhiteSpace(_preferences.RemotePassword)) return;
-        var server = new RemoteControlServer(_engine, this, id => { _panel.Execute(id); return true; }, Dispatcher, _preferences.RemotePort, _preferences.RemotePassword);
+        var server = new RemoteControlServer(_engine, this, id => { _panel.Execute(id); return true; }, Avalonia.Threading.Dispatcher.UIThread, _preferences.RemotePort, _preferences.RemotePassword);
         server.Status += message => Dispatcher.BeginInvoke(new Action(() => StatusText.Text = message));
         server.Start();
         _remote = server;
@@ -591,9 +594,9 @@ public partial class MainWindow : Window, IControlPanelHost
         Close();
     }
 
-    void NewPanel_Click(object sender, object e) => OpenControlPanel();
+    void NewPanel_Click(object sender, RoutedEventArgs e) => OpenControlPanel();
 
-    void Keybinds_Click(object sender, object e) => _panel.ShowKeybindsDialog();
+    void Keybinds_Click(object sender, RoutedEventArgs e) => _panel.ShowKeybindsDialog();
 
     public void OpenControlPanel()
     {
@@ -611,7 +614,7 @@ public partial class MainWindow : Window, IControlPanelHost
     public bool HasStagedGameState() =>
         GameEngine.StagedSignature(_engine.State) != GameEngine.StagedSignature(_publishedEngine.State);
 
-    void SportProfiles_Click(object sender, object e)
+    void SportProfiles_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SportProfileWindow(_engine.Sports) { Owner = this };
         ThemeManager.Apply(dialog, _preferences.Theme);
@@ -654,7 +657,7 @@ public partial class MainWindow : Window, IControlPanelHost
         StatusText.Text = $"NEW {_engine.Sport.Name.ToUpperInvariant()} GAME";
     }
 
-    void NewGame_Click(object sender, object e)
+    void NewGame_Click(object sender, RoutedEventArgs e)
     {
         // The sport is part of starting a game; the chooser also states what a new game resets.
         var picker = new SportPickerWindow(_engine.Sports, _engine.State.SportId, _preferences.Theme) { Owner = this };
@@ -745,7 +748,7 @@ public partial class MainWindow : Window, IControlPanelHost
     }
 
     // ---------- output ----------
-    void Output_Click(object sender, object e) => OpenOutputWindow();
+    void Output_Click(object sender, RoutedEventArgs e) => OpenOutputWindow();
 
     /// <summary>
     /// Asks which display this audience window is for, then opens a brand-new window for it. With
@@ -801,7 +804,7 @@ public partial class MainWindow : Window, IControlPanelHost
         foreach (var output in _outputs.Where(o => o.IsVisible)) output.UpdateLiveScoreClock(_engine.State);
     }
 
-    void GameReport_Click(object sender, object e)
+    void GameReport_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "HTML game report (*.html)|*.html", DefaultExt = "html", FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}-report" };
         if (dialog.ShowDialog() != true) return;
@@ -812,7 +815,7 @@ public partial class MainWindow : Window, IControlPanelHost
         StatusText.Text = "GAME REPORT EXPORTED";
     }
 
-    void Save_Click(object sender, object e)
+    void Save_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog { Filter = "ScorePlus Game (*.spg)|*.spg|JSON (*.json)|*.json", DefaultExt = "spg", FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}" };
         if (dialog.ShowDialog() != true) return;
@@ -860,7 +863,7 @@ public partial class MainWindow : Window, IControlPanelHost
         return dialog.ShowDialog() == true && SaveGameTo(dialog.FileName);
     }
 
-    void Open_Click(object sender, object e)
+    void Open_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { DefaultExt = "spg", Filter = "ScorePlus Game (*.spg)|*.spg|Scoreboard Game (*.scoreboard;*.json)|*.scoreboard;*.json|All files (*.*)|*.*" };
         if (dialog.ShowDialog() != true) return;

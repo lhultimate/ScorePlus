@@ -95,12 +95,13 @@ public sealed class KeybindsWindow : Window
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (!_capturing) { base.OnKeyDown(e); return; }
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        // Avalonia reports the real key with the modifiers on the args — no Key.System to unwrap.
+        var key = e.Key;
         e.Handled = true;
         if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin) return;
         if (key == Key.Escape) { _capturing = false; _status.Text = "Cancelled"; return; }
         if (Selected is not { } item) return;
-        var modifiers = Keyboard.Modifiers;
+        var modifiers = e.KeyModifiers;
         var gesture = KeybindStore.ToText(key, modifiers);
         foreach (var existing in _settings.Bindings.Where(b => b.Value == gesture && b.Key != item.Definition.Id).Select(b => b.Key).ToArray())
             _settings.Bindings.Remove(existing);

@@ -1,3 +1,5 @@
+using Avalonia.Interactivity;
+using Avalonia.Controls.Primitives;
 using System.IO;
 using Avalonia;
 using Avalonia.Controls;
@@ -83,6 +85,10 @@ public partial class MediaDock : UserControl
     public MediaDock()
     {
         InitializeComponent();
+        // WPF had PreviewMouseLeftButtonDown/Up on the bar; Avalonia raises the same press on the
+        // tunnel route first, which is what the scrub gesture wants — the thumb drag is left alone.
+        ScrubBar.AddHandler(InputElement.PointerPressedEvent, Scrub_Start, RoutingStrategies.Tunnel);
+        ScrubBar.AddHandler(InputElement.PointerReleasedEvent, Scrub_End, RoutingStrategies.Tunnel);
         _audioDevices = new[] { DefaultOutput }.Concat(AudioRouter.Devices()).ToArray();
         AudioDeviceBox.ItemsSource = _audioDevices;
         AudioDeviceBox.SelectedIndex = 0;
@@ -95,7 +101,9 @@ public partial class MediaDock : UserControl
         // size swap has to run once more after load or the first pass finds nothing to restyle.
         Loaded += (_, _) => { if (_large) ApplyControlSize(this); };
         // The dock starts hidden behind the console tab, so it is restyled when the tab reveals it.
-        IsVisibleChanged += (_, _) => { if (IsVisible) ApplyControlSize(this); };
+        // Avalonia has no IsVisibleChanged event; the visibility property change is the same moment
+        // for the operator, and the dock is restyled as soon as a tab reveals it.
+        PropertyChanged += (_, change) => { if (change.Property == IsVisibleProperty && IsVisible) ApplyControlSize(this); };
     }
 
     /// <summary>Matches the dock to the operator theme (Dark is near-black, Light is white).</summary>
@@ -328,42 +336,29 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>
-    /// Sizes every dock control for the current mode. Values are set locally rather than by
-    /// swapping styles: the dock may be hidden when the mode is chosen, so the walk has to be
-    /// repeatable and must survive a template being applied later.
+    /// Sizes every dock control for the current mode. Avalonia has no per-instance style to swap,
+    /// so the markup carries each control's larger twin as a second class token and this walk
+    /// switches the token on or off. The logical tree exists as soon as the XAML is parsed, where
+    /// the visual tree only grows when a hidden dock is first measured — which is exactly when
+    /// this has to work.
     /// </summary>
+    static readonly (string Base, string Large)[] SizedControls =
+    [
+        ("transport-button", "transport-button-large"),
+        ("dock-action", "dock-action-large"),
+        ("dock-combo", "dock-combo-large"),
+        ("dock-search", "dock-search-large"),
+    ];
+
     void ApplyControlSize(DependencyObject root)
     {
-        var transportStyle = (Style)Resources["TransportButton"];
-        var actionStyle = (Style)Resources["DockAction"];
-        var clearStyle = (Style)Resources["ClearAction"];
-        var comboStyle = (Style)Resources["DockCombo"];
-        var searchStyle = (Style)Resources["DockSearch"];
-        // The logical tree exists as soon as the XAML is parsed, where the visual tree only grows
-        // when a hidden dock is first measured — which is exactly when this has to work.
-        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<Control>())
         {
-            switch (child)
+            foreach (var pair in SizedControls)
             {
-                case Button button when ReferenceEquals(button.Style, transportStyle):
-                    button.Width = _large ? 58 : 44;
-                    button.Height = _large ? 44 : 34;
-                    button.FontSize = _large ? 18 : 15;
-                    break;
-                case Button button when ReferenceEquals(button.Style, actionStyle) || ReferenceEquals(button.Style, clearStyle):
-                    button.FontSize = _large ? 13 : 11;
-                    button.MinHeight = _large ? 44 : 30;
-                    button.Padding = _large ? new Thickness(14, 10, 14, 10) : new Thickness(9, 5, 9, 5);
-                    break;
-                case ComboBox box when ReferenceEquals(box.Style, comboStyle):
-                    box.FontSize = _large ? 13 : 11;
-                    box.MinHeight = _large ? 38 : 28;
-                    break;
-                case TextBox field when ReferenceEquals(field.Style, searchStyle):
-                    field.FontSize = _large ? 13 : 11;
-                    field.MinHeight = _large ? 40 : 30;
-                    field.Padding = _large ? new Thickness(10, 8, 10, 8) : new Thickness(7, 5, 7, 5);
-                    break;
+                if (!child.Classes.Contains(pair.Base)) continue;
+                if (_large) child.Classes.Add(pair.Large);
+                else child.Classes.Remove(pair.Large);
             }
             ApplyControlSize(child);
         }
@@ -408,7 +403,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void ClearSearch_Click(object sender, object e)
+    void ClearSearch_Click(object sender, RoutedEventArgs e)
     {
         ClearSearch();
         SearchBox.Focus();
@@ -416,7 +411,7 @@ public partial class MediaDock : UserControl
 
     void ClearSearch(bool refresh = true)
     {
-        if (!Searching && SearchBox.Text.Length == 0) return;
+        if (!Searching && (SearchBox.Text?.Length ?? 0) == 0) return;
         _syncingSearch = true;
         SearchBox.Text = "";
         _syncingSearch = false;
@@ -522,13 +517,14 @@ public partial class MediaDock : UserControl
             BorderThickness = new Thickness(selected ? 2 : 1),
             BorderBrush = selected ? BorderSelected : _tileBorderIdle,
             Cursor = Cursors.Hand,
-            AllowDrop = true,
             Tag = folder,
             ToolTip = $"{(folder.Length == 0 ? "Unfiled clips" : folder)}\n{clips} clip{(clips == 1 ? "" : "s")}"
                 + (subFolders > 0 ? $" · {subFolders} folder{(subFolders == 1 ? "" : "s")}" : "")
                 + "\nDouble-click to open · drop a clip or files here to file them"
         };
         ThemeManager.SetSkipTheme(tile, true);
+        // Avalonia takes drop permission through the drag/drop attached property, not a Border field.
+        DragDrop.SetAllowDrop(tile, true);
 
         var grid = new Grid { IsHitTestVisible = false };
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(_thumbHeight) });
@@ -584,18 +580,20 @@ public partial class MediaDock : UserControl
         grid.Children.Add(meta);
 
         tile.Child = grid;
-        tile.MouseLeftButtonDown += (_, e) =>
+        // WPF's MouseLeftButtonDown/Drag* events have no Avalonia equivalents; these compatibility
+        // adapters subscribe to the matching Avalonia routed events (see WpfMouseEvents).
+        tile.MouseLeftButtonDown((_, e) =>
         {
             // One click picks the folder (Export folder, drop tests); two opens it.
             _selectedFolderPath = folder;
             if (e.ClickCount == 2) OpenFolder(folder);
             else Refresh();
             e.Handled = true;
-        };
-        tile.DragEnter += (s, e) => HighlightDrop(s, e);
-        tile.DragOver += (s, e) => HighlightDrop(s, e);
-        tile.DragLeave += (s, e) => { if (s is Border border) border.BorderBrush = selected ? BorderSelected : _tileBorderIdle; };
-        tile.Drop += (s, e) =>
+        });
+        tile.DragEnter((s, e) => HighlightDrop(s, e));
+        tile.DragOver((s, e) => HighlightDrop(s, e));
+        tile.DragLeave((s, e) => { if (s is Border border) border.BorderBrush = selected ? BorderSelected : _tileBorderIdle; });
+        tile.Drop((s, e) =>
         {
             e.Handled = true;
             if (_session is null) return;
@@ -610,7 +608,7 @@ public partial class MediaDock : UserControl
             if (entry is null) return;
             _session.MoveToFolder(entry, folder);
             Refresh();
-        };
+        });
         return tile;
     }
 
@@ -628,12 +626,12 @@ public partial class MediaDock : UserControl
             BorderThickness = new Thickness(onAir || selected ? 2 : 1),
             BorderBrush = onAir ? BorderOnAir : selected ? BorderSelected : _tileBorderIdle,
             Cursor = Cursors.Hand,
-            AllowDrop = true,
             Tag = playlist,
             ToolTip = $"Playlist · {playlist.Name} · {playlist.Count} clip{(playlist.Count == 1 ? "" : "s")}{(playlist.Loop ? " · loop" : "")}"
                 + "\nDouble-click to open · drop a clip or files here to add them"
         };
         ThemeManager.SetSkipTheme(tile, true);
+        DragDrop.SetAllowDrop(tile, true);
 
         var grid = new Grid { IsHitTestVisible = false };
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(_thumbHeight) });
@@ -695,18 +693,18 @@ public partial class MediaDock : UserControl
         grid.Children.Add(meta);
 
         tile.Child = grid;
-        tile.MouseLeftButtonDown += (_, e) =>
+        tile.MouseLeftButtonDown((_, e) =>
         {
             // One click picks the playlist, two opens it into its own clip list.
             _selectedPlaylistName = playlist.Name;
             if (e.ClickCount == 2) OpenPlaylist(playlist);
             else Refresh();
             e.Handled = true;
-        };
-        tile.DragEnter += (s, e) => HighlightDrop(s, e);
-        tile.DragOver += (s, e) => HighlightDrop(s, e);
-        tile.DragLeave += (s, e) => { if (s is Border border) border.BorderBrush = onAir ? BorderOnAir : _tileBorderIdle; };
-        tile.Drop += (s, e) =>
+        });
+        tile.DragEnter((s, e) => HighlightDrop(s, e));
+        tile.DragOver((s, e) => HighlightDrop(s, e));
+        tile.DragLeave((s, e) => { if (s is Border border) border.BorderBrush = onAir ? BorderOnAir : _tileBorderIdle; });
+        tile.Drop((s, e) =>
         {
             e.Handled = true;
             if (_session is null) return;
@@ -726,7 +724,7 @@ public partial class MediaDock : UserControl
             if (entry is null) return;
             _session.AddToPlaylist(playlist, entry);
             Refresh();
-        };
+        });
         return tile;
     }
 
@@ -745,7 +743,7 @@ public partial class MediaDock : UserControl
         return _session.Library.FirstOrDefault(entry => string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase));
     }
 
-    static FrameworkElement FolderGlyph(Brush fill, double width, double height) => new Avalonia.Controls.Path
+    static FrameworkElement FolderGlyph(Brush fill, double width, double height) => new Avalonia.Controls.Shapes.Path
     {
         Data = Geometry.Parse("M 1,4 L 8,4 L 10,7 L 23,7 L 23,19 L 1,19 Z"),
         Fill = fill,
@@ -825,8 +823,8 @@ public partial class MediaDock : UserControl
             thumb.Children.Add(new TextBlock
             {
                 Text = entry.IsCamera ? "●" : entry.IsMicrophone ? "◎" : entry.IsVideo ? "▶" : "♪",
-                Style = (Style)Resources["TileGlyph"],
-                FontSize = 22
+                // The same look the markup tiles get: accent glyph, centred in the well.
+                Classes = { "tile-glyph" }
             });
         }
         if (isOnAir)
@@ -880,7 +878,7 @@ public partial class MediaDock : UserControl
         grid.Children.Add(tag);
 
         tile.Child = grid;
-        tile.MouseLeftButtonDown += (_, e) =>
+        tile.MouseLeftButtonDown((_, e) =>
         {
             session.Select(entry);
             if (e.ClickCount == 2)
@@ -889,14 +887,14 @@ public partial class MediaDock : UserControl
                 else session.Play(entry);
             }
             e.Handled = true;
-        };
-        tile.PreviewMouseLeftButtonDown += (_, e) =>
+        });
+        tile.PreviewMouseLeftButtonDown((_, e) =>
         {
             _dragEntry = entry;
             _dragOrigin = e.GetPosition(this);
-        };
-        tile.PreviewMouseLeftButtonUp += (_, _) => _dragEntry = null;
-        tile.PreviewMouseMove += (_, e) =>
+        });
+        tile.PreviewMouseLeftButtonUp((_, _) => _dragEntry = null);
+        tile.PreviewMouseMove((_, e) =>
         {
             if (_dragEntry is null) return;
             if (e.LeftButton != MouseButtonState.Pressed) { _dragEntry = null; return; }
@@ -904,8 +902,13 @@ public partial class MediaDock : UserControl
             if (Math.Abs(position.X - _dragOrigin.X) < 9 && Math.Abs(position.Y - _dragOrigin.Y) < 9) return;
             var path = _dragEntry.Path;
             _dragEntry = null;
-            DragDrop.DoDragDrop(tile, new DataObject(ClipFormat, path), DragDropEffects.Move);
-        };
+            // WPF's DataObject(format, value): Avalonia's data object is set-then-drag, and the drag
+            // starts from the pointer event that began it. TECH DEBT: DataObject is obsolete in
+            // Avalonia 11.3 (DataTransfer replaces it); the custom in-process format stays the same.
+            var data = new DataObject();
+            data.Set(ClipFormat, path);
+            _ = DragDrop.DoDragDrop(e, data, DragDropEffects.Move);
+        });
         return tile;
     }
 
@@ -1002,22 +1005,22 @@ public partial class MediaDock : UserControl
 
     // ---------- handlers ----------
 
-    void BackToLibrary_Click(object sender, object e)
+    void BackToLibrary_Click(object sender, RoutedEventArgs e)
     {
         _view = MediaView.Library;
         _openPlaylistName = null;
         Refresh();
     }
 
-    void Up_Click(object sender, object e)
+    void Up_Click(object sender, RoutedEventArgs e)
     {
         if (_session?.FolderFilter is not { } folder) return;
         OpenFolder(folder.Length == 0 ? null : ParentOf(folder));
     }
 
-    void NewFolder_Click(object sender, object e) => NewFolder();
+    void NewFolder_Click(object sender, RoutedEventArgs e) => NewFolder();
 
-    void NewPlaylist_Click(object sender, object e) => NewPlaylist();
+    void NewPlaylist_Click(object sender, RoutedEventArgs e) => NewPlaylist();
 
     void NewFolder()
     {
@@ -1048,7 +1051,7 @@ public partial class MediaDock : UserControl
         OpenPlaylist(playlist);
     }
 
-    void Import_Click(object sender, object e)
+    void Import_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         var dialog = new OpenFileDialog
@@ -1063,7 +1066,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>Brings a whole folder back in from a ScorePlus Folder (.spf).</summary>
-    void ImportFolder_Click(object sender, object e)
+    void ImportFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         var dialog = new OpenFileDialog
@@ -1078,7 +1081,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>Saves the selected (or open) folder, everything under it, as one .spf file.</summary>
-    void ExportFolder_Click(object sender, object e)
+    void ExportFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         var folder = _selectedFolderPath ?? _session.FolderFilter;
@@ -1099,7 +1102,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void Remove_Click(object sender, object e)
+    void Remove_Click(object sender, RoutedEventArgs e)
     {
         if (_session?.Selected is not { } selected) return;
         if (_view == MediaView.Playlist && OpenPlaylist() is { } playlist)
@@ -1108,19 +1111,19 @@ public partial class MediaDock : UserControl
             _session.Remove(selected);
     }
 
-    void TagApply_Click(object sender, object e)
+    void TagApply_Click(object sender, RoutedEventArgs e)
     {
         if (_session?.Selected is not { } selected) return;
         _session.Retag(selected, TagBox.Text);
     }
 
-    void ClipLoop_Changed(object sender, object e)
+    void ClipLoop_Changed(object sender, RoutedEventArgs e)
     {
         if (_syncing || _session?.Selected is not { } selected) return;
         _session.SetClipLoop(selected, ClipLoopBox.IsChecked == true);
     }
 
-    void PlaylistAdd_Click(object sender, object e)
+    void PlaylistAdd_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null || OpenPlaylist() is not { } playlist) return;
         if (_session.Selected is not { } selected) { _session.Report("SELECT A CLIP FIRST"); return; }
@@ -1128,16 +1131,16 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void PlaylistRun_Click(object sender, object e)
+    void PlaylistRun_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null || OpenPlaylist() is not { } playlist) return;
         _session.PlayPlaylist(playlist);
         Refresh();
     }
 
-    void PlaylistStop_Click(object sender, object e) => _session?.Stop();
+    void PlaylistStop_Click(object sender, RoutedEventArgs e) => _session?.Stop();
 
-    void PlaylistDelete_Click(object sender, object e)
+    void PlaylistDelete_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null || OpenPlaylist() is not { } playlist) return;
         _session.DeletePlaylist(playlist);
@@ -1146,16 +1149,16 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void PlaylistLoop_Changed(object sender, object e)
+    void PlaylistLoop_Changed(object sender, RoutedEventArgs e)
     {
         if (_syncing || _session is null || OpenPlaylist() is not { } playlist) return;
         _session.SetPlaylistLoop(playlist, PlaylistLoopBox.IsChecked == true);
         Refresh();
     }
 
-    void PlayPause_Click(object sender, object e) => _session?.TogglePlayPause();
+    void PlayPause_Click(object sender, RoutedEventArgs e) => _session?.TogglePlayPause();
 
-    void Volume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    void Volume_Changed(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (_syncing || _session?.Selected is not { } selected) return;
         _session.SetClipVolume(selected, e.NewValue / 100);
@@ -1185,7 +1188,7 @@ public partial class MediaDock : UserControl
     /// The panic button: stop everything, release the camera (so its last frame cannot stay on the
     /// scorebug) and blank every video box. Clearing the library is the operator's choice.
     /// </summary>
-    void Clear_Click(object sender, object e)
+    void Clear_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         if (_session.Library.Count > 0 && !ConfirmClear()) return;
@@ -1245,7 +1248,7 @@ public partial class MediaDock : UserControl
     /// item is a slot, and the Route button on the item picks which Windows device it listens to.
     /// That keeps adding several microphones quick — each one starts on the next free device number.
     /// </summary>
-    void Microphone_Click(object sender, object e)
+    void Microphone_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         var index = 0;
@@ -1254,7 +1257,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void Camera_Click(object sender, object e)
+    void Camera_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         // Add the next camera item id that is not already in the library. The device it shows can
@@ -1265,7 +1268,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void Replay_Click(object sender, object e)
+    void Replay_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         if (_session.IsReplaying) _session.ReturnToLive();
@@ -1273,19 +1276,19 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void StartReplay_Click(object sender, object e)
+    void StartReplay_Click(object sender, RoutedEventArgs e)
     {
         _session?.PlayReplay();
         Refresh();
     }
 
-    void Live_Click(object sender, object e)
+    void Live_Click(object sender, RoutedEventArgs e)
     {
         _session?.ReturnToLive();
         Refresh();
     }
 
-    void SaveReplay_Click(object sender, object e)
+    void SaveReplay_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null || !_session.IsReplaying) return;
         var behind = Math.Max(1, (int)Math.Round(_session.ReplayBack));
@@ -1303,7 +1306,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>Renames the selected camera item and points it at another camera.</summary>
-    void Route_Click(object sender, object e)
+    void Route_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         var entry = _session.Current?.IsCamera == true ? _session.Current
@@ -1318,7 +1321,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>Renames the selected microphone item and points it at another microphone.</summary>
-    void MicrophoneRoute_Click(object sender, object e)
+    void MicrophoneRoute_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
         var entry = _session.Current?.IsMicrophone == true ? _session.Current
@@ -1332,7 +1335,7 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
-    void Stop_Click(object sender, object e) => _session?.Stop();
+    void Stop_Click(object sender, RoutedEventArgs e) => _session?.Stop();
 
     void Scrub_Start(object sender, PointerEventArgs e)
     {
@@ -1352,7 +1355,7 @@ public partial class MediaDock : UserControl
     }
 
     /// <summary>A click on the bar, a drag of the thumb and the arrow keys all land here.</summary>
-    void Scrub_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    void Scrub_Changed(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (_session is null || _syncingBar) return;
         if (!_scrubbing && !ScrubBar.IsKeyboardFocusWithin) return;
@@ -1397,7 +1400,7 @@ public partial class MediaDock : UserControl
         };
         ThemeManager.SetSkipTheme(create, true);
         string? result = null;
-        create.Click += (_, _) => { result = box.Text.Trim(); window.DialogResult = true; };
+        create.Click += (_, _) => { result = box.Text?.Trim() ?? ""; window.DialogResult = true; };
         cancel.Click += (_, _) => window.DialogResult = false;
         buttons.Children.Add(cancel);
         buttons.Children.Add(create);
@@ -1412,7 +1415,7 @@ public partial class MediaDock : UserControl
 
     static Brush Frozen(string hex)
     {
-        var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
+        var brush = new SolidColorBrush(Color.Parse(hex));
         brush.Freeze();
         return brush;
     }

@@ -4,7 +4,7 @@
         xmlns:local="clr-namespace:Scoreboard.Desktop"
         Title="ScorePlus — Control Panel" Width="1360" Height="985" MinWidth="1040" MinHeight="915"
         Background="#0B0F14" Foreground="#F4F7FB" FontFamily="Segoe UI">
-  <Window.Resources>
+  <Window.Styles>
     <Style Selector="Button.tab-button">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="FontWeight" Value="Bold"/>
@@ -22,14 +22,14 @@
       <Setter Property="Padding" Value="8,4"/>
       <Setter Property="Margin" Value="2"/>
     </Style>
-  </Window.Resources>
+</Window.Styles>
   <DockPanel>
     <Border DockPanel.Dock="Top" Background="#111721" Padding="14,9">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button Content="Undo" Tag="global.undo" Click="Undo_Click" ToolTip="Undo the last action"/>
-          <Button Content="Keybinds…" Click="Keybinds_Click" ToolTip="Assign a key combination to any button on this panel"/>
-          <Button Content="New panel" Click="NewPanel_Click" ToolTip="Open another control panel that stays in sync"/>
+          <Button Content="Undo" Tag="global.undo" Click="Undo_Click" ToolTip.Tip="Undo the last action"/>
+          <Button Content="Keybinds…" Click="Keybinds_Click" ToolTip.Tip="Assign a key combination to any button on this panel"/>
+          <Button Content="New panel" Click="NewPanel_Click" ToolTip.Tip="Open another control panel that stays in sync"/>
         </StackPanel>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Text="SCOREPLUS · CONTROL PANEL" FontSize="14" FontWeight="Bold"/>
@@ -67,10 +67,10 @@
             </StackPanel>
             <TextBlock Text="DISPLAY" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" Margin="0,8,0,3"/>
             <ComboBox x:Name="DisplaySelector" FontSize="12" MinHeight="30" SelectionChanged="Display_Changed"
-                      ToolTip="Choose the display this panel previews and publishes"/>
+                      ToolTip.Tip="Choose the display this panel previews and publishes"/>
             <DockPanel Margin="0,8,0,0">
-              <Button x:Name="LayoutPrevButton" DockPanel.Dock="Left" Classes="small-button" Content="◀" Click="LayoutPrev_Click" ToolTip="Previous layout on this display"/>
-              <Button x:Name="LayoutNextButton" DockPanel.Dock="Right" Classes="small-button" Content="▶" Click="LayoutNext_Click" ToolTip="Next layout on this display"/>
+              <Button x:Name="LayoutPrevButton" DockPanel.Dock="Left" Classes="small-button" Content="◀" Click="LayoutPrev_Click" ToolTip.Tip="Previous layout on this display"/>
+              <Button x:Name="LayoutNextButton" DockPanel.Dock="Right" Classes="small-button" Content="▶" Click="LayoutNext_Click" ToolTip.Tip="Next layout on this display"/>
               <TextBlock x:Name="PreviewLayoutLabel" Text="1 · Broadcast Classic" FontSize="12" FontWeight="SemiBold"
                          TextAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="4,0"/>
             </DockPanel>
@@ -94,15 +94,15 @@
 
       <StackPanel Grid.Row="3" Orientation="Horizontal">
         <Button x:Name="ControlTab" Classes="tab-button" Content="CONTROL PANEL" Click="ControlTab_Click"/>
-        <Button x:Name="MediaTab" Classes="tab-button" Content="MEDIA" Click="MediaTab_Click" ToolTip="Clips, camera, replay and playlists"/>
+        <Button x:Name="MediaTab" Classes="tab-button" Content="MEDIA" Click="MediaTab_Click" ToolTip.Tip="Clips, camera, replay and playlists"/>
         <Button x:Name="RosterTab" Classes="tab-button" Content="ROSTERS" Click="RosterTab_Click"
-                ToolTip="Team rosters, player stats and the player on the graphic"/>
+                ToolTip.Tip="Team rosters, player stats and the player on the graphic"/>
       </StackPanel>
 
       <Grid Grid.Row="4" Margin="0,9,0,0">
         <ContentControl x:Name="PanelHost"/>
-        <local:MediaDock x:Name="MediaControl" Visibility="Collapsed"/>
-        <local:RosterDock x:Name="RosterControl" Visibility="Collapsed"/>
+        <local:MediaDock x:Name="MediaControl" IsVisible="False"/>
+        <local:RosterDock x:Name="RosterControl" IsVisible="False"/>
       </Grid>
     </Grid>
   </DockPanel>

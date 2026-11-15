@@ -431,12 +431,9 @@ public sealed class RemoteControlServer : IDisposable
     {
         try
         {
-            // Assembly-qualified first: the remote can be hosted by a test harness whose entry
-            // assembly is not ScorePlus, and a plain pack URI resolves against the entry assembly.
-            var info = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/ScorePlus;component/Assets/logo.png"))
-                ?? System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/logo.png"));
-            if (info is null) return null;
-            using var source = info.Stream;
+            // avares:// is assembly-qualified first: the remote can be hosted by a test harness whose
+            // entry assembly is not ScorePlus, and a bare URI resolves against the entry assembly.
+            using var source = Avalonia.Platform.AssetLoader.Open(new Uri("avares://ScorePlus/Assets/logo.png"));
             using var buffer = new MemoryStream();
             source.CopyTo(buffer);
             return buffer.ToArray();

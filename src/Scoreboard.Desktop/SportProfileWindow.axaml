@@ -1,4 +1,4 @@
-<Window x:Class="Scoreboard.Desktop.SportProfileWindow" xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="ScorePlus — Sport Profiles" Width="760" Height="700" MinWidth="660" MinHeight="560" WindowStartupLocation="CenterOwner" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI" PreviewKeyDown="Window_PreviewKeyDown">
+<Window x:Class="Scoreboard.Desktop.SportProfileWindow" xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="ScorePlus — Sport Profiles" Width="760" Height="700" MinWidth="660" MinHeight="560" WindowStartupLocation="CenterOwner" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <Grid Margin="18">
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="220"/>
@@ -51,7 +51,7 @@
           <DockPanel Margin="2,8,2,0">
             <Button x:Name="AddValueButton" DockPanel.Dock="Right" Content="＋ Add value" FontSize="11"
                     Padding="9,5" MinHeight="28" Margin="6,0,0,0" Click="AddValue_Click"
-                    ToolTip="Add another value or on/off switch to this sport's console"/>
+                    ToolTip.Tip="Add another value or on/off switch to this sport's console"/>
             <TextBlock Text="SPORT VALUES" FontSize="11" FontWeight="Bold" Foreground="#93A0B2" VerticalAlignment="Center"/>
           </DockPanel>
           <TextBlock Text="What the console shows for this sport — balls, strikes and bases, power play, overs and wickets, sets. The number is the starting value of a new game, and every one of these can be printed on the scorebug as a sport data element."
@@ -59,14 +59,14 @@
           <StackPanel x:Name="ControlsHost"/>
           <TextBlock x:Name="BuiltInNote" Text="Built-in preset — saving stores your version as an override." TextWrapping="Wrap" Foreground="#93A0B2" Margin="4,10,4,0"/>
           <TextBlock x:Name="ErrorText" Foreground="#FF7272" TextWrapping="Wrap" Margin="4,8,4,0"/>
-          <WrapFlow Margin="0,8,0,0">
+          <WrapPanel Margin="0,8,0,0">
             <Button x:Name="NewProfileButton" Content="New profile" Click="NewProfile_Click"
-                    ToolTip="Start a custom sport from scratch: blank settings, not a copy of another sport"/>
+                    ToolTip.Tip="Start a custom sport from scratch: blank settings, not a copy of another sport"/>
             <Button x:Name="SaveButton" Content="Save profile" Click="Save_Click"/>
             <Button x:Name="DuplicateButton" Content="Duplicate" Click="Duplicate_Click"/>
             <Button x:Name="ResetButton" Content="Reset to preset" Click="Reset_Click"/>
             <Button x:Name="DeleteButton" Content="Delete" Click="Delete_Click"/>
-          </WrapFlow>
+          </WrapPanel>
         </StackPanel>
       </ScrollViewer>
     </Border>

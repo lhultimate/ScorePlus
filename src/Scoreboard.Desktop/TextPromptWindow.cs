@@ -38,7 +38,7 @@ public sealed class TextPromptWindow : Window
         var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 84, Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(6, 0, 0, 0) };
         ok.Click += (_, _) =>
         {
-            var text = _input.Text.Trim();
+            var text = _input.Text?.Trim() ?? "";
             if (text.Length == 0) { _error.Text = "Type a name first."; return; }
             _result = text;
             DialogResult = true;

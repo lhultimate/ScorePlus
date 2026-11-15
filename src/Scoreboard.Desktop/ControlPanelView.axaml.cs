@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Scoreboard.Core;
@@ -115,8 +116,10 @@ public partial class ControlPanelView : UserControl
 
         AwayName.KeyDown += Name_KeyDown;
         HomeName.KeyDown += Name_KeyDown;
-        AwayName.LostKeyboardFocus += Name_LostFocus;
-        HomeName.LostKeyboardFocus += Name_LostFocus;
+        // Avalonia has no LostKeyboardFocus event: the lost-focus routed event, bubbling, is the
+        // same moment for the operator (Enter or a click away both commit the names).
+        AwayName.AddHandler(InputElement.LostFocusEvent, Name_LostFocus, RoutingStrategies.Bubble);
+        HomeName.AddHandler(InputElement.LostFocusEvent, Name_LostFocus, RoutingStrategies.Bubble);
 
         // Update Output keeps its designed fill instead of the generic panel surface, so the
         // operator's secondary interface colour is what the main action actually wears.
@@ -176,12 +179,13 @@ public partial class ControlPanelView : UserControl
         _quarterValue.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
-            if (int.TryParse(_quarterValue.Text.Trim(), out var period)) _engine.SetPeriod(period);
+            if (int.TryParse(_quarterValue.Text?.Trim() ?? "", out var period)) _engine.SetPeriod(period);
             else _quarterValue.Text = _engine.State.Period.ToString();
             Keyboard.ClearFocus();
             e.Handled = true;
         };
-        _quarterValue.LostKeyboardFocus += (_, _) => _quarterValue.Text = _engine.State.Period.ToString();
+        _quarterValue.AddHandler(InputElement.LostFocusEvent, new EventHandler<RoutedEventArgs>(
+            (_, _) => _quarterValue.Text = _engine.State.Period.ToString()), RoutingStrategies.Bubble);
         Grid.SetColumn(_quarterValue, 1);
         grid.Children.Add(_quarterValue);
         var minus = new Button { Content = "−", Tag = "period.previous", Classes = { "control-tiny" }, MinWidth = 44 };
@@ -302,8 +306,8 @@ public partial class ControlPanelView : UserControl
     }
 
 
-    void AwayDetails_Click(object sender, object e) => EditTeam(false);
-    void HomeDetails_Click(object sender, object e) => EditTeam(true);
+    void AwayDetails_Click(object sender, RoutedEventArgs e) => EditTeam(false);
+    void HomeDetails_Click(object sender, RoutedEventArgs e) => EditTeam(true);
 
     void EditTeam(bool home)
     {
@@ -311,8 +315,8 @@ public partial class ControlPanelView : UserControl
         if (dialog.ShowDialog() == true) Refresh();
     }
 
-    void LayoutPrev_Click(object sender, object e) => ShiftLayout(-1);
-    void LayoutNext_Click(object sender, object e) => ShiftLayout(1);
+    void LayoutPrev_Click(object sender, RoutedEventArgs e) => ShiftLayout(-1);
+    void LayoutNext_Click(object sender, RoutedEventArgs e) => ShiftLayout(1);
 
     void ShiftLayout(int delta)
     {
@@ -320,7 +324,7 @@ public partial class ControlPanelView : UserControl
         Refresh();
     }
 
-    void ShotClock14_Click(object sender, object e) => _engine.SetShotClock(14);
+    void ShotClock14_Click(object sender, RoutedEventArgs e) => _engine.SetShotClock(14);
 
     // Shot clock and timeout clock are typed over exactly like the game clock: the timing section
     // should not have second-class values that can only be nudged with buttons.
@@ -344,7 +348,7 @@ public partial class ControlPanelView : UserControl
 
     void CommitShotClock()
     {
-        if (int.TryParse(ShotClockValue.Text.Trim(), out var seconds)) _engine.SetShotClock(seconds);
+        if (int.TryParse(ShotClockValue.Text?.Trim() ?? "", out var seconds)) _engine.SetShotClock(seconds);
         else ShotClockValue.Text = _engine.State.ShotClockSeconds.ToString();
     }
 
@@ -463,7 +467,8 @@ public partial class ControlPanelView : UserControl
                 e.Handled = true;
             }
         };
-        value.LostKeyboardFocus += (_, _) => CommitSportValue(control);
+        value.AddHandler(InputElement.LostFocusEvent, new EventHandler<RoutedEventArgs>(
+            (_, _) => CommitSportValue(control)), RoutingStrategies.Bubble);
         Grid.SetColumn(value, 2);
         grid.Children.Add(value);
 
@@ -552,7 +557,7 @@ public partial class ControlPanelView : UserControl
     void CommitSportValue(SportControl control)
     {
         if (!_sportValueBoxes.TryGetValue(control.Id, out var box)) return;
-        if (int.TryParse(box.Text.Trim(), out var value)) _engine.SetSportValue(control.Id, value);
+        if (int.TryParse(box.Text?.Trim() ?? "", out var value)) _engine.SetSportValue(control.Id, value);
         box.Text = SportValues.Read(_engine.State, control.Id).ToString();
     }
 
@@ -638,8 +643,8 @@ public partial class ControlPanelView : UserControl
     void CommitNames()
     {
         if (_loadingNames) return;
-        var home = HomeName.Text.Trim();
-        var away = AwayName.Text.Trim();
+        var home = HomeName.Text?.Trim() ?? "";
+        var away = AwayName.Text?.Trim() ?? "";
         if (home.Length == 0) home = _engine.State.HomeTeam;
         if (away.Length == 0) away = _engine.State.AwayTeam;
         if (home == _engine.State.HomeTeam && away == _engine.State.AwayTeam) return;
@@ -683,21 +688,21 @@ public partial class ControlPanelView : UserControl
 
     void CommitPlayClock()
     {
-        if (int.TryParse(PlayClockValue.Text.Trim(), out var seconds)) _engine.SetPlayClock(seconds);
+        if (int.TryParse(PlayClockValue.Text?.Trim() ?? "", out var seconds)) _engine.SetPlayClock(seconds);
         else PlayClockValue.Text = _engine.State.PlayClockSeconds.ToString();
     }
 
     void PlayClock40_Click(object sender, object e) => _engine.ResetPlayClock(40);
     void PlayClock25_Click(object sender, object e) => _engine.ResetPlayClock(25);
 
-    void AddStat_Click(object sender, object e)
+    void AddStat_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new AddStatDialog(_engine.State.Stats.Select(s => s.Name).ToArray()) { Owner = Window.GetWindow(this) };
         ThemeManager.Apply(dialog, PreferencesStore.Load().Theme);
         if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.StatName)) _engine.AddStat(dialog.StatName);
     }
 
-    void LiveOutput_Changed(object sender, object e)
+    void LiveOutput_Changed(object sender, RoutedEventArgs e)
     {
         if (_syncingLive || LiveOutputToggle is null || _host is null) return;
         var enabled = LiveOutputToggle.IsChecked == true;
@@ -705,7 +710,7 @@ public partial class ControlPanelView : UserControl
         _host.LiveScoreClock = enabled;
     }
 
-    void Action_Click(object sender, object e)
+    void Action_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: string actionId }) Execute(actionId);
     }

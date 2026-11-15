@@ -1,12 +1,18 @@
 <Window x:Class="Scoreboard.Desktop.MainWindow" Icon="app.ico" xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Scoreboard.Desktop" Title="ScorePlus | Live Production" Width="1520" Height="980" MinWidth="1040" MinHeight="760" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <Window.Resources>
+    <!-- Icon-only header actions: the tooltip carries the name, the glyph keeps the bar calm. -->
+    
+    
+    <!-- The two halves of the operator surface: the console, and the media desk. -->
+  
+</Window.Resources>
+  <Window.Styles>
     <Style Selector="Button.header-button">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Padding" Value="12,8"/>
       <Setter Property="MinHeight" Value="34"/>
       <Setter Property="Margin" Value="3"/>
     </Style>
-    <!-- Icon-only header actions: the tooltip carries the name, the glyph keeps the bar calm. -->
     <Style Selector="Button.header-button.icon-button">
       <Setter Property="FontSize" Value="15"/>
       <Setter Property="Padding" Value="0"/>
@@ -37,7 +43,6 @@
       <Setter Property="Background" Value="#1E2630"/>
       <Setter Property="ShowsPreview" Value="True"/>
     </Style>
-    <!-- The two halves of the operator surface: the console, and the media desk. -->
     <Style Selector="Button.tab-button">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="FontWeight" Value="Bold"/>
@@ -48,25 +53,25 @@
       <Setter Property="BorderBrush" Value="#28323F"/>
       <Setter Property="Foreground" Value="#93A0B2"/>
     </Style>
-  </Window.Resources>
+</Window.Styles>
 
   <DockPanel x:Name="Root">
     <Border DockPanel.Dock="Top" Background="#171C25" Padding="14,7">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button Classes="header-button icon-button" Content="⧉" Click="NewPanel_Click" ToolTip="New panel — open a detached control panel that stays in sync"/>
-          <Button Classes="header-button icon-button" Content="⌨" Click="Keybinds_Click" ToolTip="Keybinds — assign a key combination to any control"/>
-          <Button Classes="header-button icon-button" Content="⚙" Click="Preferences_Click" ToolTip="Preferences"/>
-          <Button Classes="header-button icon-button" Content="▶" Click="Output_Click" ToolTip="Audience output — choose a display and open its window (F11 fills the screen)"/>
-          <Button Classes="header-button icon-button" Content="☰" Click="EventLog_Click" ToolTip="Event log — open it in its own window"/>
-          <Button Classes="header-button icon-button" Content="▦" Click="GameReport_Click" ToolTip="Game report — export a printable HTML summary"/>
+          <Button Classes="header-button icon-button" Content="⧉" Click="NewPanel_Click" ToolTip.Tip="New panel — open a detached control panel that stays in sync"/>
+          <Button Classes="header-button icon-button" Content="⌨" Click="Keybinds_Click" ToolTip.Tip="Keybinds — assign a key combination to any control"/>
+          <Button Classes="header-button icon-button" Content="⚙" Click="Preferences_Click" ToolTip.Tip="Preferences"/>
+          <Button Classes="header-button icon-button" Content="▶" Click="Output_Click" ToolTip.Tip="Audience output — choose a display and open its window (F11 fills the screen)"/>
+          <Button Classes="header-button icon-button" Content="☰" Click="EventLog_Click" ToolTip.Tip="Event log — open it in its own window"/>
+          <Button Classes="header-button icon-button" Content="▦" Click="GameReport_Click" ToolTip.Tip="Game report — export a printable HTML summary"/>
           <Button Classes="header-button" Content="Save Game" Click="Save_Click"/>
           <Button Classes="header-button" Content="Open Game" Click="Open_Click"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <Border Background="#0E1218" CornerRadius="7" Padding="6,4" Margin="0,0,10,0" VerticalAlignment="Center">
             <Image Source="Assets/logo.png" Height="26" Stretch="Uniform"
-                   VerticalAlignment="Center" ToolTip="ScorePlus"/>
+                   VerticalAlignment="Center" ToolTip.Tip="ScorePlus"/>
           </Border>
           <TextBlock Text="SCOREPLUS" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
         </StackPanel>
@@ -76,8 +81,8 @@
     <Border DockPanel.Dock="Top" Background="#12171F" Padding="14,6">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button Classes="header-button" Content="Transition Maker" Click="TransitionMaker_Click" ToolTip="Build a keyframed hand-over: how a graphic leaves, how it arrives, and its colors on the way"/>
-          <Button Classes="header-button" Content="Animation Maker" Click="AnimationMaker_Click" ToolTip="Key motion a value follows — a loop while it is up, or a flourish when it changes"/>
+          <Button Classes="header-button" Content="Transition Maker" Click="TransitionMaker_Click" ToolTip.Tip="Build a keyframed hand-over: how a graphic leaves, how it arrives, and its colors on the way"/>
+          <Button Classes="header-button" Content="Animation Maker" Click="AnimationMaker_Click" ToolTip.Tip="Key motion a value follows — a loop while it is up, or a flourish when it changes"/>
           <Button Classes="header-button" Content="Scorebug Studio" Click="ScorebugStudio_Click"/>
           <Button Classes="header-button" Content="Sport Profiles" Click="SportProfiles_Click"/>
           <Button Classes="header-button" Content="New Game" Click="NewGame_Click"/>
@@ -87,16 +92,16 @@
           <ComboBox x:Name="SportSelector" Width="220" SelectionChanged="Sport_Changed">
             <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}"/></DataTemplate></ComboBox.ItemTemplate>
           </ComboBox>
-          <TextBlock x:Name="SportHint" Text="Everything you need for the game is on this page." Foreground="#5C6B7E" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11" Visibility="Collapsed"/>
+          <TextBlock x:Name="SportHint" Text="Everything you need for the game is on this page." Foreground="#5C6B7E" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11" IsVisible="False"/>
         </StackPanel>
       </DockPanel>
     </Border>
 
     <!-- No StatusBar control in the Avalonia world: a plain bordered strip with the same
          items, so StatusText/AutosaveText keep their names for the C# status writers. -->
-    <Border DockPanel.Dock="Bottom" Background="#171C25" Foreground="#93A0B2" Padding="10,6">
+    <Border DockPanel.Dock="Bottom" Background="#171C25" Padding="10,6">
       <DockPanel>
-        <TextBlock x:Name="StatusText" Text="READY · Local autosave enabled" VerticalAlignment="Center"/>
+        <TextBlock x:Name="StatusText" Text="READY · Local autosave enabled" Foreground="#93A0B2" VerticalAlignment="Center"/>
         <TextBlock Text="·" Foreground="#93A0B2" VerticalAlignment="Center" Margin="10,0"/>
         <TextBlock x:Name="AutosaveText" Text="Autosave —" DockPanel.Dock="Right" Foreground="#93A0B2" VerticalAlignment="Center"/>
       </DockPanel>
@@ -123,7 +128,7 @@
           </Grid.RowDefinitions>
 
           <DockPanel Margin="0,0,0,6">
-            <TextBlock x:Name="PreviewAudienceHint" DockPanel.Dock="Right" Text="AUDIENCE" Foreground="#38D7A3" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" Visibility="Collapsed"/>
+            <TextBlock x:Name="PreviewAudienceHint" DockPanel.Dock="Right" Text="AUDIENCE" Foreground="#38D7A3" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" IsVisible="False"/>
             <StackPanel Orientation="Horizontal">
               <Border Classes="rail-accent"/>
               <TextBlock Text="PROGRAM PREVIEW" Classes="rail-title"/>
@@ -135,15 +140,15 @@
             <TextBlock Text="DISPLAY" DockPanel.Dock="Left" Foreground="#5C6B7E" FontSize="10" FontWeight="Bold"
                        VerticalAlignment="Center" Margin="0,0,6,0"/>
             <ComboBox x:Name="DisplaySelector" FontSize="11" MinHeight="28" SelectionChanged="Display_Changed"
-                      ToolTip="Choose the display this preview shows. Each window picks its own."/>
+                      ToolTip.Tip="Choose the display this preview shows. Each window picks its own."/>
           </DockPanel>
 
           <!-- Several layouts can live on one display; the arrows choose what Update Output sends out. -->
           <DockPanel Grid.Row="2" Margin="0,0,0,5">
             <Button x:Name="LayoutPrevButton" DockPanel.Dock="Left" Content="◀" Padding="0" Width="34" MinHeight="30"
-                    FontSize="12" Click="LayoutPrev_Click" ToolTip="Previous layout on this display"/>
+                    FontSize="12" Click="LayoutPrev_Click" ToolTip.Tip="Previous layout on this display"/>
             <Button x:Name="LayoutNextButton" DockPanel.Dock="Right" Content="▶" Padding="0" Width="34" MinHeight="30"
-                    FontSize="12" Click="LayoutNext_Click" ToolTip="Next layout on this display"/>
+                    FontSize="12" Click="LayoutNext_Click" ToolTip.Tip="Next layout on this display"/>
             <TextBlock x:Name="PreviewLayoutLabel" Text="1 · Broadcast Classic" FontSize="11" FontWeight="SemiBold"
                        TextAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="4,0"/>
           </DockPanel>
@@ -197,14 +202,14 @@
         </Grid.RowDefinitions>
         <StackPanel Orientation="Horizontal">
           <Button x:Name="ControlTab" Classes="tab-button" Content="CONTROL PANEL" Click="ControlTab_Click"/>
-          <Button x:Name="MediaTab" Classes="tab-button" Content="MEDIA" Click="MediaTab_Click" ToolTip="Clips, camera, replay and playlists"/>
+          <Button x:Name="MediaTab" Classes="tab-button" Content="MEDIA" Click="MediaTab_Click" ToolTip.Tip="Clips, camera, replay and playlists"/>
           <Button x:Name="RosterTab" Classes="tab-button" Content="ROSTERS" Click="RosterTab_Click"
-                  ToolTip="Team rosters, player stats and the player on the graphic"/>
+                  ToolTip.Tip="Team rosters, player stats and the player on the graphic"/>
         </StackPanel>
         <Grid Grid.Row="1">
           <ContentControl x:Name="ControlHost"/>
-          <local:MediaDock x:Name="MediaControl" Visibility="Collapsed"/>
-          <local:RosterDock x:Name="RosterControl" Visibility="Collapsed"/>
+          <local:MediaDock x:Name="MediaControl" IsVisible="False"/>
+          <local:RosterDock x:Name="RosterControl" IsVisible="False"/>
         </Grid>
       </Grid>
     </Grid>

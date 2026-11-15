@@ -4,6 +4,13 @@
              xmlns:local="clr-namespace:Scoreboard.Desktop"
              FontFamily="Segoe UI" FontSize="12" Background="Transparent">
   <UserControl.Resources>
+    <!-- BasedOn the app's ComboBox: without it the explicit style discards the custom template and
+         the popup falls back to a white system list with this desk's light text on it. -->
+    
+    
+  
+</UserControl.Resources>
+  <UserControl.Styles>
     <Style Selector="TextBox.roster-field-box">
       <Setter Property="MinHeight" Value="30"/>
       <Setter Property="Padding" Value="8,4"/>
@@ -13,8 +20,6 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CaretBrush" Value="{DynamicResource RosterTextBrush}"/>
     </Style>
-    <!-- BasedOn the app's ComboBox: without it the explicit style discards the custom template and
-         the popup falls back to a white system list with this desk's light text on it. -->
     <Style Selector="ComboBox.roster-field-combo">
       <Setter Property="MinHeight" Value="30"/>
       <Setter Property="Padding" Value="8,3"/>
@@ -22,25 +27,22 @@
       <Setter Property="Foreground" Value="{DynamicResource RosterTextBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource RosterBorderBrush}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <!-- The drop-down list belongs to the desk, so it uses the desk's own wells and text. -->
-      <Setter Property="ItemContainerStyle">
-        <Setter.Value>
-          <Style Selector="ComboBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource RosterTextBrush}"/>
-            <Setter Property="Background" Value="{DynamicResource RosterSurfaceBrush}"/>
-            <Setter Property="Padding" Value="10,6"/>
-            <Style.Triggers>
-              <Trigger Property="IsHighlighted" Value="True">
-                <Setter Property="Background" Value="{DynamicResource RosterSurfaceAltBrush}"/>
-              </Trigger>
-              <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{DynamicResource RosterInputBrush}"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-              </Trigger>
-            </Style.Triggers>
-          </Style>
-        </Setter.Value>
-      </Setter>
+    </Style>
+    <!-- The drop-down list belongs to the desk, so it uses the desk's own wells and text.
+         Avalonia has no ItemContainerStyle: a descendant style reaches the generated
+         ComboBoxItem containers, and the pseudo-classes replace WPF's IsHighlighted/IsSelected
+         triggers. -->
+    <Style Selector="ComboBox.roster-field-combo ComboBoxItem">
+      <Setter Property="Foreground" Value="{DynamicResource RosterTextBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource RosterSurfaceBrush}"/>
+      <Setter Property="Padding" Value="10,6"/>
+    </Style>
+    <Style Selector="ComboBox.roster-field-combo ComboBoxItem:pointerover">
+      <Setter Property="Background" Value="{DynamicResource RosterSurfaceAltBrush}"/>
+    </Style>
+    <Style Selector="ComboBox.roster-field-combo ComboBoxItem:selected">
+      <Setter Property="Background" Value="{DynamicResource RosterInputBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style Selector="TextBlock.roster-field-label">
       <Setter Property="FontSize" Value="12"/>
@@ -83,7 +85,7 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Cursor" Value="Hand"/>
     </Style>
-  </UserControl.Resources>
+</UserControl.Styles>
 
   <Grid>
     <Grid.ColumnDefinitions>
@@ -102,14 +104,14 @@
                      Foreground="{DynamicResource RosterMutedBrush}"/>
           <DockPanel>
             <Button x:Name="DeleteRosterButton" DockPanel.Dock="Right" Classes="roster-icon-button" Content="🗑"
-                    Click="DeleteRoster_Click" ToolTip="Delete this roster from the library"/>
+                    Click="DeleteRoster_Click" ToolTip.Tip="Delete this roster from the library"/>
             <Button x:Name="RenameRosterButton" DockPanel.Dock="Right" Classes="roster-icon-button" Content="✎"
-                    Click="RenameRoster_Click" ToolTip="Rename this roster"/>
+                    Click="RenameRoster_Click" ToolTip.Tip="Rename this roster"/>
             <!-- An explicit item template (not DisplayMemberPath): the closed box in this
                  template prints the item itself, which showed the type name. -->
             <ComboBox x:Name="RosterBox" Classes="roster-field-combo"
                       SelectionChanged="Roster_Changed"
-                      ToolTip="Pick another roster from the library — the desk and this team's graphic follow it">
+                      ToolTip.Tip="Pick another roster from the library — the desk and this team's graphic follow it">
               <ComboBox.ItemTemplate>
                 <DataTemplate>
                   <TextBlock Text="{Binding Name}" Foreground="{DynamicResource RosterTextBrush}" TextTrimming="CharacterEllipsis"/>
@@ -121,7 +123,7 @@
                      Foreground="{DynamicResource RosterMutedBrush}"/>
           <Grid Margin="0,8,0,0">
             <TextBox x:Name="SearchInput" Classes="roster-field-box" Padding="30,4,8,4" TextChanged="Search_Changed"
-                     ToolTip="Search this roster by name, number or position"/>
+                     ToolTip.Tip="Search this roster by name, number or position"/>
             <TextBlock Text="🔍" IsHitTestVisible="False" FontSize="12" VerticalAlignment="Center"
                        HorizontalAlignment="Left" Margin="10,0,0,0" Foreground="{DynamicResource RosterMutedBrush}"/>
           </Grid>
@@ -143,7 +145,7 @@
           <DockPanel>
             <Button x:Name="SelectButton" DockPanel.Dock="Right" Classes="roster-primary-button"
                     Content="Select player" Click="Select_Click"
-                    ToolTip="Make this the player the scorebug's selected-player elements show"/>
+                    ToolTip.Tip="Make this the player the scorebug's selected-player elements show"/>
             <Button x:Name="RemovePlayerButton" DockPanel.Dock="Right" Classes="roster-small-button"
                     Content="Remove" Click="RemovePlayer_Click"/>
             <Button x:Name="AddPlayerButton" Classes="roster-small-button" Margin="0"
@@ -199,11 +201,11 @@
           <DockPanel>
             <TextBlock x:Name="OnAirLabel" DockPanel.Dock="Right" Text="NO PLAYER SELECTED" FontSize="10" FontWeight="Bold"
                        Foreground="{DynamicResource RosterMutedBrush}" VerticalAlignment="Center"
-                       ToolTip="The player the scorebug's selected-player bindings read"/>
+                       ToolTip.Tip="The player the scorebug's selected-player bindings read"/>
             <!-- Puts nobody on the graphic for this side, so a player element prints nothing. -->
             <Button x:Name="ClearPlayerButton" DockPanel.Dock="Right" Classes="roster-small-button"
                     Content="No player" Margin="0,0,10,0" Click="ClearPlayer_Click"
-                    ToolTip="Take the player off the graphic for this side — the choice sticks until you select somebody"/>
+                    ToolTip.Tip="Take the player off the graphic for this side — the choice sticks until you select somebody"/>
             <TextBlock Text="PLAYER" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource RosterMutedBrush}"/>
             <TextBlock x:Name="PlayerInfoText" FontSize="10" Margin="8,0,0,0"
                        Foreground="{DynamicResource RosterMutedBrush}" VerticalAlignment="Center"
@@ -224,13 +226,13 @@
               </Grid.RowDefinitions>
               <TextBlock Text="Number:" Classes="roster-field-label"/>
               <TextBox x:Name="NumberInput" Grid.Column="1" Classes="roster-field-box" Margin="0,2,0,6"
-                       LostKeyboardFocus="Player_LostFocus" KeyDown="Player_KeyDown" ToolTip="Jersey number"/>
+                       LostFocus="Player_LostFocus" KeyDown="Player_KeyDown" ToolTip.Tip="Jersey number"/>
               <TextBlock Grid.Row="1" Text="Name:" Classes="roster-field-label"/>
               <TextBox x:Name="NameInput" Grid.Row="1" Grid.Column="1" Classes="roster-field-box" Margin="0,2,0,6"
-                       LostKeyboardFocus="Player_LostFocus" KeyDown="Player_KeyDown"/>
+                       LostFocus="Player_LostFocus" KeyDown="Player_KeyDown"/>
               <TextBlock Grid.Row="2" Text="Position:" Classes="roster-field-label"/>
               <TextBox x:Name="PositionInput" Grid.Row="2" Grid.Column="1" Classes="roster-field-box" Margin="0,2,0,0"
-                       LostKeyboardFocus="Player_LostFocus" KeyDown="Player_KeyDown"/>
+                       LostFocus="Player_LostFocus" KeyDown="Player_KeyDown"/>
             </Grid>
 
             <Border Height="1" Background="{DynamicResource RosterBorderBrush}" Margin="0,14,0,12"/>
@@ -247,9 +249,9 @@
                        Foreground="{DynamicResource RosterMutedBrush}"/>
             <DockPanel Margin="0,2,0,0">
               <Button x:Name="AddStatButton" DockPanel.Dock="Right" Classes="roster-small-button" Content="Add column"
-                      Click="AddStat_Click" ToolTip="Give every player on this roster this stat column"/>
+                      Click="AddStat_Click" ToolTip.Tip="Give every player on this roster this stat column"/>
               <ComboBox x:Name="StatPresetBox" Classes="roster-field-combo" IsEditable="True"
-                        ToolTip="Pick one of the team's stats, or type any name for a new column"/>
+                        ToolTip.Tip="Pick one of the team's stats, or type any name for a new column"/>
             </DockPanel>
             <TextBlock x:Name="HintText" FontSize="10" TextWrapping="Wrap" Margin="0,8,0,0"
                        Foreground="{DynamicResource RosterMutedBrush}"

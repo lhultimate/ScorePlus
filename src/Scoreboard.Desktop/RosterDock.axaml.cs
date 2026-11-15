@@ -1,3 +1,4 @@
+using Avalonia.Interactivity;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -79,7 +80,7 @@ public partial class RosterDock : UserControl
         };
     }
 
-    void SideTab_Click(object sender, object e)
+    void SideTab_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string side }) return;
         ShowSide(side == "home");
@@ -108,11 +109,11 @@ public partial class RosterDock : UserControl
         HomeSideTab.Foreground = _showingHome ? selectedText : idleText;
     }
 
-    void NewRoster_Click(object sender, object e) => (ShowingHome ? HomePanel : AwayPanel).CreateRoster();
+    void NewRoster_Click(object sender, RoutedEventArgs e) => (ShowingHome ? HomePanel : AwayPanel).CreateRoster();
 
     /// <summary>The header's Import… button, aimed at the side currently on the desk.</summary>
-    void Import_Click(object sender, object e) => ActivePanel.ImportFromDialog();
+    void Import_Click(object sender, RoutedEventArgs e) => ActivePanel.ImportFromDialog();
 
     /// <summary>The header's Export… button, aimed at the side currently on the desk.</summary>
-    void Export_Click(object sender, object e) => ActivePanel.ExportToDialog();
+    void Export_Click(object sender, RoutedEventArgs e) => ActivePanel.ExportToDialog();
 }
