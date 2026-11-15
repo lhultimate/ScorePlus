@@ -1,12 +1,12 @@
 # ScorePlus
 
-**A native Windows scoreboard and broadcast graphics system for live production — one operator console, unlimited displays, and a scorebug you design yourself.**
+**A native Windows and linux scoreboard and broadcast graphics system for live production — one operator console, unlimited displays, and a scorebug you design yourself.**
 # This is the repository for the very much unstable and in development linux builds. please report issues for linux users here not on the main repo.
 > **Alpha software.** ScorePlus is under active development and the alpha builds are updated often. Expect rough edges; don't run it as the only copy of a show you care about. Release labels read like `a1.2`, `a1.3`, `a1.4`.
 
 Everything runs locally on one Windows PC. No browser, no server, no internet connection, and no separately installed .NET runtime. The clock, the score and the graphics are all in one program, and the audience output updates the moment a value changes — there is never a "refresh" step mid-game.
 
-Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https://github.com/MysteriousJose/ScorePlus-Linux) and are not officially supported.
+Linux builds are often behind and are maintained separately at [MysteriousJose/ScorePlus-Linux](https://github.com/MysteriousJose/ScorePlus-Linux) and are not officially supported. Although they will be pushed to the linux branch when progress is made.
 
 ---
 
@@ -87,6 +87,28 @@ The setup also accepts `/SILENT`, `/DIR=<path>`, `/NOICONS` and `/NOREG` for scr
 Download **`ScorePlusPortable.exe`** and run it from anywhere — a USB stick, a desktop folder, a network share. It needs nothing else: one file, no loose DLLs, no runtime install.
 
 A portable copy never checks for updates and never touches the registry, so it is the safe choice for testing a new alpha beside the version that runs your show.
+
+### Linux Build
+
+First you must clone the linux branch. 
+
+```git clone -b linux https://github.com/lhultimate/ScorePlus.git```
+
+Then get into that directory 
+
+```cd ScorePlus```
+
+Next build the project, dotnet is required for this, speciffically a 10.x.x version of dotnet.
+
+Check if it is installed with ```dotnet --version```. 
+
+If not then install it with the official install instuctions found here [.NET Microsoft Install Instuctions](https://learn.microsoft.com/en-us/dotnet/core/install/linux?WT.mc_id=dotnet-35129-website).
+
+Once it is installed build the app with ```dotnet build src/Scoreboard.Desktop/Scoreboard.Desktop.csproj -c Debug --nologo --no-incremental```.
+
+Then run it with ```./src/Scoreboard.Desktop/bin/Debug/net10.0/linux-x64/ScorePlus```.
+
+Now you are good to continue onto the first launch.
 
 ### First Launch
 
