@@ -36,10 +36,15 @@ public class Window : Avalonia.Controls.Window
         set => Position = new PixelPoint(Position.X, (int)value);
     }
 
+    /// <summary>
+    /// WPF's blocking ShowDialog. Runs a nested dispatcher frame (see WpfDialogExtensions), so the
+    /// dialog is modal to the console in the sense the ported code expects: the call does not return
+    /// until the window closes, and it returns the DialogResult the dialog set.
+    /// </summary>
     public bool? ShowDialog(Window? owner = null)
     {
         if (owner is not null) Owner = owner;
-        return WpfDialogExtensions.ShowDialogDirty(this, owner);
+        return WpfDialogExtensions.ShowDialogPumped(this, owner);
     }
 
     public static Window? GetWindow(Control control) => TopLevel.GetTopLevel(control) as Window;

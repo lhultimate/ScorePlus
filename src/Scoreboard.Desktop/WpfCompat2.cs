@@ -169,35 +169,54 @@ public static class WpfMouseEvents
         => target.AddHandler(InputElement.PointerPressedEvent, handler, RoutingStrategies.Direct);
 }
 
-// ---------- modal dialogs: dirty ShowDialog that pumps the dispatcher until Close(result) ----------
+// ---------- modal dialogs: WPF-shaped ShowDialog over a nested dispatcher frame ----------
 
 public static class WpfDialogExtensions
 {
     /// <summary>
-    /// WPF's bool ShowDialog(). Dirty port: shows the window modeless, pumps dispatcher jobs until
-    /// Close() (with an optional bool result from Close(result)/CloseFinished) arrives, and returns
-    /// false if nobody set a result. TODO(port): Avalonia-native ShowDialog once dialogs are re-wired.
+    /// WPF's blocking bool ShowDialog(): shows the window transient for its owner and runs a nested
+    /// dispatcher frame until the window closes, then hands back the DialogResult the dialog set
+    /// (null — the user closed the window or pressed Escape — reads as cancel, exactly as in WPF).
+    /// <para>
+    /// The frame matters. `Dispatcher.UIThread.PushFrame` is Avalonia's equivalent of the nested
+    /// message pump WPF runs inside ShowDialog: input, layout, rendering AND timers keep running
+    /// while the dialog is up. `RunJobs()` plus `Thread.Sleep` in a `while (!closed)` loop only
+    /// drains work that is already queued, and Avalonia's timers are not queued work — they are
+    /// scheduled by the platform loop — so every DispatcherTimer in the process stops firing for as
+    /// long as a dialog is open. That was reproduced directly: the SCOREPLUS_WINDOW_DEBUG audit
+    /// timers never ticked while the launch box was open, and ticked on time with the box skipped.
+    /// </para>
+    /// <para>
+    /// The result channel is the compat shim's own `DialogResult`, not Avalonia's: this Avalonia
+    /// version has no `CloseFinished` event, so the reflection that used to look for it found
+    /// nothing and the old version of this method returned false no matter what the dialog did —
+    /// which silently disabled all 49 `if (dialog.ShowDialog() == true)` call sites in the port.
+    /// </para>
+    /// <para>
+    /// TODO(port): still modeless at the window-manager level. The dialog stays above its owner
+    /// (transient-for) but the owner is not input-disabled the way WPF disables it; switching these
+    /// call sites to Avalonia's async ShowDialog&lt;T&gt; is what gets true modality.
+    /// </para>
     /// </summary>
-    public static bool ShowDialogDirty(this Window window, Window? owner = null)
+    public static bool ShowDialogPumped(this Window window, Window? owner = null)
     {
-        bool? result = null;
-        var closed = false;
-        try { window.Closed += (_, _) => closed = true; } catch { }
-        try { window.Show(owner ?? window.Owner); }
-        catch { window.Show(); }
-        while (!closed)
-        {
-            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-            Thread.Sleep(8);
-        }
-        // CloseFinished carries Close(result) payloads.
+        var frame = new Avalonia.Threading.DispatcherFrame(true);
+        window.Closed += OnClosed;
         try
         {
-            var ev = window.GetType().GetEvent("CloseFinished");
-            // Result was captured via handler below if event exists; else stays null → cancel.
+            if (owner is not null) window.Show(owner);
+            else window.Show();
+            Avalonia.Threading.Dispatcher.UIThread.PushFrame(frame);
         }
-        catch { }
-        return result ?? false;
+        finally
+        {
+            window.Closed -= OnClosed;
+        }
+        // WPF call sites set `DialogResult = true/false` on the compat Window; its setter also
+        // closes the window, so by the time the frame has exited the value is already final.
+        return window.DialogResult ?? false;
+
+        void OnClosed(object? sender, EventArgs e) => frame.Continue = false;
     }
 }
 

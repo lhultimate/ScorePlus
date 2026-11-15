@@ -52,6 +52,9 @@ public partial class App : Application
             return;
         }
         desktop.MainWindow = window;
+        // Opt-in audit: what every window actually looks like to the platform, which is the only way
+        // to tell "never drawn" from "drawn off-screen" without standing at the monitor.
+        if (WindowDebug.Enabled) WindowDebug.Schedule(this, 1.5, 6);
         // The app follows the main window: when it closes, the lifetime ends.
         window.Closed += (_, _) => desktop.TryShutdown();
 
