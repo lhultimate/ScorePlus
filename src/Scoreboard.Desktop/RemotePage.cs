@@ -495,6 +495,8 @@ public static class RemotePage
           <img class="mark" src="/logo.png" alt="ScorePlus"/>
           <h1>REMOTE</h1>
           <span class="sport" id="sport">—</span>
+          <a href="/replay" title="Open the camera replay booth">Replay Booth</a>
+          <a href="/multiview" title="Open the camera wall">Multiview</a>
           <a href="/logout">Sign out</a>
         </header>
 

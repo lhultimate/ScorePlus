@@ -88,6 +88,7 @@
           <Button Style="{StaticResource HeaderButton}" Content="Transition Builder" Click="TransitionMaker_Click" ToolTip="Build a keyframed hand-over: how a graphic leaves, how it arrives, and its colors on the way"/>
           <Button Style="{StaticResource HeaderButton}" Content="Animation Maker" Click="AnimationMaker_Click" ToolTip="Key motion a value follows — a loop while it is up, or a flourish when it changes"/>
           <Button Style="{StaticResource HeaderButton}" Content="Multiview" Click="Multiview_Click" ToolTip="Every camera at once, with the replay preview beside the live picture"/>
+          <Button Style="{StaticResource HeaderButton}" Content="Replay Booth" Click="ReplayBooth_Click" ToolTip="Review the last replay window of every camera with the clocks that were showing"/>
           <Button Style="{StaticResource HeaderButton}" Content="Display Studio" Click="ScorebugStudio_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Sport Profiles" Click="SportProfiles_Click"/>
           <Button x:Name="EndGameButton" Style="{StaticResource HeaderButton}" Content="End Game" Click="EndGame_Click" ToolTip="Stop every clock, mark the game final and add the result to each team's record"/>
@@ -100,7 +101,7 @@
           </ComboBox>
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
             <TextBlock Text="Game Name" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="14"/>
-            <TextBox x:Name="GameNameBox" Width="220" MinHeight="40" FontSize="16"
+            <TextBox x:Name="GameNameBox" Width="300" MinHeight="40" FontSize="16"
                      TextChanged="GameName_Changed" ToolTip="Name this fixture; it is saved with the game"/>
           </StackPanel>
           <TextBlock x:Name="SportHint" Text="Everything you need for the game is on this page." Foreground="#5C6B7E" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11" Visibility="Collapsed"/>

@@ -317,7 +317,7 @@
             <TextBlock Text="REPLAY" Style="{StaticResource DockLabel}" Margin="0,7,0,3"/>
             <WrapPanel>
               <Button x:Name="ReplayButton" Content="Replay" Style="{StaticResource DockAction}" Click="Replay_Click"
-                      ToolTip="Freeze the selected camera's last two minutes in the preview. Press it again during a replay to prepare another one without leaving the first on air"/>
+                      ToolTip="Freeze the selected camera's last replay window in the preview. Press it again during a replay to prepare another one without leaving the first on air"/>
               <Button x:Name="StartReplayButton" Style="{StaticResource DockAction}" Content="Start replay" Click="StartReplay_Click"
                       IsEnabled="False"
                       ToolTip="Put the replay on air at the frame you have scrubbed to; Play rolls it"/>

@@ -301,6 +301,19 @@ public sealed class MediaPlayback
     /// <summary>Points only the previews at a separate decoder, leaving the audience feed alone.</summary>
     public void AttachPreviewReplay(ReplayFeed? feed) => PreviewReplayFrames = feed;
 
+    /// <summary>The item highlighted once in the media dock. Previews show it before anything is
+    /// put on air, which is what makes the green outline a true preview of the next click.</summary>
+    MediaEntry? _previewEntry;
+    public MediaEntry? PreviewEntry => _previewEntry;
+
+    public void SetPreview(MediaEntry? entry)
+    {
+        if (ReferenceEquals(_previewEntry, entry)) return;
+        if (_previewEntry is not null && entry is not null && SameCue(_previewEntry, entry)) return;
+        _previewEntry = entry;
+        Changed?.Invoke();
+    }
+
     /// <summary>The decoder that should feed this surface. A staged replay is preview-only even
     /// when an older replay is still on air.</summary>
     public ReplayFeed? ReplayFramesFor(bool preview) => preview && _staged is not null ? PreviewReplayFrames : ReplayFrames;
@@ -439,6 +452,9 @@ public sealed class MediaPlayback
     public void Stage(MediaEntry? entry)
     {
         _staged = entry;
+        // A staged replay is the explicit preview; the green dock selection no longer outranks it.
+        // Clicking another source afterwards sets a fresh preview and no longer hides it.
+        _previewEntry = null;
         // Keep an on-air replay exactly where it is. Staging a newer replay must not clear the
         // audience cue or reset the playhead the old replay is using.
         if (!ReplayOnAir)
@@ -573,6 +589,11 @@ public sealed class MediaPlayback
     /// </summary>
     public MediaEntry? PreviewFor(string? elementTag)
     {
+        // A single click in the dock cues a preview of that exact source while the audience keeps
+        // the live picture; a second click promotes it through the ordinary on-air path. Staging a
+        // replay clears this selection first, so an explicit replay review still owns the preview.
+        if (_previewEntry is not null && Resolve(_previewEntry, elementTag) is { } preview)
+            return preview;
         if (_staged is not null) return Resolve(_staged, elementTag);
         // Once Start replay promotes the file, the preview must show it too; otherwise the operator
         // starts a replay and the thumbnail still shows the live camera, which reads as a dead button.

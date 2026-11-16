@@ -33,7 +33,7 @@ public sealed class MacroRunner
             // staged, so a macro cannot accidentally put a score or clock on air before the
             // operator presses Update Output. Once a step holds output, later checked steps stay
             // held too; otherwise they would publish the earlier staged values along with their own.
-            var bypass = action.BypassOutput || action.Kind == MacroActionKind.PlayVideo;
+            var bypass = action.BypassOutput || (action.Kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir);
             if (!bypass) _engine.HoldMacroOutput();
             if (Execute(action)) completed++;
             else skipped++;
@@ -71,6 +71,8 @@ public sealed class MacroRunner
                 return true;
             case MacroActionKind.PlayVideo:
                 return PlayVideo(action.Path);
+            case MacroActionKind.TakeOffAir:
+                return TakeOffAir(action.Path);
             case MacroActionKind.RosterStat:
                 return ChangeRosterStat(action);
             case MacroActionKind.Control:
@@ -118,6 +120,19 @@ public sealed class MacroRunner
             return _session.ToggleOnAir(entry);
         }
         _session.Play(entry);
+        return true;
+    }
+
+    bool TakeOffAir(string path)
+    {
+        path = (path ?? "").Trim();
+        if (path.Length == 0) return false;
+        var entry = _session.Library.FirstOrDefault(item =>
+            string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (entry is null) return false;
+        // Already off air is not a failure: a macro can safely make sure a source is clear.
+        if (!_session.IsOnAir(entry)) return true;
+        _session.ToggleOnAir(entry);
         return true;
     }
 

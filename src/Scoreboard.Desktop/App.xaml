@@ -164,6 +164,47 @@
       <Setter Property="Margin" Value="4"/>
     </Style>
 
+    <!-- The Replay Booth scrubber wears the same track, fill and thumb as the Media tab's
+         transport slider, so reviewing a recording reads as one continuous control. -->
+    <Style x:Key="ReplayTransportSlider" TargetType="Slider">
+      <Setter Property="Height" Value="26"/>
+      <Setter Property="IsMoveToPointEnabled" Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Slider">
+            <Grid VerticalAlignment="Center">
+              <Border Height="7" CornerRadius="4" Background="{DynamicResource OperatorBorderBrush}"/>
+              <Track x:Name="PART_Track">
+                <Track.DecreaseRepeatButton>
+                  <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
+                    <RepeatButton.Template>
+                      <ControlTemplate TargetType="RepeatButton">
+                        <Border Height="7" CornerRadius="4" Background="{DynamicResource Accent}"/>
+                      </ControlTemplate>
+                    </RepeatButton.Template>
+                  </RepeatButton>
+                </Track.DecreaseRepeatButton>
+                <Track.IncreaseRepeatButton>
+                  <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False">
+                    <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template>
+                  </RepeatButton>
+                </Track.IncreaseRepeatButton>
+                <Track.Thumb>
+                  <Thumb Width="16" Height="16" Cursor="Hand">
+                    <Thumb.Template>
+                      <ControlTemplate TargetType="Thumb">
+                        <Ellipse Width="16" Height="16" Fill="{DynamicResource OperatorTextBrush}" Stroke="{DynamicResource Accent}" StrokeThickness="2"/>
+                      </ControlTemplate>
+                    </Thumb.Template>
+                  </Thumb>
+                </Track.Thumb>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <!-- Right-click menus use the same operator chrome as the rest of the desk. The default
          MenuItem template reserves a light icon/check column, which appeared as a row of small
          white boxes beside the labels; this template has only the label row. -->

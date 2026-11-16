@@ -73,6 +73,11 @@ public static class ControlActions
         new("clock.minus1","Clock","Clock −1 second"),
         new("clock.plus1","Clock","Clock +1 second"),
         new("clock.set","Clock","Set clock"),
+        new("clock.stoppage.toggle","Clock","Stoppage clock start / stop"),
+        new("clock.stoppage.reset","Clock","Reset stoppage time"),
+        new("clock.stoppage.plus30","Clock","Stoppage +30 seconds"),
+        new("clock.stoppage.plus60","Clock","Stoppage +1 minute"),
+        new("clock.stoppage.minus30","Clock","Stoppage −30 seconds"),
         new("period.next","Clock","Next period"),
         new("period.previous","Clock","Previous period"),
         new("football.playclock.toggle","Clock","Play clock start / stop"),
@@ -92,6 +97,12 @@ public static class ControlActions
         new("football.down.previous","Football","Previous down"),
         new("football.distance.minus","Football","Distance −1 yard"),
         new("football.distance.plus","Football","Distance +1 yard"),
+        new("football.distance.normal","Football","Down line: yards to go"),
+        new("football.distance.inches","Football","Down line: inches"),
+        new("football.distance.goal","Football","Down line: goal"),
+        new("football.distance.pat","Football","Down line: PAT"),
+        new("football.distance.twopt","Football","Down line: 2 PT"),
+        new("football.distance.none","Football","Down line: none"),
         new("football.ball.minus","Football","Ball spot −1 yard"),
         new("football.ball.plus","Football","Ball spot +1 yard"),
         new("football.ball.side","Football","Ball spot side (home / visitors)"),
@@ -100,10 +111,25 @@ public static class ControlActions
         new("penalty.toggle","Football","Flag down on / off"),
         new("output.publish","Output","Update Output (publish staged changes)"),
         new("output.live.toggle","Output","Live score & clocks on / off"),
+        new("layout.previous","Output","Previous scorebug layout"),
+        new("layout.next","Output","Next scorebug layout"),
+        new("horn.play","General","Play the selected horn"),
+        new("camera.left","Replay Booth","Select camera left"),
+        new("camera.right","Replay Booth","Select camera right"),
+        new("camera.up","Replay Booth","Select camera above"),
+        new("camera.down","Replay Booth","Select camera below"),
+        new("camera.enter","Replay Booth","Enlarge / restore selected camera"),
+        new("camera.back","Replay Booth","Return to the camera wall"),
+        new("replay.back","Replay Booth","Replay back 2 seconds"),
+        new("replay.forward","Replay Booth","Replay forward 2 seconds"),
+        new("replay.live","Replay Booth","Jump to the live edge"),
+        new("replay.start","Replay Booth","Jump to the start of the replay"),
+        new("replay.playpause","Replay Booth","Play / pause the replay"),
         new("basketball.foul.home","Basketball","Home foul"),
         new("basketball.foul.away","Basketball","Away foul"),
         new("basketball.shotclock.toggle","Basketball","Shot clock start / stop"),
         new("basketball.shotclock.reset","Basketball","Shot clock reset 24"),
+        new("basketball.shotclock.14","Basketball","Shot clock reset 14"),
         new("basketball.shotclock.minus","Basketball","Shot clock −1 second"),
         new("basketball.shotclock.plus","Basketball","Shot clock +1 second"),
         new("basketball.shotclock.set","Basketball","Set shot clock"),
@@ -129,11 +155,47 @@ public static class ControlActions
     /// output, plus that sport's own data. A baseball console never offers "Power play on / off",
     /// and a hockey one never offers downs, so the keybind list stays about the game in front of you.
     /// </summary>
-    public static IReadOnlyList<ControlActionDefinition> ForSport(string? sportId)
+    public static IReadOnlyList<ControlActionDefinition> ForSport(string? sportId,
+        IEnumerable<int>? scoringOptions = null, IEnumerable<SportControl>? controls = null)
     {
-        if (string.IsNullOrWhiteSpace(sportId)) return All;
-        return All.Where(action => SportOf(action.Id) is not { } sport
+        // The console builds score buttons and sport controls from the live profile, so the keybind
+        // list must offer those same values — including custom +4/+7 and profile-only controls —
+        // even though they are not in All.
+        var actions = All.Concat(ScoreActions(scoringOptions)).Concat(SportControlActions(controls))
+            .GroupBy(action => action.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+        if (string.IsNullOrWhiteSpace(sportId)) return actions;
+        return actions.Where(action => SportOf(action.Id) is not { } sport
             || string.Equals(sport, sportId, StringComparison.OrdinalIgnoreCase)).ToArray();
+    }
+
+    static IEnumerable<ControlActionDefinition> SportControlActions(IEnumerable<SportControl>? controls)
+    {
+        if (controls is null) yield break;
+        foreach (var control in controls)
+        {
+            var group = GroupFor(control.Id);
+            if (control.Kind == SportControlKind.Flag)
+            {
+                yield return new($"sport.{control.Id}.toggle", group, $"{control.Label} on / off");
+                continue;
+            }
+            yield return new($"sport.{control.Id}.plus", group, $"{control.Label} +1");
+            yield return new($"sport.{control.Id}.minus", group, $"{control.Label} −1");
+        }
+    }
+
+    static IEnumerable<ControlActionDefinition> ScoreActions(IEnumerable<int>? values)
+    {
+        if (values is null) yield break;
+        foreach (var value in values.Where(value => value > 0).Distinct().Order())
+        {
+            yield return new($"home.score.plus{value}", "Score", $"Home score +{value}");
+            yield return new($"home.score.minus{value}", "Score", $"Home score −{value}");
+            yield return new($"away.score.plus{value}", "Score", $"Away score +{value}");
+            yield return new($"away.score.minus{value}", "Score", $"Away score −{value}");
+        }
     }
 
     /// <summary>

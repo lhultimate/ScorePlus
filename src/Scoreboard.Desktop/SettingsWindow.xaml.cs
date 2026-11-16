@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         QuickPublishInput.IsChecked = _draft.QuickLayoutsPublish;
         DownPreviewInput.IsChecked = _draft.NextDownPreview;
         NewSeriesInput.IsChecked = _draft.NewSeriesLive;
+        ReplaySecondsInput.Text = Math.Clamp(_draft.ReplaySeconds, 10, 900).ToString(CultureInfo.InvariantCulture);
         GameClockHornInput.IsChecked = _draft.HornOnGameClockZero;
         PlayClockHornInput.IsChecked = _draft.HornOnPlayClockZero;
         DelayInput.Text = _draft.ValueSwitchDelay.ToString("0.##", CultureInfo.CurrentCulture);
@@ -310,6 +311,13 @@ public partial class SettingsWindow : Window
         _draft.ShowOvertimeFinal = OvertimeFinalInput.IsChecked == true;
     }
 
+    void ReplaySeconds_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_loading || ReplaySecondsInput is null) return;
+        if (int.TryParse(ReplaySecondsInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds))
+            _draft.ReplaySeconds = Math.Clamp(seconds, 10, 900);
+    }
+
     void Autosave_Changed(object sender, TextChangedEventArgs e)
     {
         if (_loading || AutosaveMinutesInput is null) return;
@@ -388,6 +396,8 @@ public partial class SettingsWindow : Window
         _original.HornOnPlayClockZero = _draft.HornOnPlayClockZero;
         _original.ValueSwitchDelay = Math.Clamp(_draft.ValueSwitchDelay, 0, MaxDelay);
         _original.AutosaveMinutes = Math.Max(0, _draft.AutosaveMinutes);
+        _original.ReplaySeconds = Math.Clamp(_draft.ReplaySeconds, 10, 900);
+        CameraFeed.ReplayWindowSeconds = _original.ReplaySeconds;
         _original.ClockFormat = _draft.ClockFormat;
         _original.AutoUpdateRecord = _draft.AutoUpdateRecord;
         _original.TieRule = _draft.TieRule;

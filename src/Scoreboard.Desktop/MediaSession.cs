@@ -1238,7 +1238,7 @@ public sealed class MediaSession
         IsReplaying = true;
         _replayIndex = -1;
         _replayCue = ++_replayCueSequence;
-        _replayDepth = Math.Min(CameraFeed.MaxReplaySeconds, (_replayBuffer[^1].EndsAt - _replayBuffer[0].StartedAt).TotalSeconds);
+        _replayDepth = Math.Min(CameraFeed.ReplayWindowSeconds, (_replayBuffer[^1].EndsAt - _replayBuffer[0].StartedAt).TotalSeconds);
         // Replay opens frozen on the newest frame and stays paused: the operator drags back to the
         // start of the play, then presses Start replay to run it. Nothing runs on its own, and the
         // audience keeps watching the live camera until it is started.
@@ -1266,7 +1266,7 @@ public sealed class MediaSession
         _previewReplayCamera = camera;
         _previewReplayIndex = -1;
         _previewReplayCue = ++_replayCueSequence;
-        _previewReplayDepth = Math.Min(CameraFeed.MaxReplaySeconds, (_previewReplayBuffer[^1].EndsAt - _previewReplayBuffer[0].StartedAt).TotalSeconds);
+        _previewReplayDepth = Math.Min(CameraFeed.ReplayWindowSeconds, (_previewReplayBuffer[^1].EndsAt - _previewReplayBuffer[0].StartedAt).TotalSeconds);
         _previewReplayBack = 0;
         _previewReplayPlaying = false;
         _previewReplayEntry = null;
@@ -1786,6 +1786,9 @@ public sealed class MediaSession
     public void Select(MediaEntry entry)
     {
         Selected = entry;
+        // The studio preview follows the green outline: clicking once shows what a second click
+        // would put on air, without changing the audience cue.
+        Playback.SetPreview(entry);
         StateChanged?.Invoke();
         Status?.Invoke($"{entry.KindLabel} · {entry.Label} · tag {entry.Tag} · {entry.FolderLabel}");
     }

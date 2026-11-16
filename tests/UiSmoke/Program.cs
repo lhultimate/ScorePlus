@@ -1060,10 +1060,75 @@ internal static class Program
             if (!FindAll<ComboBox>(multiview).Any(box => (box.SelectedItem?.ToString() ?? "").StartsWith("REPLAY", StringComparison.Ordinal)))
                 throw new Exception("FAIL: the replay tile did not follow a source switch");
 
+            // Names and keyboard enlarging work on the same wall: Enter opens the focused tile,
+            // Escape restores the wall, and the edit menu owns the label switch.
+            var labelsToggle = FindAll<CheckBox>(multiview)
+                .FirstOrDefault(box => (box.Content as string ?? "").Contains("Show source names", StringComparison.Ordinal))
+                ?? throw new Exception("FAIL: the multiview edit menu has no source-name switch");
+            if (labelsToggle.IsChecked != true)
+                throw new Exception("FAIL: multiview source names should be visible by default");
+            labelsToggle.IsChecked = false;
+            Pump(TimeSpan.FromMilliseconds(80));
+            labelsToggle.IsChecked = true;
+            Pump(TimeSpan.FromMilliseconds(80));
+            var multiviewDone = FindAll<Button>(multiview).First(button => (button.Content as string) == "✓ Done");
+            multiviewDone.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump(TimeSpan.FromMilliseconds(100));
+            RaiseKey(multiview, PresentationSource.FromVisual(multiview), Key.Right);
+            RaiseKey(multiview, PresentationSource.FromVisual(multiview), Key.Enter);
+            Pump(TimeSpan.FromMilliseconds(100));
+            var maximizedField = typeof(MultiviewWindow).GetField("_maximized", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: multiview keyboard state is missing");
+            if (maximizedField.GetValue(multiview) is not true)
+                throw new Exception("FAIL: Enter did not enlarge the selected multiview tile");
+            RaiseKey(multiview, PresentationSource.FromVisual(multiview), Key.Escape);
+            Pump(TimeSpan.FromMilliseconds(100));
+            if (maximizedField.GetValue(multiview) is true)
+                throw new Exception("FAIL: Escape did not restore the multiview wall");
+
             multiview.Close();
             multiviewOwner.Close();
             Pump(TimeSpan.FromMilliseconds(150));
             Console.WriteLine("PASS: the multiview lets every tile choose a preview, audience, camera, replay or blank source");
+
+            // The booth's recorded clocks are sampled independently of the live scrubber, so a
+            // camera frame can be paired with the exact game and play clock from its instant.
+            var boothEngine = new GameEngine();
+            boothEngine.NewGame("football");
+            boothEngine.SetClock(754);
+            boothEngine.SetPlayClock(18);
+            ReplayBoothHistory.Reset();
+            ReplayBoothHistory.Sample(boothEngine.State);
+            var recordedClock = ReplayBoothHistory.At(DateTimeOffset.UtcNow);
+            if (recordedClock is null || recordedClock.GameClock != "12:34" || recordedClock.PlayClockSeconds != 18)
+                throw new Exception($"FAIL: the booth history lost the game/play clock ({recordedClock?.GameClock}, {recordedClock?.PlayClockSeconds})");
+            var boothClick = typeof(MainWindow).GetMethod("ReplayBooth_Click", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: ReplayBooth_Click is missing");
+            var boothOwner = new MainWindow(LaunchMode.New) { Width = 1100, Height = 760 };
+            boothOwner.Show();
+            boothOwner.UpdateLayout();
+            boothClick.Invoke(boothOwner, [boothOwner, new RoutedEventArgs()]);
+            Pump(TimeSpan.FromMilliseconds(250));
+            var booth = Application.Current.Windows.OfType<ReplayBoothWindow>().LastOrDefault()
+                ?? throw new Exception("FAIL: the Replay Booth button opened no window");
+            if (!FindAll<TextBlock>(booth).Any(text => text.Text == "REPLAY BOOTH"))
+                throw new Exception("FAIL: the Replay Booth window has no heading");
+            var editBooth = FindAll<Button>(booth).First(button =>
+                (button.ToolTip as string ?? "").StartsWith("Edit the booth's labels", StringComparison.Ordinal));
+            editBooth.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump(TimeSpan.FromMilliseconds(80));
+            if (!FindAll<CheckBox>(booth).Any(box => (box.Content as string ?? "").Contains("bottom corner", StringComparison.Ordinal)))
+                throw new Exception("FAIL: the Replay Booth edit menu has no camera-name switch");
+            var doneBooth = FindAll<Button>(booth).First(button => (button.Content as string) == "✓ Done");
+            doneBooth.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump(TimeSpan.FromMilliseconds(80));
+            RaiseKey(booth, PresentationSource.FromVisual(booth), Key.Right);
+            RaiseKey(booth, PresentationSource.FromVisual(booth), Key.Enter);
+            RaiseKey(booth, PresentationSource.FromVisual(booth), Key.Escape);
+            booth.Close();
+            boothOwner.Close();
+            Pump(TimeSpan.FromMilliseconds(100));
+            Console.WriteLine("PASS: the Replay Booth samples the recorded game clocks and offers keyboard camera controls");
 
             // The dock is a single media panel: tiles, transport and tag editor, no inline event log.
             var shell = new MainWindow { Width = 1280, Height = 800 };
@@ -5844,6 +5909,29 @@ internal static class Program
                         || !panelHtml.Contains("speakerNow", StringComparison.Ordinal)
                         || !panelHtml.Contains("PAUSED ·", StringComparison.Ordinal))
                         throw new Exception("FAIL: the remote media card is missing its paused state, speaker row or experimental warning");
+                    if (!panelHtml.Contains("href=\"/replay\"", StringComparison.Ordinal)
+                        || !panelHtml.Contains("href=\"/multiview\"", StringComparison.Ordinal))
+                        throw new Exception("FAIL: the remote console does not link to the browser camera walls");
+                    var replayPage = WaitWithPump(http.GetStringAsync(baseUrl + "/replay"));
+                    if (!replayPage.Contains("REPLAY BOOTH", StringComparison.Ordinal) || !replayPage.Contains("/api/camera-wall/frame", StringComparison.Ordinal))
+                        throw new Exception("FAIL: the remote replay booth page is missing its heading or frame endpoint");
+                    var multiviewPage = WaitWithPump(http.GetStringAsync(baseUrl + "/multiview"));
+                    if (!multiviewPage.Contains("MULTIVIEW", StringComparison.Ordinal) || multiviewPage.Contains("REPLAY BOOTH", StringComparison.Ordinal))
+                        throw new Exception("FAIL: the remote multiview page is missing or has the wrong heading");
+                    // The camera-wall API shares the remote login. These delegates keep the smoke
+                    // test independent of real capture devices while proving the routes are wired.
+                    RemoteControlServer.CameraWallState = mode => "{\"ok\":true,\"mode\":\"" + mode + "\",\"cameras\":[]}";
+                    RemoteControlServer.CameraWallFrame = (mode, camera, replay) => null;
+                    RemoteControlServer.CameraWallAction = (mode, form) => true;
+                    var cameraState = WaitWithPump(http.GetStringAsync(baseUrl + "/api/camera-wall?mode=multiview"));
+                    if (!cameraState.Contains("multiview", StringComparison.Ordinal))
+                        throw new Exception("FAIL: the camera-wall state route did not answer");
+                    var cameraFrame = WaitWithPump(http.GetAsync(baseUrl + "/api/camera-wall/frame?mode=multiview&camera=0"));
+                    if ((int)cameraFrame.StatusCode != 404)
+                        throw new Exception($"FAIL: an empty camera frame should be a 404 ({(int)cameraFrame.StatusCode})");
+                    var cameraAction = WaitWithPump(http.PostAsync(baseUrl + "/api/camera-wall/action", new System.Net.Http.StringContent("mode=multiview&a=select&delta=1", System.Text.Encoding.UTF8, "application/x-www-form-urlencoded")));
+                    if ((int)cameraAction.StatusCode != 200)
+                        throw new Exception($"FAIL: a camera-wall selection did not reach the desktop ({(int)cameraAction.StatusCode})");
                     if (!panelHtml.Contains("sportValuesCard", StringComparison.Ordinal)
                         || !panelHtml.Contains("grid-column:1/-1", StringComparison.Ordinal)
                         || !panelHtml.Contains("controls.length ? '' : 'none'", StringComparison.Ordinal))

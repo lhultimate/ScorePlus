@@ -14,6 +14,8 @@ public enum MacroActionKind
     SetTimeoutClock,
     SetPeriod,
     PlayVideo,
+    /// <summary>Switch one library source off air: a camera, microphone, speaker or playing clip.</summary>
+    TakeOffAir,
     RosterStat,
     /// <summary>Any button on the operator console, identified by its action id.</summary>
     Control,
@@ -97,6 +99,7 @@ public sealed class MacroAction
         MacroActionKind.SetTimeoutClock => $"Timeout clock {Value}s",
         MacroActionKind.SetPeriod => $"Period {Value}",
         MacroActionKind.PlayVideo => $"Media · {(string.IsNullOrWhiteSpace(Label) ? System.IO.Path.GetFileName(Path) : Label)}",
+        MacroActionKind.TakeOffAir => $"Off air · {(string.IsNullOrWhiteSpace(Label) ? System.IO.Path.GetFileName(Path) : Label)}",
         MacroActionKind.RosterStat => $"{(Home ? "Home" : "Visitors")} · {PlayerName} · {StatName} {(Delta ? (Value >= 0 ? "+" : "−") + Math.Abs(Value) : "= " + Value)}",
         MacroActionKind.Control => $"Console · {(string.IsNullOrWhiteSpace(Label) ? Path : Label)}",
         MacroActionKind.SportValue => $"{(string.IsNullOrWhiteSpace(Label) ? Path : Label)} {(Delta ? (Value >= 0 ? "+ " : "− ") + Math.Abs(Value) : "= " + Value)}",

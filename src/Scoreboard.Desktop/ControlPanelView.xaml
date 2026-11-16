@@ -304,7 +304,7 @@
               </Grid.ColumnDefinitions>
               <TextBlock Text="GAME CLOCK" Style="{StaticResource Caption}" Margin="0,0,8,0"/>
               <TextBox x:Name="ClockValue" Grid.Column="1" Style="{StaticResource ClockBox}" KeyDown="ClockValue_KeyDown" LostKeyboardFocus="ClockValue_LostFocus"/>
-              <Button x:Name="ClockToggle" Grid.Column="2" Style="{StaticResource Tiny}" Content="Start" Tag="clock.toggle" Click="Action_Click"/>
+              <Button x:Name="ClockToggle" Grid.Column="2" Style="{StaticResource Tiny}" Width="64" Content="Start" Tag="clock.toggle" Click="Action_Click"/>
               <Button Grid.Column="3" Style="{StaticResource Tiny}" Content="Set" Tag="clock.set" Click="Action_Click"/>
             </Grid>
             <UniformGrid Grid.Row="1" Columns="4" Margin="0,1,0,0">
@@ -332,7 +332,7 @@
               <TextBlock Text="STOPPAGE" Style="{StaticResource Caption}" Margin="0,0,8,0"/>
               <TextBox x:Name="StoppageValue" Grid.Column="1" Style="{StaticResource ClockBox}" IsReadOnly="True"
                        ToolTip="Added time accrued: the game clock runs this long past 90:00"/>
-              <Button x:Name="StoppageToggle" Grid.Column="2" Style="{StaticResource Tiny}" Content="Start"
+              <Button x:Name="StoppageToggle" Grid.Column="2" Style="{StaticResource Tiny}" Width="64" Content="Start"
                       Tag="clock.stoppage.toggle" Click="Action_Click"/>
               <Button Grid.Column="3" Style="{StaticResource Tiny}" Content="Clear"
                       Tag="clock.stoppage.reset" Click="Action_Click" ToolTip="Clear the accrued added time"/>
@@ -358,7 +358,7 @@
               </Grid.ColumnDefinitions>
               <TextBlock Text="PLAY CLOCK" Style="{StaticResource Caption}" Margin="0,0,8,0"/>
               <TextBox x:Name="PlayClockValue" Grid.Column="1" Style="{StaticResource ClockBox}" KeyDown="PlayClock_KeyDown" LostKeyboardFocus="PlayClock_LostFocus"/>
-              <Button x:Name="PlayClockToggle" Grid.Column="2" Style="{StaticResource Tiny}" Content="Start" Tag="football.playclock.toggle" Click="Action_Click"/>
+              <Button x:Name="PlayClockToggle" Grid.Column="2" Style="{StaticResource Tiny}" Width="64" Content="Start" Tag="football.playclock.toggle" Click="Action_Click"/>
               <Button Grid.Column="3" Style="{StaticResource Tiny}" Content="Set" Tag="football.playclock.set" Click="Action_Click"/>
             </Grid>
             <UniformGrid Grid.Row="1" Columns="4" Margin="0,1,0,0">
@@ -388,7 +388,7 @@
             </Grid>
             <UniformGrid Grid.Row="1" Columns="4" Margin="0,1,0,0">
               <Button Style="{StaticResource CardButton}" Content="24" Tag="basketball.shotclock.reset" Click="Action_Click" ToolTip="Reset the shot clock to 24"/>
-              <Button Style="{StaticResource CardButton}" Content="14" Click="ShotClock14_Click" ToolTip="Set the shot clock to 14"/>
+              <Button Style="{StaticResource CardButton}" Content="14" Tag="basketball.shotclock.14" Click="ShotClock14_Click" ToolTip="Set the shot clock to 14"/>
               <Button Style="{StaticResource CardButton}" Content="−1" Tag="basketball.shotclock.minus" Click="Action_Click" ToolTip="Shot clock −1 second"/>
               <Button Style="{StaticResource CardButton}" Content="+1" Tag="basketball.shotclock.plus" Click="Action_Click" ToolTip="Shot clock +1 second"/>
             </UniformGrid>
@@ -493,7 +493,7 @@
             <ComboBoxItem Content="Siren" Tag="Siren"/>
             <ComboBoxItem Content="Custom…" Tag="Custom"/>
           </ComboBox>
-          <Button x:Name="HornButton" Content="HORN" MinWidth="62" MinHeight="36" Padding="10,6"
+          <Button x:Name="HornButton" Tag="horn.play" Content="HORN" MinWidth="62" MinHeight="36" Padding="10,6"
                   Background="#8D2B2B" BorderBrush="#D65B5B" Foreground="#FFF4F4" FontWeight="Bold"
                   Click="Horn_Click" ToolTip="Play the selected horn"/>
           <Button x:Name="HornPickButton" Content="…" MinWidth="30" MinHeight="36" Padding="4,6"
@@ -501,9 +501,9 @@
           <Border Background="#171C25" CornerRadius="6" Padding="6,2" Margin="0,0,8,0">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
               <TextBlock Text="LAYOUT" FontSize="10" FontWeight="Bold" Foreground="#7C8A9C" VerticalAlignment="Center" Margin="2,0,5,0"/>
-              <Button x:Name="LayoutPrevButton" Style="{StaticResource Tiny}" Content="◀" Click="LayoutPrev_Click" ToolTip="Previous scorebug layout"/>
+              <Button x:Name="LayoutPrevButton" Tag="layout.previous" Style="{StaticResource Tiny}" Content="◀" Click="LayoutPrev_Click" ToolTip="Previous scorebug layout"/>
               <TextBlock x:Name="LayoutLabel" Text="1 · Broadcast Classic" FontSize="11" FontWeight="SemiBold" MinWidth="140" TextAlignment="Center" VerticalAlignment="Center" Margin="4,0"/>
-              <Button x:Name="LayoutNextButton" Style="{StaticResource Tiny}" Content="▶" Click="LayoutNext_Click" ToolTip="Next scorebug layout"/>
+              <Button x:Name="LayoutNextButton" Tag="layout.next" Style="{StaticResource Tiny}" Content="▶" Click="LayoutNext_Click" ToolTip="Next scorebug layout"/>
             </StackPanel>
           </Border>
           <ToggleButton x:Name="LiveOutputToggle" Content="Live: ON" IsChecked="True" Checked="LiveOutput_Changed" Unchecked="LiveOutput_Changed" Padding="12,8" MinHeight="36" FontSize="12" Width="92" ToolTip="Publish score, clocks and team names as they change"/>

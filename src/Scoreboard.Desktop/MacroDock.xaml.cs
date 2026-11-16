@@ -143,6 +143,7 @@ public partial class MacroDock : UserControl
             new KindChoice(MacroActionKind.SetTimeoutClock, "Timeout clock — set the clock"),
             new KindChoice(MacroActionKind.SetPeriod, "Period — set the current period"),
             new KindChoice(MacroActionKind.PlayVideo, "Media — play a clip or put a camera, mic or speaker on air"),
+            new KindChoice(MacroActionKind.TakeOffAir, "Media — take a camera, mic, speaker or clip off air"),
             new KindChoice(MacroActionKind.RosterStat, "Roster stat — change any player's stat"),
             new KindChoice(MacroActionKind.Control, "Console button — run any control action"),
             new KindChoice(MacroActionKind.SportValue, "Sport value — set any counter or flag"),
@@ -466,7 +467,8 @@ public partial class MacroDock : UserControl
             or MacroActionKind.SetFootballDistance or MacroActionKind.SetFootballBallSpot
             ? Visibility.Visible : Visibility.Collapsed;
         RosterPanel.Visibility = kind == MacroActionKind.RosterStat ? Visibility.Visible : Visibility.Collapsed;
-        VideoPanel.Visibility = kind == MacroActionKind.PlayVideo ? Visibility.Visible : Visibility.Collapsed;
+        var mediaStep = kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir;
+        VideoPanel.Visibility = mediaStep ? Visibility.Visible : Visibility.Collapsed;
         CommandPanel.Visibility = kind == MacroActionKind.Control ? Visibility.Visible : Visibility.Collapsed;
         SportValuePanel.Visibility = kind == MacroActionKind.SportValue ? Visibility.Visible : Visibility.Collapsed;
         CustomValuePanel.Visibility = kind == MacroActionKind.CustomValue ? Visibility.Visible : Visibility.Collapsed;
@@ -489,10 +491,9 @@ public partial class MacroDock : UserControl
         if (kind is MacroActionKind.Control) RefreshCommandChoices();
         if (kind is MacroActionKind.SportValue) RefreshSportValueChoices();
         if (kind is MacroActionKind.CustomValue) RefreshCustomValueChoices();
-        if (kind is MacroActionKind.PlayVideo) RefreshMediaChoices();
+        if (mediaStep) RefreshMediaChoices();
         // Media is always direct: there is no staged playback state to publish. The checkbox stays
         // checked and disabled for that step so the rule is visible instead of merely implicit.
-        var mediaStep = kind == MacroActionKind.PlayVideo;
         if (mediaStep) BypassOutputBox.IsChecked = true;
         BypassOutputBox.IsEnabled = !mediaStep;
     }
@@ -540,10 +541,13 @@ public partial class MacroDock : UserControl
     void RefreshCommandChoices()
     {
         var selected = (CommandBox.SelectedItem as CommandChoice)?.Id;
-        var choices = ControlActions.ForSport(_engine.State.SportId)
+        var choices = ControlActions.ForSport(_engine.State.SportId, _engine.State.ScoringOptions, _engine.State.Controls)
             // A .set action opens a dialog on the console; a macro must never stop halfway through
-            // waiting for a window. Exact values have their own step kinds instead.
-            .Where(action => !action.Id.EndsWith(".set", StringComparison.OrdinalIgnoreCase))
+            // waiting for a window. Camera and replay navigation belong to their own windows, not
+            // the console's Execute path, so they stay out of a console-button macro step.
+            .Where(action => !action.Id.EndsWith(".set", StringComparison.OrdinalIgnoreCase)
+                && !action.Id.StartsWith("camera.", StringComparison.OrdinalIgnoreCase)
+                && !action.Id.StartsWith("replay.", StringComparison.OrdinalIgnoreCase))
             .Select(action => new CommandChoice(action.Id, $"{action.Group} · {action.Label}"))
             .ToList();
         CommandBox.ItemsSource = choices;
@@ -1039,7 +1043,7 @@ public partial class MacroDock : UserControl
             Value = int.TryParse(ValueBox.Text, out var value) ? value : 0,
             Path = kind switch
             {
-                MacroActionKind.PlayVideo => VideoPathBox.Text.Trim(),
+                MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir => VideoPathBox.Text.Trim(),
                 MacroActionKind.Control => command?.Id ?? "",
                 MacroActionKind.SportValue => sportValue?.Id ?? "",
                 MacroActionKind.CustomValue => customValue?.Id ?? "",
@@ -1048,14 +1052,14 @@ public partial class MacroDock : UserControl
             Label = kind == MacroActionKind.Control ? command?.Label ?? ""
                 : kind == MacroActionKind.SportValue ? sportValue?.Label ?? ""
                 : kind == MacroActionKind.CustomValue ? customValue?.Label ?? ""
-                : kind == MacroActionKind.PlayVideo && media is not null
+                : (kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir) && media is not null
                     && string.Equals(media.Path, VideoPathBox.Text.Trim(), StringComparison.OrdinalIgnoreCase)
                     ? media.Label
                     : "",
             PlayerId = (PlayerBox.SelectedItem as PlayerChoice)?.Id ?? "",
             PlayerName = (PlayerBox.SelectedItem as PlayerChoice)?.Label ?? "",
             StatName = StatBox.Text.Trim(),
-            BypassOutput = kind == MacroActionKind.PlayVideo || BypassOutputBox.IsChecked == true,
+            BypassOutput = (kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir) || BypassOutputBox.IsChecked == true,
             Delta = kind == MacroActionKind.SportValue
                 ? SportDeltaBox.IsChecked == true
                 : kind == MacroActionKind.CustomValue
@@ -1104,7 +1108,7 @@ public partial class MacroDock : UserControl
             SideBox.SelectedIndex = action.Home ? 0 : 1;
             AmountBox.Text = action.Amount.ToString();
             ValueBox.Text = action.Value.ToString();
-            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind == MacroActionKind.PlayVideo;
+            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir;
             VideoPathBox.Text = action.Path;
             RefreshMediaChoices();
             MediaBox.SelectedItem = MediaBox.Items.OfType<MediaChoice>()
@@ -1137,7 +1141,7 @@ public partial class MacroDock : UserControl
                 StatBox.Text = action.StatName;
             }
             UpdateFields();
-            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind == MacroActionKind.PlayVideo;
+            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir;
         }
         finally { _syncing = false; }
     }

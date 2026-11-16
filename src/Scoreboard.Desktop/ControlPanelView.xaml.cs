@@ -435,7 +435,7 @@ public partial class ControlPanelView : UserControl
         Refresh();
     }
 
-    void ShotClock14_Click(object sender, RoutedEventArgs e) => _engine.SetShotClock(14);
+    void ShotClock14_Click(object sender, RoutedEventArgs e) => Execute("basketball.shotclock.14");
 
     // Shot clock and timeout clock are typed over exactly like the game clock: the timing section
     // should not have second-class values that can only be nudged with buttons.
@@ -918,7 +918,9 @@ public partial class ControlPanelView : UserControl
             PickHorn();
     }
 
-    void Horn_Click(object sender, RoutedEventArgs e)
+    void Horn_Click(object sender, RoutedEventArgs e) => PlayHorn();
+
+    void PlayHorn()
     {
         var preferences = PreferencesStore.Load();
         if (HornPlayer.Parse(preferences.HornSound) == HornSound.Custom
@@ -967,6 +969,9 @@ public partial class ControlPanelView : UserControl
         {
             case "output.publish": _host.PublishOutput(); break;
             case "output.live.toggle": _host.LiveScoreClock = !_host.LiveScoreClock; break;
+            case "layout.previous": ShiftLayout(-1); break;
+            case "layout.next": ShiftLayout(1); break;
+            case "horn.play": PlayHorn(); break;
             case "possession.away": _engine.SetPossession(false); break;
             case "possession.home": _engine.SetPossession(true); break;
             case "possession.toggle": _engine.TogglePossession(); break;
@@ -1003,6 +1008,7 @@ public partial class ControlPanelView : UserControl
             case "football.down.next": NextDown(); break;
             case "football.down.previous": _engine.PreviousDown(); break;
             case "football.distance.normal": _engine.SetFootballDownMode(FootballDownMode.Normal); break;
+            case "football.distance.inches": _engine.SetFootballDownMode(FootballDownMode.Inches); break;
             case "football.distance.goal": _engine.SetFootballDownMode(FootballDownMode.Goal); break;
             case "football.distance.pat": _engine.SetFootballDownMode(FootballDownMode.Pat); break;
             case "football.distance.twopt": _engine.SetFootballDownMode(FootballDownMode.TwoPoint); break;
@@ -1023,6 +1029,7 @@ public partial class ControlPanelView : UserControl
             case "basketball.shotclock.minus": _engine.SetShotClock(_engine.State.ShotClockSeconds - 1); break;
             case "basketball.shotclock.plus": _engine.SetShotClock(_engine.State.ShotClockSeconds + 1); break;
             case "basketball.shotclock.set": SetShotClockDialog(); break;
+            case "basketball.shotclock.14": _engine.SetShotClock(14); break;
             case "baseball.ball": _engine.BaseballBall(); break;
             case "baseball.strike": _engine.BaseballStrike(); break;
             case "baseball.foul": _engine.BaseballStrike(true); break;
@@ -1119,7 +1126,8 @@ public partial class ControlPanelView : UserControl
 
     public void ShowKeybindsDialog()
     {
-        var dialog = new KeybindsWindow(_keybinds, _engine.State.SportId, _engine.Sport.Name) { Owner = Window.GetWindow(this) };
+        var dialog = new KeybindsWindow(_keybinds, _engine.State.SportId, _engine.Sport.Name,
+            _engine.State.ScoringOptions, _engine.State.Controls) { Owner = Window.GetWindow(this) };
         ThemeManager.Apply(dialog, PreferencesStore.Load().Theme);
         if (dialog.ShowDialog() == true)
         {

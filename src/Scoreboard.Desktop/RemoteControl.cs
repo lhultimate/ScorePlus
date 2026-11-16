@@ -63,8 +63,21 @@ public sealed class RemoteControlServer : IDisposable
     /// </summary>
     public static Func<string?, (byte[] Png, long Version)?>? WatchImage { get; set; }
 
+    /// <summary>A specific multiview layout rendered by the app, so a browser program tile shows
+    /// the chosen layout even when it is not the one on air.</summary>
+    public static Func<string?, string?, (byte[] Png, long Version)?>? WatchLayoutImage { get; set; }
+
     /// <summary>True while the operator has locked the desk; every remote edit is refused until it clears.</summary>
     public static Func<bool>? LockState { get; set; }
+
+    /// <summary>The browser camera wall's current state, selected camera and replay metadata.</summary>
+    public static Func<string, string?>? CameraWallState { get; set; }
+
+    /// <summary>A JPEG frame for the browser wall: live by default, or the selected replay when asked.</summary>
+    public static Func<string, int, bool, byte[]?>? CameraWallFrame { get; set; }
+
+    /// <summary>Browser commands for the camera walls: select, seek, step, play, pause and labels.</summary>
+    public static Func<string, Dictionary<string, string>, bool>? CameraWallAction { get; set; }
 
     /// <summary>
     /// The wall board page. It shows one picture of the program graphic and swaps that picture when
@@ -278,6 +291,19 @@ public sealed class RemoteControlServer : IDisposable
             await Write(stream, 200, "application/json; charset=utf-8", $"{{\"version\":\"{version}\"}}");
             return;
         }
+        if ((request.Path == "/replay" || request.Path == "/multiview") && request.Method == "GET")
+        {
+            // These pages show camera pictures and clock history, so they stay behind the same
+            // password as the remote console instead of being public like /watch.
+            if (!authorized)
+            {
+                await Write(stream, 200, "text/html; charset=utf-8", RemotePage.Login(Html(RemotePage.ProductName), "Sign in to open the camera wall."));
+                return;
+            }
+            var page = request.Path == "/replay" ? CameraWallPage.ReplayBooth() : CameraWallPage.Multiview();
+            await Write(stream, 200, "text/html; charset=utf-8", page);
+            return;
+        }
         if (request.Path == "/login" && request.Method == "POST")
         {
             var form = Form(request.Body);
@@ -312,6 +338,49 @@ public sealed class RemoteControlServer : IDisposable
         if (request.Path == "/api/state" && request.Method == "GET")
         {
             await Write(stream, 200, "application/json; charset=utf-8", Snapshot());
+            return;
+        }
+        if (request.Path == "/api/camera-wall" && request.Method == "GET")
+        {
+            var mode = Form(request.Query).GetValueOrDefault("mode", "replay");
+            var state = _dispatcher.Invoke(() => CameraWallState?.Invoke(mode)) ?? "{}";
+            await Write(stream, 200, "application/json; charset=utf-8", state);
+            return;
+        }
+        if (request.Path == "/api/camera-wall/frame" && request.Method == "GET")
+        {
+            var query = Form(request.Query);
+            var mode = query.GetValueOrDefault("mode", "replay");
+            if (!int.TryParse(query.GetValueOrDefault("camera", "-1"), out var camera)) camera = -1;
+            var replay = string.Equals(query.GetValueOrDefault("replay", ""), "1", StringComparison.Ordinal);
+            var picture = _dispatcher.Invoke(() => CameraWallFrame?.Invoke(mode, camera, replay));
+            if (picture is null || picture.Length == 0)
+            {
+                await Write(stream, 404, "text/plain; charset=utf-8", "No camera picture yet.");
+                return;
+            }
+            await WriteBytes(stream, 200, "image/jpeg", picture);
+            return;
+        }
+        if (request.Path == "/api/camera-wall/layout" && request.Method == "GET")
+        {
+            var query = Form(request.Query);
+            var frame = _dispatcher.Invoke(() => WatchLayoutImage?.Invoke(
+                query.GetValueOrDefault("display"), query.GetValueOrDefault("layout")));
+            if (frame is null || frame.Value.Png.Length == 0)
+            {
+                await Write(stream, 404, "text/plain; charset=utf-8", "No layout picture yet.");
+                return;
+            }
+            await WriteBytes(stream, 200, "image/png", frame.Value.Png);
+            return;
+        }
+        if (request.Path == "/api/camera-wall/action" && request.Method == "POST")
+        {
+            var form = Form(request.Body);
+            var mode = form.GetValueOrDefault("mode", "replay");
+            var ok = _dispatcher.Invoke(() => CameraWallAction?.Invoke(mode, form) ?? false);
+            await Write(stream, ok ? 200 : 400, "application/json; charset=utf-8", JsonSerializer.Serialize(new { ok }));
             return;
         }
         if (request.Path == "/api/action" && request.Method == "POST")

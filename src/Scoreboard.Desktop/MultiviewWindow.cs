@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -11,6 +12,11 @@ using Scoreboard.Core;
 namespace Scoreboard.Desktop;
 
 public enum MultiviewSourceKind { ProgramPreview, AudienceOutput, Camera, Replay, Blank }
+
+/// <summary>A flattened tile for the browser multiview. It carries the saved source, not the
+/// desktop window's live controls, so a browser page can render the same wall without one open.</summary>
+public sealed record MultiviewBrowserTile(
+    string Kind, string Label, string DisplayId, string LayoutId, int CameraIndex);
 
 /// <summary>One saved multiview tile. The source name is a string so old preference files stay readable.</summary>
 public sealed class MultiviewTileBinding
@@ -84,12 +90,22 @@ public sealed class MultiviewWindow : Window
         TextWrapping = TextWrapping.Wrap,
         Text = "Choose a source in each tile. Add or remove tiles to build the wall you need."
     };
+    readonly CheckBox _labelsToggle = new()
+    {
+        Content = "Show source names on tiles",
+        Foreground = Brushes.White,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(0, 0, 10, 0)
+    };
     readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromMilliseconds(400) };
     readonly List<TileConfig> _tiles = [];
     readonly List<ScorebugCanvasView> _canvasViews = [];
     readonly List<(CameraFeed Feed, Action<BitmapSource> Handler)> _cameraHandlers = [];
     string _signature = "";
     bool _rendering;
+    bool _showLabels;
+    int _focusedIndex;
+    bool _maximized;
 
     // Replay is a single view that can be moved between tiles; recreating it mid-replay dropped
     // the decoded frame and made the preview go black.
@@ -139,7 +155,12 @@ public sealed class MultiviewWindow : Window
         Title = "ScorePlus — Multiview";
         Width = 1320;
         Height = 820;
+        Focusable = true;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        _showLabels = preferences.MultiviewShowLabels;
+        _labelsToggle.IsChecked = _showLabels;
+        _labelsToggle.Checked += (_, _) => SetLabels(true);
+        _labelsToggle.Unchecked += (_, _) => SetLabels(false);
         Content = BuildChrome();
         _wall.SizeChanged += (_, _) => UpdateWallColumns();
         ApplyPalette(preferences.Theme);
@@ -157,7 +178,7 @@ public sealed class MultiviewWindow : Window
         ApplyPalette(preferences.Theme);
         // The window-wide theme pass runs on Loaded and paints every TextBlock; re-apply the few
         // bespoke pieces afterwards so the title and hint never wash out into the black wall.
-        Loaded += (_, _) => ApplyPalette(preferences.Theme);
+        Loaded += (_, _) => { ApplyPalette(preferences.Theme); Focus(); };
     }
 
     UIElement BuildChrome()
@@ -193,6 +214,7 @@ public sealed class MultiviewWindow : Window
         actions.Children.Add(done);
         actions.Children.Add(add);
         actions.Children.Add(reset);
+        actions.Children.Add(_labelsToggle);
         DockPanel.SetDock(actions, Dock.Right);
         header.Children.Add(actions);
         header.Children.Add(_title);
@@ -257,9 +279,18 @@ public sealed class MultiviewWindow : Window
         RenderTiles();
     }
 
+    void SetLabels(bool show)
+    {
+        if (_showLabels == show) return;
+        _showLabels = show;
+        _preferences.MultiviewShowLabels = show;
+        PreferencesStore.Save(_preferences);
+        RenderTiles();
+    }
+
     void UpdateWallColumns()
     {
-        var count = Math.Max(1, _tiles.Count);
+        var count = Math.Max(1, _maximized ? 1 : _tiles.Count);
         var width = Math.Max(1, _wall.ActualWidth);
         var height = Math.Max(1, _wall.ActualHeight);
         // Pick the grid with the largest usable cell, preferring the screen's shape. This is what
@@ -295,6 +326,7 @@ public sealed class MultiviewWindow : Window
         _editorChrome.Background = _windowBrush;
         _title.Foreground = _textBrush;
         _status.Foreground = _mutedBrush;
+        _labelsToggle.Foreground = _textBrush;
         _replayTitle.Foreground = _mutedBrush;
         _replayHint.Foreground = _mutedBrush;
     }
@@ -366,6 +398,60 @@ public sealed class MultiviewWindow : Window
         DefaultTiles();
         SaveTiles();
         RenderTiles();
+    }
+
+    /// <summary>The saved wall as data for the browser: layout tiles, audience outputs, cameras,
+    /// the replay monitor and blanks. No desktop window has to be open.</summary>
+    public static IReadOnlyList<MultiviewBrowserTile> BrowserTiles(UserPreferences preferences,
+        ScorebugCatalog catalog, MediaSession session, ProgramSelection program)
+    {
+        var fallbackDisplay = catalog.FindDisplay(program.DisplayId) ?? catalog.Displays.FirstOrDefault();
+        ScorebugDisplay? DisplayFor(string? id) => !string.IsNullOrWhiteSpace(id)
+            ? catalog.FindDisplay(id!) ?? fallbackDisplay : fallbackDisplay;
+        bool CameraExists(int index) => session.Library.Any(entry => entry.IsCamera && entry.CameraIndex == index);
+        var tiles = new List<MultiviewBrowserTile>();
+        var hasReplay = false;
+        foreach (var binding in preferences.MultiviewTiles ?? [])
+        {
+            var kind = ParseSource(binding.Source);
+            if (kind == MultiviewSourceKind.Replay && hasReplay) kind = MultiviewSourceKind.Blank;
+            if (kind == MultiviewSourceKind.Replay) hasReplay = true;
+            if (kind is MultiviewSourceKind.Camera && !CameraExists(binding.CameraIndex)) kind = MultiviewSourceKind.Blank;
+            var display = kind is MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput
+                ? DisplayFor(binding.DisplayId) : null;
+            if (kind is MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput && display is null)
+                kind = MultiviewSourceKind.Blank;
+            var layoutId = kind == MultiviewSourceKind.ProgramPreview ? binding.LayoutId ?? "" : "";
+            var layout = !string.IsNullOrWhiteSpace(layoutId) ? catalog.FindLayout(layoutId) : null;
+            var camera = kind == MultiviewSourceKind.Camera
+                ? session.Library.FirstOrDefault(entry => entry.IsCamera && entry.CameraIndex == binding.CameraIndex)
+                : null;
+            var label = kind switch
+            {
+                MultiviewSourceKind.ProgramPreview => layout is not null
+                    ? $"PROGRAM · {layout.Name}" : $"PROGRAM · {display?.Name ?? "preview"}",
+                MultiviewSourceKind.AudienceOutput => $"AUDIENCE · {display?.Name ?? "output"}",
+                MultiviewSourceKind.Camera => camera?.Label ?? CameraFeed.CameraName(binding.CameraIndex),
+                MultiviewSourceKind.Replay => "REPLAY · live / recorded preview",
+                _ => ""
+            };
+            tiles.Add(new MultiviewBrowserTile(SourceName(kind), label,
+                kind is MultiviewSourceKind.ProgramPreview or MultiviewSourceKind.AudienceOutput ? display?.Id ?? "" : "",
+                layoutId, kind == MultiviewSourceKind.Camera ? binding.CameraIndex : -1));
+        }
+        if (tiles.Count == 0)
+        {
+            if (fallbackDisplay is not null)
+            {
+                tiles.Add(new MultiviewBrowserTile("preview", $"PROGRAM · {fallbackDisplay.Name}", fallbackDisplay.Id, "", -1));
+                tiles.Add(new MultiviewBrowserTile("audience", $"AUDIENCE · {fallbackDisplay.Name}", fallbackDisplay.Id, "", -1));
+            }
+            tiles.Add(new MultiviewBrowserTile("replay", "REPLAY · live / recorded preview", "", "", -1));
+            foreach (var entry in session.Library.Where(entry => entry.IsCamera).GroupBy(entry => entry.CameraIndex).Select(group => group.First()))
+                tiles.Add(new MultiviewBrowserTile("camera", entry.Label, "", "", entry.CameraIndex));
+            if (tiles.Count == 0) tiles.Add(new MultiviewBrowserTile("blank", "", "", "", -1));
+        }
+        return tiles;
     }
 
     /// <summary>Writes the wall's tile order, displays, layouts and cameras to a .spml file.</summary>
@@ -594,8 +680,14 @@ public sealed class MultiviewWindow : Window
             }
             else
             {
-                foreach (var tile in _tiles.ToList()) _wallTiles.Children.Add(BuildTile(tile, editing: false));
+                if (_tiles.Count == 0) _tiles.Add(new TileConfig { Kind = MultiviewSourceKind.Blank });
+                _focusedIndex = Math.Clamp(_focusedIndex, 0, _tiles.Count - 1);
+                IEnumerable<TileConfig> visible = _maximized ? [_tiles[_focusedIndex]] : _tiles;
+                foreach (var tile in visible.ToList()) _wallTiles.Children.Add(BuildTile(tile, editing: false));
                 UpdateWallColumns();
+                _status.Text = _maximized
+                    ? $"{TileLabel(_tiles[_focusedIndex])} · arrows change the camera · Enter or Esc returns to the wall"
+                    : "ARROWS SELECT · ENTER ENLARGE · EDIT FOR SOURCE NAMES";
             }
         }
         finally { _rendering = false; }
@@ -642,13 +734,19 @@ public sealed class MultiviewWindow : Window
         head.Children.Add(source);
 
         var body = BuildBody(tile);
+        var bodyContent = new Grid();
+        bodyContent.Children.Add(body);
+        // The name belongs to the picture, not the editor chrome: a director can hide it while
+        // editing and still see which camera or layout is under the cursor.
+        if (_showLabels && !string.IsNullOrWhiteSpace(TileLabel(tile)))
+            bodyContent.Children.Add(LabelPlate(TileLabel(tile)));
         var bodyBorder = new Border
         {
             Height = editing ? 230 : double.NaN,
             Background = Solid("#000000"),
             BorderBrush = _borderBrush,
             BorderThickness = editing ? new Thickness(0, 1, 0, 0) : new Thickness(0),
-            Child = body,
+            Child = bodyContent,
             ClipToBounds = true
         };
         var stack = new DockPanel();
@@ -663,12 +761,183 @@ public sealed class MultiviewWindow : Window
             Width = editing ? 420 : double.NaN,
             Margin = editing ? new Thickness(6) : new Thickness(1),
             Background = editing ? _surfaceBrush : Brushes.Black,
-            BorderBrush = editing ? _borderBrush : Brushes.Transparent,
-            BorderThickness = editing ? new Thickness(1) : new Thickness(0),
+            BorderBrush = editing ? _borderBrush : IsFocused(tile) ? Solid("#38D7A3") : Brushes.Transparent,
+            // Keep the border thickness constant. Toggling it on selection shifted the picture by
+            // two pixels and forced WPF to lay the whole tile out again.
+            BorderThickness = editing ? new Thickness(1) : new Thickness(2),
             CornerRadius = editing ? new CornerRadius(8) : new CornerRadius(0),
-            Child = stack
+            Child = stack,
+            Tag = tile
         };
+        if (!editing)
+        {
+            border.MouseLeftButtonDown += (_, _) => SelectTile(tile, maximize: false);
+            border.MouseRightButtonDown += (_, _) => SelectTile(tile, maximize: true);
+        }
         return border;
+    }
+
+    static Border LabelPlate(string text)
+    {
+        var plate = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Background = new SolidColorBrush(Color.FromArgb(0xD8, 0, 0, 0)),
+            CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(8),
+            Child = new TextBlock
+            {
+                Text = text,
+                FontSize = 11,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 320
+            }
+        };
+        // The name sits on the black picture, not on the operator theme, so keep it white in both
+        // themes instead of letting the window-wide theme pass repaint it dark.
+        ThemeManager.SetSkipTheme(plate, true);
+        return plate;
+    }
+
+    string TileLabel(TileConfig tile)
+    {
+        switch (tile.Kind)
+        {
+            case MultiviewSourceKind.ProgramPreview:
+                var display = ResolveDisplay(tile.DisplayId);
+                var layout = !string.IsNullOrWhiteSpace(tile.LayoutId) ? _catalog.FindLayout(tile.LayoutId) : null;
+                return layout is not null ? $"PROGRAM · {layout.Name}" : $"PROGRAM · {display?.Name ?? "preview"}";
+            case MultiviewSourceKind.AudienceOutput:
+                return $"AUDIENCE · {ResolveDisplay(tile.DisplayId)?.Name ?? "output"}";
+            case MultiviewSourceKind.Camera:
+                return _session.Library.FirstOrDefault(entry => entry.IsCamera && entry.CameraIndex == tile.CameraIndex)?.Label
+                    ?? CameraFeed.CameraName(tile.CameraIndex);
+            case MultiviewSourceKind.Replay:
+                return "REPLAY · live / recorded preview";
+            default:
+                return "";
+        }
+    }
+
+    bool IsFocused(TileConfig tile) =>
+        _tiles.Count > 0 && ReferenceEquals(tile, _tiles[Math.Clamp(_focusedIndex, 0, _tiles.Count - 1)]);
+
+    void UpdateSelectionBorders()
+    {
+        if (_editing) return;
+        foreach (var border in _wallTiles.Children.OfType<Border>())
+            if (border.Tag is TileConfig tile)
+                border.BorderBrush = IsFocused(tile) ? Solid("#38D7A3") : Brushes.Transparent;
+    }
+
+    void SelectTile(TileConfig tile, bool maximize)
+    {
+        var index = _tiles.IndexOf(tile);
+        if (index < 0) return;
+        _focusedIndex = index;
+        if (maximize)
+        {
+            _maximized = true;
+            RenderTiles();
+        }
+        else UpdateSelectionBorders();
+        Focus();
+    }
+
+    bool TryCameraAction(string actionId)
+    {
+        switch (actionId)
+        {
+            case "camera.left": MoveFocus(-1, 0); return true;
+            case "camera.right": MoveFocus(1, 0); return true;
+            case "camera.up": MoveFocus(0, -1); return true;
+            case "camera.down": MoveFocus(0, 1); return true;
+            case "camera.enter":
+                if (_tiles[_focusedIndex].Kind == MultiviewSourceKind.Blank) return true;
+                _maximized = !_maximized;
+                RenderTiles();
+                Focus();
+                return true;
+            case "camera.back":
+                if (!_maximized) return false;
+                _maximized = false;
+                RenderTiles();
+                Focus();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        if (!_editing && _tiles.Count > 0)
+        {
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            var bound = KeybindStore.Match(KeybindStore.Load(), key, Keyboard.Modifiers);
+            if (bound is not null && TryCameraAction(bound))
+            {
+                e.Handled = true;
+                return;
+            }
+            // A bound action that belongs to the console must not make Enter or the arrow keys inert.
+            switch (key)
+            {
+                case Key.Left: MoveFocus(-1, 0); e.Handled = true; return;
+                case Key.Right: MoveFocus(1, 0); e.Handled = true; return;
+                case Key.Up: MoveFocus(0, -1); e.Handled = true; return;
+                case Key.Down: MoveFocus(0, 1); e.Handled = true; return;
+                case Key.Enter:
+                    if (_tiles[_focusedIndex].Kind != MultiviewSourceKind.Blank)
+                    {
+                        _maximized = !_maximized;
+                        RenderTiles();
+                        Focus();
+                        e.Handled = true;
+                    }
+                    return;
+                case Key.Escape:
+                    if (_maximized)
+                    {
+                        _maximized = false;
+                        RenderTiles();
+                        Focus();
+                        e.Handled = true;
+                    }
+                    return;
+            }
+        }
+        base.OnPreviewKeyDown(e);
+    }
+
+    /// <summary>Moves through the wall's actual grid. Up and Down change rows; Left and Right
+    /// change columns. In the enlarged single-tile view the same arrows step through cameras.</summary>
+    void MoveFocus(int dx, int dy)
+    {
+        if (_tiles.Count == 0) return;
+        var index = Math.Clamp(_focusedIndex, 0, _tiles.Count - 1);
+        var columns = Math.Max(1, _maximized ? 1 : _wallTiles.Columns);
+        if (dy != 0)
+        {
+            var row = Math.Clamp(index / columns + dy, 0, (_tiles.Count - 1) / columns);
+            index = Math.Min(row * columns + index % columns, _tiles.Count - 1);
+        }
+        if (dx != 0)
+        {
+            var target = index + dx;
+            if (target < 0 || target >= _tiles.Count) return;
+            index = target;
+        }
+        _focusedIndex = index;
+        // Moving the selection is only a border change on the full wall. Rebuilding the tiles made
+        // every camera flash black because each Image lost its Source until the next frame arrived.
+        if (_maximized) RenderTiles();
+        else UpdateSelectionBorders();
+        Focus();
     }
 
     void ApplyChoice(TileConfig tile, SourceChoice choice)

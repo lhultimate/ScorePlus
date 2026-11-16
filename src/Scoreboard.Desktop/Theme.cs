@@ -120,6 +120,15 @@ public sealed class UserPreferences
     /// <summary>The operator's own multiview tile layout: previews, audience displays, cameras or replay.</summary>
     public List<MultiviewTileBinding> MultiviewTiles { get; set; } = [];
 
+    /// <summary>Show the source name in each multiview tile's bottom corner.</summary>
+    public bool MultiviewShowLabels { get; set; } = true;
+
+    /// <summary>Show the camera name in each Replay Booth tile's bottom corner.</summary>
+    public bool ReplayBoothShowLabels { get; set; } = true;
+
+    /// <summary>How far back the Replay Booth and its browser page can rewind, in seconds.</summary>
+    public int ReplaySeconds { get; set; } = 120;
+
     /// <summary>
     /// Off by default: a quick button only stages its layout. When this is on, the same press also
     /// sends it to air, which is faster but updates output without a second confirmation.
@@ -186,6 +195,9 @@ public sealed class UserPreferences
         QuickLayouts = QuickLayouts.Select(binding => new QuickLayoutBinding { Label = binding.Label, DisplayId = binding.DisplayId, LayoutId = binding.LayoutId }).ToList(),
         QuickMedia = QuickMedia.Select(binding => new QuickMediaBinding { Label = binding.Label, Path = binding.Path }).ToList(),
         QuickLayoutsPublish = QuickLayoutsPublish,
+        MultiviewShowLabels = MultiviewShowLabels,
+        ReplayBoothShowLabels = ReplayBoothShowLabels,
+        ReplaySeconds = ReplaySeconds,
         Hardware = Hardware.Clone(),
         HornSound = HornSound,
         HornCustomPath = HornCustomPath,

@@ -17,7 +17,8 @@ public sealed class KeybindsWindow : Window
 
     /// <param name="sportId">Only this sport's actions are listed, alongside the shared console.</param>
     /// <param name="sportName">Printed in the heading so the list is clearly about that game.</param>
-    public KeybindsWindow(KeybindSettings settings, string? sportId = null, string? sportName = null)
+    public KeybindsWindow(KeybindSettings settings, string? sportId = null, string? sportName = null,
+        IEnumerable<int>? scoringOptions = null, IEnumerable<Scoreboard.Core.SportControl>? controls = null)
     {
         _settings = settings.Clone();
         Title = "ScorePlus — Keybinds";
@@ -48,13 +49,13 @@ public sealed class KeybindsWindow : Window
         {
             // The list is the current sport's, so the heading says which game it belongs to.
             Text = $"Choose a {sportName ?? "sport"} button, then press the key combination you want to use. " +
-                   "Shortcuts work while the Control Panel is focused. Shared buttons — score, clocks and output — are always listed.",
+                   "Shortcuts work in the Control Panel, Replay Booth and Multiview. Shared buttons — score, clocks, output, cameras and replay — are always listed.",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 0, 8, 8)
         };
         DockPanel.SetDock(header, Dock.Top);
         root.Children.Add(header);
 
-        _actions.ItemsSource = ControlActions.ForSport(sportId).Select(a => new ActionItem(a)).ToArray();
+        _actions.ItemsSource = ControlActions.ForSport(sportId, scoringOptions, controls).Select(a => new ActionItem(a)).ToArray();
         _actions.SelectionChanged += (_, _) => ShowSelected();
         root.Children.Add(_actions);
         Content = root;

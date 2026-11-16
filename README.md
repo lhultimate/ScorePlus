@@ -23,6 +23,7 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 - [Tutorial: Macros and Multi-Step Actions](#tutorial-macros-and-multi-step-actions)
 - [Tutorial: League Cloud and Rotating Tickers](#tutorial-league-cloud-and-rotating-tickers)
 - [Tutorial: Multiview](#tutorial-multiview)
+- [Tutorial: Replay Booth](#tutorial-replay-booth)
 - [Tutorial: Conditionals](#tutorial-conditionals)
 - [Tutorial: Keybinds](#tutorial-keybinds)
 - [Tutorial: The Phone Remote](#tutorial-the-phone-remote)
@@ -67,9 +68,9 @@ It was built around four ideas:
 | **Inputs** | Keyboard, mouse, phone/tablet remote, live cameras, microphones |
 | **Automation** | Reusable multi-step macros, conditionals, and keyframed motion |
 | **League tools** | Cloud score feed, per-game field import, and a rotating ticker with news and score alerts |
-| **Monitoring** | Multiview camera wall with program, audience, replay and blank tiles |
+| **Monitoring** | Multiview camera wall with program, audience, replay and blank tiles, plus a Replay Booth with a two-minute camera rewind |
 | **Finishes** | Multi-stop gradients and material finishes on text, plates and logo artwork |
-| **Replay** | Staged camera replay, a second replay prepared while the first is on air, and per-source switch animations with adjustable timing |
+| **Replay** | Staged camera replay, a second replay prepared while the first is on air, a referee Replay Booth with recorded game/play/stoppage clocks, and per-source switch animations with adjustable timing |
 | **Files** | `.spg` game, `.spl` layout, `.spd` display, `.spr` roster, `.spp` player, `.spf` media folder |
 | **Saving** | Portable save/load, 100-step undo, rolling autosaves every 15 seconds |
 
@@ -495,6 +496,31 @@ Press **Multiview** in the header to open a wall for watching sources at once. P
 - **Blank** — an empty tile that keeps the wall's shape.
 
 The wall is a monitoring surface, not a second program bus: changing a tile never publishes a layout. Use it to keep the wide shot, the tight shot, the program and the replay in view while the operator works the console.
+
+Use the **arrow keys** to move the green selection around the wall and press **Enter** to enlarge the selected tile. Press **Enter** again, **Esc**, or right-click another tile to return to the wall. In the edit menu, **Show source names on tiles** puts the camera, layout or output name in the bottom-left corner of every tile; the same switch appears on the browser camera wall.
+
+---
+
+## Tutorial: Replay Booth
+
+**Replay Booth** in the header is the referee's review room. It records every camera in the library while it is open and lays them out like a multiview wall. Select a camera with the arrow keys and press **Enter** to open its big replay picture. **Esc** goes back to the wall.
+
+The app keeps a rolling **two-minute** recording of every camera in the library while ScorePlus is running, so the Replay Booth has footage from before it was opened. In the big view, use the scrub bar or **−15s**, **−5s**, **+5s**, **+15s** and **Live edge** to find the exact frame. **Play** rolls the clip forward from the playhead; **Pause** freezes it. If a clip crosses from one recorded segment into the next, playback follows it automatically.
+
+The clocks shown under the big picture are the **game clock**, **play clock**, **stoppage time** (for soccer) and **period at that recording time**, not the current live clocks. That is what makes the booth useful for a referee: find the frame, then confirm exactly what the clock read when the play happened. The clock history covers the same rolling window as the camera recordings.
+
+Open the **✎ Edit** bar to turn the camera name in the bottom corner on or off. The preference is saved and applies to both the desktop booth and its browser page. **Refresh recordings** forces the newest finished camera clip into the scrubber if the booth has been open for a while.
+
+### Replay Booth and Multiview in the browser
+
+With the phone remote enabled, sign in at the remote URL and choose **Replay Booth** or **Multiview** in the header. The browser wall uses the same selection and controls as the desktop:
+
+- **Arrow keys** select a camera, **Enter** enlarges it, and **Esc** returns to the wall.
+- Clicking a tile selects it; double-clicking (or right-clicking) a desktop wall tile enlarges it.
+- **Names** in the page header shows or hides the camera name in the bottom-left corner.
+- The Replay Booth page has the two-minute scrubber, step buttons, Play/Pause and the recorded game, play and stoppage clocks. The Multiview page is the same camera wall with the added controls hidden.
+
+The pages use the same remote login as the console, so they are not exposed on the network without the password.
 
 ---
 

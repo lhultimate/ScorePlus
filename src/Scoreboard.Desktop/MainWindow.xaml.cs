@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -33,6 +34,7 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
     // display at the same time; only Update Output sends anything to an audience.
     readonly ProgramSelection _program;
     readonly MediaSession _session;
+    readonly ReplayBoothController _booth;
     readonly HardwareService _hardware;
     LeagueCloudService? _leagueCloud;
     bool _displaySync;
@@ -141,6 +143,8 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         // the console off the screen; the console itself is reflowable down to its minimum width.
         ScreenFit.Track(this);
         _session = new MediaSession(_preferences);
+        CameraFeed.ReplayWindowSeconds = Math.Clamp(_preferences.ReplaySeconds, 10, 900);
+        _booth = new ReplayBoothController(_session, _engine, _preferences);
         _playback = _session.Playback;
         _hardware = new HardwareService(_engine);
         _hardware.Snapshot += snapshot => Dispatcher.BeginInvoke(new Action(() => ApplyHardware(snapshot)));
@@ -191,6 +195,10 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         Loaded += (_, _) =>
         {
             ApplyTabVisuals();
+            // The referee booth is only useful if the cameras were already rolling when the play
+            // happened. Keep the replay buffers alive with the console, even when neither the booth
+            // nor its browser page is open; its own timer picks up cameras added later.
+            _booth.Activate();
             // The remote and the update check belong to a live window, not to the launch sequence.
             if (!waitForLaunch) { StartRemote(); StartHardware(); _leagueCloud?.Start(); if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync(); }
         };
@@ -218,6 +226,34 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         RemoteControlServer.RosterAction = RosterAction;
         RemoteControlServer.PenaltyAction = PenaltyAction;
         RemoteControlServer.LockState = () => _operatorLocked;
+        RemoteControlServer.CameraWallState = mode => Dispatcher.Invoke(() =>
+        {
+            var json = _booth.StateJson(mode);
+            if (!string.Equals(mode, "multiview", StringComparison.OrdinalIgnoreCase)) return json;
+            // The browser gets the saved wall itself, not only its cameras: program layouts,
+            // audience pictures, replay and blanks stay in the same order the operator built.
+            try
+            {
+                var node = JsonNode.Parse(json)?.AsObject();
+                if (node is null) return json;
+                node["tiles"] = JsonSerializer.SerializeToNode(
+                    MultiviewWindow.BrowserTiles(_preferences, _scorebug, _session, _program)
+                        .Select(tile => new
+                        {
+                            kind = tile.Kind,
+                            label = tile.Label,
+                            display = tile.DisplayId,
+                            layout = tile.LayoutId,
+                            camera = tile.CameraIndex
+                        }),
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                node["tilesVersion"] = _watchVersion;
+                return node.ToJsonString();
+            }
+            catch { return json; }
+        });
+        RemoteControlServer.CameraWallFrame = (mode, camera, replay) => Dispatcher.Invoke(() => _booth.FrameJpeg(camera, replay));
+        RemoteControlServer.CameraWallAction = (mode, form) => Dispatcher.Invoke(() => _booth.HandleAction(mode, form));
         _session.Status += message => StatusText.Text = message;
         ApplyHintVisibility();
 
@@ -901,6 +937,8 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         _panel.SetHintVisibility(_preferences.ShowHeadingHints);
         // A changed value delay reaches every graphic already on screen, in this window and out.
         DisplayTiming.Apply(_preferences);
+        // A new replay window applies to camera buffers already rolling and to the next booth open.
+        CameraFeed.ReplayWindowSeconds = Math.Clamp(_preferences.ReplaySeconds, 10, 900);
         // The quick buttons may have been switched between staging and publishing.
         _quickLayouts?.Refresh();
         _preview?.ApplyNow();
@@ -921,12 +959,14 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         _remote = null;
         RemoteControlServer.WatchSource = null;
         RemoteControlServer.WatchImage = null;
+        RemoteControlServer.WatchLayoutImage = null;
         RemoteControlServer.LockState = () => _operatorLocked;
         if (!_preferences.RemoteEnabled || string.IsNullOrWhiteSpace(_preferences.RemotePassword)) return;
         var server = new RemoteControlServer(_engine, this, id => { _panel.Execute(id); return true; }, Dispatcher, _preferences.RemotePort, _preferences.RemotePassword);
         // The audience feed draws the published program, on the UI thread: the program selection and
         // the published game belong to this window, and the server asks from a background thread.
         RemoteControlServer.WatchImage = display => Dispatcher.Invoke(() => WatchImageSnapshot(display));
+        RemoteControlServer.WatchLayoutImage = (display, layout) => Dispatcher.Invoke(() => WatchImageSnapshot(display, layout));
         server.Status += message => Dispatcher.BeginInvoke(new Action(() => StatusText.Text = message));
         server.Start();
         _remote = server;
@@ -941,23 +981,27 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
     /// then gets the real fonts, palette colours, logos and made icons, and the page only downloads
     /// a new frame when the artwork or the published game changed.
     /// </summary>
-    (byte[] Png, long Version)? WatchImageSnapshot(string? displayKey)
+    (byte[] Png, long Version)? WatchImageSnapshot(string? displayKey, string? layoutKey = null)
     {
         var display = ResolveWatchDisplay(displayKey);
         if (display is null) return null;
-        // The wall board shows what the audience output is actually sending, not the layout that is
-        // still being staged in the studio preview.
-        var layout = _automation.Effective(display.Id, _scorebug.PublishedCompositeOf(display.Id));
+        // A multiview tile can name its own layout; otherwise show what the audience output is
+        // actually sending, not the layout still being staged in the studio preview.
+        var chosen = !string.IsNullOrWhiteSpace(layoutKey) ? _scorebug.FindLayout(layoutKey) : null;
+        var layout = chosen is not null
+            ? _automation.Effective(display.Id, chosen)
+            : _automation.Effective(display.Id, _scorebug.PublishedCompositeOf(display.Id));
+        var cacheKey = display.Id + "|" + (layoutKey ?? "");
         var state = _publishedEngine.State;
         var signature = JsonSerializer.Serialize(layout) + "|" + GameEngine.StagedSignature(state);
-        if (!_watchFrames.TryGetValue(display.Id, out var cached) || !string.Equals(cached.Signature, signature, StringComparison.Ordinal))
+        if (!_watchFrames.TryGetValue(cacheKey, out var cached) || !string.Equals(cached.Signature, signature, StringComparison.Ordinal))
         {
             _watchVersion++;
             cached = (signature, null, _watchVersion);
         }
         cached.Png ??= RenderProgramPng(layout);
         if (cached.Png is null) return null;
-        _watchFrames[display.Id] = cached;
+        _watchFrames[cacheKey] = cached;
         return (cached.Png, cached.Version);
     }
 
@@ -1196,14 +1240,17 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         {
             // A restart keeps the fixture and the design; only the game itself starts over.
             if (!_engine.RestartGame()) return;
+            ReplayBoothHistory.Reset();
         }
         else
         {
             _engine.NewGame(sportId, keepTeamIdentity: keepDesign);
+            ReplayBoothHistory.Reset();
             // New games carry the optional name typed in the sport picker. A restart keeps the
             // fixture's existing name; only a genuinely new game clears or replaces it.
             _engine.SetGameName(gameName);
         }
+        ReplayBoothHistory.Sample(_engine.State);
         _projectPath = null;
         _startNewAutosavePoint = true;
         _savedStateJson = _engine.ExportJson();
@@ -1382,6 +1429,9 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
 
     void EngineChanged()
     {
+        // The Replay Booth maps a recorded frame back to the game and play clocks that were showing
+        // when it happened. Sample here, on the same UI thread as every clock tick and correction.
+        ReplayBoothHistory.Sample(_engine.State);
         CheckAutoHorns();
         // New series can ask to go on air by itself; publish the whole staged state in that case.
         var publishRequested = _engine.TakePublishRequest();
@@ -1592,6 +1642,13 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         window.Show();
     }
 
+    /// <summary>Opens the referee review room: all cameras, the configured rewind and recorded clocks.</summary>
+    void ReplayBooth_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new ReplayBoothWindow(_booth, _preferences) { Owner = this };
+        window.Show();
+    }
+
     void Open_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { DefaultExt = "spg", Filter = "ScorePlus Game (*.spg)|*.spg|Scoreboard Game (*.scoreboard;*.json)|*.scoreboard;*.json|All files (*.*)|*.*" };
@@ -1680,6 +1737,7 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         try { HornPlayer.Stop(); } catch { }
         try { _remote?.Dispose(); } catch { }
         try { _automation.Dispose(); } catch { }
+        try { _booth.Dispose(); } catch { }
         try { _program.Dispose(); } catch { }
         try { _preview?.Dispose(); } catch { }
         try { _session.Dispose(); } catch { }
