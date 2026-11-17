@@ -2,6 +2,8 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Scoreboard.Core;
 
@@ -39,6 +41,14 @@ public sealed class VideoSurface : Grid
     readonly bool _onAir;
     CameraFeed? _feed;
     int _cameraIndex = -1;
+    // The last raw picture from each live source, kept so a crop change can re-cut a paused frame
+    // immediately instead of waiting for the next camera/replay update.
+    ImageSource? _liveFrame;
+    ImageSource? _replayFrame;
+    // The cue currently on screen, used to run the clip's own switch animation only on a real cut.
+    string? _cueKey;
+    FrameworkElement? _switchOverlay;
+    int _switchToken;
     string? _loadedPath;
     bool _playing;
     int _appliedSeek;
@@ -85,7 +95,10 @@ public sealed class VideoSurface : Grid
         {
             Stretch = item.PreserveVideoAspect ? Stretch.Uniform : Stretch.UniformToFill,
             AlignmentX = AlignmentX.Center,
-            AlignmentY = AlignmentY.Center
+            AlignmentY = AlignmentY.Center,
+            // The viewbox is the crop: the video keeps painting its decoded frame, and the brush
+            // shows only the selected fraction of it.
+            ViewboxUnits = BrushMappingMode.RelativeToBoundingBox
         };
         _video = new Rectangle
         {
@@ -93,6 +106,10 @@ public sealed class VideoSurface : Grid
             Stretch = Stretch.Fill,
             IsHitTestVisible = false
         };
+        // A surface built from an already-cropped element must start cropped, not wait for the
+        // first property edit to call SetElement.
+        ApplyCrop();
+        ApplyStretch();
 
         // Re-apply once the picture is in the tree so Play() is honoured. A surface that is
         // re-attached (the studio rebuilt its canvas) picks the picture up where the transport is
@@ -123,31 +140,42 @@ public sealed class VideoSurface : Grid
             _appliedSeek = _playback?.SeekVersion ?? 0;
             if (_playback is { IsPlaying: false } && !_playing)
             {
-                // Start decoding so a paused cue still shows its frame. Pausing on the very next
-                // dispatcher turn froze some decoders before they had composited anything, which
-                // is what left a black box in the preview until the clip was started. The freeze
-                // now waits for the first frames to land.
+                // A paused cue opens on the frame at the playhead. The old code rolled the decoder
+                // for 240 ms to warm it up, which made opening the multiview look like the clip was
+                // playing from the start to the paused point. Scrubbing lets a paused MediaPlayer
+                // paint the seek frame without ever going into play.
                 var token = ++_freezeToken;
-                try { _player.ScrubbingEnabled = false; _player.Play(); } catch { }
-                var freeze = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(240) };
-                freeze.Tick += (_, _) =>
+                try
                 {
-                    freeze.Stop();
+                    _player.ScrubbingEnabled = true;
+                    _player.Position = TimeSpan.FromSeconds(Math.Max(0, resume));
+                    _player.Pause();
+                }
+                catch { }
+                _playing = false;
+                // The first seek can land before the decoder has a frame ready. Nudge it once more
+                // while remaining paused, then put the live cover away.
+                var settle = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+                settle.Tick += (_, _) =>
+                {
+                    settle.Stop();
                     if (token != _freezeToken) return;
-                    if (_live.Source is not null) _live.Visibility = Visibility.Collapsed;
-                    // Start replay may have been pressed while the decoder was opening; in that
-                    // case keep rolling instead of freezing on the first frame.
                     if (_playback is { IsPlaying: true })
                     {
                         try { _player.ScrubbingEnabled = false; _player.Play(); } catch { }
                         _playing = true;
                         return;
                     }
-                    try { _player.Pause(); } catch { }
-                    _player.ScrubbingEnabled = true;
-                    _playing = false;
+                    try
+                    {
+                        _player.ScrubbingEnabled = true;
+                        _player.Position = TimeSpan.FromSeconds(Math.Max(0, resume));
+                        _player.Pause();
+                    }
+                    catch { }
+                    if (_live.Source is not null) _live.Visibility = Visibility.Collapsed;
                 };
-                freeze.Start();
+                settle.Start();
                 return;
             }
             // The live frame only covered the decoder while it opened the file; the clip is
@@ -192,11 +220,8 @@ public sealed class VideoSurface : Grid
     public void SetElement(ScorebugElement item)
     {
         _item = item;
-        // Preserving the aspect ratio letterboxes the picture inside its box instead of cropping it.
-        var stretch = item.PreserveVideoAspect ? Stretch.Uniform : Stretch.UniformToFill;
-        _videoBrush.Stretch = stretch;
-        _live.Stretch = stretch;
-        _replay.Stretch = stretch;
+        ApplyCrop();
+        ApplyStretch();
         if (_placeholder is not null)
             _placeholder.Text = string.IsNullOrWhiteSpace(item.MediaTag) ? "VIDEO" : $"VIDEO · {item.MediaTag.ToUpperInvariant()}";
         UpdateChromaKey();
@@ -238,6 +263,71 @@ public sealed class VideoSurface : Grid
 
     void SyncClip() => _clip.Rect = new Rect(0, 0, Math.Max(0, ActualWidth), Math.Max(0, ActualHeight));
 
+    /// <summary>The source rectangle selected by the element's four crop percentages.</summary>
+    Rect CropRect()
+    {
+        var left = Math.Clamp(_item.VideoCropLeft, 0, 0.49);
+        var top = Math.Clamp(_item.VideoCropTop, 0, 0.49);
+        var right = Math.Clamp(_item.VideoCropRight, 0, 0.49);
+        var bottom = Math.Clamp(_item.VideoCropBottom, 0, 0.49);
+        if (left + right > 0.9) right = Math.Max(0, 0.9 - left);
+        if (top + bottom > 0.9) bottom = Math.Max(0, 0.9 - top);
+        return new Rect(left, top, Math.Max(0.02, 1 - left - right), Math.Max(0.02, 1 - top - bottom));
+    }
+
+    bool IsCropped()
+    {
+        var crop = CropRect();
+        return Math.Abs(crop.X) > 0.0001 || Math.Abs(crop.Y) > 0.0001
+            || Math.Abs(crop.Width - 1) > 0.0001 || Math.Abs(crop.Height - 1) > 0.0001;
+    }
+
+    /// <summary>
+    /// A cropped picture fills its box without distorting the remaining pixels. Cropping is a
+    /// source cut, so the selected region is scaled proportionally until it covers the whole box;
+    /// any small overflow is hidden by the element's clip. With no crop, Preserve still means
+    /// uniform letterboxing.
+    /// </summary>
+    void ApplyStretch()
+    {
+        var stretch = IsCropped()
+            ? Stretch.UniformToFill
+            : _item.PreserveVideoAspect ? Stretch.Uniform : Stretch.UniformToFill;
+        _videoBrush.Stretch = stretch;
+        _live.Stretch = stretch;
+        _replay.Stretch = stretch;
+    }
+
+    void ApplyCrop()
+    {
+        _videoBrush.ViewboxUnits = BrushMappingMode.RelativeToBoundingBox;
+        _videoBrush.Viewbox = CropRect();
+        // Camera and replay frames are real bitmaps, not a DrawingBrush. Re-cut the last one so a
+        // paused replay (and the studio's live preview) changes with the crop fields immediately.
+        if (_liveFrame is not null) _live.Source = CropFrame(_liveFrame);
+        if (_replayFrame is not null) _replay.Source = CropFrame(_replayFrame);
+    }
+
+    /// <summary>Crops a live or replay bitmap to the chosen source region.</summary>
+    ImageSource CropFrame(ImageSource source)
+    {
+        var crop = CropRect();
+        if (Math.Abs(crop.X) < 0.0001 && Math.Abs(crop.Y) < 0.0001
+            && Math.Abs(crop.Width - 1) < 0.0001 && Math.Abs(crop.Height - 1) < 0.0001) return source;
+        if (source is not BitmapSource bitmap) return source;
+        try
+        {
+            var x = Math.Clamp((int)Math.Round(bitmap.PixelWidth * crop.X), 0, bitmap.PixelWidth - 1);
+            var y = Math.Clamp((int)Math.Round(bitmap.PixelHeight * crop.Y), 0, bitmap.PixelHeight - 1);
+            var width = Math.Clamp((int)Math.Round(bitmap.PixelWidth * crop.Width), 1, bitmap.PixelWidth - x);
+            var height = Math.Clamp((int)Math.Round(bitmap.PixelHeight * crop.Height), 1, bitmap.PixelHeight - y);
+            var cropped = new CroppedBitmap(bitmap, new Int32Rect(x, y, width, height));
+            cropped.Freeze();
+            return cropped;
+        }
+        catch { return source; }
+    }
+
     /// <summary>
     /// The clip this surface should be showing. A muted surface is a preview (studio, program
     /// thumbnail), and only previews see a replay that has been opened but not started.
@@ -274,6 +364,14 @@ public sealed class VideoSurface : Grid
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(Apply); return; }
         SyncClip();
         var entry = Cue();
+        // A cut to another clip or camera can carry its own transition. Snapshot the outgoing
+        // picture before any layer is switched, then let it leave over the incoming source.
+        var cueKey = entry is null ? ""
+            : entry.IsCamera ? $"camera:{entry.CameraIndex}"
+            : $"file:{entry.Path}:{entry.ReplayCue}";
+        if (_cueKey is not null && !string.Equals(_cueKey, cueKey, StringComparison.OrdinalIgnoreCase))
+            BeginSwitchAnimation(entry);
+        _cueKey = cueKey;
 
         // A replay is decoded to frames by the session, not opened as a media file: the recorded
         // clips are MJPG AVI, which WPF shows as one still frame on a machine without an MJPEG
@@ -490,11 +588,17 @@ public sealed class VideoSurface : Grid
         _feed = null;
         _cameraIndex = -1;
         if (keepPicture) return;
+        _liveFrame = null;
         _live.Visibility = Visibility.Collapsed;
         _video.Visibility = Visibility.Visible;
     }
 
-    void OnCameraFrame(ImageSource frame) => _live.Source = frame;
+    void OnCameraFrame(ImageSource frame)
+    {
+        _liveFrame = frame;
+        _live.Source = CropFrame(frame);
+    }
+
 
     void HideLiveCamera()
     {
@@ -521,7 +625,7 @@ public sealed class VideoSurface : Grid
     /// </summary>
     bool ShowReplayFrames(MediaEntry? entry)
     {
-        var feed = _playback?.ReplayFrames;
+        var feed = _playback?.ReplayFramesFor(_mute && !_onAir);
         if (entry is null || feed is null || !feed.Contains(entry.Path))
         {
             StopReplayFrames();
@@ -545,7 +649,11 @@ public sealed class VideoSurface : Grid
         _playing = false;
         _video.Visibility = Visibility.Collapsed;
         if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
-        if (_replay.Source is null && feed.Frame is { } picture) _replay.Source = picture;
+        if (feed.Frame is { } picture)
+        {
+            _replayFrame = picture;
+            _replay.Source = CropFrame(picture);
+        }
         _replay.Visibility = Visibility.Visible;
         return true;
     }
@@ -556,11 +664,86 @@ public sealed class VideoSurface : Grid
         _replayFeed = null;
         if (_replay.Visibility != Visibility.Collapsed) _replay.Visibility = Visibility.Collapsed;
         _replay.Source = null;
+        _replayFrame = null;
     }
 
     void OnReplayFrame(System.Windows.Media.Imaging.BitmapSource frame)
     {
-        if (_replay.Visibility == Visibility.Visible) _replay.Source = frame;
+        _replayFrame = frame;
+        if (_replay.Visibility == Visibility.Visible) _replay.Source = CropFrame(frame);
+    }
+
+    /// <summary>
+    /// Holds a still of the outgoing picture over the new source and animates it away. The still is
+    /// important for camera cuts: the old frame is already visible while the next camera opens, so
+    /// a fade, slide or zoom reads as a deliberate switch rather than a flash of black.
+    /// </summary>
+    void BeginSwitchAnimation(MediaEntry? incoming)
+    {
+        var transition = MediaLibrary.NormalizeTransition(incoming?.Transition);
+        var seconds = MediaLibrary.NormalizeTransitionSeconds(incoming?.TransitionSeconds ?? MediaLibrary.DefaultTransitionSeconds);
+        // A new cut always replaces an animation that has not finished yet. A Cut then shows the
+        // incoming source immediately instead of letting the old fade linger over it.
+        if (_switchOverlay is not null)
+        {
+            Children.Remove(_switchOverlay);
+            _switchOverlay = null;
+            _switchToken++;
+        }
+        if (transition == "Cut" || seconds <= 0.02 || !IsLoaded) return;
+        // The outgoing frame has to be captured after layout has settled. Calling Render on a box
+        // that had only just been resized produced a blank still, so the switch looked like a cut
+        // to black instead of a fade/slide/zoom.
+        UpdateLayout();
+        var width = (int)Math.Round(ActualWidth);
+        var height = (int)Math.Round(ActualHeight);
+        if (width < 2 || height < 2) return;
+        RenderTargetBitmap snapshot;
+        try
+        {
+            snapshot = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            snapshot.Render(this);
+            snapshot.Freeze();
+        }
+        catch { return; }
+
+        var overlay = new Image
+        {
+            Source = snapshot,
+            Width = width,
+            Height = height,
+            Stretch = Stretch.Fill,
+            IsHitTestVisible = false,
+            Opacity = 1
+        };
+        Panel.SetZIndex(overlay, 1000);
+        Children.Add(overlay);
+        _switchOverlay = overlay;
+        var token = ++_switchToken;
+        var duration = TimeSpan.FromSeconds(seconds);
+        var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var fade = new DoubleAnimation(1, 0, duration) { EasingFunction = easing };
+        if (transition == "Slide")
+        {
+            var slide = new TranslateTransform(0, 0);
+            overlay.RenderTransform = slide;
+            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(0, width, duration) { EasingFunction = easing });
+        }
+        else if (transition == "Zoom")
+        {
+            overlay.RenderTransformOrigin = new Point(0.5, 0.5);
+            var scale = new ScaleTransform(1, 1);
+            overlay.RenderTransform = scale;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, 1.14, duration) { EasingFunction = easing });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, 1.14, duration) { EasingFunction = easing });
+        }
+        fade.Completed += (_, _) =>
+        {
+            if (token != _switchToken || !ReferenceEquals(_switchOverlay, overlay)) return;
+            Children.Remove(overlay);
+            _switchOverlay = null;
+        };
+        overlay.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
     public void Dispose()
@@ -573,6 +756,8 @@ public sealed class VideoSurface : Grid
         HideLiveCamera();
         _playing = false;
         _opened = false;
+        _switchToken++;
+        if (_switchOverlay is not null) { Children.Remove(_switchOverlay); _switchOverlay = null; }
         try { _player.Stop(); _player.Close(); } catch { }
     }
 }

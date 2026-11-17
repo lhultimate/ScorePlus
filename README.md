@@ -2,7 +2,7 @@
 
 **A native Windows scoreboard and broadcast graphics system for live production — one operator console, unlimited displays, and a scorebug you design yourself.**
 
-> **Beta software.** ScorePlus is under active development and the beta builds are updated every few days. Expect rough edges; don't run it as the only copy of a show you care about. Release labels read like `b1.0`, `a1.41`, etc.
+> **Beta software.** ScorePlus is in beta and the beta builds are updated every few days. Expect rough edges; don't run it as the only copy of a show you care about. Current releases use labels like `b1.1` and the next beta will use `b1.2`.
 
 Everything runs locally on one Windows PC. No browser, no server, no internet connection, and no separately installed .NET runtime. The clock, the score and the graphics are all in one program, and the audience output updates the moment a value changes — there is never a "refresh" step mid-game.
 
@@ -20,9 +20,15 @@ Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https
 - [Tutorial: Video, Camera and Replay](#tutorial-video-camera-and-replay)
 - [Tutorial: Rosters and Player Stats](#tutorial-rosters-and-player-stats)
 - [Tutorial: Team Identity and Colors](#tutorial-team-identity-and-colors)
+- [Tutorial: Macros and Multi-Step Actions](#tutorial-macros-and-multi-step-actions)
+- [Tutorial: League Cloud and Rotating Tickers](#tutorial-league-cloud-and-rotating-tickers)
+- [Tutorial: Multiview](#tutorial-multiview)
+- [Tutorial: Replay Booth](#tutorial-replay-booth)
+- [Tutorial: Conditionals](#tutorial-conditionals)
 - [Tutorial: Keybinds](#tutorial-keybinds)
 - [Tutorial: The Phone Remote](#tutorial-the-phone-remote)
 - [Tutorial: Scoreboard Controllers and the Horn](#tutorial-scoreboard-controllers-and-the-horn)
+- [Tutorial: Hardware, Cloud and the Display](#tutorial-hardware-cloud-and-the-display)
 - [Tutorial: Sport Profiles](#tutorial-sport-profiles)
 - [Reference: The Control Panel](#reference-the-control-panel)
 - [Reference: The Display Studio](#reference-the-display-studio)
@@ -60,8 +66,13 @@ It was built around four ideas:
 | **Sports** | American Football, Australian Football, Baseball, Basketball, Cricket, Hockey, Lacrosse, Rugby, Soccer, Tennis, Volleyball, Wrestling, and a blank Custom preset |
 | **Displays** | Unlimited, each holding unlimited layouts, each layout with its own transition |
 | **Inputs** | Keyboard, mouse, phone/tablet remote, live cameras, microphones |
+| **Automation** | Reusable multi-step macros, conditionals, and keyframed motion |
+| **League tools** | Cloud score feed, per-game field import, and a rotating ticker with news and score alerts |
+| **Monitoring** | Multiview camera wall with program, audience, replay and blank tiles, plus a Replay Booth with a two-minute camera rewind |
+| **Finishes** | Multi-stop gradients and material finishes on text, plates and logo artwork |
+| **Replay** | Staged camera replay, a second replay prepared while the first is on air, a referee Replay Booth with recorded game/play/stoppage clocks, and per-source switch animations with adjustable timing |
 | **Files** | `.spg` game, `.spl` layout, `.spd` display, `.spr` roster, `.spp` player, `.spf` media folder |
-| **Saving** | Portable save/load, 100-step undo, rolling autosaves every 5 seconds |
+| **Saving** | Portable save/load, 100-step undo, rolling autosaves every 15 seconds |
 
 ---
 
@@ -87,7 +98,7 @@ The setup also accepts `/SILENT`, `/DIR=<path>`, `/NOICONS` and `/NOREG` for scr
 
 Download **`ScorePlusPortable.exe`** and run it from anywhere — a USB stick, a desktop folder, a network share. It needs nothing else: one file, no loose DLLs, no runtime install.
 
-A portable copy never checks for updates and never touches the registry, so it is the safe choice for testing a new alpha beside the version that runs your show.
+A portable copy never checks for updates and never touches the registry, so it is the safe choice for testing a new beta beside the version that runs your show.
 
 ### First Launch
 
@@ -95,9 +106,9 @@ Two windows open together: the compact **launch box** with the ScorePlus mark an
 
 The launch box offers:
 
-- **New Game** — a truly blank slate. It asks which sport the game is for and then gives you one factory scorebug on one display: clean teams, 0–0, the sport's own opening clock.
+- **New Game** — a truly blank slate. It asks for the sport and an optional game name, then gives you one factory scorebug on one display: clean teams, 0–0, the sport's own opening clock. Leave the name blank and the game saves as `Untitled.spg`.
 - **Open Game** — a saved `.spg` file.
-- **Autosaves** — the recovery points listed down the side, each labelled with its time. Click one to load it.
+- **Autosaves** — the recovery points listed down the side, each shown with its game name and score below it. Click one to load it.
 - **Delete all** — clears every autosave. It arms for a few seconds and needs a second click, so a stray click can never throw away a season. Saved `.spg` files are never touched.
 
 > **What a new game keeps and what it clears.** A new game resets the teams, logo, score, clocks, sport values, custom stats, rosters-in-play, media folders and playlists, and any extra layouts or displays — it goes back to one scorebug. It keeps the things that describe *you*, not the game: imported media files, sport profiles, rosters and their stat columns, keybinds, fonts, preferences and your accent colors.
@@ -108,7 +119,7 @@ The launch box offers:
 
 This walkthrough takes you from a cold launch to a scorebug on a second screen. Budget five minutes.
 
-**Step 1 — Start a new game.** Launch ScorePlus and click **New Game**. Pick the sport from the list. The launch box dismisses and the console unlocks.
+**Step 1 — Start a new game.** Launch ScorePlus and click **New Game**. Pick the sport from the list and, if you like, type a name for the game. The launch box dismisses and the console unlocks.
 
 **Step 2 — Name the teams.** Click the **…** button beside **Visitors** and beside **Home**. The team box that pops up holds the name, the abbreviation (used in tight spots on the graphic), the logo, and the team's primary and secondary colors. Type the real names, pick their colors, and close it. The graphic already shows the changes — team names are live.
 
@@ -120,7 +131,7 @@ This walkthrough takes you from a cold launch to a scorebug on a second screen. 
 
 **Step 6 — Publish the staged values.** Set the down, the distance, who has the ball and how many timeouts are left. Nothing appears until you press **Update Output** — then all of it lands at once. The **Live: ON** toggle pauses that live feed for scores, clocks and names (useful when you're correcting a typo and don't want it on air); click it again to resume.
 
-**Step 7 — Save.** Press **Save Game** and choose a folder. You get a `.spg` file you can double-click next week, and it carries every display and layout with it — reopening the game returns to the same screens and the same layout on air. If you forget, autosaves run every five seconds and the newest eight points are kept on the launch screen.
+**Step 7 — Save.** Press **Save Game** and choose a folder. The suggested file name is the game's own name (or `Untitled.spg` when it has none). You get a `.spg` file you can double-click next week, and it carries every display and layout with it — reopening the game returns to the same screens and the same layout on air. If you forget, autosaves run every fifteen seconds and the newest eight points are kept on the launch screen.
 
 That's a working show. Everything from here is refinement.
 
@@ -175,8 +186,20 @@ Options available on almost everything:
 
 - **Border** — thickness and color, fixed or from a team palette slot. Zero thickness hides it entirely, and a shape with a transparent background becomes a clean outline.
 - **Gradient background** — a second color and a direction in degrees, and both colors can be team slots.
+- **Paint & texture** — open the finish editor for any text, shape or logo. It can paint a multi-stop gradient on the text and on the plate, linear or radial, then lay a material over either one.
 - **Opacity** — per element, so a stat box can sit at 60% over live video.
 - **Color sources** — anywhere a color is offered, choose *Custom* for a hex/alpha picker, or **Home Primary**, **Home Secondary**, **Away Primary**, **Away Secondary** so the graphic recolors itself when you change a team's identity. The picker's **Pick from screen…** button hides the dialog and samples any pixel on any monitor, so a sponsor's exact color is one click away.
+
+### Paint, Material and Logo Finish
+
+Select an element and press **Paint & texture…**. The window has two columns — **text** and **plate** — and every control applies to the live graphic while you move it. You do not need to tick a separate "use this finish" box first: moving a slider or picking a material switches the finish on.
+
+1. Choose a **material** — `Matte`, `Metal`, `Chrome`, `Glass`, `Frost`, `Fabric`, `Velvet`, `Stone`, `Concrete`, `Paper` or `Hologram` — then tune roughness, glossiness, ambience, shine, metallic, grain, emboss, bevel, satin, iridescence, opacity, scale, contrast, light angle and tint.
+2. Add any number of **gradient stops** to the text or the plate, switch to radial, and set the angle or centre. The stop list is live; add, remove and recolor a stop without closing the window.
+3. For a **logo**, the plate finish still paints the area around the crest, and the same finish is washed across the logo artwork itself. The text finish follows the logo's transparent areas too, so an imported team crest is not a flat image sitting on top of an untouched material.
+4. Press **Done** when the look is right. The finish is stored with the element and travels in the layout, display and saved game.
+
+This is the quickest way to make a sponsor mark look embossed, give a score plate a brushed-metal edge, or turn a flat team logo into a glass or chrome badge without editing the source image.
 
 ### Type and Motion
 
@@ -336,22 +359,28 @@ To tag a clip: select it, pick the tag from the dropdown, press **Set tag**. Sug
 - **Add microphone** adds an audio capture device the same way, for a commentary or ambient feed. Cameras themselves carry no audio; only a microphone item that you explicitly cue is heard.
 - **Add speaker** adds an output bus. **Route…** names it and chooses its Windows device; select the bus and use the bottom **VOLUME** slider to set that speaker's house level. A bus carries the clips tagged like it, so the tag on a clip is what sends it to that speaker.
 
+A single click puts a **green outline** around a camera, video, microphone or speaker without cueing it. The rail and its **Route…**, **VOLUME**, tag, loop and switch-animation controls edit that outlined item; double-clicking is what puts it on air. Selecting a second camera is therefore safe during a replay: its attributes can be changed while the replay already on air keeps playing.
+
 ### Replay, End to End
 
-The camera keeps rolling a two-minute buffer while it is live. Replay is staged, not fired blindly.
+The camera keeps rolling a two-minute buffer while it is live (a camera shown in the multiview records too). A green-outlined camera is the replay source; if it has never recorded, the first Replay press starts its recorder and asks for a second press. Replay itself is staged, not fired blindly.
 
-1. Something good happens. Press **Replay**. The replay opens **in the program preview only** — the audience keeps watching live camera — frozen on the newest frame, and the scrub bar becomes a replay timeline.
+1. Something good happens. Press **Replay**. It uses the **green-outlined camera** when one is selected, otherwise the camera behind the replay or the one on air. The replay opens **in the program preview only** — the audience keeps watching live camera — frozen on the newest frame, and the scrub bar becomes a replay timeline.
 2. Drag back to where the play started. You can go back as far as two minutes.
-3. Press **Start replay** to cut it to air exactly as it stands. A paused replay goes out as a freeze frame rather than suddenly jumping into motion; press **▶ Play** to roll it.
+3. Press **Start replay** to cut it to air exactly as it stands. A paused replay goes out as a freeze frame rather than suddenly jumping into motion; press **▶ Play** to roll it. The replay enters with the switch animation and timing chosen for the camera in **SWITCH ANIMATION**.
 4. Pause and resume freely while it is on air.
 5. Press **Save replay…** to write everything from where you are through to the moment you pressed it as a video clip on your computer.
-6. Press **Live** to jump back to the present and pick up the camera again — instantly, with no black frame in between.
+6. Press **↩ Jump to live** to jump back to the present and pick up the camera again — instantly, with no black frame in between.
 
 If you never press **Start replay**, nothing on air changes. The audience screen and the audience view thumbnail both keep feeding live until you do.
 
+**Prepare another replay during a replay.** While a replay is on air, select the camera you want and press **Replay** again. A second replay opens in the preview and you can scrub it normally; the first replay keeps playing to the audience. The multiview **REPLAY** tile follows the prepared replay and labels it **PREVIEW · NEXT**, so you can check it before committing. Press **Start replay** when the new one is ready and the output switches directly to it with the camera's switch animation. The preview's **Play** button auditions the new replay without putting it on air.
+
+The **SWITCH ANIMATION** rail sets how a selected video or camera arrives: **Cut**, **Fade**, **Slide** or **Zoom**, with a **TIME** field from 0 to 5 seconds. A replay inherits the camera's choice, and each clip keeps its own animation and timing.
+
 **Clear** takes every video, camera and microphone off air and blanks the screen — the way out of a camera that is holding on its last frame. The library, its folders and its playlists are kept.
 
-> **Why replay is staged.** A live camera has no "rewind" that the audience can see. Staging the replay means you can find the start of the play, confirm the frame, and only then make the cut — and if the moment passes, you just press **Live** and nothing ever went out.
+> **Why replay is staged.** A live camera has no "rewind" that the audience can see. Staging the replay means you can find the start of the play, confirm the frame, and only then make the cut — and if the moment passes, you just press **↩ Jump to live** and nothing ever went out.
 
 ---
 
@@ -416,6 +445,100 @@ The abbreviation is what fits where a full name won't, and it also feeds tokens 
 
 ---
 
+## Tutorial: Macros and Multi-Step Actions
+
+A **macro** is one button that changes several things in order. Use it for a recurring sequence — “timeout, stop the clock, show the sponsor card”, “period break, clear the floor, ready the next layout” — instead of pressing four controls while the play is moving.
+
+1. Open the **MACROS** tab. The board starts empty.
+2. Press **+ New macro**, give it a **name** and an optional colour, then add steps. Each step chooses an action and its value: score, down, timeouts, any clock, period, a sport value, a custom value, possession, football distance or ball spot, a console button, a media item, or a roster stat.
+3. A **media** step can play a library clip or put a camera, microphone or speaker bus on air. A **roster stat** step changes a specific player's stat. A **console button** step runs an existing control action, so a macro can reuse the same behaviour as the keyboard and the phone remote.
+4. Press **Save macro**. The card shows only its name, leaving room for more buttons; press the card to run the whole list from the current game state.
+5. Drag a card by its handle to any empty cell. The board keeps empty cells open, so a group of buttons can stay where your hand expects it. Dropping onto an occupied cell swaps the two cards, and right-clicking a card offers **Edit** and **Delete**.
+6. Use **◀ / ▶** beside **PAGE** to move between boards, or **+ Page** to add a blank canvas. A blank page is a real page: it can hold the next set of macros, and it saves with the game.
+
+Each step also has **Bypass Update Output for this step**. Leave it unchecked when the step should stay staged until you press **Update Output**; check it when that step must publish immediately. Media steps always bypass, because playback is never staged. If a macro contains a held step, later checked steps stay held too, so they cannot publish the earlier staged values by accident.
+
+Macros are stored in the game (`.spg`), so the same show sequence opens with the same fixture.
+
+---
+
+## Tutorial: League Cloud and Rotating Tickers
+
+### Bring in league scores
+
+Press **☁** in the top row to open **League Cloud**. Configure an upload endpoint, a league feed endpoint, a league id and a poll interval; an optional bearer token stays in your local preferences. Turn the feed on and use **Upload now** and **Fetch now** while you are setting it up.
+
+The received-games list is an import desk, not an all-or-nothing sync. Select a game, tick only the values you want — **Home score**, **Away score**, **Game clock**, **Period** — and press **Import selected fields**. Everything you leave unticked keeps the current value, so a clock from one game and a score from another can be brought in independently.
+
+### Make the ticker
+
+Press **Add league ticker layout** to create a transparent layout with a text element bound to `{{LEAGUE_GAMES}}`. Set the element's **Ticker** property in the studio if you want to turn an existing text element into one; the generated layout already does. **Reverse direction** makes a scrolling ticker enter from the left and reverses the card order when rotation is on. Style the text, plate, border and position like any other graphic.
+
+Then open **Ticker rotation…** from League Cloud, or press **⇄** in the main header:
+
+- Tick the **games** to include. **Select all** and **Clear** cover the whole list.
+- Add **news headlines**, one per line, below the games.
+- Set **hold** time and **transition** time. The ticker shows one card at a time and slides the next card in instead of scrolling one long line.
+- Leave **score alerts** on to interrupt the rotation when the local game scores or one of the chosen league games changes its score. The alert shows the team, the scoring change where available, and the updated score, then the rotation resumes.
+
+The rotation choices are saved in the game. The league feed itself is live data, so it refreshes from the cloud rather than being frozen into the save.
+
+---
+
+## Tutorial: Multiview
+
+Press **Multiview** in the header to open a wall for watching sources at once. Press the pencil button to edit the tiles, add or remove tiles, and choose a source for each one:
+
+- **Program preview** — a chosen display's staged layout.
+- **Audience output** — what a chosen display is actually showing.
+- **Camera** — any live camera in the media library.
+- **Replay** — the replay monitor while a replay is being reviewed.
+- **Blank** — an empty tile that keeps the wall's shape.
+
+The wall is a monitoring surface, not a second program bus: changing a tile never publishes a layout. Use it to keep the wide shot, the tight shot, the program and the replay in view while the operator works the console.
+
+Use the **arrow keys** to move the green selection around the wall and press **Enter** to enlarge the selected tile. Press **Enter** again, **Esc**, or right-click another tile to return to the wall. In the edit menu, **Show source names on tiles** puts the camera, layout or output name in the bottom-left corner of every tile; the same switch appears on the browser camera wall.
+
+---
+
+## Tutorial: Replay Booth
+
+**Replay Booth** in the header is the referee's review room. It records every camera in the library while it is open and lays them out like a multiview wall. Select a camera with the arrow keys and press **Enter** to open its big replay picture. **Esc** goes back to the wall.
+
+The app keeps a rolling **two-minute** recording of every camera in the library while ScorePlus is running, so the Replay Booth has footage from before it was opened. In the big view, use the scrub bar or **−15s**, **−5s**, **+5s**, **+15s** and **Live edge** to find the exact frame. **Play** rolls the clip forward from the playhead; **Pause** freezes it. If a clip crosses from one recorded segment into the next, playback follows it automatically.
+
+The clocks shown under the big picture are the **game clock**, **play clock**, **stoppage time** (for soccer) and **period at that recording time**, not the current live clocks. That is what makes the booth useful for a referee: find the frame, then confirm exactly what the clock read when the play happened. The clock history covers the same rolling window as the camera recordings.
+
+Open the **✎ Edit** bar to turn the camera name in the bottom corner on or off. The preference is saved and applies to both the desktop booth and its browser page. **Refresh recordings** forces the newest finished camera clip into the scrubber if the booth has been open for a while.
+
+### Replay Booth and Multiview in the browser
+
+With the phone remote enabled, sign in at the remote URL and choose **Replay Booth** or **Multiview** in the header. The browser wall uses the same selection and controls as the desktop:
+
+- **Arrow keys** select a camera, **Enter** enlarges it, and **Esc** returns to the wall.
+- Clicking a tile selects it; double-clicking (or right-clicking) a desktop wall tile enlarges it.
+- **Names** in the page header shows or hides the camera name in the bottom-left corner.
+- The Replay Booth page has the two-minute scrubber, step buttons, Play/Pause and the recorded game, play and stoppage clocks. The Multiview page is the same camera wall with the added controls hidden.
+
+The pages use the same remote login as the console, so they are not exposed on the network without the password.
+
+---
+
+## Tutorial: Conditionals
+
+Conditionals are rules that change the artwork when the game says so. Open **Conditionals…** in the Display Studio's layout bar, press **+ Rule**, and build a condition from the game's fields — score, clock, period, possession, down, timeouts, penalty, game-ended and the rest — with the operators that field supports.
+
+Each rule can match **all** or **any** of its conditions and can carry actions that:
+
+- set text, background or border colour (including a team palette slot),
+- change opacity, position or size,
+- show, hide or set the text of an element,
+- switch the display to another layout.
+
+Actions can run on match, **after a wait**, or as an **else** branch. A **Wait until** condition holds the rule after its trigger matches and runs the after-wait actions only when that condition becomes true — useful for “show the bonus mark when the period ends, then hide it after the next basket”. A rule can **bypass Update Output** when it should react to live state immediately; otherwise it evaluates the published values, the same values the audience sees. Rules save with the display and can be exported and imported as a ScorePlus Rule bundle.
+
+---
+
 ## Tutorial: Keybinds
 
 Nothing is bound by default — every key is yours to assign.
@@ -440,7 +563,7 @@ Preferences can serve the whole control panel to a phone or tablet on the same W
 
 The remote is three tabs, the same shape as the desktop:
 
-- **Console** — both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance with **Next down / Previous down / New series / Last down**, the ball spot and its side, possession, the sport's own values, custom stats, layout switching, **Update Output**, **Live**, **Undo** and **New panel**.
+- **Console** — both teams (name, abbreviation, score, color, timeouts, timeout clock), the game clock, period, play clock, shot clock, down & distance with **Next down / Previous down / New series / Last down**, the ball spot and its side, possession, the sport's own values, custom stats, a display picker with layout switching, **Update Output**, **Live** and **Undo**.
 - **Media** — the library as a list, with one tap to put a clip on air, one to take it off, and a **Play / Pause** for whatever is on air now.
 - **Roster** — both sides, the roster each one draws from, and its players; tap a roster to assign it and a player to put them on the graphic.
 
@@ -478,11 +601,48 @@ For a controller whose native format is not published, **Raw serial capture** lo
 
 ### The horn
 
-The **HORN** button sits beside the quick-layout controls. Choose **Air horn**, **Buzzer** or **Siren**, or choose **Custom…** and pick a WAV, MP3 or AIFF file with the **…** button. The custom file is remembered in Preferences. A second press replaces the sound that is playing; the built-in sounds stop on their own.
+The **HORN** button sits beside the quick-layout controls. **Buzzer** is the first choice and the default; choose **Air horn** or **Siren**, or choose **Custom…** and pick a WAV, MP3 or AIFF file with the **…** button. The buzzer holds for four seconds; a second press replaces the sound that is playing, and the built-in sounds stop on their own.
 
 The horn plays through Windows' default playback device. Set that device in Windows before the show if the horn needs to follow the program feed. The built-in **Air horn**, **Buzzer** and **Siren** use Mixkit recordings under the [Mixkit License](https://mixkit.co/license/#sfxFree); see [third-party notices](docs/third-party-notices.md).
 
 Preferences → **Clock horns** can sound the selected horn automatically when the game clock reaches zero or when the play clock reaches zero. Both options are off by default.
+
+---
+
+## Tutorial: Hardware, Cloud and the Display
+
+This walkthrough follows one complete signal path: a scoreboard controller feeds ScorePlus, ScorePlus publishes to a league server and reads the rest of the league back, and the result is what the audience display shows. Do it once in the venue before the doors open, then save the game so the wiring, layouts and ticker are ready for the next fixture.
+
+### 1. Connect the hardware controller
+
+1. Connect the controller to the PC with the cable its manual specifies. For a **Daktronics All Sport 5000**, use a USB-serial adapter and a null-modem cable into the console's 25-pin RTD output. Set the adapter to **19200, 8 data bits, no parity, 1 stop bit, no flow control**.
+2. Press **Hardware** in the top row, choose the controller and its COM port, then press **Connect**. The link is read-only: the console remains the scorekeeper and ScorePlus follows it.
+3. Press **STOP** once on the console after connecting. The All Sport sends changes rather than dumping its full state on connection, and the stop gives ScorePlus a clean starting frame.
+4. Turn on **Connect automatically** so the same controller reconnects when ScorePlus opens.
+5. No controller on the bench? Choose **Simulator — no hardware**, press **Connect**, and watch the console and preview update. That proves the rest of the path before the real console arrives.
+
+### 2. Point ScorePlus at the league server
+
+ScorePlus does not host a league service; it talks to an HTTPS service you or your league run. The service needs two addresses:
+
+- **Upload endpoint (POST)** — receives the current game after a change. The body uses camelCase fields such as `league`, `gameId`, `homeTeam`, `awayTeam`, `homeScore`, `awayScore`, `period`, `clock` and `status`.
+- **League feed endpoint (GET)** — returns an array of games, or an object with a `games` array. Each game needs at least `gameId` or `homeTeam` plus the score, period, clock and status fields; unknown fields are ignored.
+
+In ScorePlus, press **☁** in the top row, fill in **Upload endpoint**, **League feed endpoint**, **League id** and a **poll interval**, then turn the feed on. Add a bearer token if the server requires one; the token stays in your local preferences. Press **Upload now** and **Fetch now** while you set it up and read the status line. A successful upload says **uploaded**; a good feed reports the number of games. If the server returns 401 or 404, fix the URL or token before touching the graphics.
+
+When the feed arrives, the received-games list becomes an import desk. Select a game and tick only the values you want — home score, away score, game clock, period — then press **Import selected fields**. Everything unticked keeps its current value.
+
+### 3. Put it on the display
+
+1. Open **Display Studio**, add the elements that should follow the controller: `{{HOME_SCORE}}`, `{{AWAY_SCORE}}`, `{{GAME_CLOCK}}`, `{{PERIOD}}`, `{{DOWNS}}` and the rest. The controller writes the same game state those tokens read, so the graphic needs no special hardware token.
+2. For the league round-up, press **Add league ticker layout** in League Cloud. The generated transparent layout carries `{{LEAGUE_GAMES}}`; style it and place it where the ticker belongs.
+3. Open the display's **Audience Output** with **▶** in the top row. If the game has several displays, choose the one the venue screen is connected to.
+4. Press **Update Output** to put the staged layout and values on air, then **F11** for fullscreen. Leave **Live: ON** if score and clocks should follow the controller immediately; down, distance, possession and layout changes still wait for **Update Output** by design.
+5. Score a test point on the controller and confirm three things in order: the ScorePlus console changes, the preview changes, and the audience display changes. Then change a league game and confirm the ticker picks it up on the next poll.
+
+### 4. Save the working setup
+
+Press **Save Game**. The `.spg` file carries the displays, layouts, ticker choices and macros, but not the API token or the live feed. Reopen it next week, check the Hardware window says **Connected**, press **Update Output**, and the same signal path is live again. Keep the league token in Preferences on the show machine; never put it in a layout, a screenshot or a public repository.
 
 ---
 
@@ -537,7 +697,10 @@ The main window is one page, top to bottom.
 | **☰ Event log** | The game's event history in its own movable window |
 | **▦ Game report** | Export a printable HTML summary of the game |
 | **▤ Ad log** | What the show has played: impressions per clip and how long each one runs |
-| **⌁ Hardware** | Connect a scoreboard controller and watch the data it sends |
+| **🕹 Hardware** | Connect a scoreboard controller and watch the data it sends |
+| **☁ League Cloud** | Upload this game and fetch the league's scores |
+| **⇄ Ticker rotation** | Choose league games, news headlines, timing and score alerts |
+| **Multiview** | Watch program, audience, cameras, replay and blank sources together |
 | **Save Game** / **Open Game** | `.spg` save and load |
 | **Display Studio** | Design the on-air graphic |
 | **Sport Profiles** | Edit how the sport behaves |
@@ -560,7 +723,7 @@ Every value reads the same way: add buttons above, subtract below, and click the
 
 ### Tabs
 
-**CONTROL PANEL**, **MEDIA** and **ROSTERS**, each filling the pane at console-sized buttons. The active tab carries the accent-colored outline (also on first launch, before you've clicked anything).
+**CONTROL PANEL**, **MEDIA**, **ROSTERS** and **MACROS**, each filling the pane at console-sized buttons. The active tab carries the accent-colored outline (also on first launch, before you've clicked anything).
 
 Every notice and confirmation in ScorePlus is the app's own themed window — closing a game with unsaved changes brings up **Keep editing / Exit without saving / Save & exit**, and deleting a roster or clearing autosaves asks in the same style. There are no Windows message boxes anywhere in the app.
 
@@ -578,7 +741,7 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 
 | Type | What it draws | Notable properties |
 | --- | --- | --- |
-| **Text** | Any bound or typed string | Font, size, bold/italic/underline/strike, rotation, color or text gradient, texture, value transition, icon, quarter style |
+| **Text** | Any bound or typed string | Font, size, bold/italic/underline/strike, rotation, color or text gradient, texture, value transition, icon, quarter style, per-element down caps and play-clock colon |
 | **Logo** | One team's logo | Which side (Home/Away); the artwork itself comes from the console |
 | **Image** | A still picture imported with **IMAGE +** | The file is copied into the app, so the design survives the original being moved |
 | **Shape** | Rectangle, circle or triangle | Shape type, fill or gradient, border, opacity |
@@ -588,12 +751,14 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 
 ### Properties Worth Knowing
 
+Down-line capitals and the play-clock colon are per element, not global preferences. Select a text element that contains `{{DOWNS}}`, `{{DOWN}}`, `{{TO_GO}}` or `{{YARDS_TO_GO}}` and tick **Print the down words in full caps** to get `1st & GOAL`, `2nd DOWN` or `3rd & INCHES` on that element alone. A text element with `{{PLAY_CLOCK}}` can tick **Print the play clock with a colon (:22)** and prints `:22` instead of `22`; the rest of the graphics keep their own choice.
+
 - **Quarter style** is per element (`Quarter 1`, `Q1`, `1` or `1st`), so two graphics can print the period differently in the same game.
 - **Preserve video aspect ratio** locks the box to the clip's shape — nothing is stretched or cropped. Turn it off and the box can be any shape, with the picture filling it.
 - **Media tag** decides which clips can appear. **ANY** accepts every clip.
 - **Audio output** is per video element, independent of the clip's own speaker, so two overlays can feed two destinations.
 - **Border** and **gradient** each take a fixed color or a team palette slot.
-- **Paint & texture** opens the finish editor: a gradient on the text itself as well as the plate, with any number of stops, either linear at an angle or radial out from a centre. The same editor lays a material over the paint — `Matte`, `Metal`, `Chrome`, `Glass`, `Frost`, `Fabric`, `Velvet`, `Stone`, `Concrete`, `Paper` or `Hologram` — with fourteen knobs of its own: roughness, glossiness, ambience, shine, metallic, grain, emboss, bevel, satin, iridescence, opacity, scale, contrast and light angle, plus a tint.
+- **Paint & texture** opens the finish editor: a gradient on the text itself as well as the plate, with any number of stops, either linear at an angle or radial out from a centre. The same editor lays a material over the paint — `Matte`, `Metal`, `Chrome`, `Glass`, `Frost`, `Fabric`, `Velvet`, `Stone`, `Concrete`, `Paper` or `Hologram` — with fourteen knobs of its own: roughness, glossiness, ambience, shine, metallic, grain, emboss, bevel, satin, iridescence, opacity, scale, contrast and light angle, plus a tint. On a logo, the finish also follows the crest's own artwork rather than stopping at the plate behind it.
 - **Opacity** is four sliders, not one: the whole element, the printed value, the background plate and the outline each fade on their own. A score can dissolve away while its plate stays solid, or a border can fade without touching the text.
 - **Motion** has three routes: the built-in `None / Pulse / Drift` presets, a ready-made preset from the animation maker's list, or a saved clip that replaces them.
 - **Rotation** is in degrees; negative angles are fine.
@@ -620,6 +785,10 @@ Every button is a capitalised label with a plus: **TEXT +**, **LOGO +**, **IMAGE
 ### Making Icons
 
 The **ICON** section of the element panel draws live artwork — timeout bars, the possession dot or arrow, the baseball diamond, the referee's yellow and red cards — or an icon you make. Choose **Custom** in the Icon list, press **Icon creator…**, and draw one: a glyph (one to three characters — ★ ⚑ ▲ ⬤ or a letter), its colour and its plate, round or squared. Saved icons go into one shared library, so a house badge works in every layout and every display, and it travels inside any layout you export. Use **Import .spi…** and **Export .spi…** in the Icon Creator to move one icon, including its data states, between machines; a `.spi` is a ScorePlus Icon file.
+
+**One design per data state.** In the Icon Creator, the **DESIGN FOR** picker chooses the fallback look or one data state. Select a state in the **DATA STATES** list and edit its glyph, colour, plate, offset, scale, opacity and rotation; those fields belong to that state alone, so the home and away marks can look completely different. **Add data state** creates another design, and the first matching state wins when the game runs.
+
+**Photos as icons.** Select the fallback or a data state, press **Use photo…** and choose a PNG, JPEG, GIF, WebP or BMP. ScorePlus copies it into its own `IconImages` folder and draws the photo in place of the glyph for that design only. **Clear photo** returns to the glyph. Exported HTML embeds the picture, so the report remains self-contained.
 
 ### Display and Layout Bars
 
@@ -661,6 +830,9 @@ Bind live data by typing a token into a text element's content, or by using the 
 | `{{BALL_SIDE}}` / `{{BALL_TEAM}}` | Which side the spot is on |
 | `{{BALL_SIDE_SPOT}}` | Both together (`HOME 37`) |
 | `{{SPORT}}` | The sport id, upper case |
+| `{{LEAGUE_GAMES}}` / `{{LEAGUE_TICKER}}` | The league ticker cards, including the rotating game, news and alert items |
+| `{{LAST_SCORE_TEAM}}` / `{{LAST_SCORE_ABBR}}` | The team and abbreviation from the latest scoring action |
+| `{{LAST_SCORE_CHANGE}}` / `{{LAST_SCORE_AMOUNT}}` | `+3` / `3`, or blank when the last action was not a score |
 
 ### Sport Values
 
@@ -757,13 +929,13 @@ If you had an older installation, the files in `%LOCALAPPDATA%\Scoreboard` are c
 Building needs the **.NET 10 SDK** with the Windows desktop targeting pack.
 
 ```sh
-./scripts/build-release.sh a1.5
+./scripts/build-release.sh b1.1
 ```
 
 This publishes a self-contained single-file build into its own folder:
 
 ```
-dist/ScorePlus-win-x64-a1.5/
+dist/ScorePlus-win-x64-b1.1/
 ├── ScorePlusPortable.exe   run it straight from the folder
 ├── ScorePlusSetup.exe      install it
 ├── README.md               this document, copied in for reference
@@ -775,12 +947,14 @@ Exactly two **executables** ship — there is no bare `ScorePlus.exe` left in th
 To ship an update, use the publish script. It builds, hashes the setup exe, writes the update manifest beside it, and — with `--release` — creates the GitHub release with both assets through the GitHub CLI:
 
 ```sh
-./scripts/publish-release.sh a1.4 --release --notes "Adds X, fixes Y"
+./scripts/publish-release.sh b1.2 --release --notes "Adds X, fixes Y"
 ```
 
 Asset names matter: the release must carry **`ScorePlusSetup.exe`** and **`ScorePlusPortable.exe`**. Only `ScorePlusSetup` is used for updating; the portable exe is never self-replacing.
 
-`--prerelease` marks it as an alpha. Drafts are ignored by the updater, because their assets aren't served.
+The script also writes **`win.json`** beside them. It is optional for a GitHub release: installed copies read this project's releases API and take the installer's SHA-256 from GitHub, so uploading only the two EXEs is enough. `win.json` is for hosting the installer somewhere else, or for the stable `releases/latest/download/win.json` address.
+
+`--prerelease` marks it as a prerelease, which is how the beta channel ships. Drafts are ignored by the updater, because their assets aren't served.
 
 ---
 
@@ -798,7 +972,7 @@ Things worth knowing:
 
 - **Only installed copies update.** A build run out of a folder has no install marker, so it never checks and never replaces itself. That is deliberate: your test copy can't be swapped out from under you.
 - **The check runs at startup**, plus a manual **Check now** in Preferences → Updates. If a release goes live while the app is open, it won't notice until the next launch.
-- **Release numbers must increase.** The digits in the label become the version, and the highest published number wins — not the most recent upload. A one-digit minor counts as two, so `a1.6` is 1.60.0 and sorts after `a1.51` (1.51.0); `a1.7` becomes 1.70.0, and `a1.61` (1.61.0) sorts after both. Watch out for `a1.03`: it parses to the same 1.03 → 1.3.0 as `a1.3`, so it isn't "newer" to an a1.3 install.
+- **Release numbers must increase.** The digits in the label become the version, and the highest published number wins — not the most recent upload. A one-digit alpha/beta minor counts as two, so `b1.6` is 2.60.0 and sorts after `b1.51` (2.51.0); `b1.7` becomes 2.70.0, and `b1.61` (2.61.0) sorts after both. Stable `c`/`v` tags keep their own digits and sit above beta, so a b1.1 install can update to `v1.0` (3.0.0). Watch out for `b1.03`: it parses to the same 2.03 → 2.3.0 as `b1.3`, so it isn't "newer" to a b1.3 install.
 - **Prefer a custom host?** Preferences → Updates can point at a JSON manifest elsewhere. See [docs/updates.md](docs/updates.md).
 
 ---
@@ -846,7 +1020,7 @@ Keybinds only list the sport you're playing. If the binding belongs to another s
 It is off until Preferences turns it on. Use the network URL (e.g. `http://192.168.1.5:8080`), not localhost, and allow ScorePlus through Windows Firewall on private networks. Phones must be on the same Wi-Fi.
 
 **Replay shows a black box.**
-Replay is staged in the preview until **Start replay**. The audience and the audience view thumbnail keep the live camera until then. If the preview itself is black, the camera may have been cleared or routed away — check **Route…**.
+Replay is staged in the preview until **Start replay**. The audience and the audience view thumbnail keep the live camera, or the replay already on air, until then. If the preview itself is black, the camera may have been cleared or routed away — check **Route…**.
 
 **Video restarts, or the scrub bar drifts.**
 Each clip's position is preserved while the studio is edited. If a clip was re-imported or replaced, it starts from the beginning. Seek with the bar rather than waiting through a clip.
@@ -866,9 +1040,10 @@ The console and studio reflow onto portrait monitors and high-DPI scaling. The s
 
 ScorePlus is an evolving production tool, not yet a full broadcast package. Still ahead:
 
-- Network and hardware control (not for a bit)
-- Multi-game communication
-- More of the console reachable from the phone (the media and roster tabs are in; the long tail of sport-specific verbs is not)
+- Network and hardware control (Major WIP right now)
+- Multi-game communication (Also major WIP right now)
+- Media launch from remote (very buggy right now)
+- More stuff to make this the ultimate production software.
 - Professional/commercial use
 
 Also worth knowing: video sound plays through the audience output window while the preview and studio stay muted, so you never hear a cue twice — and a video element with its own audio output is only routed when it is on an audience screen, so several preview windows never open the same speaker more than once.
@@ -877,4 +1052,4 @@ Several live sources can be on air together: each camera and each microphone kee
 
 ---
 
-<sub>ScorePlus · alpha · bugs are expected and reports are welcome.</sub>
+<sub>ScorePlus · beta · bugs are expected and reports are welcome.</sub>

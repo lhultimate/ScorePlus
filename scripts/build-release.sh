@@ -18,16 +18,20 @@ fi
 IFS='.' read -r -a PARTS <<< "$NUMERIC"
 while [[ ${#PARTS[@]} -lt 3 ]]; do PARTS+=("0"); done
 # The numeric major is the release stage: alpha keeps its own major (a1.7 = 1.70.0), beta lives
-# above every alpha (b1.0 = 2.0.0), and c/stable lives above beta (c1.0 = 3.0.0). An older alpha
-# updater only understands numbers, so this is what lets it see b1.0 as newer.
+# above every alpha (b1.0 = 2.0.0), and stable lives above beta (c1.0/v1.0 = 3.0.0). An older
+# alpha updater only understands numbers, so this is what lets it see b1.0 or v1.0 as newer.
 STAGE="${PARTS[0]}"
 case "$VERSION" in
   b*|B*|beta*|Beta*) STAGE=2 ;;
-  c*|C*|stable*|Stable*) STAGE=3 ;;
+  c*|C*|stable*|Stable*|v*|V*) STAGE=3 ;;
 esac
-# A one-digit minor is read as a two-digit one, so a1.6 (1.60.0) sorts after a1.51 (1.51.0)
-# rather than before it. The updater applies the same rule to release tags.
-if [[ ${#PARTS[1]} -eq 1 ]]; then PARTS[1]="${PARTS[1]}0"; fi
+# An alpha/beta one-digit minor is read as a two-digit one, so a1.6 (1.60.0) sorts after
+# a1.51 (1.51.0) rather than before it. The updater applies the same rule to release tags.
+# Stable v/c tags keep their own digits so v1.2 and v1.0 compare the same in both places.
+case "$VERSION" in
+  a*|A*|alpha*|Alpha*|b*|B*|beta*|Beta*)
+    if [[ ${#PARTS[1]} -eq 1 ]]; then PARTS[1]="${PARTS[1]}0"; fi ;;
+esac
 NUMERIC="${STAGE}.${PARTS[1]}.${PARTS[2]}"
 if [[ ! "$NUMERIC" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Release must look like a1.1 or 1.0.0 (got '$VERSION')." >&2

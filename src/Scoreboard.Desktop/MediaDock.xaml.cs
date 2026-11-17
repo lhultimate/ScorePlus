@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -88,6 +89,8 @@ public partial class MediaDock : UserControl
         ThemeManager.SetSkipTheme(this, true);
         TagBox.ItemsSource = MediaLibrary.SuggestedTags;
         TagBox.Text = MediaLibrary.DefaultTag;
+        TransitionBox.ItemsSource = MediaLibrary.TransitionOptions;
+        TransitionBox.SelectedItem = "Cut";
         ApplyTheme("Dark");
         // A UserControl's children only reach the visual tree when its template is applied, so the
         // size swap has to run once more after load or the first pass finds nothing to restyle.
@@ -109,6 +112,8 @@ public partial class MediaDock : UserControl
         Set("DockInput", light ? "#FFFFFF" : "#050505");
         Set("DockTrack", light ? "#C9D2DC" : "#26313D");
         Set("DockThumb", light ? "#FFFFFF" : "#EAF0F7");
+        Set("DockRail", light ? "#FFFFFF" : "#080808");
+        Set("DockAccent", UiPalette.Accent(PreferencesStore.Load()));
         _tilePanel = Frozen(light ? "#F2F5F9" : "#10151D");
         _tileBorderIdle = Frozen(light ? "#C9D2DC" : "#1E2630");
         _thumbBackground = Frozen(light ? "#E2E8EF" : "#0A0F16");
@@ -119,6 +124,7 @@ public partial class MediaDock : UserControl
     }
 
     void Set(string key, string hex) => Resources[key] = Frozen(hex);
+    void Set(string key, Color color) => Resources[key] = UiPalette.Frozen(color);
 
     public void Attach(MediaSession session)
     {
@@ -195,6 +201,11 @@ public partial class MediaDock : UserControl
                 PlaylistLoopBox.IsChecked = playlist.Loop;
                 PlaylistLoopBox.IsEnabled = true;
                 PlaylistAddButton.IsEnabled = _session.Selected is not null;
+                var selectedIndex = _session.Selected is { } selectedClip
+                    ? playlist.Paths.FindIndex(path => string.Equals(path, selectedClip.Path, StringComparison.OrdinalIgnoreCase))
+                    : -1;
+                PlaylistUpButton.IsEnabled = selectedIndex > 0;
+                PlaylistDownButton.IsEnabled = selectedIndex >= 0 && selectedIndex < playlist.Paths.Count - 1;
                 PlaylistRunButton.IsEnabled = entries.Count > 0;
                 PlaylistStopButton.IsEnabled = _session.ActivePlaylist is not null;
                 RefreshTiles(entries, playlist);
@@ -226,6 +237,11 @@ public partial class MediaDock : UserControl
             }
             ClipLoopBox.IsChecked = selected?.Loop == true;
             ClipLoopBox.IsEnabled = selected is not null;
+            TransitionBox.IsEnabled = selected?.IsVideo == true;
+            TransitionBox.SelectedItem = MediaLibrary.NormalizeTransition(selected?.Transition);
+            TransitionSecondsBox.IsEnabled = TransitionBox.IsEnabled;
+            if (!TransitionSecondsBox.IsKeyboardFocusWithin)
+                TransitionSecondsBox.Text = (selected?.TransitionSeconds ?? MediaLibrary.DefaultTransitionSeconds).ToString("0.##", CultureInfo.CurrentCulture);
 
             // Audio: the selected clip's own level and speaker.
             var level = Math.Round((selected?.Volume ?? 1) * 100);
@@ -237,9 +253,9 @@ public partial class MediaDock : UserControl
 
             SyncCameraPicker();
 
-            // Camera transport: Replay has something to cut to while live, Live goes back again.
-            ReplayButton.IsEnabled = _session.IsCameraLive || _session.IsReplaying;
-            LiveButton.IsEnabled = _session.IsReplaying;
+            // Replay can use the green-outlined camera even before it is on air. Jump to live in
+            // the REPLAY section is the way back; Start replay wakes up once there is a preview.
+            ReplayButton.IsEnabled = _session.IsCameraLive || _session.ReplaySource is not null || _session.IsReplaying;
             JumpToLiveButton.IsEnabled = _session.IsReplaying;
             StartReplayButton.IsEnabled = _session.IsReplaying;
             SaveReplayButton.IsEnabled = _session.IsReplaying;
@@ -248,20 +264,20 @@ public partial class MediaDock : UserControl
                 : _session.Library.Any(entry => entry.IsMicrophone)
                     ? $"{_session.Library.Count(entry => entry.IsMicrophone)} in the library"
                     : "none added yet";
-            var microphoneItem = _session.Current?.IsMicrophone == true ? _session.Current
-                : _session.Selected?.IsMicrophone == true ? _session.Selected : null;
+            var microphoneItem = _session.Selected?.IsMicrophone == true ? _session.Selected
+                : _session.Current?.IsMicrophone == true ? _session.Current : null;
             MicrophoneRouteButton.IsEnabled = microphoneItem is not null;
             MicrophoneRouteButton.ToolTip = microphoneItem is null
                 ? "Select a microphone item in the library to rename it or point it at another microphone"
                 : $"Rename {microphoneItem.Label} and choose which microphone it listens to";
-            var cameraItem = _session.Current?.IsCamera == true ? _session.Current
-                : _session.Selected?.IsCamera == true ? _session.Selected : null;
+            var cameraItem = _session.Selected?.IsCamera == true ? _session.Selected
+                : _session.Current?.IsCamera == true ? _session.Current : null;
             RouteButton.IsEnabled = cameraItem is not null;
             RouteButton.ToolTip = cameraItem is null
                 ? "Select a camera item in the library to rename it or point it at another camera"
                 : $"Rename {cameraItem.Label} and choose which camera it uses";
-            var speakerItem = _session.Current?.IsSpeaker == true ? _session.Current
-                : _session.Selected?.IsSpeaker == true ? _session.Selected : null;
+            var speakerItem = _session.Selected?.IsSpeaker == true ? _session.Selected
+                : _session.Current?.IsSpeaker == true ? _session.Current : null;
             SpeakerRouteButton.IsEnabled = speakerItem is not null;
             SpeakerRouteButton.ToolTip = speakerItem is null
                 ? "Select a speaker bus in the library to rename it or point it at another output"
@@ -320,6 +336,25 @@ public partial class MediaDock : UserControl
             : _cameraChoices.FirstOrDefault(choice => string.Equals(choice.Entry.Path, active.Path, StringComparison.OrdinalIgnoreCase));
     }
 
+    void Transition_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing || _session?.Selected is not { IsVideo: true } selected) return;
+        _session.SetClipTransition(selected, TransitionBox.SelectedItem as string);
+    }
+
+    void TransitionSeconds_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_syncing || _session?.Selected is not { IsVideo: true } selected) return;
+        if (!double.TryParse(TransitionSecondsBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var seconds)) return;
+        _session.SetClipTransitionSeconds(selected, seconds);
+    }
+
+    void TransitionSeconds_LostFocus(object sender, RoutedEventArgs e)
+    {
+        var selected = _session?.Selected;
+        TransitionSecondsBox.Text = (selected?.TransitionSeconds ?? MediaLibrary.DefaultTransitionSeconds).ToString("0.##", CultureInfo.CurrentCulture);
+    }
+
     /// <summary>Shows the dock again (the tab was just opened).</summary>
     public void RefreshView() => Refresh();
 
@@ -330,9 +365,11 @@ public partial class MediaDock : UserControl
     public void SetLargeMode(bool large)
     {
         _large = large;
-        _tileWidth = large ? 176 : 132;
-        _tileHeight = large ? 168 : 116;
-        _thumbHeight = large ? 106 : 70;
+        // A tab is wide rather than tall: slightly smaller cards pack another column or two into
+        // the same height, while the title and kind still fit under the thumbnail.
+        _tileWidth = large ? 146 : 132;
+        _tileHeight = large ? 140 : 116;
+        _thumbHeight = large ? 88 : 70;
         ApplyControlSize(this);
         Refresh();
     }
@@ -598,6 +635,7 @@ public partial class MediaDock : UserControl
         {
             // One click picks the folder (Export folder, drop tests); two opens it.
             _selectedFolderPath = folder;
+            _selectedPlaylistName = null;
             if (e.ClickCount == 2) OpenFolder(folder);
             else Refresh();
             e.Handled = true;
@@ -709,6 +747,7 @@ public partial class MediaDock : UserControl
         {
             // One click picks the playlist, two opens it into its own clip list.
             _selectedPlaylistName = playlist.Name;
+            _selectedFolderPath = null;
             if (e.ClickCount == 2) OpenPlaylist(playlist);
             else Refresh();
             e.Handled = true;
@@ -893,6 +932,9 @@ public partial class MediaDock : UserControl
         tile.MouseLeftButtonDown += (_, e) =>
         {
             session.Select(entry);
+            // Picking a clip clears the playlist/folder pick, so their green outline goes away.
+            _selectedPlaylistName = null;
+            _selectedFolderPath = null;
             if (e.ClickCount == 2)
             {
                 // The tile is the on/off switch: a second double-click on something already on
@@ -921,6 +963,28 @@ public partial class MediaDock : UserControl
             _dragEntry = null;
             DragDrop.DoDragDrop(tile, new DataObject(ClipFormat, path), DragDropEffects.Move);
         };
+        if (playlist is not null)
+        {
+            // In an open playlist a clip can be dragged onto another slot to reorder the run.
+            tile.AllowDrop = true;
+            tile.DragOver += (_, e) =>
+            {
+                if (!e.Data.GetDataPresent(ClipFormat)) return;
+                e.Effects = DragDropEffects.Move;
+                e.Handled = true;
+                tile.BorderBrush = BorderSelected;
+            };
+            tile.DragLeave += (_, _) => tile.BorderBrush = isOnAir ? BorderOnAir : isSelected ? BorderSelected : _tileBorderIdle;
+            tile.Drop += (_, e) =>
+            {
+                e.Handled = true;
+                if (_session is null || e.Data.GetData(ClipFormat) is not string draggedPath) return;
+                var from = playlist.Paths.FindIndex(path => string.Equals(path, draggedPath, StringComparison.OrdinalIgnoreCase));
+                if (from < 0) return;
+                _session.MovePlaylistItem(playlist, from, index);
+                Dispatcher.BeginInvoke(Refresh);
+            };
+        }
         return tile;
     }
 
@@ -939,9 +1003,11 @@ public partial class MediaDock : UserControl
             var back = Math.Clamp(_session.ReplayBack, 0, depth);
             ElapsedText.Text = $"-{Stamp(TimeSpan.FromSeconds(back))}";
             DurationText.Text = "LIVE";
-            ReplayHint.Text = _session.ReplayOnAir
-                ? $"  ON AIR · {Stamp(TimeSpan.FromSeconds(back))} behind live · Jump to live leaves the replay"
-                : $"  PREVIEW ONLY · {Stamp(TimeSpan.FromSeconds(back))} behind live · Start replay goes to air";
+            ReplayHint.Text = _session.HasReplayPreview
+                ? $"  PREVIEW READY · {Stamp(TimeSpan.FromSeconds(back))} behind live · the first replay stays on air · Start replay switches"
+                : _session.ReplayOnAir
+                    ? $"  ON AIR · {Stamp(TimeSpan.FromSeconds(back))} behind live · press Replay to prepare another without leaving this one"
+                    : $"  PREVIEW ONLY · {Stamp(TimeSpan.FromSeconds(back))} behind live · Start replay goes to air";
             if (_scrubbing || _syncingBar || DateTime.UtcNow < _settleUntil || ScrubBar.IsMouseCaptureWithin || ScrubBar.IsKeyboardFocusWithin) return;
             _syncingBar = true;
             try
@@ -1012,6 +1078,7 @@ public partial class MediaDock : UserControl
         _view = MediaView.Playlist;
         _openPlaylistName = playlist.Name;
         _selectedPlaylistName = playlist.Name;
+        _selectedFolderPath = null;
         Refresh();
     }
 
@@ -1021,6 +1088,7 @@ public partial class MediaDock : UserControl
     {
         _view = MediaView.Library;
         _openPlaylistName = null;
+        _selectedPlaylistName = null;
         Refresh();
     }
 
@@ -1143,6 +1211,18 @@ public partial class MediaDock : UserControl
         Refresh();
     }
 
+    void PlaylistUp_Click(object sender, RoutedEventArgs e) => MovePlaylistSelection(-1);
+    void PlaylistDown_Click(object sender, RoutedEventArgs e) => MovePlaylistSelection(1);
+
+    void MovePlaylistSelection(int delta)
+    {
+        if (_session is null || OpenPlaylist() is not { } playlist || _session.Selected is not { } selected) return;
+        var current = playlist.Paths.FindIndex(path => string.Equals(path, selected.Path, StringComparison.OrdinalIgnoreCase));
+        if (current < 0) return;
+        _session.MovePlaylistItem(playlist, current, current + delta);
+        Refresh();
+    }
+
     void PlaylistRun_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null || OpenPlaylist() is not { } playlist) return;
@@ -1236,8 +1316,10 @@ public partial class MediaDock : UserControl
     void SpeakerRoute_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        var entry = _session.Current?.IsSpeaker == true ? _session.Current
-            : _session.Selected?.IsSpeaker == true ? _session.Selected : null;
+        // The green outline is the editing target. Prefer it over what is on air so an operator
+        // can rename or reroute a silent bus without touching the live show.
+        var entry = _session.Selected?.IsSpeaker == true ? _session.Selected
+            : _session.Current?.IsSpeaker == true ? _session.Current : null;
         if (entry is null)
         {
             _session.Report("SELECT A SPEAKER BUS FIRST");
@@ -1261,7 +1343,6 @@ public partial class MediaDock : UserControl
     void Replay_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        if (_session.IsReplaying) _session.ReturnToLive();
         _session.BeginReplay();
         Refresh();
     }
@@ -1299,8 +1380,9 @@ public partial class MediaDock : UserControl
     void Route_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        var entry = _session.Current?.IsCamera == true ? _session.Current
-            : _session.Selected?.IsCamera == true ? _session.Selected : null;
+        // Edit the green-outlined camera, not necessarily the one on air.
+        var entry = _session.Selected?.IsCamera == true ? _session.Selected
+            : _session.Current?.IsCamera == true ? _session.Current : null;
         if (entry is null)
         {
             _session.Report("SELECT A CAMERA ITEM FIRST");
@@ -1314,8 +1396,9 @@ public partial class MediaDock : UserControl
     void MicrophoneRoute_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null) return;
-        var entry = _session.Current?.IsMicrophone == true ? _session.Current
-            : _session.Selected?.IsMicrophone == true ? _session.Selected : null;
+        // Edit the green-outlined microphone without opening or cueing its device.
+        var entry = _session.Selected?.IsMicrophone == true ? _session.Selected
+            : _session.Current?.IsMicrophone == true ? _session.Current : null;
         if (entry is null)
         {
             _session.Report("SELECT A MICROPHONE ITEM FIRST");

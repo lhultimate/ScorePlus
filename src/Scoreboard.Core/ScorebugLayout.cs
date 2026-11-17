@@ -35,7 +35,80 @@ public enum ScorebugTransition
     Flip,
     Zoom,
     Pop,
-    Drop
+    Drop,
+    /// <summary>Shrink, count through the values, then grow back to full size.</summary>
+    ShrinkWheel,
+    /// <summary>Jump up, flip through a full turn while changing value, then drop back.</summary>
+    JumpFlip
+}
+
+/// <summary>The axis and direction of a JumpFlip's full turn.</summary>
+public enum ScorebugJumpDirection
+{
+    /// <summary>A side-to-side turn, moving left to right. The default.</summary>
+    LeftToRight,
+    /// <summary>A side-to-side turn in the opposite direction.</summary>
+    RightToLeft,
+    /// <summary>A top-to-bottom turn, moving down to up.</summary>
+    DownToUp,
+    /// <summary>A top-to-bottom turn in the opposite direction.</summary>
+    UpToDown
+}
+
+/// <summary>
+/// A video played as a score celebration. It is stored on the layout, so a touchdown, field goal or
+/// correction can be a green-screen clip, and the clip keeps its own chroma key when the layout is
+/// exported or the game is reopened.
+/// </summary>
+public sealed class ScoreVideo
+{
+    public string Path { get; set; } = "";
+    public string ChromaKeyColor { get; set; } = "";
+    public double ChromaKeyTolerance { get; set; } = 0.16;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsEmpty => string.IsNullOrWhiteSpace(Path);
+
+    public ScoreVideo Copy() => new()
+    {
+        Path = Path,
+        ChromaKeyColor = ChromaKeyColor,
+        ChromaKeyTolerance = ChromaKeyTolerance
+    };
+
+    public void Normalize()
+    {
+        Path = (Path ?? "").Trim();
+        ChromaKeyColor = (ChromaKeyColor ?? "").Trim();
+        ChromaKeyTolerance = Math.Clamp(double.IsFinite(ChromaKeyTolerance) ? ChromaKeyTolerance : 0.16, 0, 1);
+    }
+}
+
+/// <summary>
+/// One score-triggered clip. Amount is the signed change actually applied to the score: +6 for a
+/// touchdown, -6 for removing one, +3 for a field goal, -2 for a correction, and so on. The clip is
+/// independent of which team scored, so the same value can play for either side.
+/// </summary>
+public sealed class ScoreVideoRule
+{
+    public int Amount { get; set; }
+    public ScoreVideo Video { get; set; } = new();
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsEmpty => Amount == 0 || Video is null || Video.IsEmpty;
+
+    public ScoreVideoRule Copy() => new()
+    {
+        Amount = Amount,
+        Video = (Video ?? new ScoreVideo()).Copy()
+    };
+
+    public void Normalize()
+    {
+        Amount = Math.Clamp(Amount, -999, 999);
+        Video ??= new ScoreVideo();
+        Video.Normalize();
+    }
 }
 
 public enum ScorebugShape { Rectangle, Circle, Triangle, Parallelogram }
@@ -90,6 +163,9 @@ public sealed class ScorebugElement
     public string Name { get; set; } = "Element";
     public ScorebugElementKind Kind { get; set; } = ScorebugElementKind.Text;
     public ScorebugShape Shape { get; set; } = ScorebugShape.Rectangle;
+
+    /// <summary>Corner radius for a rectangle shape, in design pixels. Zero gives square corners.</summary>
+    public double CornerRadius { get; set; } = 8;
     public string Content { get; set; } = "TEXT";
     public string? ImagePath { get; set; }
 
@@ -125,6 +201,26 @@ public sealed class ScorebugElement
 
     /// <summary>The picture's width ÷ height while <see cref="PreserveVideoAspect"/> is on. 16:9 by default.</summary>
     public double VideoAspect { get; set; } = 16.0 / 9.0;
+
+    // Fractions trimmed from each edge of a video before it is painted. Zero means the whole
+    // picture; 0.1 removes ten percent. Keeping four edges makes the crop understandable in a
+    // saved layout and lets the studio offer percentage fields rather than pixel guessing.
+    public double VideoCropLeft { get; set; }
+    public double VideoCropTop { get; set; }
+    public double VideoCropRight { get; set; }
+    public double VideoCropBottom { get; set; }
+
+    /// <summary>
+    /// For a text element: scroll the text as a bottom-screen ticker instead of holding it still.
+    /// Separate items with a vertical bar; the ticker joins them with a dot separator.
+    /// </summary>
+    public bool Ticker { get; set; }
+
+    /// <summary>The ticker's travel speed in design pixels per second.</summary>
+    public double TickerSpeed { get; set; } = 80;
+
+    /// <summary>Reverse the ticker's travel, so it enters from the left instead of the right.</summary>
+    public bool TickerReverse { get; set; }
 
     /// <summary>
     /// For video elements: a colour made transparent in the picture, so a green or blue screen
@@ -201,6 +297,20 @@ public sealed class ScorebugElement
     /// <summary>How long a value change takes, in seconds: 0 snaps, 5 is a slow dissolve.</summary>
     public double TransitionSeconds { get; set; } = 0.2;
 
+    /// <summary>A readable starting speed for the two large special crossings. Their old default
+    /// was the generic 0.2 seconds, which turned a full jump-flip or a multi-number wheel into a
+    /// blur. It is only a starting value; any speed the operator types is kept.</summary>
+    public const double ReadableSpecialTransitionSeconds = 1.0;
+
+    /// <summary>For <see cref="ScorebugTransition.ShrinkWheel"/>: how small the value shrinks, 0–1.</summary>
+    public double TransitionShrink { get; set; } = 0.82;
+
+    /// <summary>For <see cref="ScorebugTransition.JumpFlip"/>: how far the value jumps up, in design pixels.</summary>
+    public double TransitionJumpHeight { get; set; } = 40;
+
+    /// <summary>For <see cref="ScorebugTransition.JumpFlip"/>: which way the full turn travels.</summary>
+    public ScorebugJumpDirection TransitionJumpDirection { get; set; } = ScorebugJumpDirection.LeftToRight;
+
     /// <summary>A different crossing for a value that falls. Null uses <see cref="Transition"/> both ways.</summary>
     public ScorebugTransition? TransitionDown { get; set; }
 
@@ -212,6 +322,15 @@ public sealed class ScorebugElement
 
     /// <summary>How this element prints a quarter: "Full", "Short", "Number", "Ordinal", or null for the game default.</summary>
     public string? PeriodFormat { get; set; }
+
+    /// <summary>Print the words in this element's down line in full caps, e.g. 1st &amp; GOAL.</summary>
+    public bool DownCaps { get; set; }
+
+    /// <summary>Print {{PLAY_CLOCK}} with a leading colon, e.g. :22, on this element.</summary>
+    public bool PlayClockColon { get; set; }
+
+    /// <summary>Print {{GAME_CLOCK}} as 09:59. Off prints 9:59 and :59 under a minute on this element.</summary>
+    public bool GameClockLeadingZero { get; set; } = true;
 
     /// <summary>Optional artwork from live data: timeout bars or a possession dot.</summary>
     public ScorebugIcon Icon { get; set; } = ScorebugIcon.None;
@@ -236,6 +355,24 @@ public sealed class ScorebugElement
 
     /// <summary>For timeout bars: stack the bars downward instead of in one row.</summary>
     public bool IconVertical { get; set; }
+
+    /// <summary>For the possession arrow: point down at the plate instead of sideways into it.</summary>
+    public bool IconArrowDown { get; set; }
+
+    /// <summary>The colour of a timeout bar or pip that has already been used.</summary>
+    public string IconUsedColor { get; set; } = "#FF9AA5B2";
+
+    /// <summary>Outline drawn around the icon artwork, separate from the element's border.</summary>
+    public double IconBorderThickness { get; set; }
+
+    /// <summary>The icon outline's fixed colour.</summary>
+    public string IconBorderColor { get; set; } = "#FFFFFFFF";
+
+    /// <summary>Fill painted behind the icon artwork, independent of the element's background.</summary>
+    public string IconBackground { get; set; } = "";
+
+    /// <summary>How solid the icon artwork is, independent of the element's opacity.</summary>
+    public double IconOpacity { get; set; } = 1;
 
     /// <summary>
     /// A value the icon follows, written as a token — <c>{{PENALTY_TYPE}}</c>, <c>{{STAT:Turnovers}}</c>.
@@ -376,6 +513,33 @@ public sealed class ScorebugLayout
     public MotionClip? TransitionClip { get; set; }
 
     /// <summary>
+    /// Played when American football records a six-point score. The clip animates the layout's
+    /// items and any temporary pieces it carries; null leaves touchdowns still.
+    /// </summary>
+    public MotionClip? TouchdownAnimation { get; set; }
+
+    /// <summary>
+    /// Played when American football records a three-point score. It is independent of the
+    /// touchdown clip, so a field goal can be a small pulse while a touchdown fills the frame.
+    /// </summary>
+    public MotionClip? FieldGoalAnimation { get; set; }
+
+    // Legacy fixed celebrations. New layouts use ScoreVideos, but these stay readable so old game
+    // and display files keep their touchdown and field-goal clips instead of losing them on load.
+    public ScoreVideo? TouchdownVideo { get; set; }
+    public ScoreVideo? FieldGoalVideo { get; set; }
+
+    /// <summary>
+    /// Videos keyed by the exact signed score change pressed on the console, e.g. +6, -6, +3 or -2.
+    /// This is the current score celebration model; an empty list means no score video.
+    /// </summary>
+    public List<ScoreVideoRule> ScoreVideos { get; set; } = [];
+
+    /// <summary>The clip assigned to one exact signed score change, or null when none is set.</summary>
+    public ScoreVideo? ScoreVideoForAmount(int amount) =>
+        ScoreVideos?.FirstOrDefault(rule => rule.Amount == amount)?.Video;
+
+    /// <summary>
     /// A video file played as this layout's hand-over, instead of the preset or a motion clip. It
     /// runs full-frame over the outgoing picture and ends with the new layout showing underneath.
     /// </summary>
@@ -477,6 +641,8 @@ public sealed class ScorebugLayout
             Remap(element.MotionAnimation);
         }
         Remap(TransitionClip);
+        Remap(TouchdownAnimation);
+        Remap(FieldGoalAnimation);
         foreach (var entry in Handover ?? [])
             entry.ElementId = Map(entry.ElementId);
     }
@@ -690,6 +856,11 @@ public sealed class ScorebugCatalog
             TransitionSeconds = first.TransitionSeconds,
             OnlyAnimateChanges = first.OnlyAnimateChanges,
             TransitionClip = first.TransitionClip,
+            TouchdownAnimation = first.TouchdownAnimation,
+            FieldGoalAnimation = first.FieldGoalAnimation,
+            TouchdownVideo = first.TouchdownVideo,
+            FieldGoalVideo = first.FieldGoalVideo,
+            ScoreVideos = first.ScoreVideos,
             TransitionVideoPath = first.TransitionVideoPath,
             TransitionVideoChromaKeyColor = first.TransitionVideoChromaKeyColor,
             TransitionVideoChromaKeyTolerance = first.TransitionVideoChromaKeyTolerance,
@@ -974,6 +1145,11 @@ public sealed class ScorebugCatalog
                 layout.TransitionSeconds = Math.Clamp(double.IsFinite(layout.TransitionSeconds) ? layout.TransitionSeconds : 0.5, 0, 5);
                 if (!Enum.IsDefined(layout.Transition)) layout.Transition = LayoutTransition.Cut;
                 layout.TransitionClip?.Normalize();
+                layout.TouchdownAnimation?.Normalize();
+                layout.FieldGoalAnimation?.Normalize();
+                layout.TouchdownVideo = NormalizeScoreVideo(layout.TouchdownVideo);
+                layout.FieldGoalVideo = NormalizeScoreVideo(layout.FieldGoalVideo);
+                layout.ScoreVideos = NormalizeScoreVideoRules(layout.ScoreVideos);
                 layout.TransitionVideoChromaKeyColor = (layout.TransitionVideoChromaKeyColor ?? "").Trim();
                 if (!string.IsNullOrWhiteSpace(layout.TransitionVideoChromaKeyColor) && !IsColor(layout.TransitionVideoChromaKeyColor))
                     layout.TransitionVideoChromaKeyColor = "";
@@ -998,9 +1174,42 @@ public sealed class ScorebugCatalog
                     item.Rotation = Math.Clamp(double.IsFinite(item.Rotation) ? item.Rotation : 0, -360, 360);
                     item.BorderThickness = Math.Clamp(double.IsFinite(item.BorderThickness) ? item.BorderThickness : 0, 0, 40);
                     item.TransitionSeconds = Math.Clamp(double.IsFinite(item.TransitionSeconds) ? item.TransitionSeconds : 0.2, 0, 5);
+                    // Older layouts saved the generic 0.2-second default onto Jump Flip and Shrink
+                    // Wheel before those presets had a readable default. Promote that untouched
+                    // default once on load; a deliberately different speed is left alone.
+                    if (item.Transition is ScorebugTransition.ShrinkWheel or ScorebugTransition.JumpFlip
+                        && item.TransitionSeconds is > 0.001 and <= 0.201)
+                        item.TransitionSeconds = ScorebugElement.ReadableSpecialTransitionSeconds;
+                    item.TransitionShrink = Math.Clamp(double.IsFinite(item.TransitionShrink) ? item.TransitionShrink : 0.82, 0.2, 1);
+                    item.TransitionJumpHeight = Math.Clamp(double.IsFinite(item.TransitionJumpHeight) ? item.TransitionJumpHeight : 40, 0, 300);
+                    if (!Enum.IsDefined(item.TransitionJumpDirection)) item.TransitionJumpDirection = ScorebugJumpDirection.LeftToRight;
+                    item.IconOpacity = Math.Clamp(double.IsFinite(item.IconOpacity) ? item.IconOpacity : 1, 0, 1);
+                    item.IconBorderThickness = Math.Clamp(double.IsFinite(item.IconBorderThickness) ? item.IconBorderThickness : 0, 0, 40);
+                    item.IconUsedColor = (item.IconUsedColor ?? "").Trim();
+                    item.IconBorderColor = (item.IconBorderColor ?? "").Trim();
+                    item.IconBackground = (item.IconBackground ?? "").Trim();
+                    if (!IsColor(item.IconUsedColor)) item.IconUsedColor = "#FF9AA5B2";
+                    if (!IsColor(item.IconBorderColor)) item.IconBorderColor = "#FFFFFFFF";
+                    if (item.IconBackground.Length > 0 && !IsColor(item.IconBackground)) item.IconBackground = "";
                     if (item.TransitionDownSeconds is { } downSeconds)
-                        item.TransitionDownSeconds = Math.Clamp(double.IsFinite(downSeconds) ? downSeconds : 0.2, 0, 5);
+                    {
+                        downSeconds = Math.Clamp(double.IsFinite(downSeconds) ? downSeconds : 0.2, 0, 5);
+                        if (item.TransitionDown is ScorebugTransition.ShrinkWheel or ScorebugTransition.JumpFlip
+                            && downSeconds is > 0.001 and <= 0.201)
+                            downSeconds = ScorebugElement.ReadableSpecialTransitionSeconds;
+                        item.TransitionDownSeconds = downSeconds;
+                    }
                     item.VideoAspect = Math.Clamp(double.IsFinite(item.VideoAspect) && item.VideoAspect > 0.05 ? item.VideoAspect : 16.0 / 9.0, 0.1, 10);
+                    item.VideoCropLeft = Math.Clamp(double.IsFinite(item.VideoCropLeft) ? item.VideoCropLeft : 0, 0, 0.49);
+                    item.VideoCropTop = Math.Clamp(double.IsFinite(item.VideoCropTop) ? item.VideoCropTop : 0, 0, 0.49);
+                    item.VideoCropRight = Math.Clamp(double.IsFinite(item.VideoCropRight) ? item.VideoCropRight : 0, 0, 0.49);
+                    item.VideoCropBottom = Math.Clamp(double.IsFinite(item.VideoCropBottom) ? item.VideoCropBottom : 0, 0, 0.49);
+                    item.TickerSpeed = Math.Clamp(double.IsFinite(item.TickerSpeed) ? item.TickerSpeed : 80, 10, 600);
+                    if (item.Ticker && item.Kind != ScorebugElementKind.Text) item.Ticker = false;
+                    if (item.VideoCropLeft + item.VideoCropRight > 0.9)
+                        item.VideoCropRight = Math.Max(0, 0.9 - item.VideoCropLeft);
+                    if (item.VideoCropTop + item.VideoCropBottom > 0.9)
+                        item.VideoCropBottom = Math.Max(0, 0.9 - item.VideoCropTop);
                     item.ChromaKeyColor = (item.ChromaKeyColor ?? "").Trim();
                     item.ChromaKeyTolerance = Math.Clamp(double.IsFinite(item.ChromaKeyTolerance) ? item.ChromaKeyTolerance : 0.16, 0, 1);
                     item.GradientAngle = Math.Clamp(double.IsFinite(item.GradientAngle) ? item.GradientAngle : 0, -360, 360);
@@ -1071,6 +1280,32 @@ public sealed class ScorebugCatalog
                 }
             }
         }
+    }
+
+    /// <summary>Keeps only usable score videos and stores the chroma key as typed.</summary>
+    static ScoreVideo? NormalizeScoreVideo(ScoreVideo? video)
+    {
+        if (video is null) return null;
+        video.Normalize();
+        if (!string.IsNullOrWhiteSpace(video.ChromaKeyColor) && !IsColor(video.ChromaKeyColor))
+            video.ChromaKeyColor = "";
+        return video.IsEmpty ? null : video;
+    }
+
+    /// <summary>Keeps one rule per signed score value, ordered so the editor is predictable.</summary>
+    static List<ScoreVideoRule> NormalizeScoreVideoRules(IEnumerable<ScoreVideoRule>? rules)
+    {
+        var byAmount = new SortedDictionary<int, ScoreVideoRule>();
+        foreach (var rule in rules ?? [])
+        {
+            if (rule is null) continue;
+            rule.Normalize();
+            if (!string.IsNullOrWhiteSpace(rule.Video.ChromaKeyColor) && !IsColor(rule.Video.ChromaKeyColor))
+                rule.Video.ChromaKeyColor = "";
+            if (rule.IsEmpty) continue;
+            byAmount[rule.Amount] = rule;
+        }
+        return byAmount.Values.ToList();
     }
 
     /// <summary>#RGB, #ARGB, #RRGGBB or #AARRGGBB, so a bad entry can never blank the canvas.</summary>
@@ -1401,6 +1636,91 @@ public sealed class ScorebugCatalog
     public void ApplyTransitionToLayout(MotionClip? clip)
     {
         Update(layout => layout.TransitionClip = clip is null || clip.IsEmpty ? null : clip.Snapshot());
+    }
+
+    /// <summary>
+    /// Assigns the clip played for a football score event. Empty or null clears it, so the
+    /// touchdown and field-goal animations can each be switched off independently.
+    /// </summary>
+    public void ApplyScoreAnimationToLayout(bool touchdown, MotionClip? clip)
+    {
+        Update(layout =>
+        {
+            var stored = clip is null || clip.IsEmpty ? null : clip.Snapshot();
+            if (touchdown)
+            {
+                layout.TouchdownAnimation = stored;
+                if (stored is not null) layout.TouchdownVideo = null;
+            }
+            else
+            {
+                layout.FieldGoalAnimation = stored;
+                if (stored is not null) layout.FieldGoalVideo = null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Assigns a video celebration to one scoring play. A video and a made animation are
+    /// alternatives, so setting a video clears the animation for that play. Null clears only the
+    /// video, leaving any animation that was set elsewhere alone.
+    /// </summary>
+    public void ApplyScoreVideoToLayout(bool touchdown, ScoreVideo? video)
+    {
+        Update(layout =>
+        {
+            var stored = video is null || video.IsEmpty ? null : video.Copy();
+            if (touchdown)
+            {
+                layout.TouchdownVideo = stored;
+                if (stored is not null) layout.TouchdownAnimation = null;
+            }
+            else
+            {
+                layout.FieldGoalVideo = stored;
+                if (stored is not null) layout.FieldGoalAnimation = null;
+            }
+        });
+    }
+
+    /// <summary>Clears both possible celebrations for one scoring play.</summary>
+    public void ClearScoreCelebration(bool touchdown)
+    {
+        Update(layout =>
+        {
+            if (touchdown)
+            {
+                layout.TouchdownAnimation = null;
+                layout.TouchdownVideo = null;
+            }
+            else
+            {
+                layout.FieldGoalAnimation = null;
+                layout.FieldGoalVideo = null;
+            }
+        });
+    }
+
+    /// <summary>The clip assigned to one exact signed score change, or null when none is set.</summary>
+    public ScoreVideo? ScoreVideoForAmount(int amount) => Layout.ScoreVideoForAmount(amount);
+
+    /// <summary>
+    /// Assigns a video to the exact signed score change. Null or an empty path removes that value's
+    /// clip. The same value may be used for home and visitors; only the displayed change matters.
+    /// </summary>
+    public void ApplyScoreVideoToLayout(int amount, ScoreVideo? video)
+    {
+        if (amount == 0) return;
+        Update(layout =>
+        {
+            layout.ScoreVideos ??= [];
+            layout.ScoreVideos.RemoveAll(rule => rule.Amount == amount);
+            if (video is null || video.IsEmpty) return;
+            var stored = video.Copy();
+            stored.Normalize();
+            layout.ScoreVideos.Add(new ScoreVideoRule { Amount = amount, Video = stored });
+            layout.ScoreVideos = layout.ScoreVideos.OrderBy(rule => rule.Amount).ToList();
+        });
     }
 
     /// <summary>Puts a hand-over on one element, played as its value changes.</summary>

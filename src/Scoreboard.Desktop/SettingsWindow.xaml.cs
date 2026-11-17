@@ -26,14 +26,17 @@ public partial class SettingsWindow : Window
         ShowHints.IsChecked = _draft.ShowHeadingHints;
         QuickPublishInput.IsChecked = _draft.QuickLayoutsPublish;
         DownPreviewInput.IsChecked = _draft.NextDownPreview;
-        UppercaseDownInput.IsChecked = _draft.UppercaseDownWords;
         NewSeriesInput.IsChecked = _draft.NewSeriesLive;
+        ReplaySecondsInput.Text = Math.Clamp(_draft.ReplaySeconds, 10, 900).ToString(CultureInfo.InvariantCulture);
         GameClockHornInput.IsChecked = _draft.HornOnGameClockZero;
         PlayClockHornInput.IsChecked = _draft.HornOnPlayClockZero;
         DelayInput.Text = _draft.ValueSwitchDelay.ToString("0.##", CultureInfo.CurrentCulture);
         AutosaveMinutesInput.Text = _draft.AutosaveMinutes.ToString(CultureInfo.InvariantCulture);
-        ClockFormatInput.SelectedIndex = string.Equals(_draft.ClockFormat, "Compact", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         AutoRecordInput.IsChecked = _draft.AutoUpdateRecord;
+        TieRuleInput.SelectedIndex = string.Equals(_draft.TieRule, "AllowTie", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        TiePeriodInput.Text = _draft.TieAllowPeriod.ToString(CultureInfo.InvariantCulture);
+        TiePeriodInput.IsEnabled = TieRuleInput.SelectedIndex == 1;
+        OvertimeFinalInput.IsChecked = _draft.ShowOvertimeFinal;
         AccentInput.Text = _draft.AccentColor;
         Accent2Input.Text = _draft.AccentColor2;
         PaintSwatches();
@@ -257,12 +260,6 @@ public partial class SettingsWindow : Window
         _draft.QuickLayoutsPublish = QuickPublishInput.IsChecked == true;
     }
 
-    void UppercaseDown_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading || UppercaseDownInput is null) return;
-        _draft.UppercaseDownWords = UppercaseDownInput.IsChecked == true;
-    }
-
     void ClockHorn_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || GameClockHornInput is null || PlayClockHornInput is null) return;
@@ -281,16 +278,37 @@ public partial class SettingsWindow : Window
         _draft.ValueSwitchDelay = Math.Clamp(seconds, 0, MaxDelay);
     }
 
-    void ClockFormat_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_loading || ClockFormatInput is null) return;
-        _draft.ClockFormat = ClockFormatInput.SelectedIndex == 1 ? "Compact" : "Padded";
-    }
-
     void AutoRecord_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || AutoRecordInput is null) return;
         _draft.AutoUpdateRecord = AutoRecordInput.IsChecked == true;
+    }
+
+    void TieRule_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || TieRuleInput is null || TiePeriodInput is null) return;
+        _draft.TieRule = TieRuleInput.SelectedIndex == 1 ? "AllowTie" : "PlayUntilWinner";
+        TiePeriodInput.IsEnabled = TieRuleInput.SelectedIndex == 1;
+    }
+
+    void TiePeriod_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_loading || TiePeriodInput is null) return;
+        if (int.TryParse(TiePeriodInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var period))
+            _draft.TieAllowPeriod = Math.Clamp(period, 1, 99);
+    }
+
+    void OvertimeFinal_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || OvertimeFinalInput is null) return;
+        _draft.ShowOvertimeFinal = OvertimeFinalInput.IsChecked == true;
+    }
+
+    void ReplaySeconds_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_loading || ReplaySecondsInput is null) return;
+        if (int.TryParse(ReplaySecondsInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds))
+            _draft.ReplaySeconds = Math.Clamp(seconds, 10, 900);
     }
 
     void Autosave_Changed(object sender, TextChangedEventArgs e)
@@ -366,14 +384,17 @@ public partial class SettingsWindow : Window
         _original.ShowHeadingHints = _draft.ShowHeadingHints;
         _original.QuickLayoutsPublish = _draft.QuickLayoutsPublish;
         _original.NextDownPreview = _draft.NextDownPreview;
-        _original.UppercaseDownWords = _draft.UppercaseDownWords;
         _original.NewSeriesLive = _draft.NewSeriesLive;
         _original.HornOnGameClockZero = _draft.HornOnGameClockZero;
         _original.HornOnPlayClockZero = _draft.HornOnPlayClockZero;
         _original.ValueSwitchDelay = Math.Clamp(_draft.ValueSwitchDelay, 0, MaxDelay);
         _original.AutosaveMinutes = Math.Max(0, _draft.AutosaveMinutes);
-        _original.ClockFormat = _draft.ClockFormat;
+        _original.ReplaySeconds = Math.Clamp(_draft.ReplaySeconds, 10, 900);
+        CameraFeed.ReplayWindowSeconds = _original.ReplaySeconds;
         _original.AutoUpdateRecord = _draft.AutoUpdateRecord;
+        _original.TieRule = _draft.TieRule;
+        _original.TieAllowPeriod = Math.Clamp(_draft.TieAllowPeriod, 1, 99);
+        _original.ShowOvertimeFinal = _draft.ShowOvertimeFinal;
         _original.AccentColor = _draft.AccentColor;
         _original.AccentColor2 = _draft.AccentColor2;
         _original.RemotePort = _draft.RemotePort;

@@ -37,7 +37,7 @@ public partial class RosterDock : UserControl
         RefreshSummary();
     }
 
-    /// <summary>Matches the desk to the operator theme (near-black page in Dark, light page in Light).</summary>
+    /// <summary>Matches the desk to the operator theme (black page in Dark, light page in Light).</summary>
     public void ApplyTheme(string theme)
     {
         RosterPalette.Apply(theme, Resources);

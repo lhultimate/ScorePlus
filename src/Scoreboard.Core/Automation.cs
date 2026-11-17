@@ -195,6 +195,13 @@ public sealed class AutomationRule
     public bool Enabled { get; set; } = true;
 
     /// <summary>
+    /// The layout this rule belongs to. The Conditionals window opens against one layout, so two
+    /// layouts on the same display keep separate rule lists. Empty is a legacy rule and is adopted
+    /// by the layout that first opens the editor.
+    /// </summary>
+    public string LayoutId { get; set; } = "";
+
+    /// <summary>
     /// This rule reads the live game and writes its result to the output immediately, instead of
     /// waiting for Update Output to publish the state and layout first.
     /// </summary>
@@ -248,7 +255,7 @@ public static class AutomationRules
         (AutomationField.ClockRunning, "Game clock running"),
         (AutomationField.PlayClockRunning, "Play clock running"),
         (AutomationField.Sport, "Sport"),
-        (AutomationField.CustomStat, "Custom stat"),
+        (AutomationField.CustomStat, "Custom value"),
         (AutomationField.StoppageClock, "Added time"),
         (AutomationField.StoppageRunning, "Added time running"),
         (AutomationField.ShotClockRunning, "Shot clock running"),
@@ -451,6 +458,7 @@ public static class AutomationRules
         {
             rule.Id = string.IsNullOrWhiteSpace(rule.Id) ? Guid.NewGuid().ToString("N") : rule.Id.Trim();
             rule.Name = string.IsNullOrWhiteSpace(rule.Name) ? "Untitled rule" : rule.Name.Trim();
+            rule.LayoutId = (rule.LayoutId ?? "").Trim();
             rule.Conditions ??= [];
             rule.Actions ??= [];
             rule.Conditions = rule.Conditions.Where(c => c is not null).Take(24).Select(c => c.Copy()).ToList();

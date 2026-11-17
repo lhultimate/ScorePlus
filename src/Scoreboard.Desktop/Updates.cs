@@ -215,11 +215,13 @@ public static class UpdateChecker
         // reads as 1.60.0 and sorts after a1.51 (1.51.0). Plain release tags keep their own digits.
         var alpha = Regex.IsMatch(tag, @"^\s*(?:alpha|a)(?=\d)", RegexOptions.IgnoreCase);
         var beta = Regex.IsMatch(tag, @"^\s*(?:beta|b)(?=\d)", RegexOptions.IgnoreCase);
-        var stable = Regex.IsMatch(tag, @"^\s*(?:stable|c)(?=\d)", RegexOptions.IgnoreCase);
+        // A leading v is the conventional stable spelling (v1.0); c and stable also remain
+        // available. All three sit above beta so a b1.x build can move to v1.0.
+        var stable = Regex.IsMatch(tag, @"^\s*(?:stable|c|v)(?=\d)", RegexOptions.IgnoreCase);
         if (parts.Length >= 2 && parts[1].Length == 1 && (alpha || beta)) numbers[1] *= 10;
-        // Beta builds sit above every alpha build, and a c-tag (the eventual stable channel) sits
+        // Beta builds sit above every alpha build, and a c/v-tag (the eventual stable channel) sits
         // above beta. The major number is the stage, which also lets an older alpha updater, which
-        // only understands numbers, see b1.0 as 2.0.0 and update to it.
+        // only understands numbers, see b1.0 as 2.0.0 and v1.0 as 3.0.0 and update to it.
         var major = beta ? 2 : stable ? 3 : numbers[0];
         return $"{major}.{numbers[1]}.{numbers[2]}";
     }
@@ -242,7 +244,7 @@ public static class UpdateChecker
 
     static int StageRank(string label)
     {
-        if (Regex.IsMatch(label, @"^\s*(?:stable|c)(?=\d)", RegexOptions.IgnoreCase)) return 2;
+        if (Regex.IsMatch(label, @"^\s*(?:stable|c|v)(?=\d)", RegexOptions.IgnoreCase)) return 2;
         if (Regex.IsMatch(label, @"^\s*(?:beta|b)(?=\d)", RegexOptions.IgnoreCase)) return 1;
         return 0;
     }

@@ -40,8 +40,11 @@ public sealed class CameraFeed : IDisposable
     const double FramesPerSecond = 15;
     static readonly TimeSpan SegmentLength = TimeSpan.FromSeconds(120);
 
-    /// <summary>How far back Replay can reach, in seconds.</summary>
-    public const double MaxReplaySeconds = 120;
+    /// <summary>The replay window in Preferences defaults to two minutes.</summary>
+    public const double DefaultReplaySeconds = 120;
+
+    /// <summary>How far back Replay can reach, in seconds. Driven by the saved preference.</summary>
+    public static double ReplayWindowSeconds { get; set; } = DefaultReplaySeconds;
 
     readonly int _index;
     readonly Dispatcher _dispatcher;
@@ -49,6 +52,7 @@ public sealed class CameraFeed : IDisposable
     Thread? _thread;
     volatile bool _wanted;
     volatile bool _framePending;
+    long _frameVersion;
     VideoWriter? _writer;
     string? _segmentPath;
     DateTime _segmentStarted;
@@ -77,6 +81,13 @@ public sealed class CameraFeed : IDisposable
     /// <summary>The last capture error, shown in the dock instead of a silent black box.</summary>
     public string? Error { get; private set; }
 
+    /// <summary>The newest frozen picture, shared with the Replay Booth and its browser wall.</summary>
+    public BitmapSource? LastFrame { get; private set; }
+
+    /// <summary>Increases with every published frame. The browser wall uses it as the image cache
+    /// key, so selecting a camera does not make every tile download a fresh JPEG.</summary>
+    public long FrameVersion => Interlocked.Read(ref _frameVersion);
+
     public bool IsLive => _wanted;
 
     /// <summary>Which capture device this feed opens.</summary>
@@ -104,9 +115,9 @@ public sealed class CameraFeed : IDisposable
     }
 
     /// <summary>
-    /// Hands back the clips recorded so far, newest last, covering about two minutes. The clip being
-    /// written is closed first: it has to be finalised before anything can read it back, and the
-    /// feed opens a fresh segment on its next frame. Null-returning means nothing was recorded.
+    /// Hands back the clips recorded so far, newest last, covering the configured replay window. The
+    /// clip being written is closed first: it has to be finalised before anything can read it back,
+    /// and the feed opens a fresh segment on its next frame. Empty means nothing was recorded.
     /// </summary>
     public IReadOnlyList<CameraSegment> Snapshot()
     {
@@ -115,7 +126,7 @@ public sealed class CameraFeed : IDisposable
             CloseWriter();
             if (_segments.Count == 0) return [];
             var newest = _segments[^1].EndsAt;
-            var earliest = newest.AddSeconds(-MaxReplaySeconds);
+            var earliest = newest.AddSeconds(-Math.Max(1, ReplayWindowSeconds));
             return _segments.Where(segment => segment.EndsAt > earliest && File.Exists(segment.Path)).ToArray();
         }
     }
@@ -134,10 +145,10 @@ public sealed class CameraFeed : IDisposable
         PruneSegments();
     }
 
-    /// <summary>Keeps the replay window bounded: old clips beyond two minutes are deleted.</summary>
+    /// <summary>Keeps the replay window bounded: old clips beyond the configured window are deleted.</summary>
     void PruneSegments()
     {
-        while (_segments.Count > 1 && _segments[^1].EndsAt - _segments[0].EndsAt > TimeSpan.FromSeconds(MaxReplaySeconds + 20))
+        while (_segments.Count > 1 && _segments[^1].EndsAt - _segments[0].EndsAt > TimeSpan.FromSeconds(Math.Max(1, ReplayWindowSeconds) + 20))
         {
             var oldest = _segments[0];
             _segments.RemoveAt(0);
@@ -413,9 +424,10 @@ public sealed class CameraFeed : IDisposable
     {
         try
         {
-            // One segment may be 120s; six of them is more than the two-minute window plus spares.
+            // One segment may be 120s; keep enough finished clips for the chosen window plus spares.
+            var keep = (int)Math.Ceiling(Math.Max(1, ReplayWindowSeconds) / SegmentLength.TotalSeconds) + 3;
             foreach (var stale in new DirectoryInfo(folder).GetFiles("camera-*.avi")
-                         .OrderByDescending(f => f.LastWriteTimeUtc).Skip(6))
+                         .OrderByDescending(f => f.LastWriteTimeUtc).Skip(keep))
                 stale.Delete();
         }
         catch { }
@@ -441,6 +453,8 @@ public sealed class CameraFeed : IDisposable
         _dispatcher.BeginInvoke(() =>
         {
             _framePending = false;
+            LastFrame = picture;
+            Interlocked.Increment(ref _frameVersion);
             try { FrameReady?.Invoke(picture); } catch { }
         });
     }

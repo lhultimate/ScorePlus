@@ -42,6 +42,21 @@ public sealed class ScorebugCanvasView : Grid
     // of that flourish and are removed on the next value change, rebuild or stop.
     Canvas? _valuePieces;
     DispatcherTimer? _valueTimer;
+    // A touchdown or field goal plays over the whole graphic: every item takes its part of the
+    // clip, temporary pieces sit above the layout, and both are cleared when the event ends.
+    Canvas? _scorePieces;
+    DispatcherTimer? _scoreTimer;
+    // A score celebration can also be a full-frame video. The player is owned by this view so a
+    // rebuild, a new score or closing the feed can stop it and release the decoder.
+    MediaPlayer? _scoreVideoPlayer;
+    FrameworkElement? _scoreVideoOverlay;
+    DispatcherTimer? _scoreVideoTimer;
+    // Whole-graphic tracks run once on the canvas, not once per item, so a scale or spin keeps
+    // the scorebug together. The flag distinguishes that transform from the layout hand-over.
+    bool _scoreCanvasAnimated;
+    readonly List<(ScorebugElement Item, FrameworkElement Host)> _scoreAnimated = [];
+    // The last scoring action this view has already celebrated.
+    long _lastScoreSequence;
     // The hand-over video is drawn through a video brush so its chroma shader reaches the frames.
     MediaPlayer? _swapPlayer;
     // A staged layout's hand-over video is opened before Update Output, so the first frame is
@@ -59,6 +74,10 @@ public sealed class ScorebugCanvasView : Grid
     readonly bool _onAirVideo;
     // A nested feed must follow every game value, not just the clocks a preview copies.
     readonly bool _liveValues;
+    /// <summary>Set while a saved game or a new game replaces the show. The first layout rebuild
+    /// must not look like an operator hand-over and play a transition video just because the
+    /// loaded design changed.</summary>
+    public static bool SuppressTransitions { get; set; }
     readonly Viewbox _viewbox;
     readonly Dictionary<string, (FrameworkElement Host, FrameworkElement Content)> _visuals = [];
     // Keyed by element id so a rebuild can keep the surface (and the running picture) alive.
@@ -107,6 +126,7 @@ public sealed class ScorebugCanvasView : Grid
         _wallClock.Tick+=(_,_)=>{if(UsesWallClock())UpdateValues();};
         _wallClock.Start();
         _layoutChain.Add(Layout.Id);
+        _lastScoreSequence=_stateProvider().LastScoreSequence;
         Rebuild();
     }
 
@@ -119,6 +139,7 @@ public sealed class ScorebugCanvasView : Grid
     /// </summary>
     public void PrepareTransition(ScorebugLayout layout)
     {
+        if (SuppressTransitions) return;
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(()=>PrepareTransition(layout));return;}
         PrepareTransition(layout.TransitionVideoPath);
     }
@@ -167,6 +188,17 @@ public sealed class ScorebugCanvasView : Grid
     {
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(Rebuild);return;}
         if(_disposed)return;
+        // A new game or a rebuilt layout starts from the current score, never by replaying the
+        // celebration that happened before it.
+        ClearScoreAnimation();
+        if (SuppressTransitions)
+        {
+            // A hand-over or a preloaded transition left over from the old game must not survive
+            // the load and start playing over the newly opened show.
+            FinishSwap();
+            ReleasePreparedTransition();
+        }
+        _lastScoreSequence=_stateProvider().LastScoreSequence;
         // A different layout on the same feed is a hand-over: keep what is currently on screen as a
         // still, so the new layout can be revealed through it rather than snapping into place. Any
         // other rebuild (an edit, a palette change) must never trigger the animation.
@@ -181,7 +213,9 @@ public sealed class ScorebugCanvasView : Grid
                 return;
             _drawnSignature = signature;
         }
-        var swapping = _drawnLayoutId is not null && !string.Equals(_drawnLayoutId, incoming.Id, StringComparison.OrdinalIgnoreCase);
+        var swapping = !SuppressTransitions
+            && _drawnLayoutId is not null
+            && !string.Equals(_drawnLayoutId, incoming.Id, StringComparison.OrdinalIgnoreCase);
         var outgoing = swapping ? CaptureCanvas() : null;
         // The layout the still was taken from, so a per-piece exit can be cropped out of it.
         var outgoingLayout = swapping ? _drawnLayout : null;
@@ -218,7 +252,12 @@ public sealed class ScorebugCanvasView : Grid
             // of the visual tree, which stops the decoder and restarts the picture from frame one:
             // that is what made a video jump back to the start on every studio edit.
             var reused=previousVisuals.TryGetValue(item.Id,out var prior)&&ReferenceEquals(prior.Content,content);
-            var host=reused?(Border)prior.Host:new Border{ClipToBounds=true,Child=content};
+            // A text item is allowed to leave its box while Jump Flip lifts it; clipping the host
+            // cut the top of the glyphs off against the artwork background. Video and plate artwork
+            // still clip so they cannot bleed over neighbouring elements.
+            var clipContent=content is not ScorebugTextBlock;
+            var host=reused?(Border)prior.Host:new Border{ClipToBounds=clipContent,Child=content};
+            host.ClipToBounds=clipContent;
             if(!reused)host.Background=ScorebugRender.HostBackground(item,_stateProvider());
             host.Width=item.Width;host.Height=item.Height;host.Opacity=item.Opacity;
             host.Visibility=item.Visible?Visibility.Visible:Visibility.Collapsed;
@@ -1143,7 +1182,7 @@ public sealed class ScorebugCanvasView : Grid
             }
             if(visual.Content is ScorebugTextBlock block)
             {
-                var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat);
+                var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero);
                 block.ApplyStyle(item,state);
                 ShowValue(item,block,text);
             }
@@ -1162,6 +1201,244 @@ public sealed class ScorebugCanvasView : Grid
             }
             ApplyAnimation(item,visual.Host);
         }
+        TryPlayScoreAnimation(state);
+    }
+
+    /// <summary>
+    /// Plays a score celebration video over the whole graphic. The same chroma shader used by
+    /// video boxes and hand-overs reaches the decoded frames, so a green-screen celebration shows
+    /// the scorebug underneath instead of a solid backdrop.
+    /// </summary>
+    bool TryPlayScoreVideo(ScoreVideo video)
+    {
+        var path=(video.Path??"").Trim();
+        if(path.Length==0||!System.IO.File.Exists(path))return false;
+        var extension=System.IO.Path.GetExtension(path).ToLowerInvariant();
+        if(extension is not (".mp4" or ".m4v" or ".wmv" or ".avi" or ".mov" or ".mkv" or ".webm"))return false;
+        ClearScoreAnimation();
+        var width=Math.Max(1,_canvas.Width);
+        var height=Math.Max(1,_canvas.Height);
+        var player=new MediaPlayer{IsMuted=true,ScrubbingEnabled=false};
+        var drawing=new VideoDrawing{Player=player,Rect=new Rect(0,0,1,1)};
+        var brush=new DrawingBrush(drawing){Stretch=Stretch.Fill};
+        var picture=new Rectangle{Width=width,Height=height,Fill=brush,IsHitTestVisible=false};
+        if(TryParseColor(video.ChromaKeyColor,out var keyColour))
+            picture.Effect=new ChromaKeyEffect{KeyColor=keyColour,Tolerance=video.ChromaKeyTolerance};
+        var overlay=new Grid{Width=width,Height=height,IsHitTestVisible=false};
+        overlay.Children.Add(picture);
+        Panel.SetZIndex(overlay,12000);
+        _canvas.Children.Add(overlay);
+        _scoreVideoPlayer=player;
+        _scoreVideoOverlay=overlay;
+        var guard=new DispatcherTimer{Interval=TimeSpan.FromSeconds(30)};
+        _scoreVideoTimer=guard;
+        void Finish()
+        {
+            if(ReferenceEquals(_scoreVideoOverlay,overlay))ClearScoreAnimation();
+        }
+        guard.Tick+=(_,_)=>{
+            guard.Stop();
+            if(ReferenceEquals(_scoreVideoTimer,guard))Finish();
+        };
+        guard.Start();
+        player.MediaOpened+=(_,_)=>{
+            if(!ReferenceEquals(_scoreVideoPlayer,player))return;
+            // A clip that opens successfully should run to its own end; the timer is only the
+            // fallback for a decoder that opens but never reports the end of the file.
+            if(player.NaturalDuration.HasTimeSpan)
+            {
+                var seconds=player.NaturalDuration.TimeSpan.TotalSeconds;
+                if(seconds>0)guard.Interval=TimeSpan.FromSeconds(Math.Clamp(seconds+0.75,1,65));
+            }
+            try{player.Play();}catch{Finish();}
+        };
+        player.MediaEnded+=(_,_)=>Finish();
+        player.MediaFailed+=(_,_)=>Finish();
+        try{player.Open(new Uri(path));}catch{Finish();return false;}
+        return true;
+    }
+
+    /// <summary>
+    /// Plays the celebration assigned to the exact signed score change, for any sport. A +6 entry
+    /// works for either team and a -6 entry handles a correction; the sequence, not the score
+    /// itself, is the trigger, so a clock tick never replays a celebration. The old fixed
+    /// touchdown/field-goal fields remain a fallback for layouts saved before value rules existed.
+    /// </summary>
+    void TryPlayScoreAnimation(GameState state)
+    {
+        var sequence=state.LastScoreSequence;
+        if(sequence<=_lastScoreSequence){_lastScoreSequence=sequence;return;}
+        _lastScoreSequence=sequence;
+        // SetScore deliberately leaves the amount at zero (it is a correction, not a score press).
+        if(state.LastScoreAmount==0)return;
+        var amount=state.LastScoreAmount;
+        var mapped=Layout.ScoreVideoForAmount(amount);
+        if(mapped is not null&&TryPlayScoreVideo(mapped))return;
+        // Compatibility with layouts saved before the per-value video list. These fixed clips only
+        // ever described positive football scores, so they must not claim a correction or another
+        // sport's score.
+        ScoreVideo? video=null;
+        MotionClip? clip=null;
+        if(string.Equals(state.SportId,"football",StringComparison.OrdinalIgnoreCase)&&amount>0)
+        {
+            if(amount is 6 or 7 or 8)
+            {
+                video=Layout.TouchdownVideo;
+                clip=Layout.TouchdownAnimation;
+            }
+            else if(amount==3)
+            {
+                video=Layout.FieldGoalVideo;
+                clip=Layout.FieldGoalAnimation;
+            }
+        }
+        if(video is not null&&TryPlayScoreVideo(video))return;
+        if(clip is null||clip.IsEmpty)return;
+        // A score event has its own name, so it uses the clip's normal take. Triggered takes remain
+        // available for per-value flourishes, but they cannot accidentally replace the event clip.
+        var phase=clip.Phases.FirstOrDefault(candidate=>candidate.Enabled&&!candidate.IsEmpty&&!candidate.IsTriggered)
+            ??clip.Phases.FirstOrDefault(candidate=>candidate.Enabled&&!candidate.IsEmpty);
+        if(phase is null)return;
+        ClearScoreAnimation();
+        var steps=new List<(string Id,Action Play)>();
+        var canvasPhase=ScoreCanvasPhase(phase);
+        if(canvasPhase is not null)
+        {
+            _scoreCanvasAnimated=true;
+            MotionPlayback.PlayPhaseRootOnly(_canvas,canvasPhase,1);
+        }
+        foreach(var item in Layout.Elements)
+        {
+            if(!item.Visible||!_visuals.TryGetValue(item.Id,out var visual))continue;
+            var itemPhase=ScoreItemPhase(phase,item.Id);
+            if(itemPhase is null)continue;
+            // The celebration takes over the host and can cancel a value transition before its
+            // completion callback runs. Land the newest value now so the block is not left stuck
+            // mid-transition, which used to stop every later score from printing.
+            if(visual.Content is ScorebugTextBlock settling)settling.Settle();
+            var host=visual.Host;var id=item.Id;var opacity=Math.Clamp(item.Opacity,0,1);
+            _scoreAnimated.Add((item,host));
+            steps.Add((id,()=>MotionPlayback.PlayPhase(host,itemPhase,opacity,pieceId:id)));
+        }
+        Canvas? overlay=null;
+        var pieces=clip.PiecesForTrigger(state.LastScoreAmount,state.LastScoreHome);
+        if(pieces.Count>0)
+        {
+            overlay=new Canvas{Width=Math.Max(1,_canvas.Width),Height=Math.Max(1,_canvas.Height),IsHitTestVisible=false};
+            Panel.SetZIndex(overlay,11000);
+            foreach(var piece in pieces)
+            {
+                var host=BuildTemporaryPiece(piece);
+                overlay.Children.Add(host);
+                var piecePhase=ScoreItemPhase(phase,piece.Id);
+                if(piecePhase is null)continue;
+                var pieceId=piece.Id;var opacity=Math.Clamp(piece.Opacity,0,1);
+                steps.Add((pieceId,()=>MotionPlayback.PlayPhase(host,piecePhase,opacity,pieceId:pieceId)));
+            }
+            // The overlay lives inside the animated canvas so a whole-graphic scale, spin or slide
+            // carries the temporary card with it instead of leaving it behind.
+            _canvas.Children.Add(overlay);
+            _scorePieces=overlay;
+        }
+        if(canvasPhase is null&&steps.Count==0&&overlay is null)return;
+        if(steps.Count>0)PlayStaggered(steps,phase.Seconds,clip);
+        var timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(Math.Max(0.05,phase.Seconds+StaggerFor(steps,clip)))};
+        _scoreTimer=timer;
+        timer.Tick+=(_,_)=>{timer.Stop();if(ReferenceEquals(_scoreTimer,timer))ClearScoreAnimation();};
+        timer.Start();
+    }
+
+    /// <summary>
+    /// Whole-graphic motion belongs on the canvas once. Its background colour paints the layout
+    /// backdrop, not every item plate. Text and border colours stay item-scoped and are applied
+    /// by <see cref="ScoreItemPhase"/> instead.
+    /// </summary>
+    static MotionPhase? ScoreCanvasPhase(MotionPhase phase)
+    {
+        var tracks=phase.Tracks
+            .Where(track=>string.IsNullOrWhiteSpace(track.PieceId)&&IsCanvasMotion(track.Target))
+            .ToList();
+        var colors=phase.Colors
+            .Where(track=>string.IsNullOrWhiteSpace(track.PieceId)&&track.Role==MotionColorRole.Background)
+            .ToList();
+        return tracks.Count==0&&colors.Count==0
+            ? null
+            : new MotionPhase(phase.Name,phase.Seconds){Tracks=tracks,Colors=colors,Enabled=true};
+    }
+
+    /// <summary>
+    /// The keys a single item or temporary piece follows: whole-graphic keys that need to reach
+    /// descendant content, plus keys authored for that piece. Whole-graphic motion is deliberately
+    /// absent because it already runs on the canvas.
+    /// </summary>
+    static MotionPhase? ScoreItemPhase(MotionPhase phase,string pieceId)
+    {
+        var tracks=phase.Tracks
+            .Where(track=>string.Equals(track.PieceId,pieceId,StringComparison.OrdinalIgnoreCase)
+                ||(string.IsNullOrWhiteSpace(track.PieceId)&&IsItemContent(track.Target)))
+            .ToList();
+        var colors=phase.Colors
+            .Where(track=>string.Equals(track.PieceId,pieceId,StringComparison.OrdinalIgnoreCase)
+                ||(string.IsNullOrWhiteSpace(track.PieceId)&&track.Role!=MotionColorRole.Background))
+            .ToList();
+        return tracks.Count==0&&colors.Count==0
+            ? null
+            : new MotionPhase(phase.Name,phase.Seconds){Tracks=tracks,Colors=colors,Enabled=true};
+    }
+
+    static bool IsCanvasMotion(MotionTarget target)=>target is
+        MotionTarget.X or MotionTarget.Y or MotionTarget.Scale or MotionTarget.ScaleX or MotionTarget.ScaleY
+        or MotionTarget.Rotate or MotionTarget.Opacity or MotionTarget.Blur or MotionTarget.SkewX or MotionTarget.SkewY
+        or MotionTarget.Width or MotionTarget.Height;
+
+    static bool IsItemContent(MotionTarget target)=>target is
+        MotionTarget.TextOpacity or MotionTarget.BackgroundOpacity or MotionTarget.BorderOpacity
+        or MotionTarget.FontSize or MotionTarget.BorderThickness;
+
+    void ClearScoreAnimation()
+    {
+        _scoreVideoTimer?.Stop();
+        _scoreVideoTimer=null;
+        if(_scoreVideoPlayer is { } videoPlayer)
+        {
+            _scoreVideoPlayer=null;
+            try{videoPlayer.Stop();videoPlayer.Close();}catch{}
+        }
+        if(_scoreVideoOverlay is not null)
+        {
+            _canvas.Children.Remove(_scoreVideoOverlay);
+            _scoreVideoOverlay=null;
+        }
+        _scoreTimer?.Stop();
+        _scoreTimer=null;
+        if(_scorePieces is not null)
+        {
+            foreach(var host in _scorePieces.Children.OfType<FrameworkElement>()) MotionPlayback.Stop(host);
+            _canvas.Children.Remove(_scorePieces);
+            _scorePieces=null;
+        }
+        if(_scoreCanvasAnimated)
+        {
+            MotionPlayback.StopRootOnly(_canvas);
+            _canvas.BeginAnimation(UIElement.OpacityProperty,null);
+            _canvas.Opacity=1;
+            _canvas.RenderTransform=Transform.Identity;
+            _canvas.RenderTransformOrigin=new Point(0.5,0.5);
+            _canvas.Effect=null;
+            if(double.IsFinite(_stage.Width)&&_stage.Width>0)_canvas.Width=_stage.Width;
+            if(double.IsFinite(_stage.Height)&&_stage.Height>0)_canvas.Height=_stage.Height;
+            _scoreCanvasAnimated=false;
+        }
+        foreach(var (item,host) in _scoreAnimated)
+        {
+            MotionPlayback.Stop(host);
+            // The celebration may have cancelled a value change on this item; settle it before
+            // the next paint so the score keeps updating after the animation ends.
+            if(_visuals.TryGetValue(item.Id,out var visual)&&visual.Content is ScorebugTextBlock settling)settling.Settle();
+            _animations.Remove(item.Id);
+            if(!_disposed)ApplyAnimation(item,host);
+        }
+        _scoreAnimated.Clear();
     }
 
     /// <summary>
@@ -1209,6 +1486,7 @@ public sealed class ScorebugCanvasView : Grid
         if(_disposed)return;
         _disposed=true;
         ClearValuePieces();
+        ClearScoreAnimation();
         _wallClock.Stop();
         foreach(var (id,_) in _pendingText.ToArray()) CancelPending(id);
         _catalog.Changed-=Rebuild;

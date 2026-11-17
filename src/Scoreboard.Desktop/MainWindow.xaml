@@ -56,17 +56,19 @@
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Style="{StaticResource IconButton}" Content="⚙" Click="Preferences_Click" ToolTip="Preferences"/>
+          <Button Style="{StaticResource IconButton}" Content="i" Click="Info_Click" ToolTip="About ScorePlus — name, version and credits"/>
           <Button x:Name="LockButton" Style="{StaticResource IconButton}" Content="🔒" Click="Lock_Click"
                   ToolTip="Lock ScorePlus — console, media, rosters and the remote stay locked until the password is entered"/>
           <Button Style="{StaticResource IconButton}" Content="⧉" Click="NewPanel_Click" ToolTip="New panel — open a detached control panel that stays in sync"/>
           <Button Style="{StaticResource IconButton}" Content="⌨" Click="Keybinds_Click" ToolTip="Keybinds — assign a key combination to any control"/>
           <Button Style="{StaticResource IconButton}" Content="✎" Click="Annotate_Click" ToolTip="Annotate audience view — choose a display, then draw on it with a pen or highlighter"/>
-          <Button Style="{StaticResource IconButton}" Content="⛓" Click="Automation_Click" ToolTip="Conditionals — conditions that recolor, move, hide or switch layouts automatically"/>
           <Button Style="{StaticResource IconButton}" Content="▶" Click="Output_Click" ToolTip="Audience output — choose a display and open its window (F11 fills the screen)"/>
           <Button Style="{StaticResource IconButton}" Content="☰" Click="EventLog_Click" ToolTip="Event log — open it in its own window"/>
           <Button Style="{StaticResource IconButton}" Content="▤" Click="AdLog_Click" ToolTip="Ad log — how many times each clip has played, and how long it runs"/>
           <Button Style="{StaticResource IconButton}" Content="▦" Click="GameReport_Click" ToolTip="Game report — export a printable HTML summary"/>
-          <Button Style="{StaticResource IconButton}" Content="⌁" Click="Hardware_Click" ToolTip="Hardware — connect a scoreboard controller and monitor its data"/>
+          <Button Style="{StaticResource IconButton}" Content="🕹" Click="Hardware_Click" ToolTip="Hardware — connect a scoreboard controller and monitor its data"/>
+          <Button Style="{StaticResource IconButton}" Content="☁" Click="LeagueCloud_Click" ToolTip="League cloud — upload this game and fetch other league scores for a ticker"/>
+          <Button Style="{StaticResource IconButton}" Content="⇄" Click="Ticker_Click" ToolTip="Ticker rotation — choose games, news and score alerts"/>
           <Button Style="{StaticResource HeaderButton}" Content="Save Game" Click="Save_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Open Game" Click="Open_Click"/>
         </StackPanel>
@@ -86,6 +88,7 @@
           <Button Style="{StaticResource HeaderButton}" Content="Transition Builder" Click="TransitionMaker_Click" ToolTip="Build a keyframed hand-over: how a graphic leaves, how it arrives, and its colors on the way"/>
           <Button Style="{StaticResource HeaderButton}" Content="Animation Maker" Click="AnimationMaker_Click" ToolTip="Key motion a value follows — a loop while it is up, or a flourish when it changes"/>
           <Button Style="{StaticResource HeaderButton}" Content="Multiview" Click="Multiview_Click" ToolTip="Every camera at once, with the replay preview beside the live picture"/>
+          <Button Style="{StaticResource HeaderButton}" Content="Replay Booth" Click="ReplayBooth_Click" ToolTip="Review the last replay window of every camera with the clocks that were showing"/>
           <Button Style="{StaticResource HeaderButton}" Content="Display Studio" Click="ScorebugStudio_Click"/>
           <Button Style="{StaticResource HeaderButton}" Content="Sport Profiles" Click="SportProfiles_Click"/>
           <Button x:Name="EndGameButton" Style="{StaticResource HeaderButton}" Content="End Game" Click="EndGame_Click" ToolTip="Stop every clock, mark the game final and add the result to each team's record"/>
@@ -93,9 +96,14 @@
         </StackPanel>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <TextBlock Text="SPORT" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"/>
-          <ComboBox x:Name="SportSelector" Width="220" SelectionChanged="Sport_Changed">
+          <ComboBox x:Name="SportSelector" Width="200" SelectionChanged="Sport_Changed">
             <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}"/></DataTemplate></ComboBox.ItemTemplate>
           </ComboBox>
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
+            <TextBlock Text="Game Name" Foreground="#93A0B2" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="14"/>
+            <TextBox x:Name="GameNameBox" Width="360" MinHeight="40" FontSize="16"
+                     TextChanged="GameName_Changed" ToolTip="Name this fixture; it is saved with the game"/>
+          </StackPanel>
           <TextBlock x:Name="SportHint" Text="Everything you need for the game is on this page." Foreground="#5C6B7E" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11" Visibility="Collapsed"/>
         </StackPanel>
       </DockPanel>
@@ -204,11 +212,14 @@
           <Button x:Name="MediaTab" Style="{StaticResource TabButton}" Content="MEDIA" Click="MediaTab_Click" ToolTip="Clips, camera, replay and playlists"/>
           <Button x:Name="RosterTab" Style="{StaticResource TabButton}" Content="ROSTERS" Click="RosterTab_Click"
                   ToolTip="Team rosters, player stats and the player on the graphic"/>
+          <Button x:Name="MacrosTab" Style="{StaticResource TabButton}" Content="MACROS" Click="MacrosTab_Click"
+                  ToolTip="One button that changes several things in order, and plays media or roster stats"/>
         </StackPanel>
         <Grid Grid.Row="1">
           <ContentControl x:Name="ControlHost"/>
           <local:MediaDock x:Name="MediaControl" Visibility="Collapsed"/>
           <local:RosterDock x:Name="RosterControl" Visibility="Collapsed"/>
+          <ContentControl x:Name="MacroHost" Visibility="Collapsed"/>
         </Grid>
       </Grid>
     </Grid>

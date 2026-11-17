@@ -50,12 +50,6 @@ public sealed class UserPreferences
     /// </summary>
     public bool NextDownPreview { get; set; }
 
-    /// <summary>
-    /// Off by default: print the down line's words in full caps — "1st & GOAL", "2nd DOWN" —
-    /// while the ordinal and the distance keep their normal case.
-    /// </summary>
-    public bool UppercaseDownWords { get; set; }
-
     /// <summary>New series goes straight to air instead of waiting for Update Output.</summary>
     public bool NewSeriesLive { get; set; }
 
@@ -78,15 +72,33 @@ public sealed class UserPreferences
     public int AutosaveMinutes { get; set; } = 5;
 
     /// <summary>
-    /// How clocks print. "Padded" is 10:00, 09:59 and 0:59; "Compact" is 10:00, 9:59 and :59.
-    /// </summary>
-    public string ClockFormat { get; set; } = "Padded";
-
-    /// <summary>
     /// Off by default: when the final period or full time expires, add the result to each team's
     /// win-loss-tie record. A side with no record is left alone.
     /// </summary>
     public bool AutoUpdateRecord { get; set; }
+
+    /// <summary>
+    /// "PlayUntilWinner" holds a tie at End of Reg. and keeps overtime available indefinitely;
+    /// "AllowTie" permits the game to finish level once <see cref="TieAllowPeriod"/> is reached.
+    /// </summary>
+    public string TieRule { get; set; } = "PlayUntilWinner";
+
+    /// <summary>The last period that may end level and still be recorded as a tie.</summary>
+    public int TieAllowPeriod { get; set; } = 4;
+
+    /// <summary>Off by default: after the scheduled periods, FINAL reads FINAL/OT.</summary>
+    public bool ShowOvertimeFinal { get; set; }
+
+    /// <summary>Off until a league cloud endpoint is configured.</summary>
+    public bool LeagueCloudEnabled { get; set; }
+    /// <summary>POST endpoint for this game's live snapshot.</summary>
+    public string LeagueCloudUploadUrl { get; set; } = "";
+    /// <summary>GET endpoint for the league's current games; may contain {league}.</summary>
+    public string LeagueCloudFeedUrl { get; set; } = "";
+    public string LeagueCloudLeagueId { get; set; } = "default";
+    /// <summary>Optional bearer token. It stays on this computer with the other preferences.</summary>
+    public string LeagueCloudApiKey { get; set; } = "";
+    public int LeagueCloudPollSeconds { get; set; } = 15;
 
     /// <summary>The sport the operator last ran, so a launcher "New Game" opens the game they expect.</summary>
     public string LastSport { get; set; } = "football";
@@ -99,6 +111,18 @@ public sealed class UserPreferences
 
     /// <summary>Twelve quick-media buttons above the quick layouts. Each one points at a library path.</summary>
     public List<QuickMediaBinding> QuickMedia { get; set; } = [];
+
+    /// <summary>The operator's own multiview tile layout: previews, audience displays, cameras or replay.</summary>
+    public List<MultiviewTileBinding> MultiviewTiles { get; set; } = [];
+
+    /// <summary>Show the source name in each multiview tile's bottom corner.</summary>
+    public bool MultiviewShowLabels { get; set; } = true;
+
+    /// <summary>Show the camera name in each Replay Booth tile's bottom corner.</summary>
+    public bool ReplayBoothShowLabels { get; set; } = true;
+
+    /// <summary>How far back the Replay Booth and its browser page can rewind, in seconds.</summary>
+    public int ReplaySeconds { get; set; } = 120;
 
     /// <summary>
     /// Off by default: a quick button only stages its layout. When this is on, the same press also
@@ -147,10 +171,17 @@ public sealed class UserPreferences
         CheckForUpdates = CheckForUpdates,
         ValueSwitchDelay = ValueSwitchDelay,
         AutosaveMinutes = AutosaveMinutes,
-        ClockFormat = ClockFormat,
         AutoUpdateRecord = AutoUpdateRecord,
+        TieRule = TieRule,
+        TieAllowPeriod = TieAllowPeriod,
+        ShowOvertimeFinal = ShowOvertimeFinal,
+        LeagueCloudEnabled = LeagueCloudEnabled,
+        LeagueCloudUploadUrl = LeagueCloudUploadUrl,
+        LeagueCloudFeedUrl = LeagueCloudFeedUrl,
+        LeagueCloudLeagueId = LeagueCloudLeagueId,
+        LeagueCloudApiKey = LeagueCloudApiKey,
+        LeagueCloudPollSeconds = LeagueCloudPollSeconds,
         NextDownPreview = NextDownPreview,
-        UppercaseDownWords = UppercaseDownWords,
         NewSeriesLive = NewSeriesLive,
         AnnotationWidth = AnnotationWidth,
         AnnotationFadeSeconds = AnnotationFadeSeconds,
@@ -158,6 +189,9 @@ public sealed class UserPreferences
         QuickLayouts = QuickLayouts.Select(binding => new QuickLayoutBinding { Label = binding.Label, DisplayId = binding.DisplayId, LayoutId = binding.LayoutId }).ToList(),
         QuickMedia = QuickMedia.Select(binding => new QuickMediaBinding { Label = binding.Label, Path = binding.Path }).ToList(),
         QuickLayoutsPublish = QuickLayoutsPublish,
+        MultiviewShowLabels = MultiviewShowLabels,
+        ReplayBoothShowLabels = ReplayBoothShowLabels,
+        ReplaySeconds = ReplaySeconds,
         Hardware = Hardware.Clone(),
         HornSound = HornSound,
         HornCustomPath = HornCustomPath,
@@ -218,7 +252,7 @@ public static class PreferencesStore
             if (!File.Exists(FilePath)) return new();
             var loaded = JsonSerializer.Deserialize<UserPreferences>(File.ReadAllText(FilePath)) ?? new();
             Migrate(loaded);
-            ApplyClockFormat(loaded);
+            ApplyPreferences(loaded);
             return loaded;
         }
         catch { return new(); }
@@ -268,23 +302,30 @@ public static class PreferencesStore
             preferences.AnnotationFadeSeconds = 1;
         preferences.AnnotationFadeSeconds = Math.Clamp(preferences.AnnotationFadeSeconds, 0, 10);
         if (preferences.AnnotationFadeSeconds is > 0 and < 0.5) preferences.AnnotationFadeSeconds = 0.5;
-        if (preferences.ClockFormat is not ("Padded" or "Compact")) preferences.ClockFormat = "Padded";
         if (preferences.Theme is not ("System" or "Dark" or "Light")) preferences.Theme = "System";
+        if (preferences.TieRule is not ("PlayUntilWinner" or "AllowTie")) preferences.TieRule = "PlayUntilWinner";
+        preferences.TieAllowPeriod = Math.Clamp(preferences.TieAllowPeriod, 1, 99);
+        preferences.LeagueCloudUploadUrl = (preferences.LeagueCloudUploadUrl ?? "").Trim();
+        preferences.LeagueCloudFeedUrl = (preferences.LeagueCloudFeedUrl ?? "").Trim();
+        preferences.LeagueCloudLeagueId = (preferences.LeagueCloudLeagueId ?? "").Trim();
+        if (preferences.LeagueCloudLeagueId.Length == 0) preferences.LeagueCloudLeagueId = "default";
+        preferences.LeagueCloudApiKey = (preferences.LeagueCloudApiKey ?? "").Trim();
+        preferences.LeagueCloudPollSeconds = Math.Clamp(preferences.LeagueCloudPollSeconds, 5, 300);
     }
 
-    /// <summary>Pushes the saved clock shape into the binder every graphic, panel and remote reads.</summary>
-    public static void ApplyClockFormat(UserPreferences preferences)
+    /// <summary>Pushes the saved non-visual preferences into the engine.</summary>
+    public static void ApplyPreferences(UserPreferences preferences)
     {
-        GameEngine.ClockDisplay = string.Equals(preferences.ClockFormat, "Compact", StringComparison.OrdinalIgnoreCase)
-            ? ClockStyle.Compact
-            : ClockStyle.Padded;
         GameEngine.AutoUpdateRecordEnabled = preferences.AutoUpdateRecord;
-        GameEngine.UppercaseDownWordsEnabled = preferences.UppercaseDownWords;
+        GameEngine.TieAllowedAtPeriod = string.Equals(preferences.TieRule, "AllowTie", StringComparison.OrdinalIgnoreCase)
+            ? Math.Clamp(preferences.TieAllowPeriod, 1, 99)
+            : 0;
+        GameEngine.OvertimeFinalLabelEnabled = preferences.ShowOvertimeFinal;
     }
 
     public static void Save(UserPreferences preferences)
     {
-        ApplyClockFormat(preferences);
+        ApplyPreferences(preferences);
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
         var temp = FilePath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(preferences, new JsonSerializerOptions { WriteIndented = true }));
@@ -348,6 +389,10 @@ public static class ThemeManager
         window.Resources["OperatorInputBrush"] = Brush(input);
         window.Resources["OperatorTextBrush"] = Brush(foreground);
         window.Resources["OperatorBorderBrush"] = Brush(border);
+        // Popup rows are templated, so their hover/selection shades need to follow the theme
+        // too. The dark-only literals made a light-theme dropdown show dark rows.
+        window.Resources["OperatorComboHoverBrush"] = Brush(light ? "#FFE2E8F0" : "#FF2B3949");
+        window.Resources["OperatorComboSelectedBrush"] = Brush(light ? "#FFD9E2EC" : "#FF1E2A36");
 
         // The operator's own accent pair: the outline colour and the filled-action colour. A failed
         // read keeps the last accent that worked rather than falling back to the stock green, which
@@ -380,6 +425,45 @@ public static class ThemeManager
         {
             if (args.OriginalSource is DependencyObject element) PaintAccent(element, accent, secondary);
         }), handledEventsToo: true);
+    }
+
+    /// <summary>
+    /// Paints an element tree that is hosted outside its own window, such as the Conditionals
+    /// editor embedded in the main workspace. A Window's Loaded event never fires there, so the
+    /// normal theme pass has to be run directly against the detached content.
+    /// </summary>
+    public static void ApplyTo(FrameworkElement root, string theme)
+    {
+        var light = Resolve(theme) == "Light";
+        var panel = light ? "#FFFFFFFF" : "#FF080808";
+        var surface = light ? "#FFE5EAF0" : "#FF141414";
+        var foreground = light ? "#FF18202B" : "#FFF4F7FB";
+        var input = light ? "#FFFFFFFF" : "#FF050505";
+        var border = light ? "#FFB9C3CE" : "#FF383838";
+
+        root.Resources["OperatorPanelBrush"] = Brush(panel);
+        root.Resources["OperatorSurfaceBrush"] = Brush(surface);
+        root.Resources["OperatorInputBrush"] = Brush(input);
+        root.Resources["OperatorTextBrush"] = Brush(foreground);
+        root.Resources["OperatorBorderBrush"] = Brush(border);
+        root.Resources["OperatorComboHoverBrush"] = Brush(light ? "#FFE2E8F0" : "#FF2B3949");
+        root.Resources["OperatorComboSelectedBrush"] = Brush(light ? "#FFD9E2EC" : "#FF1E2A36");
+
+        UserPreferences? preferences = null;
+        try { preferences = PreferencesStore.Load(); } catch { }
+        var accent = preferences is not null
+            ? UiPalette.Accent(preferences)
+            : _lastAccent?.Accent ?? UiPalette.Accent(new UserPreferences());
+        var secondary = preferences is not null
+            ? UiPalette.Secondary(preferences)
+            : _lastAccent?.Secondary ?? UiPalette.Secondary(new UserPreferences());
+        _lastAccent = (accent, secondary);
+        root.Resources["Accent"] = UiPalette.Frozen(accent);
+        root.Resources["AccentFillBrush"] = UiPalette.Frozen(UiPalette.Soft(accent));
+        root.Resources["AccentActionBrush"] = UiPalette.Frozen(secondary);
+
+        SetDescendants(root, panel, surface, foreground, input, border);
+        ApplyAccent(root, accent, secondary);
     }
 
     static Brush Brush(string color) => (Brush)new BrushConverter().ConvertFromString(color)!;

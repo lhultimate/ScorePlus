@@ -33,7 +33,7 @@ public sealed class Stepper : Grid
     public event Action<string>? TextCommitted;
 
     /// <summary>
-    /// Let the middle box hold any text, not just a number — a custom stat can be "N/A" or "3rd".
+    /// Let the middle box hold any text, not just a number — a custom value can be "N/A" or "3rd".
     /// Off by default, so every other stepper keeps its numeric behaviour.
     /// </summary>
     public bool AcceptText { get; set; }
@@ -82,6 +82,9 @@ public sealed class Stepper : Grid
                 Margin = compact ? new Thickness(0) : new Thickness(0, 0, 0, 4)
             };
             _captionRow.Children.Add(label);
+            // Compact captions span the value and accessory columns, so the word stays centred
+            // over the number even when the Ball On side switch is attached on the right.
+            if (compact) SetColumnSpan(label, 2);
             SetRow(_captionRow, 0);
             if (compact) SetColumnSpan(_captionRow, 3);
             Children.Add(_captionRow);
@@ -147,6 +150,7 @@ public sealed class Stepper : Grid
         SetColumn(accessory, 1);
         accessory.HorizontalAlignment = HorizontalAlignment.Right;
         accessory.VerticalAlignment = VerticalAlignment.Center;
+        Panel.SetZIndex(accessory, 1);
         _captionRow.Children.Add(accessory);
     }
 

@@ -97,7 +97,7 @@
           <ListBox.ItemTemplate>
             <DataTemplate>
               <StackPanel>
-                <TextBlock Text="{Binding ScoreLine}" FontSize="13" FontWeight="Bold" Foreground="#F4F7FB" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Bold" Foreground="#F4F7FB" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Text="{Binding Detail}" FontSize="10" Foreground="#7C8A9C" Margin="0,2,0,0"/>
               </StackPanel>
             </DataTemplate>

@@ -6,6 +6,7 @@
         WindowStartupLocation="CenterOwner" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <Window.Resources>
     <local:IconNameConverter x:Key="IconNameConverter"/>
+    <local:MotionNameConverter x:Key="MotionNameConverter"/>
     <Style x:Key="ToolButton" TargetType="Button">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Padding" Value="12,8"/>
@@ -55,6 +56,8 @@
       <DockPanel Margin="0,0,0,8">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
           <Button Content="TEXT +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddText_Click"/>
+          <Button Content="TICKER +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddTicker_Click"
+                  ToolTip="Add a bottom-screen ribbon that scrolls automatically"/>
           <Button Content="LOGO +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddLogo_Click"/>
           <Button Content="IMAGE +" Style="{StaticResource ToolButton}" FontWeight="SemiBold" Click="AddImage_Click"
                   ToolTip="Import a picture onto the graphic — a sponsor board, a crest, a full-frame image"/>
@@ -91,6 +94,10 @@
               <Button Content="New display…" Style="{StaticResource LayoutButton}" Click="DisplayNew_Click" ToolTip="Add another screen, for example a lower-thirds display"/>
               <Button Content="Import .spd…" Style="{StaticResource LayoutButton}" Click="DisplayImport_Click" ToolTip="Add a whole ScorePlus Display file — every layout it holds — to this game"/>
               <Button Content="Export .spd…" Style="{StaticResource LayoutButton}" Click="DisplayExport_Click" ToolTip="Write this display and all its layouts to a ScorePlus Display file"/>
+              <Button x:Name="ConditionalsButton" Content="Conditionals…" Style="{StaticResource LayoutButton}" Click="Conditionals_Click"
+                      ToolTip="Edit this display's automation rules in their own window"/>
+              <Button Content="Motions…" Style="{StaticResource LayoutButton}" Click="MotionWindow_Click"
+                      ToolTip="Open transitions and score celebrations in their own window"/>
               <Button Content="Rename…" Style="{StaticResource LayoutButton}" Click="DisplayRename_Click"/>
               <Button Content="Delete" Style="{StaticResource LayoutButton}" Click="DisplayDelete_Click" ToolTip="Remove this display and its layouts (the last one cannot be deleted)"/>
             </StackPanel>
@@ -101,6 +108,9 @@
               <TextBlock x:Name="DisplayHintText" Text="  Each display gets its own audience window." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
+          <!-- Transitions and score celebrations live in their own window; this hidden host is
+               reparented when the operator opens Motions… so the normal studio bar stays compact. -->
+          <StackPanel x:Name="MotionRows" Visibility="Collapsed">
           <!-- How this layout lands on air: dissolve, slide or swing, over 0–5 seconds. -->
           <DockPanel Margin="0,7,0,0">
             <StackPanel Orientation="Horizontal">
@@ -140,6 +150,22 @@
               <TextBlock x:Name="TransitionCaption" Text="  Saved with this layout — every layout can arrive differently." Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
           </DockPanel>
+          <!-- One clip per exact signed score change. The rows are built in code so any value, from
+               +6 and +3 to a correction such as -6 or -2, can have its own keyed video. -->
+          <DockPanel x:Name="ScoreVideoPanel" Margin="0,7,0,0">
+            <StackPanel Orientation="Horizontal">
+              <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource Accent}" Margin="0,0,7,0"/>
+              <TextBlock Text="SCORE VIDEOS" FontSize="10" FontWeight="Bold" Foreground="#5C6B7E" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock x:Name="ScoreVideoHintText" Text="One clip for each score change; key the background so the scorebug shows through."
+                         Foreground="#5C6B7E" FontSize="10" VerticalAlignment="Center" Margin="0,0,10,0"/>
+              <Button Content="Add score video…" FontSize="10" Padding="8,3" Click="ScoreVideoAdd_Click"
+                      ToolTip="Choose a signed score change such as +6, -6, +3 or -2, then choose its video"/>
+            </StackPanel>
+          </DockPanel>
+          <TextBlock x:Name="ScoreVideoEmptyText" Text="No score videos yet. Add +6, +3, or a correction such as -6."
+                     Foreground="#5C6B7E" FontSize="10" Margin="3,5,0,0"/>
+          <StackPanel x:Name="ScoreVideoRows" Margin="3,5,0,0"/>
+          </StackPanel>
           <DockPanel Margin="0,7,0,0">
             <Button DockPanel.Dock="Right" Content="Clear link" Style="{StaticResource LayoutButton}" Click="LinkClear_Click" ToolTip="Stop this layout, and the layout it links to, from switching the other display"/>
             <StackPanel Orientation="Horizontal">
@@ -417,6 +443,41 @@
             <ComboBox x:Name="PeriodFormatInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
                       ToolTip="How {{PERIOD}} prints on this element — Quarter 1, Q1, 1 or 1st"/>
           </StackPanel>
+          <StackPanel x:Name="DownFormatSection">
+            <TextBlock Text="Down and distance for this element" Style="{StaticResource FieldLabel}"/>
+            <CheckBox x:Name="DownCapsInput" Content="Print the down words in full caps" FontSize="11" Margin="10,2,10,2"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="This element only: 1st &amp; GOAL, 2nd DOWN, 3rd &amp; INCHES. The ordinal keeps its normal case."/>
+            <TextBlock Text="Use on any element that prints {{DOWNS}}, {{DOWN}}, {{TO_GO}} or {{YARDS_TO_GO}}."
+                       Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,4"/>
+          </StackPanel>
+          <StackPanel x:Name="PlayClockFormatSection">
+            <CheckBox x:Name="PlayClockColonInput" Content="Print the play clock with a colon (:22)" FontSize="11" Margin="10,2,10,2"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="This element only. {{PLAY_CLOCK}} prints :22 instead of 22."/>
+          </StackPanel>
+          <StackPanel x:Name="GameClockFormatSection">
+            <CheckBox x:Name="GameClockLeadingZeroInput" Content="Print the game clock with a leading zero (09:59)" FontSize="11" Margin="10,2,10,2"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="This element only. Off prints 9:59 and :59 under a minute. The setting travels with the element."/>
+            <TextBlock Text="Use on any element that prints {{GAME_CLOCK}}." Foreground="#93A0B2" FontSize="10"
+                       TextWrapping="Wrap" Margin="10,0,10,4"/>
+          </StackPanel>
+          <StackPanel x:Name="TickerSection">
+            <CheckBox x:Name="TickerInput" Content="Scroll as a bottom-screen ticker" FontSize="11" Margin="10,4,10,2"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="Make this text travel continuously across its box, like a stadium ribbon board."/>
+            <StackPanel x:Name="TickerOptionsPanel">
+              <TextBlock Text="Ticker speed (pixels / second)" Style="{StaticResource FieldLabel}"/>
+              <TextBox x:Name="TickerSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                       ToolTip="Higher moves faster; 80 is a readable broadcast ribbon speed."/>
+              <CheckBox x:Name="TickerReverseInput" Content="Reverse direction (enter from the left)" FontSize="11" Margin="10,4,10,2"
+                        Checked="Property_Changed" Unchecked="Property_Changed"
+                        ToolTip="Reverse the ticker: cards enter from the left and travel right instead of entering from the right."/>
+              <TextBlock Text="Separate items with | in the text. The ticker joins them with a dot and loops without a seam."
+                         Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
+            </StackPanel>
+          </StackPanel>
         </StackPanel>
 
         <!-- The host box carries the angle, so rotation turns the whole item: plate, artwork and text. -->
@@ -496,10 +557,19 @@
         </StackPanel>
 
         <StackPanel x:Name="LogoSection">
-          <TextBlock Text="TEAM LOGO" Style="{StaticResource SectionTitle}"/>
+          <TextBlock Text="LOGO" Style="{StaticResource SectionTitle}"/>
           <ComboBox x:Name="LogoInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="Team logos are imported in the control panel, beside the team name"/>
-          <TextBlock x:Name="LogoHintText" Text="Logos are configured in the control panel: the … button beside each team name. This element just chooses which team it shows."
+                    ToolTip="Use a team logo from the control panel, or a custom image for this element"/>
+          <DockPanel Margin="10,0,10,4">
+            <Button DockPanel.Dock="Right" Content="Choose image…" Margin="4,0,0,0" Padding="8,4" FontSize="10"
+                    Click="LogoImage_Click" ToolTip="Pick a picture file for this logo and show it as a custom image"/>
+            <Button DockPanel.Dock="Right" Content="Clear" Margin="4,0,0,0" Padding="8,4" FontSize="10"
+                    Click="LogoImageClear_Click" ToolTip="Remove the custom logo image"/>
+            <TextBlock x:Name="LogoImagePathText" Text="No custom image" Foreground="#93A0B2" FontSize="10"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                       ToolTip="The custom logo file used by this element"/>
+          </DockPanel>
+          <TextBlock x:Name="LogoHintText" Text="Choose a team logo above, or pick a custom image. A team logo comes from the … button beside the team name in the control panel."
                      Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
         </StackPanel>
 
@@ -529,6 +599,9 @@
           <TextBlock Text="SHAPE" Style="{StaticResource SectionTitle}"/>
           <TextBlock Text="Shape type" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="ShapeInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"/>
+          <TextBlock x:Name="CornerRadiusLabel" Text="Corner radius (px, rectangles)" Style="{StaticResource FieldLabel}"/>
+          <TextBox x:Name="CornerRadiusInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                   ToolTip="Round a rectangle's corners. 0 gives square corners; 8 is the original soft corner."/>
         </StackPanel>
 
         <StackPanel x:Name="IconSection">
@@ -576,10 +649,56 @@
                        ToolTip="Leave empty to use the element's text colour"/>
             </DockPanel>
           </StackPanel>
+          <StackPanel x:Name="IconLookPanel">
+            <TextBlock Text="ICON FILL &amp; BORDER" Style="{StaticResource SectionTitle}"/>
+            <TextBlock Text="Icon border width (px)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="IconBorderWidthInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="An outline around the icon itself, separate from the element's box border"/>
+            <TextBlock Text="Icon border colour" Style="{StaticResource FieldLabel}"/>
+            <DockPanel Margin="0,0,10,2">
+              <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconBorderColor_Click"
+                      ToolTip="Pick the colour of the icon's own outline"/>
+              <Border x:Name="IconBorderColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                      BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                      local:ThemeManager.SkipTheme="True" ToolTip="The icon outline colour"/>
+              <TextBox x:Name="IconBorderColorInput" TextChanged="Property_Changed"/>
+            </DockPanel>
+            <TextBlock Text="Icon background" Style="{StaticResource FieldLabel}"/>
+            <DockPanel Margin="0,0,10,2">
+              <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconBackgroundColor_Click"
+                      ToolTip="Fill only the icon's own area, leaving the element plate alone"/>
+              <Border x:Name="IconBackgroundSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                      BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                      local:ThemeManager.SkipTheme="True" ToolTip="The icon background colour"/>
+              <TextBox x:Name="IconBackgroundInput" TextChanged="Property_Changed"
+                       ToolTip="Leave empty for no icon background"/>
+            </DockPanel>
+            <StackPanel x:Name="IconUsedPanel">
+              <TextBlock Text="Used-timeout colour" Style="{StaticResource FieldLabel}"/>
+              <DockPanel Margin="0,0,10,2">
+                <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconUsedColor_Click"
+                        ToolTip="The colour of a bar or pip after that timeout has been used"/>
+                <Border x:Name="IconUsedSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                        BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                        local:ThemeManager.SkipTheme="True" ToolTip="How a used timeout is drawn"/>
+                <TextBox x:Name="IconUsedColorInput" TextChanged="Property_Changed"/>
+              </DockPanel>
+            </StackPanel>
+            <TextBlock Text="Icon opacity" Style="{StaticResource FieldLabel}"/>
+            <DockPanel Margin="10,0,10,4">
+              <TextBlock x:Name="IconOpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
+                         VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
+              <Slider x:Name="IconOpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
+                      ValueChanged="IconOpacity_Changed" ToolTip="Fade the icon artwork and its outline together"/>
+            </DockPanel>
+          </StackPanel>
           <CheckBox x:Name="IconVisitorsInput" Content="Count the visitors' timeouts" Margin="10,2,10,4"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
           <CheckBox x:Name="IconFlipInput" Content="Put the home side on the left" Margin="10,2,10,8"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
+          <CheckBox x:Name="IconArrowDownInput" Content="Point the possession arrow down" Margin="10,2,10,8"
+                    Checked="Property_Changed" Unchecked="Property_Changed"
+                    ToolTip="Draw a downward arrow instead of pointing it sideways into the team with possession"/>
           <!-- Timeout bars have their own size, independent of the plate. -->
           <StackPanel x:Name="IconScalePanel">
             <TextBlock Text="Timeout bar size (0.25–3)" Style="{StaticResource FieldLabel}"/>
@@ -619,6 +738,18 @@
           <TextBlock Text="Aspect (width ÷ height)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="AspectInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="16:9 is 1.7778 · 4:3 is 1.3333 · vertical 9:16 is 0.5625"/>
+          <TextBlock Text="Crop from each edge (percent)" Style="{StaticResource FieldLabel}"/>
+          <Grid Margin="10,0,10,2">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel><TextBlock Text="Left" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropLeftInput" TextChanged="Property_Changed" ToolTip="Percent removed from the left edge"/></StackPanel>
+            <StackPanel Grid.Column="1" Margin="4,0,0,0"><TextBlock Text="Top" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropTopInput" TextChanged="Property_Changed" ToolTip="Percent removed from the top edge"/></StackPanel>
+            <StackPanel Grid.Column="2" Margin="4,0,0,0"><TextBlock Text="Right" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropRightInput" TextChanged="Property_Changed" ToolTip="Percent removed from the right edge"/></StackPanel>
+            <StackPanel Grid.Column="3" Margin="4,0,0,0"><TextBlock Text="Bottom" FontSize="9" Foreground="#7C8A9C"/><TextBox x:Name="VideoCropBottomInput" TextChanged="Property_Changed" ToolTip="Percent removed from the bottom edge"/></StackPanel>
+          </Grid>
+          <TextBlock x:Name="VideoCropHintText" Text="Crop keeps only the center you choose; 0 shows the whole picture, and the cropped picture fills the box without stretching. Left and right together must stay below 90%."
+                     Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" Margin="10,0,10,6"/>
           <TextBlock Text="Chroma key color" Style="{StaticResource FieldLabel}"/>
           <DockPanel Margin="0,0,10,2">
             <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="ChromaKeyColor_Click"
@@ -694,27 +825,63 @@
           </DockPanel>
         </StackPanel>
 
+        <TextBlock Text="ANIMATION" Style="{StaticResource SectionTitle}"/>
+        <TextBlock Text="Element animation" Style="{StaticResource FieldLabel}"/>
+        <ComboBox x:Name="AnimationInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
+                  ToolTip="Choose a built-in motion preset or any animation saved in the show library">
+          <ComboBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Converter={StaticResource MotionNameConverter}}"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Button Content="Animation maker…" Margin="10,0,10,8" Padding="10,5" FontSize="11" Click="MotionMakerAnimation_Click"
+                ToolTip="Key motion this element follows while it is up, or when its value changes"/>
+
         <TextBlock Text="BEHAVIOUR" Style="{StaticResource SectionTitle}"/>
         <!-- Only printed values change; a logo, shape or video has nothing to cross to. -->
         <StackPanel x:Name="TransitionSection">
           <TextBlock Text="Value change" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="TransitionInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="How this value crosses to a new number or name"/>
+                    ToolTip="How this value crosses to a new number or name">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Converter={StaticResource MotionNameConverter}}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
           <TextBlock Text="Transition time (0–5 seconds)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="TransitionSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
-                   ToolTip="0 is an instant swap, 5 a very slow dissolve. The value leaves slightly faster than it arrives."/>
+                   ToolTip="0 is an instant swap, 5 a very slow dissolve. Also sets how long Shrink Wheel and Jump Flip take; the value leaves slightly faster than it arrives."/>
           <CheckBox x:Name="DownTransitionInput" Content="Different animation when the value goes down"
                     Margin="10,6,10,2" Checked="Property_Changed" Unchecked="Property_Changed"
                     ToolTip="Use a separate crossing when a number falls instead of rising"/>
           <TextBlock Text="Value change (down)" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="TransitionDownInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="How this value crosses to a lower number"/>
+                    ToolTip="How this value crosses to a lower number">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Converter={StaticResource MotionNameConverter}}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
           <TextBlock Text="Down transition time (0–5 seconds)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="TransitionDownSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="0 is an instant swap, 5 a very slow dissolve. Blank follows the up time."/>
+          <StackPanel x:Name="ShrinkAnimationPanel">
+            <TextBlock Text="Shrink amount (0.2–1)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="TransitionShrinkInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="How small the number gets before it counts: 0.82 is a subtle dip, 0.5 is a strong one."/>
+          </StackPanel>
+          <StackPanel x:Name="JumpAnimationPanel">
+            <TextBlock Text="Jump height (pixels)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="TransitionJumpHeightInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="How far the number jumps up before the full 360° turn"/>
+            <TextBlock Text="Jump direction" Style="{StaticResource FieldLabel}"/>
+            <ComboBox x:Name="TransitionJumpDirectionInput" Margin="10,0,10,8" SelectionChanged="Property_Changed"
+                      ToolTip="Which way the full 360° turn travels"/>
+          </StackPanel>
         </StackPanel>
-        <TextBlock Text="Motion preset" Style="{StaticResource FieldLabel}"/>
-        <ComboBox x:Name="AnimationInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"/>
         <!-- The value keeps the hidden box the property writer already understands; the slider is
              what the operator actually sees, and each layer has its own. -->
         <TextBox x:Name="OpacityInput" Visibility="Collapsed" Text="1"/>
@@ -750,8 +917,6 @@
                 ToolTip="Gradients with any number of stops on the text and plate, plus metal, glass, grain and the other finishes"/>
         <Button Content="Transition builder…" Margin="10,0,10,3" Padding="10,5" FontSize="11" Click="MotionMakerTransition_Click"
                 ToolTip="Key how this element's value leaves and arrives"/>
-        <Button Content="Animation maker…" Margin="10,0,10,8" Padding="10,5" FontSize="11" Click="MotionMakerAnimation_Click"
-                ToolTip="Key motion this element follows while it is up, or when its value changes"/>
         <CheckBox x:Name="VisibleInput" Content="Visible on output" Margin="10,4,10,8" Checked="Property_Changed" Unchecked="Property_Changed"/>
 
         <TextBlock x:Name="CanvasFitTipText" Text="Scroll over the canvas to zoom in and out; the framed edge is the artwork. The optional grid snaps moved and resized items to 20 px."
@@ -763,7 +928,7 @@
 
     <DockPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,12,0,0">
       <Button DockPanel.Dock="Right" Content="Done" Padding="16,8" Click="Done_Click" ToolTip="Close the studio (Enter only commits the value you are editing)"/>
-      <TextBlock x:Name="AllValuesHintText" Text="Every value can go on the graphic: team names and abbreviations, scores, period, game clock, play clock, timeout clock, timeouts left, possession, down, to go, down &amp; distance, ball on, sport, yards, turnovers, fouls, shot clock, baseball count and outs, hits, cards, shots, corners, date, time, and custom stats such as {{STAT:Turnovers}}. Use Add sport data for the full list. Player values such as {{PLAYER:HOME:Yards}} come from whoever is on the graphic — switch the selected player in the Rosters tab and every one of them follows."
+      <TextBlock x:Name="AllValuesHintText" Text="Every value can go on the graphic: team names and abbreviations, scores, period, game clock, play clock, timeout clock, timeouts left, possession, down, to go, down &amp; distance, ball on, sport, yards, turnovers, fouls, shot clock, baseball count and outs, hits, cards, shots, corners, date, time, and custom values such as {{STAT:Turnovers}}. Use Add sport data for the full list. Player values such as {{PLAYER:HOME:Yards}} come from whoever is on the graphic — switch the selected player in the Rosters tab and every one of them follows."
                  Foreground="#93A0B2" FontSize="10" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
     </DockPanel>
   </Grid>

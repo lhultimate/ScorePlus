@@ -5,7 +5,7 @@ namespace Scoreboard.Core;
 
 /// <summary>
 /// The printable record of a game: the score, every value the console holds, the sport's own
-/// controls, the custom stats, both rosters in full (zeroes included) and the event timeline.
+/// controls, the custom values, both rosters in full (zeroes included) and the event timeline.
 /// Written as one self-contained HTML page so it can be printed, saved as PDF or e-mailed after
 /// the game. <see cref="Build"/> takes the rosters so a report shows every player, not just the
 /// two who happened to be on the graphic.
@@ -19,7 +19,10 @@ public static class GameReport
 
         html.AppendLine("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
         html.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-        html.AppendLine($"<title>{E(state.HomeTeam)} vs {E(state.AwayTeam)} · Game report</title>");
+        var fixtureTitle = string.IsNullOrWhiteSpace(state.GameName)
+            ? $"{state.HomeTeam} vs {state.AwayTeam}"
+            : $"{state.GameName} · {state.HomeTeam} vs {state.AwayTeam}";
+        html.AppendLine($"<title>{E(fixtureTitle)} · Game report</title>");
         html.AppendLine("<style>");
         html.AppendLine("""
             :root{--ink:#17212b;--muted:#64748b;--line:#d7dee7;--soft:#f1f5f9;--accent:#0f9b74}
@@ -47,8 +50,8 @@ public static class GameReport
         html.AppendLine("</style></head><body>");
 
         // ---------- header ----------
-        html.AppendLine($"<h1>{E(state.HomeTeam)} vs {E(state.AwayTeam)}</h1>");
-        html.AppendLine($"<div class=\"muted\">{E(SportName(state))} · Game report · generated {DateTime.Now:yyyy-MM-dd HH:mm}</div>");
+        html.AppendLine($"<h1>{E(fixtureTitle)}</h1>");
+        html.AppendLine($"<div class=\"muted\">{E(SportName(state))} · {(state.GameEnded ? "FINAL" : "Game report")} · generated {DateTime.Now:yyyy-MM-dd HH:mm}</div>");
         html.AppendLine($"<div class=\"score\">{E(state.HomeAbbreviation)} {state.HomeScore} — {state.AwayScore} {E(state.AwayAbbreviation)}</div>");
 
         // ---------- game state ----------
@@ -67,10 +70,26 @@ public static class GameReport
             $"{E(state.HomePossession ? state.HomeTeam : state.AwayTeam)} has possession",
             $"Timeout clock: {GameEngine.FormatClock(state.TimeoutClockSeconds)} {(state.TimeoutClockRunning ? "(running)" : "(stopped)")}"));
         html.AppendLine(Card("Record",
+            $"Game name: {E(string.IsNullOrWhiteSpace(state.GameName) ? "Untitled fixture" : state.GameName)}",
             $"Sport: {E(SportName(state))}",
+            $"Status: {(state.GameEnded ? "Final" : "In progress")}",
             $"Saved: {state.SavedAt:yyyy-MM-dd HH:mm}",
             $"Events logged: {state.Events.Count}",
-            $"Custom stats: {state.Stats.Count}"));
+            $"Custom values: {state.Stats.Count}"));
+        html.AppendLine(Card("Fixture rules",
+            $"Division game: {(state.DivisionGame ? "Yes" : "No")}",
+            $"Result settled: {(state.RecordSettled ? "Yes" : "No")}",
+            $"Clock message: {E(ClockMessageText(state.ClockMessage))}",
+            $"Scoring values: {string.Join(", ", state.ScoringOptions)}"));
+        html.AppendLine(Card("Team details",
+            $"{E(state.HomeTeam)} · {E(state.HomeMascot)} · record {E(state.HomeRecordDisplay)} · ranking {E(state.HomeRanking)}",
+            $"{E(state.AwayTeam)} · {E(state.AwayMascot)} · record {E(state.AwayRecordDisplay)} · ranking {E(state.AwayRanking)}",
+            $"Division record: {E(state.HomeDivisionRecord)} / {E(state.AwayDivisionRecord)}",
+            $"Colors: {E(state.HomePrimaryColor)} / {E(state.HomeSecondaryColor)} — {E(state.AwayPrimaryColor)} / {E(state.AwaySecondaryColor)}"));
+        html.AppendLine(Card("Penalty",
+            $"Flag: {(state.PenaltyActive ? "ON" : "OFF")}",
+            $"Type: {E(state.PenaltyType)}",
+            $"Team: {E(state.PenaltyHome ? state.HomeTeam : state.AwayTeam)}"));
         html.AppendLine("</div>");
 
         // ---------- the sport's own detail ----------
@@ -97,8 +116,8 @@ public static class GameReport
         html.AppendLine(ActivePlayerCard("Visitors", state.AwayTeam, state.AwayPlayerCleared, state.AwayPlayer));
         html.AppendLine("</div>");
 
-        // ---------- custom stats ----------
-        html.AppendLine("<h2>Custom stats</h2>");
+        // ---------- custom values ----------
+        html.AppendLine("<h2>Custom values</h2>");
         if (state.Stats is { Count: > 0 })
         {
             // Printed as "name: value" lines rather than table cells, so a stat reads the same on
@@ -110,7 +129,7 @@ public static class GameReport
         }
         else
         {
-            html.AppendLine("<p class=\"empty\">This game has no custom stats.</p>");
+            html.AppendLine("<p class=\"empty\">This game has no custom values.</p>");
         }
 
         // ---------- rosters ----------
@@ -145,6 +164,13 @@ public static class GameReport
 
     // ---------- sections ----------
 
+    static string ClockMessageText(GameClockMessage message) => message switch
+    {
+        GameClockMessage.Final => "FINAL",
+        GameClockMessage.EndOfRegulation => "END OF REG.",
+        _ => "Clock"
+    };
+
     /// <summary>Every sport's own bookkeeping, so no field a console holds is missing from the record.</summary>
     static void AppendSportDetail(StringBuilder html, GameState state)
     {
@@ -163,7 +189,8 @@ public static class GameReport
                 html.AppendLine(Card("Clocks",
                     $"Play clock: {state.PlayClockSeconds}s {(state.PlayClockRunning ? "(running)" : "(stopped)")}",
                     $"Timeout clock: {GameEngine.FormatClock(state.TimeoutClockSeconds)} {(state.TimeoutClockRunning ? "(running)" : "(stopped)")}",
-                    $"Game clock: {GameEngine.FormatClock(state.ClockSeconds)}"));
+                    $"Game clock: {GameEngine.FormatClock(state.ClockSeconds)}",
+                    $"Stoppage / added time: {GameEngine.FormatClock(state.StoppageSeconds)} {(state.StoppageRunning ? "(running)" : "(stopped)")}"));
                 html.AppendLine(Card("Team totals",
                     $"Total yards: {E(state.HomeTeam)} {state.HomeYards} — {state.AwayYards} {E(state.AwayTeam)}",
                     $"Turnovers: {state.HomeTurnovers} — {state.AwayTurnovers}",
@@ -174,6 +201,7 @@ public static class GameReport
                 html.AppendLine(Card("Basketball",
                     $"Fouls: {state.HomeFouls} — {state.AwayFouls}",
                     $"Shot clock: {state.ShotClockSeconds}s {(state.ShotClockRunning ? "(running)" : "(stopped)")}",
+                    $"Play clock: {state.PlayClockSeconds}s {(state.PlayClockRunning ? "(running)" : "(stopped)")}",
                     $"Possession: {E(state.HomePossession ? state.HomeTeam : state.AwayTeam)}",
                     $"Timeouts: {state.HomeTimeouts} — {state.AwayTimeouts}"));
                 break;
@@ -194,7 +222,8 @@ public static class GameReport
                     $"Shots: {state.HomeShots} — {state.AwayShots}",
                     $"Corners: {state.HomeCorners} — {state.AwayCorners}",
                     $"Saves: {SportValues.Read(state, "soccer.saves.home")} — {SportValues.Read(state, "soccer.saves.away")}",
-                    $"Offsides: {SportValues.Read(state, "soccer.offsides.home")} — {SportValues.Read(state, "soccer.offsides.away")}"));
+                    $"Offsides: {SportValues.Read(state, "soccer.offsides.home")} — {SportValues.Read(state, "soccer.offsides.away")}",
+                    $"Stoppage / added time: {GameEngine.FormatClock(state.StoppageSeconds)} {(state.StoppageRunning ? "(running)" : "(stopped)")}"));
                 break;
 
             case "hockey":

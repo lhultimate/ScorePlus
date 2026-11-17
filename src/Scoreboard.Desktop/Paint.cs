@@ -105,6 +105,16 @@ internal static class Paint
         return brush;
     }
 
+    /// <summary>A material wash that can be clipped to a logo's own pixels. It uses the same
+    /// finish knobs as a plate, so moving a slider also restyles the crest instead of only the
+    /// rectangle behind it.</summary>
+    public static Brush? TextureWash(ScorebugTexture? texture, Color fallback)
+    {
+        if (texture is not { Enabled: true }) return null;
+        var colour = ColorOf(texture.Tint, fallback);
+        return TexturedBackground(Brushes.Transparent, texture, colour);
+    }
+
     /// <summary>The outline, faded by its own opacity rather than the element's.</summary>
     public static Brush Border(ScorebugElement item, GameState? state)
     {

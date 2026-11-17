@@ -28,6 +28,14 @@ public sealed class PaintTextureWindow : Window
     readonly TextBox _plateOffset = Field("0");
     readonly TextBox _plateColour = Field("#FFFFFFFF");
     readonly System.Windows.Threading.DispatcherTimer _apply = new() { Interval = TimeSpan.FromMilliseconds(180) };
+    CheckBox? _textPaintOn;
+    CheckBox? _platePaintOn;
+    CheckBox? _textFinishOn;
+    CheckBox? _plateFinishOn;
+    ComboBox? _textMaterial;
+    ComboBox? _plateMaterial;
+    bool _syncingPaintControl;
+    bool _syncingFinishControl;
 
     PaintTextureWindow(ScorebugCatalog catalog, GameEngine engine, ScorebugElement element, string theme)
     {
@@ -128,14 +136,23 @@ public sealed class PaintTextureWindow : Window
 
         var gradient = text ? _draft.TextGradientPaint : _draft.BackgroundGradientPaint;
         var enabled = new CheckBox { Content = "Paint a gradient", IsChecked = gradient is { IsUsable: true }, Margin = new Thickness(0, 2, 0, 2) };
-        enabled.Checked += (_, _) => SetGradient(text, Existing(text) ?? ScorebugGradient.TwoStop(
-            text ? _draft.Foreground : _draft.Background,
-            text ? "#FF38D7A3" : _draft.BackgroundColor2));
-        enabled.Unchecked += (_, _) => SetGradient(text, null);
+        if (text) _textPaintOn = enabled; else _platePaintOn = enabled;
+        enabled.Checked += (_, _) =>
+        {
+            if (_syncingPaintControl) return;
+            SetGradient(text, Existing(text) ?? ScorebugGradient.TwoStop(
+                text ? _draft.Foreground : _draft.Background,
+                text ? "#FF38D7A3" : _draft.BackgroundColor2));
+        };
+        enabled.Unchecked += (_, _) =>
+        {
+            if (_syncingPaintControl) return;
+            SetGradient(text, null);
+        };
         panel.Children.Add(enabled);
 
         var radial = new CheckBox { Content = "Radial (out from a centre)", IsChecked = gradient?.Radial == true, Margin = new Thickness(0, 2, 0, 2) };
-        radial.Checked += (_, _) => { var paint = Existing(text); if (paint is null) return; paint.Radial = true; Touch(); };
+        radial.Checked += (_, _) => { var paint = GradientForEdit(text); paint.Radial = true; Touch(); };
         radial.Unchecked += (_, _) => { var paint = Existing(text); if (paint is null) return; paint.Radial = false; Touch(); };
         panel.Children.Add(radial);
 
@@ -145,8 +162,8 @@ public sealed class PaintTextureWindow : Window
         angle.Width = 60;
         angle.TextChanged += (_, _) =>
         {
-            var paint = Existing(text);
-            if (paint is null || !double.TryParse(angle.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var value)) return;
+            if (!double.TryParse(angle.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var value)) return;
+            var paint = GradientForEdit(text);
             paint.Angle = value;
             Touch();
         };
@@ -186,19 +203,28 @@ public sealed class PaintTextureWindow : Window
         panel.Children.Add(Section(finishHeader));
         var finish = text ? _draft.TextTexture : _draft.BackgroundTexture;
         var finishOn = new CheckBox { Content = "Lay a material over this paint", IsChecked = finish?.Enabled == true, Margin = new Thickness(0, 2, 0, 4) };
-        finishOn.Checked += (_, _) => SetTexture(text, ExistingTexture(text) ?? ScorebugTexture.ForKind("Matte"));
-        finishOn.Unchecked += (_, _) => SetTexture(text, null);
+        if (text) _textFinishOn = finishOn; else _plateFinishOn = finishOn;
+        finishOn.Checked += (_, _) =>
+        {
+            if (_syncingFinishControl) return;
+            SetTexture(text, ExistingTexture(text) ?? ScorebugTexture.ForKind("Matte"));
+        };
+        finishOn.Unchecked += (_, _) =>
+        {
+            if (_syncingFinishControl) return;
+            SetTexture(text, null);
+        };
         panel.Children.Add(finishOn);
 
         var kindRow = new WrapPanel();
         kindRow.Children.Add(new TextBlock { Text = "Material", FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
         var kind = new ComboBox { MinWidth = 128, MinHeight = 26, ItemsSource = ScorebugTexture.Kinds, Margin = new Thickness(0, 2, 0, 2) };
+        if (text) _textMaterial = kind; else _plateMaterial = kind;
         if (finish is not null && ScorebugTexture.Kinds.Contains(finish.Kind)) kind.SelectedItem = finish.Kind;
         kind.SelectionChanged += (_, _) =>
         {
-            if (kind.SelectedItem is not string chosen) return;
-            var texture = ExistingTexture(text);
-            if (texture is null) return;
+            if (_syncingFinishControl || kind.SelectedItem is not string chosen) return;
+            var texture = TextureForEdit(text);
             var preset = ScorebugTexture.ForKind(chosen);
             texture.Kind = chosen;
             texture.Roughness = preset.Roughness; texture.Glossiness = preset.Glossiness;
@@ -239,8 +265,7 @@ public sealed class PaintTextureWindow : Window
             if (knob.Key == "scale" && current is null) value = 1;
             panel.Children.Add(Slider(knob.Label, min, max, value, updated =>
             {
-                var texture = ExistingTexture(text);
-                if (texture is null) return;
+                var texture = TextureForEdit(text);
                 knob.Set(texture, updated);
                 Touch();
             }));
@@ -252,8 +277,8 @@ public sealed class PaintTextureWindow : Window
         tint.Width = 92;
         tint.TextChanged += (_, _) =>
         {
-            var texture = ExistingTexture(text);
-            if (texture is null || string.IsNullOrWhiteSpace(tint.Text)) return;
+            if (string.IsNullOrWhiteSpace(tint.Text)) return;
+            var texture = TextureForEdit(text);
             texture.Tint = tint.Text.Trim();
             Touch();
         };
@@ -263,8 +288,7 @@ public sealed class PaintTextureWindow : Window
         {
             if (ColorPickerWindow.Pick(this, tint.Text) is not string picked) return;
             tint.Text = picked;
-            var texture = ExistingTexture(text);
-            if (texture is null) return;
+            var texture = TextureForEdit(text);
             texture.Tint = picked;
             Touch();
         };
@@ -272,8 +296,7 @@ public sealed class PaintTextureWindow : Window
         panel.Children.Add(tintRow);
         panel.Children.Add(Slider("Tint amount", 0, 1, finish?.TintAmount ?? 0, updated =>
         {
-            var texture = ExistingTexture(text);
-            if (texture is null) return;
+            var texture = TextureForEdit(text);
             texture.TintAmount = updated;
             Touch();
         }));
@@ -333,6 +356,67 @@ public sealed class PaintTextureWindow : Window
 
     ScorebugTexture? ExistingTexture(bool text) => text ? _draft.TextTexture : _draft.BackgroundTexture;
 
+    /// <summary>
+    /// Any gradient control turns the gradient on when it is first used. Otherwise an operator
+    /// moving the angle or ticking radial sees no change unless they first find the separate
+    /// "Paint a gradient" box, which made the controls appear broken.
+    /// </summary>
+    ScorebugGradient GradientForEdit(bool text)
+    {
+        var paint = Existing(text);
+        if (paint is { IsUsable: true }) return paint;
+        paint = ScorebugGradient.TwoStop(
+            text ? _draft.Foreground : _draft.Background,
+            text ? "#FF38D7A3" : _draft.BackgroundColor2);
+        if (text) _draft.TextGradientPaint = paint; else _draft.BackgroundGradientPaint = paint;
+        var check = text ? _textPaintOn : _platePaintOn;
+        if (check is not null)
+        {
+            _syncingPaintControl = true;
+            try { check.IsChecked = true; }
+            finally { _syncingPaintControl = false; }
+        }
+        // The first angle/radial edit can create the paint without rebuilding the column. Fill the
+        // stop list here so the stops are immediately editable too.
+        RefreshStops(text);
+        return paint;
+    }
+
+    /// <summary>
+    /// Any material control turns the finish on when it is first used. The separate checkbox only
+    /// removes a finish; it is not a prerequisite for editing one.
+    /// </summary>
+    ScorebugTexture TextureForEdit(bool text)
+    {
+        var texture = ExistingTexture(text);
+        if (texture is null)
+        {
+            texture = ScorebugTexture.ForKind("Matte");
+            if (text) _draft.TextTexture = texture; else _draft.BackgroundTexture = texture;
+        }
+        else if (!texture.Enabled)
+        {
+            // A disabled finish can still be present in an older layout. Editing one of its knobs
+            // must turn it back on, otherwise the slider moves but the host keeps ignoring it.
+            texture.Enabled = true;
+        }
+        var check = text ? _textFinishOn : _plateFinishOn;
+        if (check is not null && check.IsChecked != true)
+        {
+            _syncingFinishControl = true;
+            try { check.IsChecked = true; }
+            finally { _syncingFinishControl = false; }
+        }
+        var picker = text ? _textMaterial : _plateMaterial;
+        if (picker is not null && !string.Equals(picker.SelectedItem as string, texture.Kind, StringComparison.OrdinalIgnoreCase))
+        {
+            _syncingFinishControl = true;
+            try { picker.SelectedItem = texture.Kind; }
+            finally { _syncingFinishControl = false; }
+        }
+        return texture;
+    }
+
     void SetGradient(bool text, ScorebugGradient? paint)
     {
         if (paint is not null) paint.Normalize();
@@ -378,14 +462,15 @@ public sealed class PaintTextureWindow : Window
             columns.Children.Add(textColumn);
             Grid.SetColumn(plateColumn, 1);
             columns.Children.Add(plateColumn);
+            RefreshStops(true);
+            RefreshStops(false);
         }
         Touch();
     }
 
     void AddStop(bool text)
     {
-        var paint = Existing(text);
-        if (paint is null) return;
+        var paint = GradientForEdit(text);
         var offset = Number(text ? _textOffset.Text : _plateOffset.Text, 0.5, 0, 1);
         var colour = Colour(text ? _textColour.Text : _plateColour.Text);
         paint.Stops.Add(new GradientStopModel(offset, colour));
@@ -451,22 +536,32 @@ public sealed class PaintTextureWindow : Window
             Width = 380,
             Height = 142,
             CornerRadius = new CornerRadius(8),
-            Background = _draft.TransparentBackground ? Brushes.Transparent : Paint.Background(_draft, state),
+            // Use the same host rule as the canvas: a logo's default clear plate can still take
+            // an explicit gradient or texture, and the preview must show that paint.
+            Background = ScorebugRender.HostBackground(_draft, state),
             BorderBrush = Paint.Border(_draft, state),
             BorderThickness = new Thickness(Math.Max(0, _draft.BorderThickness))
         };
-        var text = new ScorebugTextBlock(_draft)
-        {
-            Text = string.IsNullOrWhiteSpace(_draft.Content) || _draft.Content.StartsWith("{{", StringComparison.Ordinal) ? "SCORE 21" : _draft.Content,
-            FontSize = Math.Clamp(_draft.FontSize, 14, 64),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextAlignment = TextAlignment.Center
-        };
-        plate.Child = text;
+        // A logo's plate is the area around its artwork. Show the actual logo here rather than the
+        // text sample, otherwise testing a texture on a logo only proves how a text block paints.
+        FrameworkElement sample = _draft.Kind == ScorebugElementKind.Logo
+            ? ScorebugRender.CreateContent(_draft, () => state, showVideoPlaceholder: true)
+            : new ScorebugTextBlock(_draft)
+            {
+                Text = string.IsNullOrWhiteSpace(_draft.Content) || _draft.Content.StartsWith("{{", StringComparison.Ordinal) ? "SCORE 21" : _draft.Content,
+                FontSize = Math.Clamp(_draft.FontSize, 14, 64),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center
+            };
+        sample.HorizontalAlignment = HorizontalAlignment.Stretch;
+        sample.VerticalAlignment = VerticalAlignment.Stretch;
+        plate.Child = sample;
         _preview.Background = new SolidColorBrush(Color.FromRgb(0x0B, 0x0F, 0x14));
         _preview.Child = new Viewbox { Child = plate, Stretch = Stretch.Uniform, Margin = new Thickness(6) };
-        _status.Text = "Click Done to keep these changes; they are already on the graphic.";
+        _status.Text = _draft.Kind == ScorebugElementKind.Logo
+            ? "The plate finish also washes across the logo artwork; the text finish follows its transparent areas. Click Done to keep these changes; they are already on the graphic."
+            : "Click Done to keep these changes; they are already on the graphic.";
     }
 
     void Touch()

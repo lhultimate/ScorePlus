@@ -694,6 +694,7 @@ public sealed class MotionClip
                 phase.Tracks = [new MotionTrack(MotionTarget.Opacity, (0, 1), (1.6, 0.82), (3.2, 1)), new MotionTrack(MotionTarget.Scale, (0, 1), (1.6, 1.015), (3.2, 1))];
                 break;
             case "Shimmer":
+                phase.Tracks = [];
                 phase.Seconds = 2.2;
                 phase.Colors =
                 [
@@ -714,6 +715,7 @@ public sealed class MotionClip
                 phase.Tracks = [new MotionTrack(MotionTarget.Scale, (0, 0.8), (0.24, 1.045), (0.36, 1)), new MotionTrack(MotionTarget.Opacity, (0, 0), (0.18, 1))];
                 break;
             case "Color cycle":
+                phase.Tracks = [];
                 phase.Seconds = 4;
                 phase.Colors =
                 [

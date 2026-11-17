@@ -4,36 +4,37 @@ using System.Windows.Media;
 namespace Scoreboard.Desktop;
 
 /// <summary>
-/// The roster desk's colours. It takes the operator theme's own page, surface, input wells and
-/// borders — the same shades the media desk uses — so the desk looks like the rest of the program
-/// in either theme instead of carrying a navy set of its own. Both themes are painted from here, and
-/// the panels pick the brushes up through DynamicResource so rows built later are themed too.
+/// The roster desk's colours. In Dark it is built from neutral blacks and greys, not the blue-tinted
+/// navy used by older panels, so the tab reads as part of the black operator surface. Both themes
+/// are painted from here, and the panels pick the brushes up through DynamicResource so rows built
+/// later are themed too.
 /// </summary>
 internal static class RosterPalette
 {
     public static void Apply(string theme, ResourceDictionary resources)
     {
         var light = ThemeManager.Resolve(theme) == "Light";
-        // The desk borrows the console's own navy page, cards and input wells in Dark, and the
-        // light theme's page, cards and wells in Light, so the tab never reads as another program.
-        Set(resources, "RosterPanelBrush", light ? "#F3F5F8" : "#0B0F14");
-        Set(resources, "RosterSurfaceBrush", light ? "#FFFFFF" : "#10161F");
-        Set(resources, "RosterSurfaceAltBrush", light ? "#E5EAF0" : "#151B23");
-        Set(resources, "RosterInputBrush", light ? "#F3F5F8" : "#0B0F14");
-        Set(resources, "RosterBorderBrush", light ? "#B9C3CE" : "#28323F");
-        Set(resources, "RosterTextBrush", light ? "#18202B" : "#F4F7FB");
-        Set(resources, "RosterMutedBrush", light ? "#586576" : "#93A0B2");
-        // The title bar is part of the surface now, not a green band of its own, with the accent
-        // kept for the desk's actions so it still reads as the same app.
-        Set(resources, "RosterHeaderBrush", light ? "#FFFFFF" : "#10161F");
-        Set(resources, "RosterHeaderTextBrush", light ? "#18202B" : "#F4F7FB");
-        Set(resources, "RosterPillBrush", light ? "#EEF2F7" : "#151B23");
-        Set(resources, "RosterPillBorderBrush", light ? "#B9C3CE" : "#28323F");
-        Set(resources, "RosterTabBrush", light ? "#F3F5F8" : "#0B0F14");
+        // Dark is a true black page with neutral cards, wells and borders. Text stays near-white
+        // and muted labels stay above 4.5:1 on every one of those surfaces.
+        Set(resources, "RosterPanelBrush", light ? "#F3F5F8" : "#000000");
+        Set(resources, "RosterSurfaceBrush", light ? "#FFFFFF" : "#0A0A0A");
+        Set(resources, "RosterSurfaceAltBrush", light ? "#E5EAF0" : "#161616");
+        Set(resources, "RosterInputBrush", light ? "#F3F5F8" : "#050505");
+        Set(resources, "RosterBorderBrush", light ? "#B9C3CE" : "#383838");
+        Set(resources, "RosterTextBrush", light ? "#18202B" : "#F7F7F7");
+        Set(resources, "RosterMutedBrush", light ? "#586576" : "#B8B8B8");
+        // The title bar is part of the surface, not a green band of its own, with the accent kept
+        // for the desk's actions so it still reads as the same app.
+        Set(resources, "RosterHeaderBrush", light ? "#FFFFFF" : "#0A0A0A");
+        Set(resources, "RosterHeaderTextBrush", light ? "#18202B" : "#F7F7F7");
+        Set(resources, "RosterPillBrush", light ? "#EEF2F7" : "#1A1A1A");
+        Set(resources, "RosterPillBorderBrush", light ? "#B9C3CE" : "#383838");
+        Set(resources, "RosterTabBrush", light ? "#F3F5F8" : "#050505");
         var accent = UiPalette.Accent(PreferencesStore.Load());
-        var accentText = (0.299 * accent.R + 0.587 * accent.G + 0.114 * accent.B) / 255 > 0.6 ? "#0C1814" : "#FFFFFF";
+        // Pick the text that actually contrasts with the operator's accent. A simple brightness
+        // threshold made bright green accents print white-on-green, which was unreadable.
         Set(resources, "RosterAccentBrush", accent);
-        Set(resources, "RosterAccentTextBrush", accentText);
+        Set(resources, "RosterAccentTextBrush", ReadableText(accent));
         Set(resources, "RosterDangerBrush", light ? "#C0392B" : "#FF6B6B");
     }
 
@@ -69,10 +70,27 @@ internal static class RosterPalette
         }
         catch { }
         var color = background is SolidColorBrush solid ? solid.Color : Colors.LimeGreen;
-        // Readability first: light team colours get dark text.
-        var luminance = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) / 255;
-        return luminance > 0.6
-            ? (background, new SolidColorBrush(Color.FromRgb(12, 24, 20)))
-            : (background, Brushes.White);
+        return (background, new SolidColorBrush(ReadableText(color)));
+    }
+
+    /// <summary>Returns the darker of white or the desk ink that has the higher WCAG contrast.</summary>
+    static Color ReadableText(Color background)
+    {
+        var dark = Color.FromRgb(12, 24, 20);
+        return Contrast(background, dark) >= Contrast(background, Colors.White) ? dark : Colors.White;
+    }
+
+    static double Contrast(Color one, Color two)
+    {
+        static double Channel(byte value)
+        {
+            var v = value / 255.0;
+            return v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+        }
+        var first = 0.2126 * Channel(one.R) + 0.7152 * Channel(one.G) + 0.0722 * Channel(one.B);
+        var second = 0.2126 * Channel(two.R) + 0.7152 * Channel(two.G) + 0.0722 * Channel(two.B);
+        var light = Math.Max(first, second);
+        var dark = Math.Min(first, second);
+        return (light + 0.05) / (dark + 0.05);
     }
 }

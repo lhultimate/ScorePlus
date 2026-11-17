@@ -48,7 +48,7 @@
       <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="Margin" Value="0,0,10,0"/>
     </Style>
-    <Style x:Key="SmallButton" TargetType="Button">
+    <Style x:Key="SmallButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
       <Setter Property="FontSize" Value="11"/>
       <Setter Property="MinHeight" Value="30"/>
       <Setter Property="Padding" Value="10,5"/>
@@ -59,7 +59,7 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Cursor" Value="Hand"/>
     </Style>
-    <Style x:Key="PrimaryButton" TargetType="Button">
+    <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="FontWeight" Value="Bold"/>
       <Setter Property="MinHeight" Value="30"/>

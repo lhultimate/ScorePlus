@@ -58,6 +58,16 @@ internal static class MotionPlayback
     /// ceiling, so a clip that fades to 0 hides a half-transparent element rather than brightening it.
     /// </summary>
     public static void PlayPhase(FrameworkElement host, MotionPhase? phase, double baseOpacity, Action? done = null, double speed = 1, bool repeat = false, bool pingPong = false, string? pieceId = null)
+        => PlayPhaseCore(host, phase, baseOpacity, done, speed, repeat, pingPong, pieceId, includeDescendants: true);
+
+    /// <summary>
+    /// Plays whole-graphic motion on the layout canvas without walking into the items. Colour
+    /// and content keys still travel through <see cref="PlayPhase"/> on each item.
+    /// </summary>
+    internal static void PlayPhaseRootOnly(FrameworkElement host, MotionPhase? phase, double baseOpacity, string? pieceId = null)
+        => PlayPhaseCore(host, phase, baseOpacity, null, 1, false, false, pieceId, includeDescendants: false);
+
+    static void PlayPhaseCore(FrameworkElement host, MotionPhase? phase, double baseOpacity, Action? done, double speed, bool repeat, bool pingPong, string? pieceId, bool includeDescendants)
     {
         if (phase is null || !phase.Enabled || phase.Seconds <= 0.001 || phase.IsEmpty)
         {
@@ -69,7 +79,7 @@ internal static class MotionPlayback
         var tracks = phase.Tracks.Where(track => Matches(track.PieceId, pieceId)).ToList();
         var colorTracks = phase.Colors.Where(track => Matches(track.PieceId, pieceId)).ToList();
         if (tracks.Count == 0 && colorTracks.Count == 0) { done?.Invoke(); return; }
-        Stop(host);
+        StopCore(host, includeDescendants);
         var seconds = Math.Max(0.05, phase.Seconds / Math.Clamp(speed <= 0 ? 1 : speed, 0.1, 8));
         var duration = TimeSpan.FromSeconds(seconds);
         var repeatBehaviour = repeat ? RepeatBehavior.Forever : new RepeatBehavior(1);
@@ -96,7 +106,7 @@ internal static class MotionPlayback
             finished = true;
             if (!repeat)
             {
-                Reset(host, baseOpacity);
+                Reset(host, baseOpacity, includeDescendants);
                 done?.Invoke();
             }
         }
@@ -150,27 +160,27 @@ internal static class MotionPlayback
                     AnimateElement(host, FrameworkElement.HeightProperty, track, seconds, repeatBehaviour, pingPong, 1);
                     break;
                 case MotionTarget.TextOpacity:
-                    foreach (var text in Descendants(host).OfType<TextBlock>())
+                    foreach (var text in ScopedDescendants(host, includeDescendants).OfType<TextBlock>())
                         AnimateElement(text, UIElement.OpacityProperty, track, seconds, repeatBehaviour, pingPong, 1);
                     break;
                 case MotionTarget.BackgroundOpacity:
-                    AnimateBrushOpacity(host, MotionColorRole.Background, track, seconds, repeatBehaviour, pingPong);
+                    AnimateBrushOpacity(host, MotionColorRole.Background, track, seconds, repeatBehaviour, pingPong, includeDescendants);
                     break;
                 case MotionTarget.BorderOpacity:
-                    AnimateBrushOpacity(host, MotionColorRole.Border, track, seconds, repeatBehaviour, pingPong);
+                    AnimateBrushOpacity(host, MotionColorRole.Border, track, seconds, repeatBehaviour, pingPong, includeDescendants);
                     break;
                 case MotionTarget.FontSize:
-                    foreach (var text in Descendants(host).OfType<TextBlock>())
+                    foreach (var text in ScopedDescendants(host, includeDescendants).OfType<TextBlock>())
                         AnimateElement(text, TextBlock.FontSizeProperty, track, seconds, repeatBehaviour, pingPong, 1);
                     break;
                 case MotionTarget.BorderThickness:
-                    AnimateBorderThickness(host, track, seconds, repeatBehaviour, pingPong);
+                    AnimateBorderThickness(host, track, seconds, repeatBehaviour, pingPong, includeDescendants);
                     break;
             }
         }
 
         // Colour keys travel with the phase, relative to the same clock.
-        AnimateColours(host, colorTracks, seconds, repeatBehaviour, pingPong);
+        AnimateColours(host, colorTracks, seconds, repeatBehaviour, pingPong, includeDescendants);
     }
 
     /// <summary>
@@ -263,7 +273,15 @@ internal static class MotionPlayback
     }
 
     /// <summary>Stops every animation this player put on an element and leaves it at rest.</summary>
-    public static void Stop(FrameworkElement host)
+    public static void Stop(FrameworkElement host) => StopCore(host, true);
+
+    /// <summary>
+    /// Stops the clip on one host. A whole-graphic score celebration passes false so its canvas
+    /// transform can be cleared without disturbing the item animations running underneath.
+    /// </summary>
+    internal static void StopRootOnly(FrameworkElement host) => StopCore(host, false);
+
+    static void StopCore(FrameworkElement host, bool includeDescendants)
     {
         host.BeginAnimation(UIElement.OpacityProperty, null);
         host.BeginAnimation(FrameworkElement.WidthProperty, null);
@@ -292,16 +310,23 @@ internal static class MotionPlayback
         if (host.Effect is BlurEffect blur) blur.BeginAnimation(BlurEffect.RadiusProperty, null);
         // A clip never leaves a property behind: box size, text size, outline and every brush
         // return to the values the designer actually saved.
-        foreach (var text in Descendants(host).OfType<TextBlock>())
+        foreach (var element in ScopedDescendants(host, includeDescendants))
         {
-            text.BeginAnimation(UIElement.OpacityProperty, null);
-            text.BeginAnimation(TextBlock.FontSizeProperty, null);
+            if (element is TextBlock text)
+            {
+                text.BeginAnimation(UIElement.OpacityProperty, null);
+                text.BeginAnimation(TextBlock.FontSizeProperty, null);
+            }
+            else if (element is Border border)
+            {
+                border.BeginAnimation(Border.BorderThicknessProperty, null);
+            }
+            else if (element is Shape shape)
+            {
+                shape.BeginAnimation(Shape.StrokeThicknessProperty, null);
+            }
         }
-        foreach (var border in Descendants(host).OfType<Border>())
-            border.BeginAnimation(Border.BorderThicknessProperty, null);
-        foreach (var shape in Descendants(host).OfType<Shape>())
-            shape.BeginAnimation(Shape.StrokeThicknessProperty, null);
-        RestoreBrushes(host);
+        RestoreBrushes(host, includeDescendants);
     }
 
     static void StopTransform(Transform transform)
@@ -327,9 +352,9 @@ internal static class MotionPlayback
     }
 
     /// <summary>Puts an element back at rest at its design opacity.</summary>
-    static void Reset(FrameworkElement host, double baseOpacity)
+    static void Reset(FrameworkElement host, double baseOpacity, bool includeDescendants)
     {
-        Stop(host);
+        StopCore(host, includeDescendants);
         host.Opacity = Math.Clamp(baseOpacity, 0, 1);
         var angle = GetBaseRotation(host);
         host.RenderTransform = Math.Abs(angle) > 0.001 ? new RotateTransform(angle) : Transform.Identity;
@@ -362,9 +387,9 @@ internal static class MotionPlayback
         element.BeginAnimation(property, animation);
     }
 
-    static void AnimateBrushOpacity(FrameworkElement host, MotionColorRole role, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong)
+    static void AnimateBrushOpacity(FrameworkElement host, MotionColorRole role, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong, bool includeDescendants)
     {
-        foreach (var brush in Targets(host, role))
+        foreach (var brush in Targets(host, role, includeDescendants))
         {
             if (brush.GetValue(OriginalBrushOpacityProperty) is not double)
                 brush.SetValue(OriginalBrushOpacityProperty, brush.Opacity);
@@ -375,7 +400,7 @@ internal static class MotionPlayback
         }
     }
 
-    static void AnimateBorderThickness(FrameworkElement host, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong)
+    static void AnimateBorderThickness(FrameworkElement host, MotionTrack track, double seconds, RepeatBehavior repeat, bool pingPong, bool includeDescendants)
     {
         var keys = track.Keys.OrderBy(key => key.Time).ToList();
         if (keys.Count == 0) return;
@@ -390,9 +415,9 @@ internal static class MotionPlayback
                 EasingFunction = Ease(key.Ease)
             });
         }
-        foreach (var border in Descendants(host).OfType<Border>())
+        foreach (var border in ScopedDescendants(host, includeDescendants).OfType<Border>())
             border.BeginAnimation(Border.BorderThicknessProperty, animation);
-        foreach (var shape in Descendants(host).OfType<Shape>())
+        foreach (var shape in ScopedDescendants(host, includeDescendants).OfType<Shape>())
             shape.BeginAnimation(Shape.StrokeThicknessProperty, BuildDouble(track, seconds, 0, 0, 1));
     }
 
@@ -445,7 +470,7 @@ internal static class MotionPlayback
     /// Repaints the text, plate and outline through a phase's colour keys. Every brush is replaced
     /// with an unfrozen copy first, because an animated frozen brush throws.
     /// </summary>
-    public static void AnimateColours(FrameworkElement host, IEnumerable<ColorTrack> tracks, double seconds, RepeatBehavior repeat, bool pingPong)
+    public static void AnimateColours(FrameworkElement host, IEnumerable<ColorTrack> tracks, double seconds, RepeatBehavior repeat, bool pingPong, bool includeDescendants = true)
     {
         foreach (var track in tracks)
         {
@@ -453,14 +478,14 @@ internal static class MotionPlayback
             var animation = BuildColour(track, seconds);
             animation.RepeatBehavior = repeat;
             animation.AutoReverse = pingPong;
-            foreach (var target in ColourTargets(host, track.Role)) target.Animate(animation);
+            foreach (var target in ColourTargets(host, track.Role, includeDescendants)) target.Animate(animation);
         }
     }
 
     /// <summary>Restores every brush a clip has touched, including colours held by an animation.</summary>
-    static void RestoreBrushes(DependencyObject root)
+    static void RestoreBrushes(DependencyObject root, bool includeDescendants = true)
     {
-        foreach (var element in Descendants(root))
+        foreach (var element in ScopedDescendants(root, includeDescendants))
         {
             RestoreOwnerBrush(element, OriginalForegroundBrushProperty, brush =>
             {
@@ -479,7 +504,7 @@ internal static class MotionPlayback
                 else if (element is Shape shape) shape.Stroke = brush;
             });
         }
-        foreach (var brush in Brushes(root))
+        foreach (var brush in Brushes(root, includeDescendants))
         {
             // A frozen brush is shared, immutable paint. It was never animated (colour animation
             // gets a live copy), and WPF refuses BeginAnimation on it, so leave it alone.
@@ -500,9 +525,9 @@ internal static class MotionPlayback
         owner.ClearValue(property);
     }
 
-    static IEnumerable<SolidColorBrush> Brushes(DependencyObject root)
+    static IEnumerable<SolidColorBrush> Brushes(DependencyObject root, bool includeDescendants = true)
     {
-        foreach (var element in Descendants(root))
+        foreach (var element in ScopedDescendants(root, includeDescendants))
         {
             switch (element)
             {
@@ -547,9 +572,9 @@ internal static class MotionPlayback
     }
 
     /// <summary>Every solid brush on a host that paints one of the colour roles.</summary>
-    static IEnumerable<SolidColorBrush> Targets(DependencyObject root, MotionColorRole role)
+    static IEnumerable<SolidColorBrush> Targets(DependencyObject root, MotionColorRole role, bool includeDescendants = true)
     {
-        foreach (var element in Descendants(root))
+        foreach (var element in ScopedDescendants(root, includeDescendants))
         {
             switch (role)
             {
@@ -582,9 +607,9 @@ internal static class MotionPlayback
     /// colour key is one colour, so those paints are temporarily replaced by a flat brush of that
     /// colour; the original brush is restored when the phase ends.
     /// </summary>
-    static IEnumerable<ColourTarget> ColourTargets(DependencyObject root, MotionColorRole role)
+    static IEnumerable<ColourTarget> ColourTargets(DependencyObject root, MotionColorRole role, bool includeDescendants = true)
     {
-        foreach (var element in Descendants(root))
+        foreach (var element in ScopedDescendants(root, includeDescendants))
         {
             switch (role)
             {
@@ -693,6 +718,9 @@ internal static class MotionPlayback
         assign(copy);
         return copy;
     }
+
+    static IEnumerable<DependencyObject> ScopedDescendants(DependencyObject root, bool includeDescendants) =>
+        includeDescendants ? Descendants(root) : new[] { root };
 
     static IEnumerable<DependencyObject> Descendants(DependencyObject root)
     {

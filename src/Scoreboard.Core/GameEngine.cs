@@ -12,7 +12,8 @@ public enum FootballDownMode
     Goal,
     Pat,
     TwoPoint,
-    None
+    None,
+    Inches
 }
 
 /// <summary>What replaces the game clock on the graphic.</summary>
@@ -51,7 +52,7 @@ public sealed record SportDefinition(string Id, string Name, string Unit, int Pe
 }
 
 /// <summary>
-/// A single user-defined statistic such as Turnovers or Penalties. A stat is either a number (the
+/// A single custom value such as Turnovers or Penalties. A value is either a number (the
 /// steppers work on it) or any free text — "N/A", "3rd", "TBD" — which is what the graphic prints.
 /// </summary>
 public sealed record GameStat(string Id, string Name, int Value = 0, string? Text = null)
@@ -65,12 +66,34 @@ public sealed record GameStat(string Id, string Name, int Value = 0, string? Tex
 
 public static class CommonStats
 {
-    /// <summary>Suggested stat names offered when adding a custom stat.</summary>
+    /// <summary>Suggested value names offered when adding a custom value.</summary>
     public static IReadOnlyList<string> Names { get; } =
     [
-        "Turnovers", "Penalties", "Penalty yards", "Shots", "Shots on goal", "Saves", "Corners",
-        "Rebounds", "Assists", "Steals", "Blocks", "Fouls", "Hits", "Errors", "Faceoff wins", "Possessions"
+        "Field goal attempts", "Field goal yards", "Turnovers", "Penalties", "Penalty yards",
+        "Shots", "Shots on goal", "Saves", "Corners", "Rebounds", "Assists", "Steals", "Blocks",
+        "Fouls", "Hits", "Errors", "Faceoff wins", "Possessions"
     ];
+
+    /// <summary>
+    /// The values a new game starts with. They are ordinary custom values: the operator can change,
+    /// remove or add to them, and they are saved with the game like every other value.
+    /// </summary>
+    public static IReadOnlyList<string> DefaultsFor(string? sportId) => (sportId ?? "").Trim().ToLowerInvariant() switch
+    {
+        "football" => ["Field goal attempts", "Field goal yards", "Turnovers", "Penalties", "Penalty yards"],
+        "australian-football" => ["Inside 50s", "Clearances", "Turnovers"],
+        "basketball" => ["Turnovers", "Rebounds", "Assists", "Steals"],
+        "baseball" => ["Errors", "Left on base", "Double plays"],
+        "cricket" => ["Fours", "Sixes", "Extras"],
+        "hockey" => ["Shots", "Power play goals", "Faceoff wins"],
+        "lacrosse" => ["Shots", "Saves", "Faceoff wins"],
+        "rugby" => ["Tries", "Conversions", "Turnovers"],
+        "soccer" => ["Shots", "Shots on goal", "Corners", "Fouls"],
+        "tennis" => ["Aces", "Double faults", "Break points"],
+        "volleyball" => ["Aces", "Blocks", "Digs"],
+        "wrestling" => ["Takedowns", "Escapes", "Near falls"],
+        _ => ["Turnovers", "Penalties"]
+    };
 }
 
 /// <summary>A quick-layout button captured with a saved game: its label and the layout it points at.</summary>
@@ -90,7 +113,11 @@ public sealed class SavedQuickMedia
 
 public sealed class GameState
 {
+    /// <summary>A stable id for cloud feeds, kept when a game is saved and reopened.</summary>
+    public string GameId { get; set; } = Guid.NewGuid().ToString("N");
     public string SportId { get; set; } = "basketball";
+    /// <summary>A free-form label for this fixture, shown on the live production bar and saved with the game.</summary>
+    public string GameName { get; set; } = "";
     public string HomeTeam { get; set; } = "HOME";
     public string AwayTeam { get; set; } = "VISITORS";
     public string HomeAbbreviation { get; set; } = "HOME";
@@ -126,6 +153,33 @@ public sealed class GameState
     /// <summary>The quick layout and media buttons in use when the game was saved, so opening it brings them back.</summary>
     public List<SavedQuickLayout> QuickLayouts { get; set; } = [];
     public List<SavedQuickMedia> QuickMedia { get; set; } = [];
+    /// <summary>Saved macro buttons, with their ordered steps, so a game reopens with the show's shortcuts.</summary>
+    public List<SavedMacro> Macros { get; set; } = [];
+    /// <summary>How many macro board pages exist. A blank page is a valid page.</summary>
+    public int MacroPages { get; set; } = 1;
+    /// <summary>
+    /// The latest league cloud snapshot. It is live data rather than part of the fixture, so it is
+    /// deliberately not written into a saved game; the ticker refreshes from the cloud on sync.
+    /// </summary>
+    [JsonIgnore]
+    public List<LeagueGame> LeagueGames { get; set; } = [];
+    [JsonIgnore]
+    public string LeagueTickerText => LeagueTicker.Format(LeagueGames);
+    /// <summary>The league games the rotating ticker includes. Empty means every received game
+    /// until the operator makes a choice.</summary>
+    public List<string> TickerGameIds { get; set; } = [];
+    /// <summary>True once the operator has chosen games, including choosing none of them.</summary>
+    public bool TickerGamesChosen { get; set; }
+    /// <summary>Headlines that rotate between the chosen games.</summary>
+    public List<string> TickerNews { get; set; } = [];
+    /// <summary>Rotate one card at a time instead of scrolling the whole league line.</summary>
+    public bool TickerAutoRotate { get; set; } = true;
+    /// <summary>Show an interrupting card when the local game or a chosen league game scores.</summary>
+    public bool TickerScoreAlerts { get; set; } = true;
+    /// <summary>How long each game or headline stays on screen.</summary>
+    public double TickerDwellSeconds { get; set; } = 7;
+    /// <summary>How long the fade between two ticker cards takes.</summary>
+    public double TickerTransitionSeconds { get; set; } = 0.4;
     /// <summary>True when this file carries the quick-button lists, including deliberately empty ones.</summary>
     public bool QuickButtonsSaved { get; set; }
     /// <summary>Team logo imported from the control panel. Graphics draw it, the studio never edits it.</summary>
@@ -144,6 +198,12 @@ public sealed class GameState
     /// </summary>
     public int LastScoreAmount { get; set; }
     public bool LastScoreHome { get; set; } = true;
+    /// <summary>
+    /// Increases once for every scoring action. The graphic watches this instead of the score
+    /// itself, so a clock update cannot replay the touchdown celebration and a score correction
+    /// does not pretend to be one.
+    /// </summary>
+    public long LastScoreSequence { get; set; }
     [JsonIgnore]
     public int LastScoreMagnitude => Math.Abs(LastScoreAmount);
     [JsonIgnore]
@@ -172,7 +232,7 @@ public sealed class GameState
     public int[] ScoringOptions { get; set; } = [1, 2, 3];
     public int ShotClockSeconds { get; set; } = 30;
     public int Down { get; set; } = 1;
-    /// <summary>Normal, goal-to-go, PAT, two-point attempt, or no down line at all.</summary>
+    /// <summary>Normal, goal-to-go, PAT, two-point attempt, inches, or no down line at all.</summary>
     public FootballDownMode FootballDownMode { get; set; }
     /// <summary>Clock, Final or End of Reg. on the graphic.</summary>
     public GameClockMessage ClockMessage { get; set; }
@@ -192,7 +252,8 @@ public sealed class GameState
     public string ToGoDisplay => FootballDownMode switch
     {
         FootballDownMode.Normal => YardsToGo.ToString(),
-        FootballDownMode.Goal => GameEngine.UppercaseDownWordsEnabled ? "GOAL" : "Goal",
+        FootballDownMode.Inches => "Inches",
+        FootballDownMode.Goal => "Goal",
         _ => ""
     };
 
@@ -204,14 +265,15 @@ public sealed class GameState
         FootballDownMode.TwoPoint => "2 PT ATT",
         FootballDownMode.None => "",
         FootballDownMode.Goal => $"{DownDisplay} & {ToGoDisplay}",
-        _ => DownPending ? $"{DownDisplay} {(GameEngine.UppercaseDownWordsEnabled ? "DOWN" : "Down")}" : $"{DownDisplay} & {ToGoDisplay}"
+        FootballDownMode.Inches => $"{DownDisplay} & {ToGoDisplay}",
+        _ => DownPending ? $"{DownDisplay} Down" : $"{DownDisplay} & {ToGoDisplay}"
     };
 
     /// <summary>The words or time the audience clock carries.</summary>
     [JsonIgnore]
     public string GameClockText => ClockMessage switch
     {
-        GameClockMessage.Final => "FINAL",
+        GameClockMessage.Final => GameEngine.FinalClockText(this),
         GameClockMessage.EndOfRegulation => "END OF REG.",
         _ => GameEngine.FormatClock(ClockSeconds)
     };
@@ -415,6 +477,21 @@ public sealed class GameEngine
     /// </summary>
     public static bool AutoUpdateRecordEnabled { get; set; }
 
+    /// <summary>
+    /// The period at which a tied game may be recorded as a tie. Zero never accepts a tie: the clock
+    /// reads End of Reg. and overtime can continue until somebody wins. A positive value is the last
+    /// period that may finish level and be settled as a tie (for example 4 for regulation or 5 for
+    /// the first overtime).
+    /// </summary>
+    public static int TieAllowedAtPeriod { get; set; }
+
+    /// <summary>When on, a final after the scheduled periods reads FINAL/OT instead of FINAL.</summary>
+    public static bool OvertimeFinalLabelEnabled { get; set; }
+
+    /// <summary>The final clock label, including overtime when the game went past its last period.</summary>
+    public static string FinalClockText(GameState state) =>
+        OvertimeFinalLabelEnabled && state.Period > state.TotalPeriods ? "FINAL/OT" : "FINAL";
+
     public SportDefinition Sport => Sports.Find(State.SportId) ?? SportDefinition.BuiltIns[^1];
 
     public GameEngine(SportCatalog? sports = null) => Sports = sports ?? new SportCatalog();
@@ -433,6 +510,9 @@ public sealed class GameEngine
         // Soccer alone opens at 0:00 (it counts to 90:00); every other sport keeps its clock preset.
         ClockSeconds = sport.Id == "soccer" ? 0 : sport.PeriodSeconds,
         PeriodSeconds = sport.PeriodSeconds, TotalPeriods = sport.Periods, PeriodLabel = sport.Unit, ScoringOptions = sport.ScoringOptions.ToArray(), HomeTimeouts = timeouts, AwayTimeouts = timeouts, HomeTimeoutLimit = timeouts, AwayTimeoutLimit = timeouts, PlayClockSeconds = 40, TimeoutClockSeconds = 60, Controls = sport.Controls.Select(c => c with { }).ToList() };
+        // New games open with useful custom values, so the console is not an empty card every time.
+        foreach (var name in CommonStats.DefaultsFor(sport.Id))
+            State.Stats.Add(new GameStat(Guid.NewGuid().ToString("N"), name));
         // A profile's starting values (a full count of balls to start, a power play already on) are
         // what a new game opens with; stepping them afterwards changes only this game.
         foreach (var control in State.Controls)
@@ -453,7 +533,9 @@ public sealed class GameEngine
             State.HomePlayer = CopyPlayer(previous.HomePlayer); State.AwayPlayer = CopyPlayer(previous.AwayPlayer);
             State.HomePlayerCleared = previous.HomePlayerCleared; State.AwayPlayerCleared = previous.AwayPlayerCleared;
         }
-        _undo.Clear(); ResetClockCarries(); _lastTick = _watch.ElapsedTicks; Changed?.Invoke();
+        _undo.Clear(); ResetClockCarries(); _lastTick = _watch.ElapsedTicks;
+        Log("Game", string.IsNullOrWhiteSpace(State.GameName) ? $"New {sport.Name} game" : $"New {sport.Name} game · {State.GameName}");
+        Changed?.Invoke();
     }
 
     /// <summary>Sets one of the sport's own values, clamped to what its control allows.</summary>
@@ -484,6 +566,48 @@ public sealed class GameEngine
         var control = SportValues.FindControl(State, id);
         if (control is null || control.Kind != SportControlKind.Flag) return;
         SetSportValue(control.Id, SportValues.Read(State, control.Id) == 0 ? 1 : 0);
+    }
+
+    /// <summary>Labels the fixture without changing the sport, teams or score.</summary>
+    public void SetGameName(string? name)
+    {
+        var clean = (name ?? "").Trim();
+        if (clean.Length > 120) clean = clean[..120];
+        if (State.GameName == clean) return;
+        State.GameName = clean;
+        Log("Game", clean.Length == 0 ? "Game name cleared" : $"Game name: {clean}");
+        Changed?.Invoke();
+    }
+
+    /// <summary>Replaces the live league feed without treating it as an undoable game edit.</summary>
+    public void SetLeagueGames(IEnumerable<LeagueGame>? games)
+    {
+        State.LeagueGames = (games ?? []).Where(game => game is not null).Select(game => game.Copy()).Take(24).ToList();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Stores the operator's ticker rotation choices without treating them as a game edit.</summary>
+    public void SetTickerSettings(IEnumerable<string>? gameIds, IEnumerable<string>? news,
+        bool autoRotate, bool scoreAlerts, double dwellSeconds, double transitionSeconds)
+    {
+        State.TickerGamesChosen = true;
+        State.TickerGameIds = (gameIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(24)
+            .ToList();
+        State.TickerNews = (news ?? [])
+            .Where(headline => !string.IsNullOrWhiteSpace(headline))
+            .Select(headline => headline.Trim())
+            .Where(headline => headline.Length > 0)
+            .Take(30)
+            .ToList();
+        State.TickerAutoRotate = autoRotate;
+        State.TickerScoreAlerts = scoreAlerts;
+        State.TickerDwellSeconds = Math.Clamp(double.IsFinite(dwellSeconds) ? dwellSeconds : 7, 1, 60);
+        State.TickerTransitionSeconds = Math.Clamp(double.IsFinite(transitionSeconds) ? transitionSeconds : 0.4, 0, 3);
+        Changed?.Invoke();
     }
 
     public void SetTeams(string home, string away)
@@ -572,6 +696,7 @@ public sealed class GameEngine
         var after = home ? State.HomeScore : State.AwayScore;
         State.LastScoreAmount = after - before;
         State.LastScoreHome = home;
+        State.LastScoreSequence++;
         Log("Score", $"{(home ? State.HomeTeam : State.AwayTeam)} {(amount >= 0 ? "+" : "−")}{Math.Abs(amount)}"); Changed?.Invoke();
     }
 
@@ -589,12 +714,16 @@ public sealed class GameEngine
         // The fraction already elapsed stays in _gameClockCarry, so starting again reaches the next
         // whole second when it is actually due rather than waiting a fresh second.
         SaveUndo("Clock"); State.ClockRunning = !State.ClockRunning; _lastTick = _watch.ElapsedTicks;
+        if (State.ClockRunning && State.ClockMessage == GameClockMessage.EndOfRegulation && State.ClockSeconds > 0)
+            State.ClockMessage = GameClockMessage.Clock;
         Log("Clock", State.ClockRunning ? "Clock started" : $"Clock stopped at {FormatClock(State.ClockSeconds)}"); Changed?.Invoke();
     }
 
     public void SetClock(int seconds)
     {
         Tick(); SaveUndo("Clock correction"); State.ClockSeconds = Math.Max(0, seconds); _gameClockCarry = 0; _lastTick = _watch.ElapsedTicks;
+        if (State.ClockSeconds > 0 && State.ClockMessage == GameClockMessage.EndOfRegulation)
+            State.ClockMessage = GameClockMessage.Clock;
         Log("Clock", $"Clock set to {FormatClock(State.ClockSeconds)}"); Changed?.Invoke();
     }
 
@@ -781,6 +910,19 @@ public sealed class GameEngine
     void SettleRecord()
     {
         if (!GameIsComplete()) return;
+        var tied = State.HomeScore == State.AwayScore;
+        // With automatic record updates on, a tied final period is held at End of Reg. until the
+        // operator plays overtime. Zero means keep playing until somebody wins; a positive period
+        // lets the game finish level there and count as a tie (for example 5-2-1).
+        if (tied && AutoUpdateRecordEnabled
+            && (TieAllowedAtPeriod <= 0 || State.Period < TieAllowedAtPeriod))
+        {
+            State.ClockMessage = GameClockMessage.EndOfRegulation;
+            Log("Clock", State.Period <= State.TotalPeriods
+                ? "End of regulation · tied"
+                : $"End of {PeriodDisplay.Format(State)} · tied");
+            return;
+        }
         State.GameEnded = true;
         State.ClockMessage = GameClockMessage.Final;
         if (!AutoUpdateRecordEnabled) return;
@@ -813,8 +955,8 @@ public sealed class GameEngine
 
     /// <summary>
     /// Ends the game on the operator's command: stops every clock, marks the game final and adds
-    /// the result to the team records. This is explicit, so it applies even when automatic record
-    /// updates are off. A side with no record is left alone.
+    /// the result to the team records, including a tie. This is explicit, so it applies even when
+    /// automatic record updates are off. A side with no record is left alone.
     /// </summary>
     public bool EndGame()
     {
@@ -825,10 +967,13 @@ public sealed class GameEngine
         State.ShotClockRunning = false;
         State.PlayClockRunning = false;
         State.TimeoutClockRunning = false;
+        // End Game is the operator's explicit decision, so a tie is final and counts in the team
+        // records here. The clock-expiry path still holds a regulation tie at End of Reg. while
+        // overtime is possible; advancing the period is how the operator gets there.
         State.GameEnded = true;
         State.ClockMessage = GameClockMessage.Final;
         ApplyFinalRecord(recordUndo: false);
-        Log("Game", "Game ended");
+        Log("Game", State.HomeScore == State.AwayScore ? "Game ended · tie" : "Game ended");
         Changed?.Invoke();
         return true;
     }
@@ -854,6 +999,8 @@ public sealed class GameEngine
         // Soccer's clock runs 0–90 across both halves; it does not restart at 45:00.
         if (State.SportId != "soccer") State.ClockSeconds = State.PeriodSeconds;
         State.ClockRunning = false;
+        // A tie held at the end of regulation becomes a running clock again as overtime begins.
+        if (State.ClockMessage == GameClockMessage.EndOfRegulation) State.ClockMessage = GameClockMessage.Clock;
         _gameClockCarry = 0;
         Log("Period", $"{State.PeriodLabel} {State.Period}"); Changed?.Invoke();
     }
@@ -863,6 +1010,7 @@ public sealed class GameEngine
         var value = Math.Clamp(period, 1, 99);
         if (State.Period == value) return;
         SaveUndo("Period"); State.Period = value;
+        if (State.ClockMessage == GameClockMessage.EndOfRegulation) State.ClockMessage = GameClockMessage.Clock;
         Log("Period", $"{State.PeriodLabel} {State.Period}"); Changed?.Invoke();
     }
 
@@ -872,6 +1020,7 @@ public sealed class GameEngine
         SaveUndo("Period"); State.Period--;
         if (State.SportId != "soccer") State.ClockSeconds = State.PeriodSeconds;
         State.ClockRunning = false;
+        if (State.ClockMessage == GameClockMessage.EndOfRegulation) State.ClockMessage = GameClockMessage.Clock;
         _gameClockCarry = 0;
         Log("Period", $"{State.PeriodLabel} {State.Period}"); Changed?.Invoke();
     }
@@ -893,6 +1042,7 @@ public sealed class GameEngine
         Log("Down", mode switch
         {
             FootballDownMode.Goal => $"{State.DownDisplay} & Goal",
+            FootballDownMode.Inches => $"{State.DownDisplay} & Inches",
             FootballDownMode.Pat => "PAT",
             FootballDownMode.TwoPoint => "2 PT ATT",
             FootballDownMode.None => "Down and distance hidden",
@@ -1021,12 +1171,6 @@ public sealed class GameEngine
         Changed?.Invoke();
     }
 
-    /// <summary>
-    /// When on, the down line's words print in full caps: "1st & GOAL" and "2nd DOWN". The
-    /// ordinal, the distance and the PAT labels do not change. Off by default.
-    /// </summary>
-    public static bool UppercaseDownWordsEnabled { get; set; }
-
     /// <summary>Whether Next down shows the new down alone until the distance is set.</summary>
     public static bool DownPreviewEnabled { get; set; }
 
@@ -1040,6 +1184,19 @@ public sealed class GameEngine
 
     /// <summary>True once after New series asked to go straight to air; the host publishes it.</summary>
     public bool TakePublishRequest() { var requested = _publishNewSeries; _publishNewSeries = false; return requested; }
+
+    /// <summary>
+    /// Set by a macro step that is not allowed to bypass Update Output. Live publishing must not
+    /// move any value while this is set; the next full publish (Update Output) clears it.
+    /// </summary>
+    [JsonIgnore]
+    public bool MacroOutputHold { get; private set; }
+
+    /// <summary>Holds live output until the operator presses Update Output.</summary>
+    public void HoldMacroOutput() => MacroOutputHold = true;
+
+    /// <summary>Clears the hold after a full publish.</summary>
+    public void ClearMacroOutputHold() => MacroOutputHold = false;
     public void SetPeriodFormat(string format) { if(format is not ("Full" or "Short" or "Number" or "Ordinal"))return; if(State.QuarterDisplayFormat==format)return; SaveUndo("Period format"); State.QuarterDisplayFormat=format; Log("Period", $"Period display: {PeriodDisplay.Format(State)}"); Changed?.Invoke(); }
     /// <summary>Yard line is 0–50: a ball spot never goes past midfield, whichever team has it.</summary>
     public void SetFootballDistance(int yardsToGo,int? yardsToGoal=null) { if (State.SportId != "football") return; SaveUndo("Football distance"); State.FootballDownMode = FootballDownMode.Normal; State.DownPending = false; State.YardsToGo=Math.Clamp(yardsToGo,1,99); if(yardsToGoal is not null)State.YardsToGoal=Math.Clamp(yardsToGoal.Value,0,50); Log("Yards", $"{State.YardsToGo} to go, ball at {State.YardsToGoal}"); Changed?.Invoke(); }
@@ -1115,7 +1272,7 @@ public sealed class GameEngine
         Log(stat.Name, $"{updated.Name}: {updated.Display}"); Changed?.Invoke();
     }
 
-    /// <summary>Sets a custom stat to an exact value, for the typed override in the control panel.</summary>
+    /// <summary>Sets a custom value to an exact number, for the typed override in the control panel.</summary>
     public void SetStat(string id, int value)
     {
         var stat = State.Stats.FirstOrDefault(s => s.Id == id); if (stat is null) return;
@@ -1128,7 +1285,7 @@ public sealed class GameEngine
     }
 
     /// <summary>
-    /// Sets a custom stat to whatever the operator typed. A plain number becomes the stat's value
+    /// Sets a custom value to whatever the operator typed. A plain number becomes the value
     /// (so the steppers keep working); anything else is stored as text and prints as-is.
     /// </summary>
     public void SetStatText(string id, string text)
@@ -1248,6 +1405,14 @@ public sealed class GameEngine
         Changed?.Invoke();
     }
 
+    /// <summary>Replaces the saved macro buttons without adding an undo point for every keystroke.</summary>
+    public void StoreMacros(IEnumerable<SavedMacro> macros, int? pageCount = null)
+    {
+        State.Macros = macros.Select(macro => macro.Copy()).ToList();
+        if (pageCount is int pages) State.MacroPages = Math.Clamp(pages, 1, 99);
+        Changed?.Invoke();
+    }
+
     public void ResetGame()
     {
         SaveUndo("Game reset"); var home = State.HomeTeam; var away = State.AwayTeam; var id = State.SportId;
@@ -1275,12 +1440,23 @@ public sealed class GameEngine
     {
         var (game, design) = GameFiles.Read(path);
         State = game;
+        // A file written before cloud feeds existed gets an id the first time it is opened.
+        if (string.IsNullOrWhiteSpace(State.GameId)) State.GameId = Guid.NewGuid().ToString("N");
+        // Older saves simply have no name; normalize hand-edited files as well.
+        State.GameName = (State.GameName ?? "").Trim();
+        if (State.GameName.Length > 120) State.GameName = State.GameName[..120];
         // Older saves could hold a spot past midfield; bring it back into the 0–50 range.
         State.YardsToGoal = Math.Clamp(State.YardsToGoal, 0, 50);
         NormalizeFootballTimeouts();
         // A file written before sport values existed keeps the current profile's control list, so
         // the console still has balls, bases and power play to work with.
         State.SportValues ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        State.Macros ??= [];
+        foreach (var macro in State.Macros) macro.Normalize();
+        // Older saves have no page count; make room for every page a saved macro already names.
+        State.MacroPages = Math.Clamp(State.MacroPages, 1, 99);
+        if (State.Macros.Count > 0)
+            State.MacroPages = Math.Max(State.MacroPages, State.Macros.Max(macro => macro.Page) + 1);
         State.Controls ??= [];
         if (State.Controls.Count == 0)
             State.Controls = (Sports.Find(State.SportId)?.Controls ?? []).Select(c => c with { }).ToList();
@@ -1352,6 +1528,7 @@ public sealed class GameEngine
             if (home) State.HomeScore = next; else State.AwayScore = next;
             State.LastScoreAmount = next - before;
             State.LastScoreHome = home;
+            State.LastScoreSequence++;
             changed = notable = true;
         }
 
@@ -1527,7 +1704,7 @@ public sealed class GameEngine
             // The new down goes on air at once when the preview is on; the distance waits for publish.
             (!source.DownPending || (State.Down == source.Down && State.DownPending))) return false;
         State.HomeScore=source.HomeScore;State.AwayScore=source.AwayScore;
-        State.LastScoreAmount=source.LastScoreAmount;State.LastScoreHome=source.LastScoreHome;
+        State.LastScoreAmount=source.LastScoreAmount;State.LastScoreHome=source.LastScoreHome;State.LastScoreSequence=source.LastScoreSequence;
         State.HomeTeam=source.HomeTeam;State.AwayTeam=source.AwayTeam;
         State.HomeAbbreviation=source.HomeAbbreviation;State.AwayAbbreviation=source.AwayAbbreviation;
         State.HomeLogoPath=source.HomeLogoPath;State.AwayLogoPath=source.AwayLogoPath;
@@ -1560,12 +1737,15 @@ public sealed class GameEngine
     void Log(string type, string description) => State.Events.Add(new GameEvent(DateTimeOffset.Now, type, description, State.HomeScore, State.AwayScore));
     static string Abbreviate(string value) => string.Concat(value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(3).Select(s => char.ToUpperInvariant(s[0])));
     /// <summary>
-    /// How a clock prints. Padded is 10:00, 09:59 and 0:59; compact drops the minutes' leading
-    /// zero and leaves only :59 under a minute. A show-wide preference, so every clock agrees.
+    /// The console and remote clocks use the familiar padded shape. A graphic's game clock chooses
+    /// its own leading zero in the element properties, so two clocks on one show can print
+    /// differently.
     /// </summary>
-    public static ClockStyle ClockDisplay { get; set; } = ClockStyle.Padded;
+    public static string FormatClock(int seconds) => FormatClock(seconds, ClockStyle.Padded);
 
-    public static string FormatClock(int seconds) => FormatClock(seconds, ClockDisplay);
+    /// <summary>Formats one element's clock: true keeps 09:59, false prints 9:59 and :59.</summary>
+    public static string FormatClock(int seconds, bool leadingZero) =>
+        FormatClock(seconds, leadingZero ? ClockStyle.Padded : ClockStyle.Compact);
 
     public static string FormatClock(int seconds, ClockStyle style)
     {

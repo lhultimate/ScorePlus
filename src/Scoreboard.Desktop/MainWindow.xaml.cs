@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -12,7 +13,7 @@ using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
 
-public partial class MainWindow : Window, IControlPanelHost
+public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
 {
     readonly GameEngine _engine = new();
     readonly GameEngine _publishedEngine = new();
@@ -33,7 +34,9 @@ public partial class MainWindow : Window, IControlPanelHost
     // display at the same time; only Update Output sends anything to an audience.
     readonly ProgramSelection _program;
     readonly MediaSession _session;
+    readonly ReplayBoothController _booth;
     readonly HardwareService _hardware;
+    LeagueCloudService? _leagueCloud;
     bool _displaySync;
     readonly MediaPlayback _playback;
     // Every audience window ever opened this session. Opening the output again adds another one
@@ -73,6 +76,7 @@ public partial class MainWindow : Window, IControlPanelHost
     // Set while the sport picker is being filled in for the operator, so syncing the control cannot
     // be mistaken for the operator choosing a sport (which starts a new game).
     bool _sportSync;
+    bool _gameNameSync;
     // The next autosave starts a fresh recoverable point instead of updating the newest one. Set
     // when a new game starts or a game is loaded, so the previous game keeps its own autosave.
     bool _startNewAutosavePoint = true;
@@ -88,6 +92,7 @@ public partial class MainWindow : Window, IControlPanelHost
     bool _lastPlayClockRunning;
     bool _autoHornReady;
     GameControlWindow.ConsoleTab _tab = GameControlWindow.ConsoleTab.Control;
+    MacroDock? _macroDock;
 
     /// <summary>
     /// The exit prompt is on for operators. The UI checks turn it off because they create and close
@@ -98,6 +103,24 @@ public partial class MainWindow : Window, IControlPanelHost
     // True once the launch box has actually started or opened a game. While it is false the window
     // is still the empty workspace behind the launcher, so closing must never ask to save.
     bool _gameStarted;
+
+    /// <summary>Runs the replacement of the whole show without treating the loaded/new layout as an
+    /// operator hand-over. The first rebuild must not play a layout transition video.</summary>
+    void WithoutLayoutTransitions(Action action)
+    {
+        var previous = ScorebugCanvasView.SuppressTransitions;
+        ScorebugCanvasView.SuppressTransitions = true;
+        try { action(); }
+        finally { ScorebugCanvasView.SuppressTransitions = previous; }
+    }
+
+    bool WithoutLayoutTransitions(Func<bool> action)
+    {
+        var previous = ScorebugCanvasView.SuppressTransitions;
+        ScorebugCanvasView.SuppressTransitions = true;
+        try { return action(); }
+        finally { ScorebugCanvasView.SuppressTransitions = previous; }
+    }
 
     /// <summary>Lets unattended checks create windows without opening a network update dialog.</summary>
     public static bool CheckForUpdatesOnLoad { get; set; } = true;
@@ -120,6 +143,8 @@ public partial class MainWindow : Window, IControlPanelHost
         // the console off the screen; the console itself is reflowable down to its minimum width.
         ScreenFit.Track(this);
         _session = new MediaSession(_preferences);
+        CameraFeed.ReplayWindowSeconds = Math.Clamp(_preferences.ReplaySeconds, 10, 900);
+        _booth = new ReplayBoothController(_session, _engine, _preferences);
         _playback = _session.Playback;
         _hardware = new HardwareService(_engine);
         _hardware.Snapshot += snapshot => Dispatcher.BeginInvoke(new Action(() => ApplyHardware(snapshot)));
@@ -141,6 +166,9 @@ public partial class MainWindow : Window, IControlPanelHost
 
         _engine.Changed += Refresh;
         _engine.Changed += EngineChanged;
+        _leagueCloud = new LeagueCloudService(_engine, _preferences);
+        _leagueCloud.Status += message => Dispatcher.BeginInvoke(new Action(() => StatusText.Text = message));
+        _engine.Changed += () => _leagueCloud?.MarkDirty();
         _timer.Tick += (_, _) => _engine.Tick();
         _timer.Start();
         _autosave.Tick += (_, _) => AutoSave();
@@ -167,8 +195,12 @@ public partial class MainWindow : Window, IControlPanelHost
         Loaded += (_, _) =>
         {
             ApplyTabVisuals();
+            // The referee booth is only useful if the cameras were already rolling when the play
+            // happened. Keep the replay buffers alive with the console, even when neither the booth
+            // nor its browser page is open; its own timer picks up cameras added later.
+            _booth.Activate();
             // The remote and the update check belong to a live window, not to the launch sequence.
-            if (!waitForLaunch) { StartRemote(); StartHardware(); if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync(); }
+            if (!waitForLaunch) { StartRemote(); StartHardware(); _leagueCloud?.Start(); if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync(); }
         };
 
         _panel = new ControlPanelView(_engine, this);
@@ -178,6 +210,10 @@ public partial class MainWindow : Window, IControlPanelHost
         RosterControl.Attach(_engine);
         RosterControl.ApplyTheme(_preferences.Theme);
         RosterControl.SetHintVisibility(_preferences.ShowHeadingHints);
+        _macroDock = new MacroDock(_engine, _session, _preferences.Theme, _panel.Execute, _scorebug, PublishGameState);
+        _macroDock.SetHintVisibility(_preferences.ShowHeadingHints);
+        _macroDock.Status += message => StatusText.Text = message;
+        MacroHost.Content = _macroDock;
         MediaControl.Attach(_session);
         MediaControl.ApplyTheme(_preferences.Theme);
         // The dock now lives in a full-width tab instead of a narrow rail, so its controls are the
@@ -190,6 +226,34 @@ public partial class MainWindow : Window, IControlPanelHost
         RemoteControlServer.RosterAction = RosterAction;
         RemoteControlServer.PenaltyAction = PenaltyAction;
         RemoteControlServer.LockState = () => _operatorLocked;
+        RemoteControlServer.CameraWallState = mode => Dispatcher.Invoke(() =>
+        {
+            var json = _booth.StateJson(mode);
+            if (!string.Equals(mode, "multiview", StringComparison.OrdinalIgnoreCase)) return json;
+            // The browser gets the saved wall itself, not only its cameras: program layouts,
+            // audience pictures, replay and blanks stay in the same order the operator built.
+            try
+            {
+                var node = JsonNode.Parse(json)?.AsObject();
+                if (node is null) return json;
+                node["tiles"] = JsonSerializer.SerializeToNode(
+                    MultiviewWindow.BrowserTiles(_preferences, _scorebug, _session, _program)
+                        .Select(tile => new
+                        {
+                            kind = tile.Kind,
+                            label = tile.Label,
+                            display = tile.DisplayId,
+                            layout = tile.LayoutId,
+                            camera = tile.CameraIndex
+                        }),
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                node["tilesVersion"] = _watchVersion;
+                return node.ToJsonString();
+            }
+            catch { return json; }
+        });
+        RemoteControlServer.CameraWallFrame = (mode, camera, replay) => Dispatcher.Invoke(() => _booth.FrameJpeg(camera, replay));
+        RemoteControlServer.CameraWallAction = (mode, form) => Dispatcher.Invoke(() => _booth.HandleAction(mode, form));
         _session.Status += message => StatusText.Text = message;
         ApplyHintVisibility();
 
@@ -235,13 +299,13 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>
     /// Applies the choice made in the launch box to the window that is already open behind it.
     /// </summary>
-    public void StartFromLauncher(LaunchMode mode, string? path, string? sportId = null)
+    public void StartFromLauncher(LaunchMode mode, string? path, string? sportId = null, string? gameName = null)
     {
         if (mode == LaunchMode.Open && !string.IsNullOrWhiteSpace(path) && LoadGame(path))
             StatusText.Text = $"GAME OPENED · {Path.GetFileNameWithoutExtension(path)}";
         else
         {
-            StartNewGame(sportId ?? (string.IsNullOrWhiteSpace(_preferences.LastSport) ? "football" : _preferences.LastSport), announce: false);
+            StartNewGame(sportId ?? (string.IsNullOrWhiteSpace(_preferences.LastSport) ? "football" : _preferences.LastSport), announce: false, gameName: gameName);
             StatusText.Text = "NEW GAME · set the teams and you are live";
         }
         _savedStateJson = _engine.ExportJson();
@@ -251,6 +315,7 @@ public partial class MainWindow : Window, IControlPanelHost
         Activate();
         StartRemote();
         StartHardware();
+        _leagueCloud?.Start();
         if (CheckForUpdatesOnLoad) _ = CheckForUpdatesAsync();
     }
 
@@ -355,6 +420,38 @@ public partial class MainWindow : Window, IControlPanelHost
     public string LayoutLabel => _program.Label;
 
     public void OpenNewPanel() => OpenControlPanel();
+
+    // The phone can preview any display and move that display's staged layout without taking the
+    // desktop preview away from whatever the operator is working on.
+    public IReadOnlyList<RemoteDisplayInfo> RemoteDisplays =>
+        _scorebug.Displays.Select(display => new RemoteDisplayInfo(display.Id, display.Name)).ToArray();
+
+    public string RemoteDisplayId => _program.DisplayId;
+
+    public string RemoteLayoutLabel(string displayId) => _program.LabelFor(displayId);
+
+    public void RemoteSelectDisplay(string displayId)
+    {
+        if (string.IsNullOrWhiteSpace(displayId)) return;
+        _program.SelectDisplay(displayId);
+        _preview?.Rebuild();
+        SyncDisplayPicker();
+        RefreshLayoutIndicators();
+        _panel.Refresh();
+        foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.Panel.Refresh();
+    }
+
+    public void RemoteShiftLayout(string displayId, int delta)
+    {
+        var target = string.IsNullOrWhiteSpace(displayId) ? _program.DisplayId : displayId;
+        _program.ShiftFor(target, delta);
+        _preview?.Rebuild();
+        RefreshLayoutIndicators();
+        var display = _scorebug.FindDisplay(target);
+        StatusText.Text = $"REMOTE LAYOUT · {display?.Name ?? "Display"} · {_program.LabelFor(target)} · preview only";
+        _panel.Refresh();
+        foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.Panel.Refresh();
+    }
 
     /// <summary>
     /// Sends the game data (score, clocks, down, stats) to the audience copies. It deliberately
@@ -500,6 +597,8 @@ public partial class MainWindow : Window, IControlPanelHost
 
     public void PublishGameState()
     {
+        // Update Output is the explicit release for a macro that held its live values back.
+        _engine.ClearMacroOutputHold();
         // Remember the down going to air, so Last down can put back the one before it.
         _engine.MarkPublished();
         _publishedEngine.LoadFromState(_engine.CloneState());
@@ -597,16 +696,24 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void RosterTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Rosters);
 
-    /// <summary>Switches the operator surface between the console, the media desk and the roster desk.</summary>
+    void MacrosTab_Click(object sender, RoutedEventArgs e) => ShowTab(GameControlWindow.ConsoleTab.Macros);
+
+    /// <summary>Switches the operator surface between the console, media, roster and macros.</summary>
     void ShowTab(GameControlWindow.ConsoleTab tab)
     {
+        // Leaving the macro editor is a natural save point; the operator should not lose the
+        // name or step they just typed by clicking another tab.
+        if (_tab == GameControlWindow.ConsoleTab.Macros && tab != GameControlWindow.ConsoleTab.Macros)
+            _macroDock?.CommitPendingEdits();
         _tab = tab;
         ControlHost.Visibility = tab == GameControlWindow.ConsoleTab.Control ? Visibility.Visible : Visibility.Collapsed;
         MediaControl.Visibility = tab == GameControlWindow.ConsoleTab.Media ? Visibility.Visible : Visibility.Collapsed;
         RosterControl.Visibility = tab == GameControlWindow.ConsoleTab.Rosters ? Visibility.Visible : Visibility.Collapsed;
+        MacroHost.Visibility = tab == GameControlWindow.ConsoleTab.Macros ? Visibility.Visible : Visibility.Collapsed;
         ApplyTabVisuals();
         if (tab == GameControlWindow.ConsoleTab.Media) MediaControl.RefreshView();
         if (tab == GameControlWindow.ConsoleTab.Rosters) RosterControl.RefreshView();
+        if (tab == GameControlWindow.ConsoleTab.Macros) _macroDock?.RefreshView();
     }
 
     /// <summary>
@@ -615,20 +722,24 @@ public partial class MainWindow : Window, IControlPanelHost
     /// </summary>
     void ApplyTabVisuals()
     {
-        // Active-tab colours follow the operator's accent from Preferences.
+        // Active-tab colours follow the operator's accent from Preferences and the active theme.
+        var light = ThemeManager.Resolve(_preferences.Theme) == "Light";
         var accent = UiPalette.Accent(_preferences);
-        var on = UiPalette.Frozen(UiPalette.Soft(accent));
-        var off = (Brush)new BrushConverter().ConvertFromString("#141A23")!;
+        var on = light
+            ? UiPalette.Frozen(UiPalette.Mix(accent, Colors.White, 0.78))
+            : UiPalette.Frozen(UiPalette.Soft(accent));
+        var off = (Brush)new BrushConverter().ConvertFromString(light ? "#F3F5F8" : "#141A23")!;
         var onBorder = UiPalette.Frozen(accent);
-        var offBorder = (Brush)new BrushConverter().ConvertFromString("#28323F")!;
-        var muted = (Brush)new BrushConverter().ConvertFromString("#93A0B2")!;
-        Button[] tabs = [ControlTab, MediaTab, RosterTab];
+        var offBorder = (Brush)new BrushConverter().ConvertFromString(light ? "#C9D2DC" : "#28323F")!;
+        var muted = (Brush)new BrushConverter().ConvertFromString(light ? "#586576" : "#93A0B2")!;
+        var onText = (Brush)new BrushConverter().ConvertFromString(light ? "#18202B" : "#F4F7FB")!;
+        Button[] tabs = [ControlTab, MediaTab, RosterTab, MacrosTab];
         var active = (int)_tab;
         for (var i = 0; i < tabs.Length; i++)
         {
             tabs[i].Background = i == active ? on : off;
             tabs[i].BorderBrush = i == active ? onBorder : offBorder;
-            tabs[i].Foreground = i == active ? Brushes.White : muted;
+            tabs[i].Foreground = i == active ? onText : muted;
         }
     }
 
@@ -647,6 +758,13 @@ public partial class MainWindow : Window, IControlPanelHost
             _sportSync = true;
             try { SportSelector.SelectedValue = s.SportId; }
             finally { _sportSync = false; }
+        }
+        // Follow a new or loaded game without overwriting a name the operator is currently typing.
+        if (GameNameBox is not null && !GameNameBox.IsKeyboardFocusWithin && GameNameBox.Text != s.GameName)
+        {
+            _gameNameSync = true;
+            try { GameNameBox.Text = s.GameName; }
+            finally { _gameNameSync = false; }
         }
         _eventCount = s.Events.Count;
     }
@@ -715,6 +833,7 @@ public partial class MainWindow : Window, IControlPanelHost
         SportHint.Visibility = PreviewAudienceHint.Visibility = visibility;
         MediaControl.SetHintVisibility(_preferences.ShowHeadingHints);
         RosterControl.SetHintVisibility(_preferences.ShowHeadingHints);
+        _macroDock?.SetHintVisibility(_preferences.ShowHeadingHints);
         _log?.SetHintVisibility(_preferences.ShowHeadingHints);
     }
 
@@ -732,7 +851,7 @@ public partial class MainWindow : Window, IControlPanelHost
         var displayIndex = _scorebug.Displays.FindIndex(display => string.Equals(display.Id, _program.DisplayId, StringComparison.OrdinalIgnoreCase));
         if (displayIndex >= 0) _scorebug.SelectDisplay(displayIndex);
         _scorebug.SelectLayout(_program.LayoutIndex);
-        var studio = new ScorebugEditorWindow(_scorebug, _engine, _playback, _preferences.Theme) { Owner = this };
+        var studio = new ScorebugEditorWindow(_scorebug, _engine, _playback, _preferences.Theme, _automation) { Owner = this };
         studio.ShowDialog();
         // The studio can add, delete or switch layouts; the preview and every panel follow.
         _preview?.Rebuild();
@@ -794,22 +913,32 @@ public partial class MainWindow : Window, IControlPanelHost
         _hardware.Start(_preferences.Hardware);
     }
 
+    void Info_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new AboutWindow(_preferences.Theme) { Owner = this };
+        dialog.ShowDialog();
+    }
+
     void Preferences_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SettingsWindow(_preferences) { Owner = this };
         ThemeManager.Apply(dialog, _preferences.Theme);
         if (dialog.ShowDialog() != true) return; // Cancel discards: nothing is applied or saved.
         ThemeManager.Apply(this, _preferences.Theme);
+        _leagueCloud?.ApplySettings();
         // The new theme paints buttons as it runs; put the active tab's outline back on top.
         ApplyTabVisuals();
         MediaControl.ApplyTheme(_preferences.Theme);
         RosterControl.ApplyTheme(_preferences.Theme);
+        _macroDock?.ApplyTheme(_preferences.Theme);
         foreach (var panel in _controlPanels.Where(p => p.IsVisible)) panel.ApplyTheme(_preferences.Theme);
         foreach (var output in _outputs) output.SetBroadcastTheme(_preferences.Theme);
         ApplyHintVisibility();
         _panel.SetHintVisibility(_preferences.ShowHeadingHints);
         // A changed value delay reaches every graphic already on screen, in this window and out.
         DisplayTiming.Apply(_preferences);
+        // A new replay window applies to camera buffers already rolling and to the next booth open.
+        CameraFeed.ReplayWindowSeconds = Math.Clamp(_preferences.ReplaySeconds, 10, 900);
         // The quick buttons may have been switched between staging and publishing.
         _quickLayouts?.Refresh();
         _preview?.ApplyNow();
@@ -830,12 +959,14 @@ public partial class MainWindow : Window, IControlPanelHost
         _remote = null;
         RemoteControlServer.WatchSource = null;
         RemoteControlServer.WatchImage = null;
+        RemoteControlServer.WatchLayoutImage = null;
         RemoteControlServer.LockState = () => _operatorLocked;
         if (!_preferences.RemoteEnabled || string.IsNullOrWhiteSpace(_preferences.RemotePassword)) return;
         var server = new RemoteControlServer(_engine, this, id => { _panel.Execute(id); return true; }, Dispatcher, _preferences.RemotePort, _preferences.RemotePassword);
         // The audience feed draws the published program, on the UI thread: the program selection and
         // the published game belong to this window, and the server asks from a background thread.
         RemoteControlServer.WatchImage = display => Dispatcher.Invoke(() => WatchImageSnapshot(display));
+        RemoteControlServer.WatchLayoutImage = (display, layout) => Dispatcher.Invoke(() => WatchImageSnapshot(display, layout));
         server.Status += message => Dispatcher.BeginInvoke(new Action(() => StatusText.Text = message));
         server.Start();
         _remote = server;
@@ -850,23 +981,27 @@ public partial class MainWindow : Window, IControlPanelHost
     /// then gets the real fonts, palette colours, logos and made icons, and the page only downloads
     /// a new frame when the artwork or the published game changed.
     /// </summary>
-    (byte[] Png, long Version)? WatchImageSnapshot(string? displayKey)
+    (byte[] Png, long Version)? WatchImageSnapshot(string? displayKey, string? layoutKey = null)
     {
         var display = ResolveWatchDisplay(displayKey);
         if (display is null) return null;
-        // The wall board shows what the audience output is actually sending, not the layout that is
-        // still being staged in the studio preview.
-        var layout = _automation.Effective(display.Id, _scorebug.PublishedCompositeOf(display.Id));
+        // A multiview tile can name its own layout; otherwise show what the audience output is
+        // actually sending, not the layout still being staged in the studio preview.
+        var chosen = !string.IsNullOrWhiteSpace(layoutKey) ? _scorebug.FindLayout(layoutKey) : null;
+        var layout = chosen is not null
+            ? _automation.Effective(display.Id, chosen)
+            : _automation.Effective(display.Id, _scorebug.PublishedCompositeOf(display.Id));
+        var cacheKey = display.Id + "|" + (layoutKey ?? "");
         var state = _publishedEngine.State;
         var signature = JsonSerializer.Serialize(layout) + "|" + GameEngine.StagedSignature(state);
-        if (!_watchFrames.TryGetValue(display.Id, out var cached) || !string.Equals(cached.Signature, signature, StringComparison.Ordinal))
+        if (!_watchFrames.TryGetValue(cacheKey, out var cached) || !string.Equals(cached.Signature, signature, StringComparison.Ordinal))
         {
             _watchVersion++;
             cached = (signature, null, _watchVersion);
         }
         cached.Png ??= RenderProgramPng(layout);
         if (cached.Png is null) return null;
-        _watchFrames[display.Id] = cached;
+        _watchFrames[cacheKey] = cached;
         return (cached.Png, cached.Version);
     }
 
@@ -994,6 +1129,12 @@ public partial class MainWindow : Window, IControlPanelHost
         StatusText.Text = $"SPORT PROFILES SAVED · {_engine.Sport.Name} · start a new game to use the new rules";
     }
 
+    void GameName_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_initializing || _gameNameSync) return;
+        _engine.SetGameName(GameNameBox.Text);
+    }
+
     void Sport_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (_initializing || _sportSync || SportSelector.SelectedValue is not string id) return;
@@ -1002,7 +1143,7 @@ public partial class MainWindow : Window, IControlPanelHost
         if (WarnOnSportSwitch && _engine.HasSportSpecificData())
         {
             var next = _engine.Sports.Find(id)?.Name ?? id;
-            var detail = $"Switching to {next} starts a new game. The {_engine.Sport.Name} values this game is tracking — its counts, flags and figures — are cleared with it, along with the score, clocks and custom stats. The roster library, sport profiles, media and your layouts stay.";
+            var detail = $"Switching to {next} starts a new game. The {_engine.Sport.Name} values this game is tracking — its counts, flags and figures — are cleared with it, along with the score, clocks and custom values. The roster library, sport profiles, media and your layouts stay.";
             if (!ConfirmWindow.Ask(this, _preferences.Theme, "SWITCH SPORT", detail, "Switch sport", destructive: true))
             {
                 // Put the picker back on the sport being played; nothing has been touched yet.
@@ -1024,20 +1165,26 @@ public partial class MainWindow : Window, IControlPanelHost
     void RefreshEndGameButton()
     {
         if (EndGameButton is null) return;
-        var final = _engine.State.GameEnded;
+        // A clock-expired game can be final without its records being settled when automatic
+        // records are off. Keep offering End Game in that state so the result can still be applied;
+        // only a fully settled final becomes Restart Game.
+        var final = _engine.State.GameEnded && _engine.State.RecordSettled;
         var content = final ? "Restart Game" : "End Game";
         if (!Equals(EndGameButton.Content, content)) EndGameButton.Content = content;
         EndGameButton.ToolTip = final
-            ? "Start the same game over: the score, clocks and game stats reset; the teams, their records and the design stay"
-            : "Stop every clock, mark the game final and add the result to each team's record";
+            ? "Start the same game over or undo the end: the score, clocks and game stats reset; the teams, their records and the design stay"
+            : _engine.State.GameEnded
+                ? "Add this final result to each team's record. A team with no record is left alone"
+                : "Stop every clock, mark the game final and add the result to each team's record; Restart Game can undo an accidental end";
     }
 
     void NewGame_Click(object sender, RoutedEventArgs e)
     {
-        // The sport is part of starting a game; the chooser also states what a new game resets.
+        // The sport and an optional fixture name are part of starting a game; the chooser also
+        // states what a new game resets.
         var picker = new SportPickerWindow(_engine.Sports, _engine.State.SportId, _preferences.Theme) { Owner = this };
         if (picker.ShowDialog() != true || string.IsNullOrWhiteSpace(picker.SportId)) return;
-        StartNewGame(picker.SportId);
+        StartNewGame(picker.SportId, gameName: picker.GameName);
     }
 
     /// <summary>
@@ -1046,20 +1193,31 @@ public partial class MainWindow : Window, IControlPanelHost
     /// </summary>
     void EndGame_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine.State.GameEnded)
+        if (_engine.State.GameEnded && _engine.State.RecordSettled)
         {
-            // A final game restarts the same fixture instead of ending it a second time.
-            // The score and clocks start over; the teams, their details and the design stay.
-            if (!ConfirmWindow.Ask(this, _preferences.Theme, "RESTART GAME",
-                "This starts the same game over. The score, clocks, period and this game's stats are cleared. The teams — names, colours, logos, records and selected players — and the scorebug design stay.",
-                "Restart game")) return;
+            // A fully settled final restarts the same fixture instead of ending it a second time.
+            // The score and clocks start over; the teams, their details and the design stay. The
+            // secondary action undoes the final, so an accidental End Game is recoverable.
+            var restart = ConfirmWindow.AskChoice(this, _preferences.Theme, "RESTART GAME",
+                "Start the same game over, or undo the end and keep this final result. Undoing restores the score, clocks and records from just before End Game; starting fresh clears this game's score, clocks, period and stats while keeping the teams and design.",
+                "Start fresh", "Undo end game");
+            if (restart.SecondaryConfirmed)
+            {
+                if (_engine.Undo())
+                {
+                    StatusText.Text = "END GAME UNDONE · the final result was restored";
+                    AutoSave();
+                }
+                else StatusText.Text = "NOTHING TO UNDO · End Game could not be undone";
+                return;
+            }
+            if (!restart.Confirmed) return;
             StartNewGame(_engine.State.SportId, announce: false, keepDesign: true, restart: true);
             StatusText.Text = "GAME RESTARTED · same teams, fresh score and clock";
             AutoSave();
             return;
         }
-        var detail = "This stops every clock and marks the game final. The result is added to each team's record that is already set — a win, loss or tie. A team with no record is left alone.";
-        if (!ConfirmWindow.Ask(this, _preferences.Theme, "END GAME", detail, "End game")) return;
+        // End Game is immediate: the Restart Game flow offers Undo for an accidental end.
         var homeRecord = _engine.State.HomeRecord;
         var awayRecord = _engine.State.AwayRecord;
         var wasSettled = _engine.State.RecordSettled;
@@ -1068,9 +1226,11 @@ public partial class MainWindow : Window, IControlPanelHost
             StatusText.Text = "GAME ENDED · start a New Game to play again";
             return;
         }
-        StatusText.Text = homeRecord != _engine.State.HomeRecord || awayRecord != _engine.State.AwayRecord
-            ? "GAME ENDED · team records updated"
-            : wasSettled ? "GAME ENDED · records were already updated" : "GAME ENDED · no team records were set";
+        StatusText.Text = _engine.State.ClockMessage == GameClockMessage.EndOfRegulation
+            ? "TIED · END OF REG. · advance to overtime, or choose a tie period in Preferences"
+            : homeRecord != _engine.State.HomeRecord || awayRecord != _engine.State.AwayRecord
+                ? "GAME ENDED · team records updated"
+                : wasSettled ? "GAME ENDED · records were already updated" : "GAME ENDED · no team records were set";
         // Keep the final state in the recovery point immediately, not at the next autosave tick.
         AutoSave();
     }
@@ -1080,7 +1240,10 @@ public partial class MainWindow : Window, IControlPanelHost
     /// from the previous game survives on air. Operator settings that are not part of a game — sport
     /// profiles, keybinds, preferences, the media library and the scorebug design — are untouched.
     /// </summary>
-    public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false, bool restart = false)
+    public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null)
+        => WithoutLayoutTransitions(() => StartNewGameCore(sportId, announce, keepDesign, restart, gameName));
+
+    void StartNewGameCore(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null)
     {
         _autoHornReady = false;
         // keepDesign is the sport switch: the teams, their rosters and the scorebug layout stay.
@@ -1088,8 +1251,17 @@ public partial class MainWindow : Window, IControlPanelHost
         {
             // A restart keeps the fixture and the design; only the game itself starts over.
             if (!_engine.RestartGame()) return;
+            ReplayBoothHistory.Reset();
         }
-        else _engine.NewGame(sportId, keepTeamIdentity: keepDesign);
+        else
+        {
+            _engine.NewGame(sportId, keepTeamIdentity: keepDesign);
+            ReplayBoothHistory.Reset();
+            // New games carry the optional name typed in the sport picker. A restart keeps the
+            // fixture's existing name; only a genuinely new game clears or replaces it.
+            _engine.SetGameName(gameName);
+        }
+        ReplayBoothHistory.Sample(_engine.State);
         _projectPath = null;
         _startNewAutosavePoint = true;
         _savedStateJson = _engine.ExportJson();
@@ -1106,6 +1278,7 @@ public partial class MainWindow : Window, IControlPanelHost
         if (!restart) foreach (var panel in _controlPanels.Where(panel => panel.IsVisible)) panel.Media.ResetView();
         ResetOutputToCurrentGame();
         RefreshLayoutIndicators();
+        _macroDock?.RefreshView(force: true);
         if (announce) StatusText.Text = $"NEW {_engine.Sport.Name.ToUpperInvariant()} GAME";
     }
 
@@ -1126,9 +1299,14 @@ public partial class MainWindow : Window, IControlPanelHost
         _session.Stop();
     }
 
-    bool LoadGame(string path)
+    bool LoadGame(string path) => WithoutLayoutTransitions(() => LoadGameCore(path));
+
+    bool LoadGameCore(string path)
     {
         _autoHornReady = false;
+        // Opening a game replaces the show: a clip or live source left over from the previous game
+        // must not keep playing underneath the loaded one.
+        _session.Stop();
         try
         {
             var design = _engine.Load(path);
@@ -1154,6 +1332,7 @@ public partial class MainWindow : Window, IControlPanelHost
             // element built while the teams had no crests) must take the loaded values.
             _preview?.Rebuild();
             foreach (var output in _outputs) output.Rebuild();
+            _macroDock?.RefreshView(force: true);
             _savedStateJson = _engine.ExportJson();
             _savedDesignJson = DesignJson();
             StatusText.Text = $"GAME LOADED · {System.IO.Path.GetFileName(path)}";
@@ -1170,17 +1349,6 @@ public partial class MainWindow : Window, IControlPanelHost
     void Output_Click(object sender, RoutedEventArgs e) => OpenOutputWindow();
 
     void Annotate_Click(object sender, RoutedEventArgs e) => OpenOutputWindow(annotations: true);
-
-    void Automation_Click(object sender, RoutedEventArgs e)
-    {
-        var window = new AutomationWindow(_scorebug, _publishedEngine, _preferences.Theme, _program.DisplayId, _automation, _engine)
-        {
-            Owner = this
-        };
-        window.ShowDialog();
-        _preview?.Rebuild();
-        RefreshLayoutIndicators();
-    }
 
     AnnotationBoard BoardFor(string displayId)
     {
@@ -1272,9 +1440,16 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void EngineChanged()
     {
+        // The Replay Booth maps a recorded frame back to the game and play clocks that were showing
+        // when it happened. Sample here, on the same UI thread as every clock tick and correction.
+        ReplayBoothHistory.Sample(_engine.State);
         CheckAutoHorns();
         // New series can ask to go on air by itself; publish the whole staged state in that case.
-        if (_engine.TakePublishRequest()) { PublishGameState(); return; }
+        var publishRequested = _engine.TakePublishRequest();
+        // A macro step that did not bypass Update Output owns the output until the operator
+        // publishes. Consume a queued publish request, but do not let it jump the hold.
+        if (_engine.MacroOutputHold) return;
+        if (publishRequested) { PublishGameState(); return; }
         if (_liveScoreClock) PublishLiveValues();
     }
 
@@ -1317,6 +1492,7 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void PublishLiveValues()
     {
+        if (_engine.MacroOutputHold) return;
         // A connected console owns down and distance as well as the score and clocks, so an
         // operator's recall of the console's last down has to ride the same live path as the
         // console's own frames. Without this the audience kept the wrong down.
@@ -1350,7 +1526,12 @@ public partial class MainWindow : Window, IControlPanelHost
 
     void Save_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SaveFileDialog { Filter = "ScorePlus Game (*.spg)|*.spg|JSON (*.json)|*.json", DefaultExt = "spg", FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}" };
+        var dialog = new SaveFileDialog
+        {
+            Filter = "ScorePlus Game (*.spg)|*.spg|JSON (*.json)|*.json",
+            DefaultExt = "spg",
+            FileName = GameFiles.SuggestedFileName(_engine.State.GameName)
+        };
         if (dialog.ShowDialog() != true) return;
         SaveGameTo(dialog.FileName);
     }
@@ -1358,6 +1539,9 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>Copies the live quick buttons into the game state so they travel with the save.</summary>
     void CaptureQuickButtons()
     {
+        // A macro edit is part of the game too. Commit the visible editor before writing the file,
+        // otherwise a name, colour or step added since the last Save macro would be left behind.
+        _macroDock?.CommitPendingEdits();
         var preferences = PreferencesStore.Load();
         _engine.State.QuickLayouts = (preferences.QuickLayouts ?? []).Select(binding => new SavedQuickLayout
         {
@@ -1436,13 +1620,16 @@ public partial class MainWindow : Window, IControlPanelHost
         {
             Filter = "ScorePlus Game (*.spg)|*.spg|JSON (*.json)|*.json",
             DefaultExt = "spg",
-            FileName = $"{_engine.State.HomeAbbreviation}-{_engine.State.AwayAbbreviation}"
+            FileName = GameFiles.SuggestedFileName(_engine.State.GameName)
         };
         return dialog.ShowDialog() == true && SaveGameTo(dialog.FileName);
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        // Make pending macro edits visible to the unsaved-changes check. A close prompt can then
+        // offer to save them instead of silently dropping the operator's last macro change.
+        if (!_closingAfterPrompt) _macroDock?.CommitPendingEdits();
         if (PromptOnExit && _gameStarted && !_closingAfterPrompt && HasUnsavedChanges())
         {
             e.Cancel = true;
@@ -1462,7 +1649,14 @@ public partial class MainWindow : Window, IControlPanelHost
     /// <summary>Opens the multiview: every camera live, with the replay preview beside it.</summary>
     void Multiview_Click(object sender, RoutedEventArgs e)
     {
-        var window = new MultiviewWindow(_session, _preferences.Theme) { Owner = this };
+        var window = new MultiviewWindow(_session, _preferences, _scorebug, _engine, _publishedEngine, _program, _automation, _playback) { Owner = this };
+        window.Show();
+    }
+
+    /// <summary>Opens the referee review room: all cameras, the configured rewind and recorded clocks.</summary>
+    void ReplayBooth_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new ReplayBoothWindow(_booth, _preferences) { Owner = this };
         window.Show();
     }
 
@@ -1522,6 +1716,20 @@ public partial class MainWindow : Window, IControlPanelHost
         base.OnPreviewKeyDown(e);
     }
 
+    void LeagueCloud_Click(object sender, RoutedEventArgs e)
+    {
+        if (_leagueCloud is null) return;
+        var dialog = new LeagueCloudWindow(_leagueCloud, _preferences, _scorebug, _program, _engine) { Owner = this };
+        dialog.ShowDialog();
+        _leagueCloud.ApplySettings();
+    }
+
+    void Ticker_Click(object sender, RoutedEventArgs e)
+    {
+        if (_leagueCloud is null) return;
+        new TickerWindow(_engine, _leagueCloud) { Owner = this }.ShowDialog();
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         // Every timer belongs to this window. Leaving one running after the window is gone is a
@@ -1535,10 +1743,12 @@ public partial class MainWindow : Window, IControlPanelHost
         // Each cleanup is independent: one native media or capture component failing must not skip
         // the rest and leave the process behind.
         try { _engine.Changed -= Refresh; _engine.Changed -= EngineChanged; } catch { }
+        try { _leagueCloud?.Dispose(); } catch { }
         try { _hardware.Dispose(); } catch { }
         try { HornPlayer.Stop(); } catch { }
         try { _remote?.Dispose(); } catch { }
         try { _automation.Dispose(); } catch { }
+        try { _booth.Dispose(); } catch { }
         try { _program.Dispose(); } catch { }
         try { _preview?.Dispose(); } catch { }
         try { _session.Dispose(); } catch { }

@@ -174,9 +174,10 @@ public sealed class QuickLayoutBar : Border
             PlacementTarget = button,
             Placement = PlacementMode.Bottom
         };
-        var assign = new MenuItem { Header = isSet ? "Reassign…" : "Assign a layout…" };
+        var text = new SolidColorBrush(_text);
+        var assign = new MenuItem { Header = isSet ? "Reassign…" : "Assign a layout…", Foreground = text };
         assign.Click += (_, _) => Assign(slot);
-        var clear = new MenuItem { Header = "Clear this button", IsEnabled = isSet };
+        var clear = new MenuItem { Header = "Clear this button", IsEnabled = isSet, Foreground = text };
         clear.Click += (_, _) => Clear(slot);
         menu.Items.Add(assign);
         menu.Items.Add(clear);

@@ -21,6 +21,10 @@ public static class HornPlayer
 {
     const double TwoPi = Math.PI * 2;
     const int SampleRate = 44100;
+    // Arena buzzers are held long enough to cut through the crowd. Four seconds still read as a
+    // blip beside a live PA, so the bundled recording and the generated fallback both hold twice
+    // as long.
+    const double BuzzerHoldSeconds = 8.0;
 
     static readonly object Gate = new();
     /// <summary>Raised when a horn starts; useful to diagnostics and unattended checks.</summary>
@@ -122,9 +126,15 @@ public static class HornPlayer
         try
         {
             reader = new AudioFileReader(stream);
+            // The bundled buzzer is a short arena hit. A basketball/game buzzer has to hold long
+            // enough to be heard over the crowd, so the bundled buzzer is looped to the full hold.
+            // The other two recordings keep their own natural length.
+            var provider = kind == HornSound.Buzzer
+                ? new TimedLoopProvider(reader, TimeSpan.FromSeconds(BuzzerHoldSeconds))
+                : (IWaveProvider)reader;
             var output = new WaveOut { Volume = 0.70f };
-            output.Init(reader);
-            _provider = reader;
+            output.Init(provider);
+            _provider = provider;
             _source = reader;
             _resourceStream = stream;
             _output = output;
@@ -148,7 +158,7 @@ public static class HornPlayer
     {
         var seconds = kind switch
         {
-            HornSound.Buzzer => 1.25,
+            HornSound.Buzzer => BuzzerHoldSeconds,
             HornSound.Siren => 2.25,
             _ => 1.35
         };
@@ -236,5 +246,48 @@ public static class HornPlayer
     {
         value = Math.Clamp(value, 0, 1);
         return value * value * (3 - 2 * value);
+    }
+
+    /// <summary>
+    /// Repeats a decoded built-in sound until its requested duration has elapsed. This is used for
+    /// the short bundled buzzer so it sounds like a held horn rather than a one-second blip, while
+    /// still letting WaveOut report a real end and cleaning up normally.
+    /// </summary>
+    sealed class TimedLoopProvider : IWaveProvider
+    {
+        readonly WaveStream _source;
+        long _remainingBytes;
+
+        public TimedLoopProvider(WaveStream source, TimeSpan duration)
+        {
+            _source = source;
+            WaveFormat = source.WaveFormat;
+            _remainingBytes = Math.Max(1, (long)(WaveFormat.AverageBytesPerSecond * Math.Max(0.1, duration.TotalSeconds)));
+        }
+
+        public WaveFormat WaveFormat { get; }
+
+        public int Read(byte[] buffer, int offset, int count)
+        {
+            if (_remainingBytes <= 0) return 0;
+            var requested = (int)Math.Min(count, _remainingBytes);
+            var read = _source.Read(buffer, offset, requested);
+            if (read <= 0)
+            {
+                try { _source.Position = 0; } catch { return 0; }
+                read = _source.Read(buffer, offset, requested);
+                if (read <= 0) return 0;
+            }
+            _remainingBytes -= read;
+            return read;
+        }
+
+        public int Read(Span<byte> buffer)
+        {
+            var temp = new byte[buffer.Length];
+            var read = Read(temp, 0, temp.Length);
+            temp.AsSpan(0, read).CopyTo(buffer);
+            return read;
+        }
     }
 }

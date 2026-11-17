@@ -52,10 +52,14 @@ public static class RemotePage
         .row{display:flex;gap:6px;margin-top:6px}
         .row button{flex:1 1 46px}
         .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:7px}
-        .value{display:grid;grid-template-columns:1fr 40px minmax(46px,62px) 40px;align-items:center;gap:4px;background:#101720;border:1px solid #1f2a37;border-radius:8px;padding:5px 6px;min-height:46px}
+        .value{display:grid;grid-template-columns:minmax(56px,1fr) 40px minmax(46px,62px) 40px;align-items:center;gap:4px;background:#101720;border:1px solid #1f2a37;border-radius:8px;padding:5px 6px;min-height:46px}
         .value .l{font-size:10px;letter-spacing:.4px;color:#9fb0c4;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .value input{text-align:center;font-weight:800;padding:4px 2px;min-height:38px;font-size:15px}
-        .value.wide{grid-template-columns:1fr 40px minmax(46px,62px) 40px 34px}
+        /* A custom value carries a remove button as well, so it needs the full row width. On a
+           phone the fixed buttons used to squeeze the name column to zero and only the number
+           was visible. */
+        .value.wide{grid-column:1/-1;grid-template-columns:minmax(84px,1fr) 40px minmax(46px,62px) 40px 34px}
+        .value.wide .l{white-space:normal;overflow:visible;line-height:1.2}
         .value .x{font-size:14px;min-height:38px;padding:0;background:#2a1720;border-color:#5b2634;color:#ffd7df}
         .plus{background:#123c33;border-color:#1d6b56;color:#c9f7e8}
         .minus{background:#2a1720;border-color:#5b2634;color:#ffd7df}
@@ -100,6 +104,9 @@ public static class RemotePage
           .score .team:first-child{order:1}
           .score .center{order:2}
           .score .team:last-child{order:3}
+          /* The value rows put their name first; two narrow columns squeezed that name to zero
+             and left only the number visible. */
+          #controls, #footballValues, #stats { grid-template-columns:1fr; }
         }
         """;
 
@@ -203,7 +210,17 @@ public static class RemotePage
           if (action.startsWith('stat.plus.')) return act('stat.adjust', { id: action.slice(10), value: 1 });
           if (action.startsWith('stat.minus.')) return act('stat.adjust', { id: action.slice(11), value: -1 });
           if (action.startsWith('stat.remove.')) return act('stat.remove', { id: action.slice(12) });
+          if (action === 'layout.next' || action === 'layout.prev') {
+            const select = $('displaySelect');
+            return act(action, { display: select ? select.value : '' });
+          }
           return act(action);
+        });
+
+        document.addEventListener('change', event => {
+          if (event.target && event.target.id === 'displaySelect') {
+            act('display.select', { display: event.target.value });
+          }
         });
 
         function valueRow(control, prefix, setAction, extra) {
@@ -212,6 +229,7 @@ public static class RemotePage
           const label = document.createElement('span');
           label.className = 'l';
           label.textContent = control.label;
+          label.title = control.label;
           const minus = document.createElement('button');
           minus.className = 'minus';
           minus.textContent = '−';
@@ -246,12 +264,13 @@ public static class RemotePage
         }
 
         function renderControls(state) {
-          const key = state.sportId + '|' + state.controls.map(c => c.id + c.label + c.flag + c.min + c.max).join(',');
+          const controls = state.controls || [];
+          const key = state.sportId + '|' + controls.map(c => c.id + c.label + c.flag + c.min + c.max).join(',');
           if (key !== signature) {
             signature = key;
             const host = $('controls');
             host.innerHTML = '';
-            state.controls.forEach(control => {
+            controls.forEach(control => {
               host.append(control.flag ? flagRow(control, 'sport.' + control.id) : valueRow(control, 'sport.' + control.id));
             });
             // An empty card says nothing: the sport simply has no extra values to offer.
@@ -262,7 +281,7 @@ public static class RemotePage
             const ball = valueRow({ id: 'ball', label: 'Ball on', display: String(state.ballOn) }, 'football.ball', 'football.ball.set');
             football.append(down, toGo, ball);
           }
-          state.controls.forEach(control => {
+          controls.forEach(control => {
             if (control.flag) {
               const button = document.querySelector('[data-flag="' + control.id + '"]');
               if (!button) return;
@@ -273,6 +292,9 @@ public static class RemotePage
               if (box && document.activeElement !== box) box.value = control.display;
             }
           });
+          // A sport with no extra values gets no empty SPORT VALUES card on the phone.
+          const sportValues = $('sportValuesCard');
+          if (sportValues) sportValues.style.display = controls.length ? '' : 'none';
           ['down', 'togo', 'ball'].forEach((id, index) => {
             const box = $('footballValues').querySelectorAll('.value input')[index];
             if (!box || document.activeElement === box) return;
@@ -305,16 +327,41 @@ public static class RemotePage
           });
         }
 
+        function renderDisplays(state) {
+          const select = $('displaySelect');
+          if (!select) return;
+          const displays = state.displays || [];
+          const key = displays.map(d => d.id + '|' + d.name).join(',');
+          if (select.dataset.key !== key) {
+            select.innerHTML = '';
+            displays.forEach(display => {
+              const option = document.createElement('option');
+              option.value = display.id;
+              option.textContent = display.name || 'Display';
+              select.append(option);
+            });
+            select.dataset.key = key;
+          }
+          if (document.activeElement !== select) select.value = state.displayId || '';
+          const chosen = displays.find(d => d.id === state.displayId);
+          $('layout').textContent = chosen ? chosen.layout : state.layout;
+        }
+
         function renderStats(state) {
-          const key = state.stats.map(s => s.id + s.name).join(',');
+          const stats = state.stats || [];
+          const key = stats.map(s => s.id + s.name).join(',');
           if (key !== statsSignature) {
             statsSignature = key;
             const host = $('stats');
             host.innerHTML = '';
-            state.stats.forEach(stat => {
-              const row = valueRow({ id: stat.id, label: stat.name, display: stat.display }, 'stat', 'stat.set');
+            stats.forEach(stat => {
+              const label = stat.name || stat.label || 'Custom value';
+              const row = valueRow({ id: stat.id, label: label, display: stat.display }, 'stat', 'stat.set');
               row.classList.add('wide');
-              row.querySelector('input').dataset.id = stat.id;
+              const box = row.querySelector('input');
+              box.dataset.id = stat.id;
+              box.title = label;
+              row.title = label;
               // The steppers must name the stat they belong to: a bare "stat.plus" reached the
               // console as an unknown action, so the + and − beside a stat did nothing at all.
               const steppers = row.querySelectorAll('button');
@@ -330,7 +377,7 @@ public static class RemotePage
             });
             // Nothing to say when the list is empty: the field below is the way to add one.
           }
-          state.stats.forEach(stat => {
+          stats.forEach(stat => {
             const box = document.querySelector('[data-stat="' + stat.id + '"]');
             if (box && document.activeElement !== box) box.value = stat.display;
           });
@@ -415,7 +462,7 @@ public static class RemotePage
           $('possHome').classList.toggle('on', state.possession === 'home');
           $('ballSide').textContent = state.ballHome ? 'HOME ▶' : '◀ VISITORS';
           $('ballSide').dataset.act = 'football.ball.side';
-          $('layout').textContent = state.layout;
+          renderDisplays(state);
           const badge = $('liveBadge');
           badge.textContent = state.staged ? 'NOT ON AIR' : 'LIVE';
           badge.className = 'badge ' + (state.staged ? 'staged' : 'ok');
@@ -448,6 +495,8 @@ public static class RemotePage
           <img class="mark" src="/logo.png" alt="ScorePlus"/>
           <h1>REMOTE</h1>
           <span class="sport" id="sport">—</span>
+          <a href="/replay" title="Open the camera replay booth">Replay Booth</a>
+          <a href="/multiview" title="Open the camera wall">Multiview</a>
           <a href="/logout">Sign out</a>
         </header>
 
@@ -574,13 +623,13 @@ public static class RemotePage
           <select id="penaltyType" title="What the flag was for" style="width:100%;margin-top:6px;padding:8px"></select>
         </div>
 
-        <div class="card">
+        <div class="card" id="sportValuesCard" style="display:none">
           <div class="title">SPORT VALUES</div>
           <div class="grid" id="controls"></div>
         </div>
 
         <div class="card">
-          <div class="title">CUSTOM STATS</div>
+          <div class="title">CUSTOM VALUES</div>
           <div class="grid" id="stats"></div>
           <div class="row">
             <input id="statName" placeholder="New stat name" style="flex:1 1 auto;padding:8px" />
@@ -590,6 +639,7 @@ public static class RemotePage
 
         <div class="card">
           <div class="title">OUTPUT</div>
+          <select id="displaySelect" title="Which display these layout buttons change" style="width:100%;margin-bottom:6px;padding:8px"></select>
           <div class="layoutbar">
             <button class="small" data-act="layout.prev" style="flex:0 0 44px">◀</button>
             <span class="label" id="layout">—</span>
@@ -601,7 +651,6 @@ public static class RemotePage
           </div>
           <div class="row">
             <button class="small" data-act="global.undo">Undo</button>
-            <button class="small" data-act="panel.new">New panel</button>
           </div>
         </div>
 
