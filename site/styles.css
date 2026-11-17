@@ -238,6 +238,7 @@ h3{font-size:23px;line-height:1.15;letter-spacing:-.02em}
 .studio-copy .text-link{margin-top:4px}
 
 /* ---------- media and stat desks ---------- */
+.section-macros{background:linear-gradient(180deg,rgba(14,25,27,.74),rgba(7,10,13,.14))}
 .section-media{background:linear-gradient(180deg,rgba(9,18,22,.62),rgba(7,10,13,.1))}
 .section-stats{background:linear-gradient(180deg,rgba(15,18,19,.68),rgba(7,10,13,.12))}
 .capability-grid{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);gap:clamp(38px,5.6vw,90px);align-items:center}
