@@ -245,8 +245,9 @@
                of the timing column below, which is what clipped the play clock. -->
           <DockPanel x:Name="PenaltyStrip" Grid.Row="3" Margin="0,6,0,0">
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-              <ToggleButton x:Name="PenaltyActiveToggle" Content="No flag" MinHeight="32"
-                            Padding="10,2" Checked="Penalty_Changed" Unchecked="Penalty_Changed"
+              <ToggleButton x:Name="PenaltyActiveToggle" Content="No flag" MinHeight="32" Width="104"
+                            HorizontalContentAlignment="Center" Padding="10,2"
+                            Checked="Penalty_Changed" Unchecked="Penalty_Changed"
                             ToolTip="Whether a flag is down at all"/>
               <ComboBox x:Name="PenaltyTypeBox" Width="132" MinHeight="30" Margin="6,0,0,0"
                         SelectionChanged="Penalty_Changed"

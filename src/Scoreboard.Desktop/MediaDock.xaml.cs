@@ -201,6 +201,11 @@ public partial class MediaDock : UserControl
                 PlaylistLoopBox.IsChecked = playlist.Loop;
                 PlaylistLoopBox.IsEnabled = true;
                 PlaylistAddButton.IsEnabled = _session.Selected is not null;
+                var selectedIndex = _session.Selected is { } selectedClip
+                    ? playlist.Paths.FindIndex(path => string.Equals(path, selectedClip.Path, StringComparison.OrdinalIgnoreCase))
+                    : -1;
+                PlaylistUpButton.IsEnabled = selectedIndex > 0;
+                PlaylistDownButton.IsEnabled = selectedIndex >= 0 && selectedIndex < playlist.Paths.Count - 1;
                 PlaylistRunButton.IsEnabled = entries.Count > 0;
                 PlaylistStopButton.IsEnabled = _session.ActivePlaylist is not null;
                 RefreshTiles(entries, playlist);
@@ -630,6 +635,7 @@ public partial class MediaDock : UserControl
         {
             // One click picks the folder (Export folder, drop tests); two opens it.
             _selectedFolderPath = folder;
+            _selectedPlaylistName = null;
             if (e.ClickCount == 2) OpenFolder(folder);
             else Refresh();
             e.Handled = true;
@@ -741,6 +747,7 @@ public partial class MediaDock : UserControl
         {
             // One click picks the playlist, two opens it into its own clip list.
             _selectedPlaylistName = playlist.Name;
+            _selectedFolderPath = null;
             if (e.ClickCount == 2) OpenPlaylist(playlist);
             else Refresh();
             e.Handled = true;
@@ -925,6 +932,9 @@ public partial class MediaDock : UserControl
         tile.MouseLeftButtonDown += (_, e) =>
         {
             session.Select(entry);
+            // Picking a clip clears the playlist/folder pick, so their green outline goes away.
+            _selectedPlaylistName = null;
+            _selectedFolderPath = null;
             if (e.ClickCount == 2)
             {
                 // The tile is the on/off switch: a second double-click on something already on
@@ -953,6 +963,28 @@ public partial class MediaDock : UserControl
             _dragEntry = null;
             DragDrop.DoDragDrop(tile, new DataObject(ClipFormat, path), DragDropEffects.Move);
         };
+        if (playlist is not null)
+        {
+            // In an open playlist a clip can be dragged onto another slot to reorder the run.
+            tile.AllowDrop = true;
+            tile.DragOver += (_, e) =>
+            {
+                if (!e.Data.GetDataPresent(ClipFormat)) return;
+                e.Effects = DragDropEffects.Move;
+                e.Handled = true;
+                tile.BorderBrush = BorderSelected;
+            };
+            tile.DragLeave += (_, _) => tile.BorderBrush = isOnAir ? BorderOnAir : isSelected ? BorderSelected : _tileBorderIdle;
+            tile.Drop += (_, e) =>
+            {
+                e.Handled = true;
+                if (_session is null || e.Data.GetData(ClipFormat) is not string draggedPath) return;
+                var from = playlist.Paths.FindIndex(path => string.Equals(path, draggedPath, StringComparison.OrdinalIgnoreCase));
+                if (from < 0) return;
+                _session.MovePlaylistItem(playlist, from, index);
+                Dispatcher.BeginInvoke(Refresh);
+            };
+        }
         return tile;
     }
 
@@ -1046,6 +1078,7 @@ public partial class MediaDock : UserControl
         _view = MediaView.Playlist;
         _openPlaylistName = playlist.Name;
         _selectedPlaylistName = playlist.Name;
+        _selectedFolderPath = null;
         Refresh();
     }
 
@@ -1055,6 +1088,7 @@ public partial class MediaDock : UserControl
     {
         _view = MediaView.Library;
         _openPlaylistName = null;
+        _selectedPlaylistName = null;
         Refresh();
     }
 
@@ -1174,6 +1208,18 @@ public partial class MediaDock : UserControl
         if (_session is null || OpenPlaylist() is not { } playlist) return;
         if (_session.Selected is not { } selected) { _session.Report("SELECT A CLIP FIRST"); return; }
         _session.AddToPlaylist(playlist, selected);
+        Refresh();
+    }
+
+    void PlaylistUp_Click(object sender, RoutedEventArgs e) => MovePlaylistSelection(-1);
+    void PlaylistDown_Click(object sender, RoutedEventArgs e) => MovePlaylistSelection(1);
+
+    void MovePlaylistSelection(int delta)
+    {
+        if (_session is null || OpenPlaylist() is not { } playlist || _session.Selected is not { } selected) return;
+        var current = playlist.Paths.FindIndex(path => string.Equals(path, selected.Path, StringComparison.OrdinalIgnoreCase));
+        if (current < 0) return;
+        _session.MovePlaylistItem(playlist, current, current + delta);
         Refresh();
     }
 

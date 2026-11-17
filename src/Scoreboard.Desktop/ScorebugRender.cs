@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using Scoreboard.Core;
 
 namespace Scoreboard.Desktop;
@@ -148,7 +149,7 @@ internal static class ScorebugRender
         // after the graphic was built appears immediately instead of waiting for a rebuild.
         if (item.Kind == ScorebugElementKind.Logo) return new ScorebugLogoView(item, state?.Invoke(), showVideoPlaceholder);
         if (item.Kind == ScorebugElementKind.Shape) return CreateShape(item, state?.Invoke());
-        var text = state is null ? item.Content : ScoreboardTemplates.Bind(item.Content, state(), item.PeriodFormat, item.DownCaps, item.PlayClockColon);
+        var text = state is null ? item.Content : ScoreboardTemplates.Bind(item.Content, state(), item.PeriodFormat, item.DownCaps, item.PlayClockColon, item.GameClockLeadingZero);
         return MakeText(item, text, state?.Invoke());
     }
 
@@ -424,7 +425,7 @@ public sealed class TickerView : Grid, IDisposable
             return;
         }
         if (_rotationActive) StopRotation();
-        var raw = game is null ? item.Content : ScoreboardTemplates.Bind(item.Content, game, item.PeriodFormat, item.DownCaps, item.PlayClockColon);
+        var raw = game is null ? item.Content : ScoreboardTemplates.Bind(item.Content, game, item.PeriodFormat, item.DownCaps, item.PlayClockColon, item.GameClockLeadingZero);
         raw = System.Text.RegularExpressions.Regex.Replace(raw ?? "", @"\s+", " ").Trim();
         var display = raw.Length == 0 ? " " : raw + "   \u2022   ";
         var foreground = Paint.Text(item, game);
@@ -1024,6 +1025,10 @@ public sealed class ScorebugTextBlock : TextBlock
     readonly ScaleTransform _scale = new(1, 1);
     readonly RotateTransform _rotate = new();
     readonly TransformGroup _rest = new();
+    DispatcherTimer? _countTimer;
+    // JumpFlip owns a fallback timer as well: a hosted animation can be stopped before its
+    // Completed event runs, and the text must never stay locked in the animating state.
+    DispatcherTimer? _finishTimer;
     string _shown = "";
     bool _animating;
     // A value that arrives while a crossing is running waits for that crossing to finish, then
@@ -1150,6 +1155,15 @@ public sealed class ScorebugTextBlock : TextBlock
             PlayValueMotion(valueMotion, beforeValue, text);
             return;
         }
+        // The two special presets need more than an out/in pair: one counts through the values while
+        // it is small, the other flips through a full turn while it is lifted. Both are numeric
+        // values, so a text change that is not a number still falls back to the plain crossing.
+        if (transition == ScorebugTransition.ShrinkWheel && TryPlayShrinkWheel(text, beforeValue, total, valueMotion)) return;
+        if (transition == ScorebugTransition.JumpFlip && TryPlayJumpFlip(text, beforeValue, total, valueMotion)) return;
+        // A clock is a value with stable character positions. Wheeling the whole block makes every
+        // digit move when only one second changed, so a clock rolls only its changed characters.
+        if (transition is ScorebugTransition.WheelUp or ScorebugTransition.WheelDown
+            && IsClockValue && TryPlayClockWheel(text, transition, total, valueMotion, beforeValue)) return;
         _animating = true;
         _shown = text;
         var generation = _generation;
@@ -1203,6 +1217,290 @@ public sealed class ScorebugTextBlock : TextBlock
     }
 
     /// <summary>
+    /// Lands the newest value immediately. A score celebration animates the item host and can
+    /// cancel the value's in/out animations before their completion callbacks run; without this
+    /// the block would stay marked as animating and queue every later score forever.
+    /// </summary>
+    internal void Settle()
+    {
+        var target = _queuedText ?? _shown;
+        _generation++;
+        _countTimer?.Stop();
+        _countTimer = null;
+        _finishTimer?.Stop();
+        _finishTimer = null;
+        ClearPhase();
+        Text = target;
+        _shown = target;
+        _queuedText = null;
+        _animating = false;
+    }
+
+    /// <summary>True when this element prints a game or play clock rather than a plain score.</summary>
+    bool IsClockValue => _style?.Content?.Contains("{{GAME_CLOCK}}", StringComparison.OrdinalIgnoreCase) == true
+        || _style?.Content?.Contains("{{PLAY_CLOCK}}", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// Wheels only the characters that changed on a clock, instead of sliding the whole value. A
+    /// 13:24 to 13:23 change rolls the final 4 into a 3; a 10 second or whole minute change rolls
+    /// exactly the digits that differ. The old run leaves, the text is swapped, and the new run
+    /// arrives from the other side, all inside one TextBlock.
+    /// </summary>
+    bool TryPlayClockWheel(string text, ScorebugTransition transition, double total, MotionClip? valueMotion, string beforeValue)
+    {
+        if (!IsLoaded || total < 0.02 || string.Equals(_shown, text, StringComparison.Ordinal)) return false;
+        var oldValue = _shown;
+        if (oldValue.Length == 0 || text.Length == 0) return false;
+        _animating = true;
+        _shown = text;
+        var generation = _generation;
+        ClearPhase();
+        WheelText(oldValue, text, transition == ScorebugTransition.WheelUp,
+            TimeSpan.FromSeconds(total), () => FinishCrossing(generation, valueMotion, beforeValue, text));
+        return true;
+    }
+
+    /// <summary>
+    /// Rolls only the characters that differ, from the old value to the new one, using the same
+    /// eased motion as WheelUp. Keeping the unchanged prefix and suffix still means the drum reads
+    /// as one movement instead of the whole block jittering.
+    /// </summary>
+    void WheelText(string oldValue, string nextValue, bool up, TimeSpan duration, Action done)
+    {
+        var generation = _generation;
+        if (string.Equals(oldValue, nextValue, StringComparison.Ordinal))
+        {
+            Text = nextValue;
+            done();
+            return;
+        }
+        var prefix = 0;
+        while (prefix < oldValue.Length && prefix < nextValue.Length && oldValue[prefix] == nextValue[prefix]) prefix++;
+        var suffix = 0;
+        while (suffix < oldValue.Length - prefix && suffix < nextValue.Length - prefix
+            && oldValue[oldValue.Length - 1 - suffix] == nextValue[nextValue.Length - 1 - suffix]) suffix++;
+        var oldCount = oldValue.Length - prefix - suffix;
+        var total = Math.Max(0.01, duration.TotalSeconds);
+        var outDuration = TimeSpan.FromSeconds(total * 0.45);
+        var inDuration = TimeSpan.FromSeconds(Math.Max(0.01, total * 0.55));
+        var distance = Math.Max(6, FontSize * 0.5);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+
+        void Arrive()
+        {
+            if (generation != _generation) return;
+            Text = nextValue;
+            TextEffects.Clear();
+            var newPrefix = 0;
+            while (newPrefix < oldValue.Length && newPrefix < nextValue.Length && oldValue[newPrefix] == nextValue[newPrefix]) newPrefix++;
+            var newSuffix = 0;
+            while (newSuffix < oldValue.Length - newPrefix && newSuffix < nextValue.Length - newPrefix
+                && oldValue[oldValue.Length - 1 - newSuffix] == nextValue[nextValue.Length - 1 - newSuffix]) newSuffix++;
+            var newCount = nextValue.Length - newPrefix - newSuffix;
+            if (newCount <= 0)
+            {
+                done();
+                return;
+            }
+            var inShift = new TranslateTransform(0, up ? distance : -distance);
+            TextEffects.Add(new TextEffect
+            {
+                PositionStart = newPrefix,
+                PositionCount = newCount,
+                Transform = inShift
+            });
+            var inRoll = new DoubleAnimation(up ? distance : -distance, 0, inDuration)
+            {
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.HoldEnd
+            };
+            inRoll.Completed += (_, _) =>
+            {
+                if (generation != _generation) return;
+                TextEffects.Clear();
+                done();
+            };
+            inShift.BeginAnimation(TranslateTransform.YProperty, inRoll);
+        }
+
+        TextEffects.Clear();
+        if (oldCount <= 0)
+        {
+            Arrive();
+            return;
+        }
+        var outShift = new TranslateTransform();
+        TextEffects.Add(new TextEffect
+        {
+            PositionStart = prefix,
+            PositionCount = oldCount,
+            Transform = outShift
+        });
+        var outRoll = new DoubleAnimation(0, up ? -distance : distance, outDuration)
+        {
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        outRoll.Completed += (_, _) => Arrive();
+        outShift.BeginAnimation(TranslateTransform.YProperty, outRoll);
+    }
+
+    /// <summary>Shrinks, wheels the old value through every integer like WheelUp, then grows back.
+    /// Each step is a real glyph roll, so the count reads as a drum rather than a text swap.</summary>
+    bool TryPlayShrinkWheel(string text, string beforeValue, double total, MotionClip? valueMotion)
+    {
+        if (!IsLoaded || total < 0.02 || !int.TryParse(beforeValue.Trim(), out var before)
+            || !int.TryParse(text.Trim(), out var after) || before == after) return false;
+        _animating = true;
+        _shown = text;
+        var generation = _generation;
+        ClearPhase();
+        var shrink = Math.Clamp(_style?.TransitionShrink ?? 0.82, 0.2, 1);
+        var shrinkTime = TimeSpan.FromSeconds(total * 0.28);
+        var countSeconds = Math.Max(0.01, total * 0.44);
+        var growTime = TimeSpan.FromSeconds(Math.Max(0.01, total * 0.28));
+        var grow = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var shrinkEase = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        void GrowBack()
+        {
+            if (generation != _generation) return;
+            TextEffects.Clear();
+            Text = text;
+            var growAnim = new DoubleAnimation(shrink, 1, growTime) { EasingFunction = grow, FillBehavior = FillBehavior.HoldEnd };
+            growAnim.Completed += (_, _) => FinishCrossing(generation, valueMotion, beforeValue, text);
+            _scale.BeginAnimation(ScaleTransform.ScaleXProperty, growAnim);
+            _scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(shrink, 1, growTime) { EasingFunction = grow, FillBehavior = FillBehavior.HoldEnd });
+        }
+        var shrinkAnim = new DoubleAnimation(1, shrink, shrinkTime) { EasingFunction = shrinkEase, FillBehavior = FillBehavior.HoldEnd };
+        shrinkAnim.Completed += (_, _) =>
+        {
+            if (generation != _generation) return;
+            var steps = Math.Abs(after - before);
+            if (steps == 0 || countSeconds < 0.01)
+            {
+                Text = text;
+                GrowBack();
+                return;
+            }
+            // Count every integer through the same glyph roll WheelUp uses. A timer that only
+            // changed Text made the value jump from one number to the next; rolling each step
+            // keeps the small, wheeled digits moving while the block is shrunk. The per-step time
+            // comes from the element's transition time, so a longer transition really is slower.
+            var direction = Math.Sign(after - before);
+            var stepDuration = TimeSpan.FromSeconds(Math.Max(0.01, countSeconds / steps));
+            var current = before;
+            void WheelStep()
+            {
+                if (generation != _generation) return;
+                if (current == after)
+                {
+                    GrowBack();
+                    return;
+                }
+                var next = current + direction;
+                WheelText(current.ToString(), next.ToString(), direction > 0, stepDuration, () =>
+                {
+                    if (generation != _generation) return;
+                    current = next;
+                    WheelStep();
+                });
+            }
+            WheelStep();
+        };
+        _scale.BeginAnimation(ScaleTransform.ScaleXProperty, shrinkAnim);
+        _scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, shrink, shrinkTime)
+        {
+            EasingFunction = shrinkEase,
+            FillBehavior = FillBehavior.HoldEnd
+        });
+        return true;
+    }
+
+    /// <summary>Lifts, turns through a full 360° on the chosen axis while the value changes at
+    /// the far side, then drops back.</summary>
+    bool TryPlayJumpFlip(string text, string beforeValue, double total, MotionClip? valueMotion)
+    {
+        if (!IsLoaded || total < 0.02 || string.Equals(_shown, text, StringComparison.Ordinal)) return false;
+        _animating = true;
+        _shown = text;
+        var generation = _generation;
+        ClearPhase();
+        var jump = Math.Clamp(_style?.TransitionJumpHeight ?? 40, 0, 300);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var animationDuration = TimeSpan.FromSeconds(total);
+        var lift = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd, Duration = animationDuration };
+        lift.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromPercent(0)));
+        lift.KeyFrames.Add(new EasingDoubleKeyFrame(-jump, KeyTime.FromPercent(0.30), new CubicEase { EasingMode = EasingMode.EaseOut }));
+        lift.KeyFrames.Add(new EasingDoubleKeyFrame(-jump, KeyTime.FromPercent(0.75)));
+        lift.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromPercent(1), new CubicEase { EasingMode = EasingMode.EaseIn }));
+        _translate.Y = 0;
+        _translate.BeginAnimation(TranslateTransform.YProperty, lift);
+        // A side-to-side turn is a flip across X; a top-to-bottom turn is a flip across Y. The
+        // value is edge-on at the 180° point, which is where the text is swapped.
+        var direction = _style?.TransitionJumpDirection ?? ScorebugJumpDirection.LeftToRight;
+        var horizontal = direction is ScorebugJumpDirection.LeftToRight or ScorebugJumpDirection.RightToLeft;
+        var flip = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd, Duration = animationDuration };
+        flip.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromPercent(0)));
+        flip.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromPercent(0.12)));
+        flip.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromPercent(0.30), ease));
+        flip.KeyFrames.Add(new EasingDoubleKeyFrame(-1, KeyTime.FromPercent(0.46), ease));
+        flip.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromPercent(0.62), ease));
+        flip.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromPercent(0.78), ease));
+        flip.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromPercent(1)));
+        // The travel skew makes the two directions read differently while the card is edge-on.
+        var travel = direction is ScorebugJumpDirection.RightToLeft or ScorebugJumpDirection.DownToUp ? -1.0 : 1.0;
+        var drift = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd, Duration = animationDuration };
+        drift.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromPercent(0)));
+        drift.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromPercent(0.30)));
+        drift.KeyFrames.Add(new EasingDoubleKeyFrame(8 * travel, KeyTime.FromPercent(0.46), ease));
+        drift.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromPercent(0.62), ease));
+        drift.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromPercent(1)));
+        // The text changes at the back of the turn, when it is edge-on and the old value is hidden.
+        var swapAt = Math.Max(0.01, total * 0.45);
+        _countTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(swapAt) };
+        _countTimer.Tick += (_, _) =>
+        {
+            if (_countTimer is null) return;
+            _countTimer.Stop();
+            _countTimer = null;
+            if (generation == _generation) Text = text;
+        };
+        _countTimer.Start();
+        // Attach the completion before starting the animation. A completed callback must never
+        // be missed because the clock started first, and a fallback timer settles the value if
+        // another host animation replaces this one before WPF reports its completion.
+        flip.Completed += (_, _) => FinishCrossing(generation, valueMotion, beforeValue, text);
+        var guard = new DispatcherTimer { Interval = TimeSpan.FromSeconds(total + 0.25) };
+        _finishTimer = guard;
+        guard.Tick += (_, _) =>
+        {
+            guard.Stop();
+            if (ReferenceEquals(_finishTimer, guard)) _finishTimer = null;
+            FinishCrossing(generation, valueMotion, beforeValue, text);
+        };
+        guard.Start();
+        if (horizontal) _scale.BeginAnimation(ScaleTransform.ScaleXProperty, flip);
+        else _scale.BeginAnimation(ScaleTransform.ScaleYProperty, flip);
+        // The lift owns Y, so the directional drift always rides X.
+        _translate.BeginAnimation(TranslateTransform.XProperty, drift);
+        return true;
+    }
+
+    void FinishCrossing(int generation, MotionClip? valueMotion, string before, string after)
+    {
+        if (generation != _generation || !_animating) return;
+        // The completion can arrive before the mid-point swap on a clipped or unusually short
+        // timeline; always land the new value rather than leaving the old one on screen.
+        Text = after;
+        _countTimer?.Stop();
+        _countTimer = null;
+        ClearPhase();
+        _animating = false;
+        if (_queuedText is not null) { PlayQueued(); return; }
+        PlayValueMotion(valueMotion, before, after);
+    }
+
+    /// <summary>
     /// The value leaves on the clip's exit leg and arrives on its enter leg. The generation guard
     /// means a value that changes again mid-flight wins, and a stale leg never restores old text.
     /// </summary>
@@ -1247,6 +1545,11 @@ public sealed class ScorebugTextBlock : TextBlock
     /// </summary>
     void ClearPhase()
     {
+        _countTimer?.Stop();
+        _countTimer = null;
+        _finishTimer?.Stop();
+        _finishTimer = null;
+        TextEffects.Clear();
         MotionPlayback.Stop(this);
         BeginAnimation(OpacityProperty, null);
         _scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
@@ -1306,6 +1609,12 @@ public sealed class ScorebugTextBlock : TextBlock
             case ScorebugTransition.Drop:
                 Animate(1, 0.15, duration, done, yFrom: 0, yTo: -Distance * 0.4);
                 break;
+            case ScorebugTransition.ShrinkWheel:
+                Animate(1, 1, duration, done, scaleFrom: 1, scaleTo: Math.Clamp(_style?.TransitionShrink ?? 0.82, 0.2, 1));
+                break;
+            case ScorebugTransition.JumpFlip:
+                Animate(1, 1, duration, done, yFrom: 0, yTo: -Math.Clamp(_style?.TransitionJumpHeight ?? 40, 0, 300), scaleYFrom: 1, scaleYTo: -1);
+                break;
             default:
                 Animate(1, 1, duration, done);
                 break;
@@ -1353,6 +1662,12 @@ public sealed class ScorebugTextBlock : TextBlock
                 break;
             case ScorebugTransition.Drop:
                 Animate(0, 1, duration, done, yFrom: Distance * 0.7, yTo: 0);
+                break;
+            case ScorebugTransition.ShrinkWheel:
+                Animate(1, 1, duration, done, scaleFrom: Math.Clamp(_style?.TransitionShrink ?? 0.82, 0.2, 1), scaleTo: 1);
+                break;
+            case ScorebugTransition.JumpFlip:
+                Animate(1, 1, duration, done, yFrom: -Math.Clamp(_style?.TransitionJumpHeight ?? 40, 0, 300), yTo: 0, scaleYFrom: -1, scaleYTo: 1);
                 break;
             default:
                 Animate(1, 1, duration, done);
@@ -1427,8 +1742,12 @@ public sealed class ScorebugTextBlock : TextBlock
 /// </summary>
 public sealed class ScorebugIconView : Grid
 {
-    static readonly Brush TimeoutUsedBrush = new SolidColorBrush(Color.FromRgb(0x9A, 0xA5, 0xB2));
     readonly ScorebugElement _item;
+    // The icon's own chrome sits behind its artwork, inside the element's plate and outline. Keeping
+    // it separate is what lets an arrow or a diamond have a fill and outline of its own without
+    // changing the box around the printed value.
+    readonly Border _chrome = new() { IsHitTestVisible = false };
+    readonly Grid _art = new();
     readonly Func<GameState>? _state;
     readonly Ellipse? _dot;
     readonly Polygon? _arrow;
@@ -1468,6 +1787,8 @@ public sealed class ScorebugIconView : Grid
         _item = item;
         _state = state;
         Icon = item.Icon;
+        Children.Add(_chrome);
+        Children.Add(_art);
         // Bars and bases are artwork that must stay inside its plate; the dot is a small mark that
         // is allowed to breathe over the edge rather than arrive chopped in half.
         ClipToBounds = Icon is not (ScorebugIcon.PossessionDot or ScorebugIcon.PossessionArrow);
@@ -1476,7 +1797,7 @@ public sealed class ScorebugIconView : Grid
             // Three bases in a diamond: a base a runner is standing on is filled, an empty one is
             // only a faint outline, so the graphic reads at a glance like the field does.
             _bases = new Canvas { ClipToBounds = true };
-            Children.Add(_bases);
+            _art.Children.Add(_bases);
         }
         else if (Icon == ScorebugIcon.PossessionArrow)
         {
@@ -1488,7 +1809,7 @@ public sealed class ScorebugIconView : Grid
                 VerticalAlignment = VerticalAlignment.Center,
                 Stretch = Stretch.Fill
             };
-            Children.Add(_arrow);
+            _art.Children.Add(_arrow);
         }
         else if (Icon == ScorebugIcon.PenaltyFlag)
         {
@@ -1506,8 +1827,8 @@ public sealed class ScorebugIconView : Grid
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top
             };
-            Children.Add(_flagPole);
-            Children.Add(_flagCloth);
+            _art.Children.Add(_flagPole);
+            _art.Children.Add(_flagCloth);
         }
         else if (Icon is ScorebugIcon.YellowCard or ScorebugIcon.RedCard)
         {
@@ -1521,7 +1842,7 @@ public sealed class ScorebugIconView : Grid
                 RenderTransform = new RotateTransform(-8),
                 Fill = new SolidColorBrush(Icon == ScorebugIcon.RedCard ? Color.FromRgb(0xE2, 0x3B, 0x3B) : Color.FromRgb(0xF2, 0xC2, 0x30))
             };
-            Children.Add(_card);
+            _art.Children.Add(_card);
         }
         else if (Icon is ScorebugIcon.TimeoutBars or ScorebugIcon.TimeoutDots)
         {
@@ -1533,7 +1854,7 @@ public sealed class ScorebugIconView : Grid
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            Children.Add(_bars);
+            _art.Children.Add(_bars);
         }
         else if (Icon == ScorebugIcon.Custom)
         {
@@ -1561,14 +1882,14 @@ public sealed class ScorebugIconView : Grid
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = customContent
             };
-            Children.Add(_customHost);
+            _art.Children.Add(_customHost);
         }
         else
         {
             // The dot is the whole icon: it marks the side with the ball, on the side that has it.
             // Printing the value beside it read as a second, stale possession next to the mark.
             _dot = new Ellipse { Fill = ScorebugRender.ParseBrush(ScorebugRender.ResolveForeground(item, state?.Invoke())), VerticalAlignment = VerticalAlignment.Center };
-            Children.Add(_dot);
+            _art.Children.Add(_dot);
         }
         Update(text);
     }
@@ -1626,6 +1947,65 @@ public sealed class ScorebugIconView : Grid
         _customHost.RenderTransform = transform;
     }
 
+    /// <summary>Paints the icon's own outline, fill and opacity, inside the element's box.</summary>
+    void UpdateChrome()
+    {
+        var inset = Math.Max(0, _item.BorderThickness) + 1;
+        _chrome.Margin = new Thickness(inset);
+        _chrome.Background = string.IsNullOrWhiteSpace(_item.IconBackground)
+            ? Brushes.Transparent
+            : ScorebugRender.ParseBrush(_item.IconBackground);
+        var opacity = Math.Clamp(_item.IconOpacity, 0, 1);
+        _chrome.Opacity = opacity;
+        _art.Opacity = opacity;
+    }
+
+    /// <summary>
+    /// The icon outline belongs to the artwork, not to one rectangle around the whole box. Every
+    /// dot, bar, base, arrow, flag part and card gets its own outline, so a possession dot has a
+    /// ring around the dot and a timeout row has a border around each individual bar or dot.
+    /// </summary>
+    void ApplyArtworkBorders()
+    {
+        var thickness = Math.Clamp(_item.IconBorderThickness, 0, 40);
+        var brush = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconBorderColor) ? "#FFFFFFFF" : _item.IconBorderColor);
+        void Outline(Shape shape)
+        {
+            shape.Stroke = thickness > 0 ? brush : null;
+            shape.StrokeThickness = thickness;
+            if (thickness > 0) shape.StrokeLineJoin = PenLineJoin.Round;
+        }
+        if (_dot is not null) Outline(_dot);
+        if (_arrow is not null) Outline(_arrow);
+        if (_flagPole is not null) Outline(_flagPole);
+        if (_flagCloth is not null) Outline(_flagCloth);
+        if (_card is not null) Outline(_card);
+        if (_bars is not null)
+            foreach (var bar in _bars.Children.OfType<Shape>()) Outline(bar);
+        // A base already has a faint outline of its own when the icon border is turned off; the
+        // element's outline width and colour replace that on each base when it is turned on.
+        for (var index = 0; index < _baseSquares.Count; index++)
+        {
+            var square = _baseSquares[index];
+            if (thickness > 0)
+            {
+                square.Stroke = brush;
+                square.StrokeThickness = thickness;
+                square.StrokeLineJoin = PenLineJoin.Round;
+            }
+            else
+            {
+                square.Stroke = _baseLit[index] ? _baseBrush : _baseFaint;
+                square.StrokeThickness = Math.Max(1.5, square.Width * 0.12);
+            }
+        }
+        if (_customHost is not null)
+        {
+            _customHost.BorderBrush = thickness > 0 ? brush : null;
+            _customHost.BorderThickness = new Thickness(thickness);
+        }
+    }
+
     /// <summary>Moves the icon off its box's centre, so one element can carry a mark elsewhere.</summary>
     void ApplyIconPlacement()
     {
@@ -1642,7 +2022,7 @@ public sealed class ScorebugIconView : Grid
         // value is set again.
         if (!string.IsNullOrWhiteSpace(_item.IconToken))
         {
-            var bound = _state is null ? string.Empty : ScoreboardTemplates.Bind(_item.IconToken, _state(), _item.PeriodFormat, _item.DownCaps, _item.PlayClockColon);
+            var bound = _state is null ? string.Empty : ScoreboardTemplates.Bind(_item.IconToken, _state(), _item.PeriodFormat, _item.DownCaps, _item.PlayClockColon, _item.GameClockLeadingZero);
             var showing = !string.IsNullOrWhiteSpace(bound)
                 && !string.Equals(bound.Trim(), "0", StringComparison.Ordinal)
                 && !bound.Trim().Equals("false", StringComparison.OrdinalIgnoreCase)
@@ -1652,9 +2032,11 @@ public sealed class ScorebugIconView : Grid
         }
         else if (Visibility != System.Windows.Visibility.Visible) Visibility = System.Windows.Visibility.Visible;
         ApplyIconPlacement();
+        UpdateChrome();
         if (_customText is not null)
         {
             UpdateCustom();
+            ApplyArtworkBorders();
             return;
         }
         var state = _state?.Invoke();
@@ -1733,6 +2115,7 @@ public sealed class ScorebugIconView : Grid
                 _baseLit[index] = lit[index];
                 PaintBase(index, lit[index], animate ? TimeSpan.FromSeconds(seconds) : null);
             }
+            ApplyArtworkBorders();
             return;
         }
         if (_bars is not null)
@@ -1751,22 +2134,29 @@ public sealed class ScorebugIconView : Grid
             {
                 _bars.Children.Clear();
                 _appliedForeground = foreground;
+                ApplyArtworkBorders();
                 return;
             }
             var scale = Math.Clamp(_item.IconScale, 0.25, 3);
-            var slot = (vertical ? _item.Height : _item.Width) / Math.Max(1, count);
+            // The slot is the whole side divided by the count. A bar fills nearly the whole slot, so
+            // resizing the element vertically makes a vertical stack taller instead of leaving the
+            // old 18 px cap behind. Horizontal bars take their thickness from the element's height.
+            var slot = (vertical ? Math.Max(1, _item.Height) : Math.Max(1, _item.Width)) / Math.Max(1, count);
+            var gap = Math.Max(1, slot * 0.16);
             var width = vertical
-                ? Math.Max(4, Math.Min(_item.Width * 0.62, slot * 1.4) * scale)
-                : Math.Max(3, Math.Min(_item.Width * 0.22, slot * 0.62) * scale);
-            var thickness = Math.Clamp(_item.Height / 8 * scale, 1.5, 18);
-            var gap = vertical ? Math.Max(1, slot * 0.22) : Math.Max(1, width * 0.22);
+                ? Math.Clamp(Math.Max(1, _item.Width) * 0.62 * scale, 2, Math.Max(2, _item.Width))
+                : Math.Clamp(slot - gap, 2, 400);
+            var thickness = vertical
+                ? Math.Clamp(slot - gap, 2, 400)
+                : Math.Clamp(Math.Max(1, _item.Height) * 0.28 * scale, 2, Math.Max(2, _item.Height));
+            var usedBrush = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconUsedColor) ? "#FF9AA5B2" : _item.IconUsedColor);
             if (_bars.Children.Count != count)
             {
                 _bars.Children.Clear();
                 var animate = Animates;
                 for (var i = 0; i < count; i++)
                 {
-                    var fill = i < remaining ? ScorebugRender.ParseBrush(foreground) : TimeoutUsedBrush;
+                    var fill = i < remaining ? ScorebugRender.ParseBrush(foreground) : usedBrush;
                     // Bars are rounded lines; the dots variant is the same row of round pips.
                     Shape bar = Icon == ScorebugIcon.TimeoutDots
                         ? new Ellipse { Width = width, Height = width, Fill = fill }
@@ -1802,14 +2192,38 @@ public sealed class ScorebugIconView : Grid
                     child.Margin = vertical
                         ? new Thickness(0, gap / 2, 0, gap / 2)
                         : new Thickness(gap / 2, 0, gap / 2, 0);
-                    child.Fill = index++ < remaining ? brush : TimeoutUsedBrush;
+                    child.Fill = index++ < remaining ? brush : usedBrush;
                 }
                 _appliedForeground = foreground;
             }
+            ApplyArtworkBorders();
             return;
         }
         if (_arrow is not null)
         {
+            _arrow.Fill = ScorebugRender.ParseBrush(foreground);
+            // A down arrow sits above/below the plate instead of leaning in from the side. It is a
+            // still mark: there is no side to slide from, so changing possession does not move it.
+            if (_item.IconArrowDown)
+            {
+                _arrowShown = null;
+                _arrow.Visibility = Visibility.Visible;
+                _arrow.BeginAnimation(UIElement.OpacityProperty, null);
+                _arrow.Opacity = 1;
+                _arrow.RenderTransform = null;
+                var downHeight = Math.Clamp(Math.Min(_item.Height * 0.55, _item.FontSize), 6, 200);
+                var downWidth = downHeight * 1.15;
+                _arrow.Points = new PointCollection { new Point(0, 0), new Point(downWidth, 0), new Point(downWidth / 2, downHeight) };
+                _arrow.Width = downWidth;
+                _arrow.Height = downHeight;
+                // A down arrow belongs at the bottom edge, matching the web stream and leaving the
+                // value clear. Sitting it in the middle hid it behind the printed number.
+                _arrow.Margin = new Thickness(0, 0, 0, 2);
+                _arrow.HorizontalAlignment = HorizontalAlignment.Center;
+                _arrow.VerticalAlignment = VerticalAlignment.Bottom;
+                ApplyArtworkBorders();
+                return;
+            }
             // The arrow belongs to one plate and only exists while that team has the ball. It leans
             // inward from the plate's edge: left for home, right for away, mirrored by the flip.
             // One arrow follows the ball rather than belonging to one plate, so a possession change
@@ -1854,6 +2268,7 @@ public sealed class ScorebugIconView : Grid
             _arrow.Margin = new Thickness(gap, 0, gap, 0);
             _arrow.HorizontalAlignment = homeSide ? HorizontalAlignment.Left : HorizontalAlignment.Right;
             _arrow.Fill = ScorebugRender.ParseBrush(foreground);
+            ApplyArtworkBorders();
             return;
         }
         if (_flagPole is not null)
@@ -1869,6 +2284,7 @@ public sealed class ScorebugIconView : Grid
             _flagCloth.Margin = new Thickness(pole, 0, 0, height * 0.48);
             _flagCloth.Fill = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? "#FFF2C230" : _item.IconColor);
             _flagPole.Fill = ScorebugRender.ParseBrush(foreground);
+            ApplyArtworkBorders();
             return;
         }
         if (_card is not null)
@@ -1883,6 +2299,7 @@ public sealed class ScorebugIconView : Grid
             _card.Width = width;
             _card.Height = height;
             _card.RadiusX = _card.RadiusY = Math.Max(2, width * 0.08);
+            ApplyArtworkBorders();
             return;
         }
         if (_dot is not null)
@@ -1934,6 +2351,7 @@ public sealed class ScorebugIconView : Grid
                 }
             }
         }
+        ApplyArtworkBorders();
     }
 
     /// <summary>

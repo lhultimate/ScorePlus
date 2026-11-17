@@ -6,6 +6,7 @@
         WindowStartupLocation="CenterOwner" Background="#0E1218" Foreground="#F4F7FB" FontFamily="Segoe UI">
   <Window.Resources>
     <local:IconNameConverter x:Key="IconNameConverter"/>
+    <local:MotionNameConverter x:Key="MotionNameConverter"/>
     <Style x:Key="ToolButton" TargetType="Button">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Padding" Value="12,8"/>
@@ -455,6 +456,13 @@
                       Checked="Property_Changed" Unchecked="Property_Changed"
                       ToolTip="This element only. {{PLAY_CLOCK}} prints :22 instead of 22."/>
           </StackPanel>
+          <StackPanel x:Name="GameClockFormatSection">
+            <CheckBox x:Name="GameClockLeadingZeroInput" Content="Print the game clock with a leading zero (09:59)" FontSize="11" Margin="10,2,10,2"
+                      Checked="Property_Changed" Unchecked="Property_Changed"
+                      ToolTip="This element only. Off prints 9:59 and :59 under a minute. The setting travels with the element."/>
+            <TextBlock Text="Use on any element that prints {{GAME_CLOCK}}." Foreground="#93A0B2" FontSize="10"
+                       TextWrapping="Wrap" Margin="10,0,10,4"/>
+          </StackPanel>
           <StackPanel x:Name="TickerSection">
             <CheckBox x:Name="TickerInput" Content="Scroll as a bottom-screen ticker" FontSize="11" Margin="10,4,10,2"
                       Checked="Property_Changed" Unchecked="Property_Changed"
@@ -641,10 +649,56 @@
                        ToolTip="Leave empty to use the element's text colour"/>
             </DockPanel>
           </StackPanel>
+          <StackPanel x:Name="IconLookPanel">
+            <TextBlock Text="ICON FILL &amp; BORDER" Style="{StaticResource SectionTitle}"/>
+            <TextBlock Text="Icon border width (px)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="IconBorderWidthInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="An outline around the icon itself, separate from the element's box border"/>
+            <TextBlock Text="Icon border colour" Style="{StaticResource FieldLabel}"/>
+            <DockPanel Margin="0,0,10,2">
+              <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconBorderColor_Click"
+                      ToolTip="Pick the colour of the icon's own outline"/>
+              <Border x:Name="IconBorderColorSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                      BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                      local:ThemeManager.SkipTheme="True" ToolTip="The icon outline colour"/>
+              <TextBox x:Name="IconBorderColorInput" TextChanged="Property_Changed"/>
+            </DockPanel>
+            <TextBlock Text="Icon background" Style="{StaticResource FieldLabel}"/>
+            <DockPanel Margin="0,0,10,2">
+              <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconBackgroundColor_Click"
+                      ToolTip="Fill only the icon's own area, leaving the element plate alone"/>
+              <Border x:Name="IconBackgroundSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                      BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                      local:ThemeManager.SkipTheme="True" ToolTip="The icon background colour"/>
+              <TextBox x:Name="IconBackgroundInput" TextChanged="Property_Changed"
+                       ToolTip="Leave empty for no icon background"/>
+            </DockPanel>
+            <StackPanel x:Name="IconUsedPanel">
+              <TextBlock Text="Used-timeout colour" Style="{StaticResource FieldLabel}"/>
+              <DockPanel Margin="0,0,10,2">
+                <Button DockPanel.Dock="Right" Content="Choose…" Margin="4,0,0,0" Click="IconUsedColor_Click"
+                        ToolTip="The colour of a bar or pip after that timeout has been used"/>
+                <Border x:Name="IconUsedSwatch" Width="24" Height="24" CornerRadius="4" Margin="10,0,6,0"
+                        BorderBrush="#3A4552" BorderThickness="1" VerticalAlignment="Center"
+                        local:ThemeManager.SkipTheme="True" ToolTip="How a used timeout is drawn"/>
+                <TextBox x:Name="IconUsedColorInput" TextChanged="Property_Changed"/>
+              </DockPanel>
+            </StackPanel>
+            <TextBlock Text="Icon opacity" Style="{StaticResource FieldLabel}"/>
+            <DockPanel Margin="10,0,10,4">
+              <TextBlock x:Name="IconOpacityReadout" DockPanel.Dock="Right" Text="100%" Foreground="#93A0B2" FontSize="10"
+                         VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
+              <Slider x:Name="IconOpacitySlider" Minimum="0" Maximum="100" Value="100" MinHeight="24"
+                      ValueChanged="IconOpacity_Changed" ToolTip="Fade the icon artwork and its outline together"/>
+            </DockPanel>
+          </StackPanel>
           <CheckBox x:Name="IconVisitorsInput" Content="Count the visitors' timeouts" Margin="10,2,10,4"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
           <CheckBox x:Name="IconFlipInput" Content="Put the home side on the left" Margin="10,2,10,8"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
+          <CheckBox x:Name="IconArrowDownInput" Content="Point the possession arrow down" Margin="10,2,10,8"
+                    Checked="Property_Changed" Unchecked="Property_Changed"
+                    ToolTip="Draw a downward arrow instead of pointing it sideways into the team with possession"/>
           <!-- Timeout bars have their own size, independent of the plate. -->
           <StackPanel x:Name="IconScalePanel">
             <TextBlock Text="Timeout bar size (0.25–3)" Style="{StaticResource FieldLabel}"/>
@@ -774,7 +828,13 @@
         <TextBlock Text="ANIMATION" Style="{StaticResource SectionTitle}"/>
         <TextBlock Text="Element animation" Style="{StaticResource FieldLabel}"/>
         <ComboBox x:Name="AnimationInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                  ToolTip="Choose a built-in motion preset or any animation saved in the show library"/>
+                  ToolTip="Choose a built-in motion preset or any animation saved in the show library">
+          <ComboBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Converter={StaticResource MotionNameConverter}}"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
         <Button Content="Animation maker…" Margin="10,0,10,8" Padding="10,5" FontSize="11" Click="MotionMakerAnimation_Click"
                 ToolTip="Key motion this element follows while it is up, or when its value changes"/>
 
@@ -783,19 +843,44 @@
         <StackPanel x:Name="TransitionSection">
           <TextBlock Text="Value change" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="TransitionInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="How this value crosses to a new number or name"/>
+                    ToolTip="How this value crosses to a new number or name">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Converter={StaticResource MotionNameConverter}}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
           <TextBlock Text="Transition time (0–5 seconds)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="TransitionSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
-                   ToolTip="0 is an instant swap, 5 a very slow dissolve. The value leaves slightly faster than it arrives."/>
+                   ToolTip="0 is an instant swap, 5 a very slow dissolve. Also sets how long Shrink Wheel and Jump Flip take; the value leaves slightly faster than it arrives."/>
           <CheckBox x:Name="DownTransitionInput" Content="Different animation when the value goes down"
                     Margin="10,6,10,2" Checked="Property_Changed" Unchecked="Property_Changed"
                     ToolTip="Use a separate crossing when a number falls instead of rising"/>
           <TextBlock Text="Value change (down)" Style="{StaticResource FieldLabel}"/>
           <ComboBox x:Name="TransitionDownInput" Margin="10,0,10,4" SelectionChanged="Property_Changed"
-                    ToolTip="How this value crosses to a lower number"/>
+                    ToolTip="How this value crosses to a lower number">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Converter={StaticResource MotionNameConverter}}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
           <TextBlock Text="Down transition time (0–5 seconds)" Style="{StaticResource FieldLabel}"/>
           <TextBox x:Name="TransitionDownSpeedInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
                    ToolTip="0 is an instant swap, 5 a very slow dissolve. Blank follows the up time."/>
+          <StackPanel x:Name="ShrinkAnimationPanel">
+            <TextBlock Text="Shrink amount (0.2–1)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="TransitionShrinkInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="How small the number gets before it counts: 0.82 is a subtle dip, 0.5 is a strong one."/>
+          </StackPanel>
+          <StackPanel x:Name="JumpAnimationPanel">
+            <TextBlock Text="Jump height (pixels)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="TransitionJumpHeightInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="How far the number jumps up before the full 360° turn"/>
+            <TextBlock Text="Jump direction" Style="{StaticResource FieldLabel}"/>
+            <ComboBox x:Name="TransitionJumpDirectionInput" Margin="10,0,10,8" SelectionChanged="Property_Changed"
+                      ToolTip="Which way the full 360° turn travels"/>
+          </StackPanel>
         </StackPanel>
         <!-- The value keeps the hidden box the property writer already understands; the slider is
              what the operator actually sees, and each layer has its own. -->

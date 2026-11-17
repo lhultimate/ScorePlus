@@ -233,6 +233,13 @@
             <TextBlock x:Name="ValueLabel" Text="VALUE" Style="{StaticResource MacroLabel}"/>
             <TextBox x:Name="ValueBox" Style="{StaticResource MacroBox}" Text="0"/>
           </StackPanel>
+          <StackPanel x:Name="WaitPanel">
+            <TextBlock Text="WAIT BEFORE THE NEXT STEP (SECONDS)" Style="{StaticResource MacroLabel}"/>
+            <TextBox x:Name="WaitSecondsBox" Style="{StaticResource MacroBox}" Text="1"
+                     ToolTip="0 to 60 seconds. The macro continues automatically when the wait ends."/>
+            <TextBlock Style="{StaticResource MacroHint}" Margin="0,3,0,0"
+                       Text="Use a wait to let a replay, graphic or camera settle before the next step."/>
+          </StackPanel>
           <StackPanel x:Name="RosterPanel">
             <TextBlock Text="PLAYER" Style="{StaticResource MacroLabel}"/>
             <ComboBox x:Name="PlayerBox" Style="{StaticResource MacroCombo}"/>
@@ -253,6 +260,20 @@
             </Grid>
             <TextBlock Style="{StaticResource MacroHint}" Margin="0,3,0,0"
                        Text="A clip or camera plays; a microphone or speaker bus is put on air. Already-live sources are left alone."/>
+          </StackPanel>
+
+          <StackPanel x:Name="FlagPanel">
+            <TextBlock Text="FLAG TYPE" Style="{StaticResource MacroLabel}"/>
+            <ComboBox x:Name="FlagTypeBox" Style="{StaticResource MacroCombo}"/>
+            <CheckBox x:Name="ClearFlagBox" Content="Clear the flag instead of putting it down"
+                      Foreground="{DynamicResource MacroMutedBrush}" FontSize="10" Margin="0,6,0,0"/>
+          </StackPanel>
+          <StackPanel x:Name="LayoutPanel">
+            <TextBlock Text="LAYOUT" Style="{StaticResource MacroLabel}"/>
+            <ComboBox x:Name="LayoutBox" Style="{StaticResource MacroCombo}"
+                      ToolTip="Every display's layouts; the switch goes on air immediately"/>
+            <TextBlock Style="{StaticResource MacroHint}" Margin="0,3,0,0"
+                       Text="The chosen layout is put on air as soon as this step runs."/>
           </StackPanel>
 
           <CheckBox x:Name="BypassOutputBox" Content="Bypass Update Output for this step"

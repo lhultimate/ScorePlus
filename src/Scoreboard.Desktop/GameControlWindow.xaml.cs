@@ -122,7 +122,7 @@ public partial class GameControlWindow : Window
         _quickLayouts = new QuickLayoutBar(catalog, engine, theme);
         _quickLayouts.Status += message => MediaStatus.Text = message;
         QuickLayoutsHost.Content = _quickLayouts;
-        _macroDock = new MacroDock(engine, session, theme, Panel.Execute);
+        _macroDock = new MacroDock(engine, session, theme, Panel.Execute, catalog, publishGameState);
         _macroDock.Status += message => MediaStatus.Text = message;
         MacroHost.Content = _macroDock;
         RosterControl.Attach(engine);

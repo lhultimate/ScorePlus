@@ -210,7 +210,7 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         RosterControl.Attach(_engine);
         RosterControl.ApplyTheme(_preferences.Theme);
         RosterControl.SetHintVisibility(_preferences.ShowHeadingHints);
-        _macroDock = new MacroDock(_engine, _session, _preferences.Theme, _panel.Execute);
+        _macroDock = new MacroDock(_engine, _session, _preferences.Theme, _panel.Execute, _scorebug, PublishGameState);
         _macroDock.SetHintVisibility(_preferences.ShowHeadingHints);
         _macroDock.Status += message => StatusText.Text = message;
         MacroHost.Content = _macroDock;
@@ -1172,10 +1172,10 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         var content = final ? "Restart Game" : "End Game";
         if (!Equals(EndGameButton.Content, content)) EndGameButton.Content = content;
         EndGameButton.ToolTip = final
-            ? "Start the same game over: the score, clocks and game stats reset; the teams, their records and the design stay"
+            ? "Start the same game over or undo the end: the score, clocks and game stats reset; the teams, their records and the design stay"
             : _engine.State.GameEnded
                 ? "Add this final result to each team's record. A team with no record is left alone"
-                : "Stop every clock, mark the game final and add the result to each team's record";
+                : "Stop every clock, mark the game final and add the result to each team's record; Restart Game can undo an accidental end";
     }
 
     void NewGame_Click(object sender, RoutedEventArgs e)
@@ -1196,17 +1196,28 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         if (_engine.State.GameEnded && _engine.State.RecordSettled)
         {
             // A fully settled final restarts the same fixture instead of ending it a second time.
-            // The score and clocks start over; the teams, their details and the design stay.
-            if (!ConfirmWindow.Ask(this, _preferences.Theme, "RESTART GAME",
-                "This starts the same game over. The score, clocks, period and this game's stats are cleared. The teams — names, colours, logos, records and selected players — and the scorebug design stay.",
-                "Restart game")) return;
+            // The score and clocks start over; the teams, their details and the design stay. The
+            // secondary action undoes the final, so an accidental End Game is recoverable.
+            var restart = ConfirmWindow.AskChoice(this, _preferences.Theme, "RESTART GAME",
+                "Start the same game over, or undo the end and keep this final result. Undoing restores the score, clocks and records from just before End Game; starting fresh clears this game's score, clocks, period and stats while keeping the teams and design.",
+                "Start fresh", "Undo end game");
+            if (restart.SecondaryConfirmed)
+            {
+                if (_engine.Undo())
+                {
+                    StatusText.Text = "END GAME UNDONE · the final result was restored";
+                    AutoSave();
+                }
+                else StatusText.Text = "NOTHING TO UNDO · End Game could not be undone";
+                return;
+            }
+            if (!restart.Confirmed) return;
             StartNewGame(_engine.State.SportId, announce: false, keepDesign: true, restart: true);
             StatusText.Text = "GAME RESTARTED · same teams, fresh score and clock";
             AutoSave();
             return;
         }
-        var detail = "This stops every clock and marks the game final. The result is added to each team's record that is already set — a win, loss or tie. A team with no record is left alone.";
-        if (!ConfirmWindow.Ask(this, _preferences.Theme, "END GAME", detail, "End game")) return;
+        // End Game is immediate: the Restart Game flow offers Undo for an accidental end.
         var homeRecord = _engine.State.HomeRecord;
         var awayRecord = _engine.State.AwayRecord;
         var wasSettled = _engine.State.RecordSettled;

@@ -72,11 +72,6 @@ public sealed class UserPreferences
     public int AutosaveMinutes { get; set; } = 5;
 
     /// <summary>
-    /// How clocks print. "Padded" is 10:00, 09:59 and 0:59; "Compact" is 10:00, 9:59 and :59.
-    /// </summary>
-    public string ClockFormat { get; set; } = "Padded";
-
-    /// <summary>
     /// Off by default: when the final period or full time expires, add the result to each team's
     /// win-loss-tie record. A side with no record is left alone.
     /// </summary>
@@ -176,7 +171,6 @@ public sealed class UserPreferences
         CheckForUpdates = CheckForUpdates,
         ValueSwitchDelay = ValueSwitchDelay,
         AutosaveMinutes = AutosaveMinutes,
-        ClockFormat = ClockFormat,
         AutoUpdateRecord = AutoUpdateRecord,
         TieRule = TieRule,
         TieAllowPeriod = TieAllowPeriod,
@@ -258,7 +252,7 @@ public static class PreferencesStore
             if (!File.Exists(FilePath)) return new();
             var loaded = JsonSerializer.Deserialize<UserPreferences>(File.ReadAllText(FilePath)) ?? new();
             Migrate(loaded);
-            ApplyClockFormat(loaded);
+            ApplyPreferences(loaded);
             return loaded;
         }
         catch { return new(); }
@@ -308,7 +302,6 @@ public static class PreferencesStore
             preferences.AnnotationFadeSeconds = 1;
         preferences.AnnotationFadeSeconds = Math.Clamp(preferences.AnnotationFadeSeconds, 0, 10);
         if (preferences.AnnotationFadeSeconds is > 0 and < 0.5) preferences.AnnotationFadeSeconds = 0.5;
-        if (preferences.ClockFormat is not ("Padded" or "Compact")) preferences.ClockFormat = "Padded";
         if (preferences.Theme is not ("System" or "Dark" or "Light")) preferences.Theme = "System";
         if (preferences.TieRule is not ("PlayUntilWinner" or "AllowTie")) preferences.TieRule = "PlayUntilWinner";
         preferences.TieAllowPeriod = Math.Clamp(preferences.TieAllowPeriod, 1, 99);
@@ -320,12 +313,9 @@ public static class PreferencesStore
         preferences.LeagueCloudPollSeconds = Math.Clamp(preferences.LeagueCloudPollSeconds, 5, 300);
     }
 
-    /// <summary>Pushes the saved clock shape into the binder every graphic, panel and remote reads.</summary>
-    public static void ApplyClockFormat(UserPreferences preferences)
+    /// <summary>Pushes the saved non-visual preferences into the engine.</summary>
+    public static void ApplyPreferences(UserPreferences preferences)
     {
-        GameEngine.ClockDisplay = string.Equals(preferences.ClockFormat, "Compact", StringComparison.OrdinalIgnoreCase)
-            ? ClockStyle.Compact
-            : ClockStyle.Padded;
         GameEngine.AutoUpdateRecordEnabled = preferences.AutoUpdateRecord;
         GameEngine.TieAllowedAtPeriod = string.Equals(preferences.TieRule, "AllowTie", StringComparison.OrdinalIgnoreCase)
             ? Math.Clamp(preferences.TieAllowPeriod, 1, 99)
@@ -335,7 +325,7 @@ public static class PreferencesStore
 
     public static void Save(UserPreferences preferences)
     {
-        ApplyClockFormat(preferences);
+        ApplyPreferences(preferences);
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
         var temp = FilePath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(preferences, new JsonSerializerOptions { WriteIndented = true }));

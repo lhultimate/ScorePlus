@@ -43,13 +43,16 @@ NUMERIC="$(printf '%s' "$VERSION" | sed -E 's/[^0-9.]+//g' | sed -E 's/^\.+//; s
 IFS='.' read -r -a PARTS <<< "$NUMERIC"
 while [[ ${#PARTS[@]} -lt 3 ]]; do PARTS+=("0"); done
 # The major number encodes the channel: alpha 1, beta 2, stable 3. This keeps b1.0 numerically
-# above a1.70, so copies that only know numbers still update to the beta.
+# above a1.70, and v1.0 above every b1.x, so copies that only know numbers still update.
 STAGE="${PARTS[0]}"
 case "$VERSION" in
   b*|B*|beta*|Beta*) STAGE=2 ;;
-  c*|C*|stable*|Stable*) STAGE=3 ;;
+  c*|C*|stable*|Stable*|v*|V*) STAGE=3 ;;
 esac
-if [[ ${#PARTS[1]} -eq 1 ]]; then PARTS[1]="${PARTS[1]}0"; fi
+case "$VERSION" in
+  a*|A*|alpha*|Alpha*|b*|B*|beta*|Beta*)
+    if [[ ${#PARTS[1]} -eq 1 ]]; then PARTS[1]="${PARTS[1]}0"; fi ;;
+esac
 NUMERIC="${STAGE}.${PARTS[1]}.${PARTS[2]}"
 if [[ ! "$NUMERIC" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Release must look like a1.1 (got '$VERSION')." >&2

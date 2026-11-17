@@ -252,7 +252,12 @@ public sealed class ScorebugCanvasView : Grid
             // of the visual tree, which stops the decoder and restarts the picture from frame one:
             // that is what made a video jump back to the start on every studio edit.
             var reused=previousVisuals.TryGetValue(item.Id,out var prior)&&ReferenceEquals(prior.Content,content);
-            var host=reused?(Border)prior.Host:new Border{ClipToBounds=true,Child=content};
+            // A text item is allowed to leave its box while Jump Flip lifts it; clipping the host
+            // cut the top of the glyphs off against the artwork background. Video and plate artwork
+            // still clip so they cannot bleed over neighbouring elements.
+            var clipContent=content is not ScorebugTextBlock;
+            var host=reused?(Border)prior.Host:new Border{ClipToBounds=clipContent,Child=content};
+            host.ClipToBounds=clipContent;
             if(!reused)host.Background=ScorebugRender.HostBackground(item,_stateProvider());
             host.Width=item.Width;host.Height=item.Height;host.Opacity=item.Opacity;
             host.Visibility=item.Visible?Visibility.Visible:Visibility.Collapsed;
@@ -1177,7 +1182,7 @@ public sealed class ScorebugCanvasView : Grid
             }
             if(visual.Content is ScorebugTextBlock block)
             {
-                var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat,item.DownCaps,item.PlayClockColon);
+                var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero);
                 block.ApplyStyle(item,state);
                 ShowValue(item,block,text);
             }
@@ -1307,6 +1312,10 @@ public sealed class ScorebugCanvasView : Grid
             if(!item.Visible||!_visuals.TryGetValue(item.Id,out var visual))continue;
             var itemPhase=ScoreItemPhase(phase,item.Id);
             if(itemPhase is null)continue;
+            // The celebration takes over the host and can cancel a value transition before its
+            // completion callback runs. Land the newest value now so the block is not left stuck
+            // mid-transition, which used to stop every later score from printing.
+            if(visual.Content is ScorebugTextBlock settling)settling.Settle();
             var host=visual.Host;var id=item.Id;var opacity=Math.Clamp(item.Opacity,0,1);
             _scoreAnimated.Add((item,host));
             steps.Add((id,()=>MotionPlayback.PlayPhase(host,itemPhase,opacity,pieceId:id)));
@@ -1423,6 +1432,9 @@ public sealed class ScorebugCanvasView : Grid
         foreach(var (item,host) in _scoreAnimated)
         {
             MotionPlayback.Stop(host);
+            // The celebration may have cancelled a value change on this item; settle it before
+            // the next paint so the score keeps updating after the animation ends.
+            if(_visuals.TryGetValue(item.Id,out var visual)&&visual.Content is ScorebugTextBlock settling)settling.Settle();
             _animations.Remove(item.Id);
             if(!_disposed)ApplyAnimation(item,host);
         }

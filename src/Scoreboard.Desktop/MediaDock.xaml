@@ -391,6 +391,8 @@
         </DockPanel>
         <StackPanel x:Name="PlaylistActions" Grid.Column="2" Orientation="Horizontal" Visibility="Collapsed">
           <Button x:Name="PlaylistAddButton" Content="Add clip" Style="{StaticResource DockAction}" Click="PlaylistAdd_Click" ToolTip="Add the selected library clip to this playlist"/>
+          <Button x:Name="PlaylistUpButton" Content="←" Style="{StaticResource DockAction}" Click="PlaylistUp_Click" ToolTip="Move the selected clip earlier in the playlist"/>
+          <Button x:Name="PlaylistDownButton" Content="→" Style="{StaticResource DockAction}" Click="PlaylistDown_Click" ToolTip="Move the selected clip later in the playlist"/>
           <Button x:Name="PlaylistRunButton" Content="Play" Style="{StaticResource DockAction}" Click="PlaylistRun_Click" ToolTip="Play this playlist from the first clip"/>
           <Button x:Name="PlaylistStopButton" Content="Stop" Style="{StaticResource DockAction}" Click="PlaylistStop_Click" ToolTip="Stop playback"/>
           <Button x:Name="PlaylistDeleteButton" Content="Delete" Style="{StaticResource DockAction}" Click="PlaylistDelete_Click" ToolTip="Delete this playlist (the clips stay in the library)"/>

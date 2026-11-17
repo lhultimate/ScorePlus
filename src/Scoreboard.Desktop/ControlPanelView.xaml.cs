@@ -120,6 +120,10 @@ public partial class ControlPanelView : UserControl
             MinHeight = 30,
             Padding = new Thickness(4, 0, 4, 0),
             FontSize = 10,
+            // The caption switch changes between HOME ▶ and ◀ VISITORS. A fixed target keeps the
+            // Ball On value and step arrows from moving when the side changes.
+            Width = 94,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
             ToolTip = "Which team's half of the field the ball is on — independent of possession"
         };
         _ballSide.Click += Action_Click;

@@ -28,7 +28,15 @@ public enum MacroActionKind
     /// <summary>Which side has possession.</summary>
     SetPossession,
     /// <summary>A custom value from the console's values card.</summary>
-    CustomValue
+    CustomValue,
+    /// <summary>Pause before running the next step, in seconds.</summary>
+    Wait,
+    /// <summary>Put a library clip or live source on air without restarting a source already live.</summary>
+    PutOnAir,
+    /// <summary>Switch a display to a layout. The layout goes on air immediately.</summary>
+    SwitchLayout,
+    /// <summary>Raise or clear a referee flag for one side.</summary>
+    PenaltyFlag
 }
 
 /// <summary>A single console, media or roster change saved inside a macro.</summary>
@@ -61,6 +69,11 @@ public sealed class MacroAction
     public string PlayerId { get; set; } = "";
     public string PlayerName { get; set; } = "";
     public string StatName { get; set; } = "";
+    /// <summary>The display a SwitchLayout step targets.</summary>
+    public string DisplayId { get; set; } = "";
+
+    /// <summary>How long a Wait step pauses before the next step runs.</summary>
+    public double WaitSeconds { get; set; } = 1;
 
     public MacroAction Copy() => new()
     {
@@ -72,20 +85,24 @@ public sealed class MacroAction
         BypassOutput = BypassOutput,
         Path = Path,
         Label = Label,
+        DisplayId = DisplayId,
         PlayerId = PlayerId,
         PlayerName = PlayerName,
-        StatName = StatName
+        StatName = StatName,
+        WaitSeconds = WaitSeconds
     };
 
     public void Normalize()
     {
         Path = (Path ?? "").Trim();
         Label = (Label ?? "").Trim();
+        DisplayId = (DisplayId ?? "").Trim();
         PlayerId = (PlayerId ?? "").Trim();
         PlayerName = (PlayerName ?? "").Trim();
         StatName = (StatName ?? "").Trim();
         Amount = Math.Clamp(Amount, -999, 999);
         Value = Math.Clamp(Value, -999, 9999);
+        WaitSeconds = Math.Clamp(double.IsFinite(WaitSeconds) ? WaitSeconds : 1, 0, 60);
     }
 
     [JsonIgnore]
@@ -94,7 +111,7 @@ public sealed class MacroAction
         MacroActionKind.Score => $"{(Home ? "Home" : "Visitors")} score {(Amount >= 0 ? "+" : "−")}{Math.Abs(Amount)}",
         MacroActionKind.SetDown => $"Down {Value}",
         MacroActionKind.SetTimeouts => $"{(Home ? "Home" : "Visitors")} timeouts {Value}",
-        MacroActionKind.SetGameClock => $"Game clock {Value}s",
+        MacroActionKind.SetGameClock => $"Game clock {GameEngine.FormatClock(Value)}",
         MacroActionKind.SetPlayClock => $"Play clock {Value}s",
         MacroActionKind.SetTimeoutClock => $"Timeout clock {Value}s",
         MacroActionKind.SetPeriod => $"Period {Value}",
@@ -107,6 +124,12 @@ public sealed class MacroAction
         MacroActionKind.SetFootballBallSpot => $"Ball spot · {Value} yd",
         MacroActionKind.SetPossession => $"{(Home ? "Home" : "Visitors")} possession",
         MacroActionKind.CustomValue => $"{(string.IsNullOrWhiteSpace(Label) ? Path : Label)} {(Delta ? (Value >= 0 ? "+ " : "− ") + Math.Abs(Value) : "= " + Value)}",
+        MacroActionKind.Wait => $"Wait {WaitSeconds:0.##}s",
+        MacroActionKind.PutOnAir => $"On air · {(string.IsNullOrWhiteSpace(Label) ? System.IO.Path.GetFileName(Path) : Label)}",
+        MacroActionKind.SwitchLayout => $"Layout · {(string.IsNullOrWhiteSpace(Label) ? Path : Label)}",
+        MacroActionKind.PenaltyFlag => Value == 0
+            ? $"Clear flag · {(Home ? "Home" : "Visitors")}"
+            : $"Flag down · {(Home ? "Home" : "Visitors")} · {(string.IsNullOrWhiteSpace(Path) ? "flag" : Path)}",
         _ => Kind.ToString()
     };
 }

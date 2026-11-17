@@ -12,31 +12,55 @@ public sealed class MacroRunner
 {
     readonly GameEngine _engine;
     readonly MediaSession _session;
+    readonly ScorebugCatalog? _catalog;
     readonly Action<string>? _executeControl;
+    readonly Action? _publishOutput;
 
-    public MacroRunner(GameEngine engine, MediaSession session, Action<string>? executeControl = null)
+    public MacroRunner(GameEngine engine, MediaSession session, Action<string>? executeControl = null,
+        ScorebugCatalog? catalog = null, Action? publishOutput = null)
     {
         _engine = engine;
         _session = session;
+        _catalog = catalog;
         // A console button runs through the same path as a keybind, so a macro and a key press
         // can never disagree about what an action does.
         _executeControl = executeControl;
+        _publishOutput = publishOutput;
     }
 
-    public string Run(SavedMacro macro)
+    public async Task<string> RunAsync(SavedMacro macro)
     {
         var completed = 0;
         var skipped = 0;
+        var held = false;
         foreach (var action in macro.Actions)
         {
-            // A media step is never staged: playback is immediate. Every other step defaults to
-            // staged, so a macro cannot accidentally put a score or clock on air before the
-            // operator presses Update Output. Once a step holds output, later checked steps stay
-            // held too; otherwise they would publish the earlier staged values along with their own.
-            var bypass = action.BypassOutput || (action.Kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir);
-            if (!bypass) _engine.HoldMacroOutput();
-            if (Execute(action)) completed++;
+            // A media, layout or wait step is never staged: playback, a layout switch and a pause
+            // are immediate. Every other step defaults to staged, so a macro cannot accidentally
+            // put a score or clock on air before the operator presses Update Output. Once a step
+            // holds output, later checked steps stay held too; otherwise they would publish the
+            // earlier staged values along with their own.
+            var bypass = action.BypassOutput || action.Kind is MacroActionKind.PlayVideo
+                or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir or MacroActionKind.SwitchLayout
+                or MacroActionKind.Wait;
+            if (!bypass)
+            {
+                _engine.HoldMacroOutput();
+                held = true;
+            }
+            if (action.Kind == MacroActionKind.Wait)
+            {
+                var pause = Math.Clamp(double.IsFinite(action.WaitSeconds) ? action.WaitSeconds : 0, 0, 60);
+                if (pause > 0) await Task.Delay(TimeSpan.FromSeconds(pause));
+                completed++;
+                continue;
+            }
+            var ran = Execute(action);
+            if (ran) completed++;
             else skipped++;
+            // A checked step has to publish, not merely avoid the hold. A macro made only of
+            // checked steps previously changed the working game and left the output untouched.
+            if (ran && bypass && !held) _publishOutput?.Invoke();
         }
         var waiting = _engine.MacroOutputHold ? " · press Update Output to publish" : string.Empty;
         return skipped == 0
@@ -70,9 +94,16 @@ public sealed class MacroRunner
                 _engine.SetPeriod(action.Value);
                 return true;
             case MacroActionKind.PlayVideo:
-                return PlayVideo(action.Path);
+                return PlayVideo(action.Path, restartClip: true);
+            case MacroActionKind.PutOnAir:
+                return PlayVideo(action.Path, restartClip: false);
             case MacroActionKind.TakeOffAir:
                 return TakeOffAir(action.Path);
+            case MacroActionKind.SwitchLayout:
+                return SwitchLayout(action);
+            case MacroActionKind.PenaltyFlag:
+                _engine.SetPenalty(action.Value != 0, action.Path, action.Home);
+                return true;
             case MacroActionKind.RosterStat:
                 return ChangeRosterStat(action);
             case MacroActionKind.Control:
@@ -99,7 +130,7 @@ public sealed class MacroRunner
         }
     }
 
-    bool PlayVideo(string path)
+    bool PlayVideo(string path, bool restartClip)
     {
         path = (path ?? "").Trim();
         if (path.Length == 0) return false;
@@ -119,8 +150,22 @@ public sealed class MacroRunner
             if (_session.IsOnAir(entry)) return true;
             return _session.ToggleOnAir(entry);
         }
+        // Put-on-air is idempotent for a clip that is already the current cue; Play video is the
+        // explicit restart. Both still send the clip to the audience through the media session.
+        if (!restartClip && _session.IsOnAir(entry)) return true;
         _session.Play(entry);
         return true;
+    }
+
+    bool SwitchLayout(MacroAction action)
+    {
+        if (_catalog is null || string.IsNullOrWhiteSpace(action.Path)) return false;
+        var display = _catalog.FindDisplay(action.DisplayId)
+            ?? _catalog.FindDisplayOfLayout(action.Path);
+        if (display is null) return false;
+        var layout = _catalog.FindLayout(display.Id, action.Path);
+        if (layout is null) return false;
+        return _catalog.ActivateLayout(display.Id, layout.Id, publish: true);
     }
 
     bool TakeOffAir(string path)

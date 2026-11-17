@@ -2270,6 +2270,28 @@ public sealed class MediaSession
         Status?.Invoke($"{playlist.Name.ToUpperInvariant()} · LOOP {(loop ? "ON" : "OFF")}");
     }
 
+    /// <summary>Moves one clip to another position in the playlist's play order.</summary>
+    public void MovePlaylistItem(MediaPlaylist playlist, int from, int to)
+    {
+        if (playlist is null || playlist.Paths.Count < 2) return;
+        from = Math.Clamp(from, 0, playlist.Paths.Count - 1);
+        to = Math.Clamp(to, 0, playlist.Paths.Count - 1);
+        if (from == to) return;
+        var path = playlist.Paths[from];
+        playlist.Paths.RemoveAt(from);
+        playlist.Paths.Insert(to, path);
+        // Keep the playing position pointing at the same clip when the list is rearranged under it.
+        if (ReferenceEquals(_playlist, playlist))
+        {
+            if (_playlistIndex == from) _playlistIndex = to;
+            else if (from < _playlistIndex && to >= _playlistIndex) _playlistIndex--;
+            else if (from > _playlistIndex && to <= _playlistIndex) _playlistIndex++;
+        }
+        Save();
+        StateChanged?.Invoke();
+        Status?.Invoke($"{playlist.Name.ToUpperInvariant()} · moved to {to + 1}");
+    }
+
     /// <summary>Starts the playlist at one of its clips, used by double-clicking in an open list.</summary>
     public void PlayPlaylistFrom(MediaPlaylist playlist, int index)
     {

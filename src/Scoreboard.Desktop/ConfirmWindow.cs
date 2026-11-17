@@ -15,7 +15,10 @@ public sealed class ConfirmWindow : Window
     /// <summary>True when the operator pressed the confirming button.</summary>
     public bool Confirmed { get; private set; }
 
-    public ConfirmWindow(string theme, string heading, string detail, string confirmText, bool destructive = false)
+    /// <summary>True when the optional secondary action was chosen.</summary>
+    public bool SecondaryConfirmed { get; private set; }
+
+    public ConfirmWindow(string theme, string heading, string detail, string confirmText, bool destructive = false, string? secondaryText = null)
     {
         Title = $"{heading} — ScorePlus";
         Width = 520;
@@ -63,6 +66,13 @@ public sealed class ConfirmWindow : Window
         cancel.Click += (_, _) => { Confirmed = false; Close(); };
         buttons.Children.Add(cancel);
 
+        if (!string.IsNullOrWhiteSpace(secondaryText))
+        {
+            var secondary = MakeButton(secondaryText, primary: false);
+            secondary.Click += (_, _) => { SecondaryConfirmed = true; Close(); };
+            buttons.Children.Add(secondary);
+        }
+
         var confirm = MakeButton(confirmText, primary: true);
         confirm.IsDefault = true;
         confirm.Click += (_, _) => { Confirmed = true; Close(); };
@@ -100,7 +110,22 @@ public sealed class ConfirmWindow : Window
     /// <summary>Asks a yes/no question in the app's chrome. Returns true only for the confirm button.</summary>
     public static bool Ask(Window owner, string theme, string heading, string detail, string confirmText, bool destructive = false)
     {
-        var dialog = new ConfirmWindow(theme, heading, detail, confirmText, destructive)
+        var dialog = ShowDialog(owner, theme, heading, detail, confirmText, destructive);
+        return dialog.Confirmed;
+    }
+
+    /// <summary>
+    /// Asks with two positive actions — the primary action and an optional secondary one. The
+    /// restart flow uses this to offer “Start fresh” or “Undo end game” without a second dialog.
+    /// </summary>
+    public static ConfirmWindow AskChoice(Window owner, string theme, string heading, string detail,
+        string confirmText, string secondaryText, bool destructive = false)
+        => ShowDialog(owner, theme, heading, detail, confirmText, destructive, secondaryText);
+
+    static ConfirmWindow ShowDialog(Window owner, string theme, string heading, string detail,
+        string confirmText, bool destructive, string? secondaryText = null)
+    {
+        var dialog = new ConfirmWindow(theme, heading, detail, confirmText, destructive, secondaryText)
         {
             Owner = owner,
             // A fullscreen main window is topmost. An owned non-topmost dialog can end up behind
@@ -113,6 +138,6 @@ public sealed class ConfirmWindow : Window
             dialog.Focus();
         };
         dialog.ShowDialog();
-        return dialog.Confirmed;
+        return dialog;
     }
 }

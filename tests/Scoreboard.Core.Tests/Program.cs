@@ -169,6 +169,10 @@ engine.NewGame("football");Check(PeriodDisplay.Format(engine.State)=="Quarter 1"
 var ordinalPath=Path.Combine(Path.GetTempPath(),$"ordinal-{Guid.NewGuid():N}.json");try{var ordinalCatalog=new ScorebugCatalog(ordinalPath);ordinalCatalog.Update(layout=>layout.Elements.Add(new ScorebugElement{Name="Ordinal",Content="{{PERIOD}}",PeriodFormat="Ordinal"}));Check(new ScorebugCatalog(ordinalPath).Layout.Elements[^1].PeriodFormat=="Ordinal","an element's ordinal quarter style survives a save");}finally{if(File.Exists(ordinalPath))File.Delete(ordinalPath);}
 var shapeLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Parallelogram};var shapeCatalogPath=Path.Combine(Path.GetTempPath(),$"shape-{Guid.NewGuid():N}.json");try{var catalog=new ScorebugCatalog(shapeCatalogPath);catalog.Update(layout=>layout.Elements.Add(shapeLayout));var reloaded=new ScorebugCatalog(shapeCatalogPath);Check(reloaded.Layout.Elements[^1].Shape==ScorebugShape.Parallelogram,"scorebug shapes persist in the studio layout, including the parallelogram");var roundedLayout=new ScorebugElement{Kind=ScorebugElementKind.Shape,Shape=ScorebugShape.Rectangle,CornerRadius=24};catalog.Update(layout=>layout.Elements.Add(roundedLayout));var roundedReloaded=new ScorebugCatalog(shapeCatalogPath);Check(Math.Abs(roundedReloaded.Layout.Elements[^1].CornerRadius-24)<0.001,"a rectangle keeps its corner radius across a save");}finally{if(File.Exists(shapeCatalogPath))File.Delete(shapeCatalogPath);}
 Check(ClockFormat.TryParse("10:30",out var parsedClock)&&parsedClock==630,"MM:SS clock entry parses minutes and seconds");Check(ClockFormat.TryParse("1:05",out var shortClock)&&shortClock==65,"single-digit minutes parse correctly");Check(ClockFormat.TryParse("720",out var rawClock)&&rawClock==720,"plain seconds still parse");Check(!ClockFormat.TryParse("10:75",out _)&&!ClockFormat.TryParse("abc",out _),"invalid clock entry is rejected");Check(ClockFormat.Format(630)=="10:30"&&ClockFormat.Format(0)=="00:00","clock formatting round trips");
+var clockElementState=new GameState{ClockSeconds=599};
+Check(ScoreboardTemplates.Bind("{{GAME_CLOCK}}",clockElementState,gameClockLeadingZero:false)=="9:59"
+    &&ScoreboardTemplates.Bind("{{GAME_CLOCK}}",clockElementState)=="09:59",
+    "a game clock's leading zero is an element property");
 Check(LeagueCloudImport.TryParseClock("90:00",out var soccerCloudClock)&&soccerCloudClock==5400,"a cloud game clock can run past 59 minutes, including soccer's 90:00");
 var selectiveEngine=new GameEngine();selectiveEngine.NewGame("basketball");selectiveEngine.SetScore(true,7);selectiveEngine.SetScore(false,3);selectiveEngine.SetClock(321);selectiveEngine.SetPeriod(3);
 var scoreImport=LeagueCloudImport.Apply(selectiveEngine,new LeagueGame{HomeScore=42,AwayScore=99,Clock="99:99",Period=1},[LeagueImportField.HomeScore]);
@@ -396,7 +400,10 @@ try
             new MacroAction{Kind=MacroActionKind.PlayVideo,Path=@"C:\media\intro.mp4"},
             new MacroAction{Kind=MacroActionKind.Control,Path="output.publish",Label="Output · Update Output"},
             new MacroAction{Kind=MacroActionKind.SportValue,Path="football.firstdowns.home",Value=4,Label="Home 1st downs"},
-            new MacroAction{Kind=MacroActionKind.CustomValue,Path="stat-id",Value=7,Label="Turnovers"}
+            new MacroAction{Kind=MacroActionKind.CustomValue,Path="stat-id",Value=7,Label="Turnovers"},
+            new MacroAction{Kind=MacroActionKind.PutOnAir,Path=@"C:\media\halftime.mp4",Label="Halftime"},
+            new MacroAction{Kind=MacroActionKind.SwitchLayout,DisplayId="display-1",Path="layout-2",Label="Halftime board"},
+            new MacroAction{Kind=MacroActionKind.PenaltyFlag,Home=false,Path="Offside",Value=1}
         ]
     }]);
     macroEngine.State.MacroPages=2;
@@ -407,7 +414,7 @@ try
     var (loadedMacros,_)=GameFiles.Read(macroPath);
     var macro=loadedMacros.Macros.Single();
     Check(loadedMacros.GameName=="Friday Night Lights","a game name survives a game save");
-    Check(macro.Label=="Kickoff"&&macro.Color=="#FF6B6B"&&macro.Actions.Count==7,"macro buttons, their colour and every step survive a game save");
+    Check(macro.Label=="Kickoff"&&macro.Color=="#FF6B6B"&&macro.Actions.Count==10,"macro buttons, their colour and every step survive a game save");
     Check(macro.Row==2&&macro.Column==3&&macro.Page==1&&loadedMacros.MacroPages==2,
         "a macro's board cell, page and the page count survive a game save");
     Check(!macro.Actions[0].BypassOutput&&macro.Actions[4].BypassOutput,
@@ -424,6 +431,13 @@ try
         &&macro.Actions[5].Kind==MacroActionKind.SportValue&&macro.Actions[5].Value==4
         &&macro.Actions[6].Kind==MacroActionKind.CustomValue&&macro.Actions[6].Label=="Turnovers",
         "console, sport-value and custom-value steps keep their targets across a save");
+    Check(macro.Actions[7].Kind==MacroActionKind.PutOnAir&&macro.Actions[7].Label=="Halftime"
+        &&macro.Actions[8].Kind==MacroActionKind.SwitchLayout&&macro.Actions[8].DisplayId=="display-1"
+        &&macro.Actions[8].Path=="layout-2"&&macro.Actions[9].Kind==MacroActionKind.PenaltyFlag
+        &&macro.Actions[9].Path=="Offside"&&macro.Actions[9].Value==1,
+        "media-on-air, layout-switch and penalty-flag steps keep their targets across a save");
+    Check(new MacroAction{Kind=MacroActionKind.SetGameClock,Value=754}.Summary=="Game clock 12:34",
+        "a game-clock macro step is described as MM:SS");
 }
 finally{if(File.Exists(macroPath))File.Delete(macroPath);}
 
@@ -457,10 +471,16 @@ try
     decor.Update(layout=>layout.Elements.Add(new ScorebugElement
     {
         Name="Slanted",Rotation=-7.5,BorderThickness=3,BorderColor="#FF00FF00",
-        BorderSource=ScorebugColorSource.AwaySecondary,TransitionSeconds=2.4
+        BorderSource=ScorebugColorSource.AwaySecondary,TransitionSeconds=2.4,
+        Transition=ScorebugTransition.JumpFlip,TransitionShrink=0.55,TransitionJumpHeight=88,
+        TransitionJumpDirection=ScorebugJumpDirection.DownToUp
     }));
     var reloadedDecor=new ScorebugCatalog(decorPath).Layout.Elements[^1];
     Check(reloadedDecor.Rotation==-7.5&&reloadedDecor.BorderThickness==3&&reloadedDecor.BorderColor=="#FF00FF00"&&reloadedDecor.BorderSource==ScorebugColorSource.AwaySecondary&&reloadedDecor.TransitionSeconds==2.4,"rotation, border and transition speed persist in the layout");
+    Check(reloadedDecor.Transition==ScorebugTransition.JumpFlip&&Math.Abs(reloadedDecor.TransitionShrink-0.55)<0.001
+        &&Math.Abs(reloadedDecor.TransitionJumpHeight-88)<0.001
+        &&reloadedDecor.TransitionJumpDirection==ScorebugJumpDirection.DownToUp,
+        "shrink amount, jump height and jump direction persist in the layout");
     decor.Update(layout=>{layout.Elements[^1].Rotation=900;layout.Elements[^1].TransitionSeconds=9;layout.Elements[^1].BorderThickness=90;});
     var clampedDecor=new ScorebugCatalog(decorPath).Layout.Elements[^1];
     Check(clampedDecor.Rotation==360&&clampedDecor.TransitionSeconds==5&&clampedDecor.BorderThickness==40,"rotation, transition speed and border width are clamped to safe ranges");
@@ -843,6 +863,12 @@ try
     Check(homeArrowPage.Contains("class=\"sp-arrow in")&&!homeArrowPage.Contains("class=\"sp-arrow out"),"the possession arrow only marks the team with the ball");
     arrowGame.SetPossession(false);
     Check(ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession").Contains("class=\"sp-arrow out flip"),"the possession arrow follows the ball to the other plate");
+    arrowGame.SetPossession(true);
+    arrowLayout.Elements[0].IconArrowDown=true;
+    Check(ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession").Contains("class=\"sp-arrow down\""),"the web export can draw the downward possession arrow");
+    var webBars=new ScorebugElement{Name="Timeouts",Content="",Icon=ScorebugIcon.TimeoutBars,Width=160,Height=60,IconBorderThickness=3,IconBorderColor="#FFE23B3B"};
+    var webBarsPage=ScorebugHtml.Build(new ScorebugLayout{Elements=[webBars]},arrowGame.State,"Bars");
+    Check(webBarsPage.Contains("sp-bar")&&webBarsPage.Contains("box-shadow:0 0 0 3px rgba(226,59,59,1)"),"the web export draws the icon border on each timeout bar");
     var freshItem=new ScorebugElement{Name="Fresh",Content="X"};
     Check(freshItem.TextAlign==ScorebugTextAlign.Center,"a new element centres its text");
     Check(Math.Abs(freshItem.TextShadowAngle-45)<0.001,"a new element's shadow falls down and to the right");

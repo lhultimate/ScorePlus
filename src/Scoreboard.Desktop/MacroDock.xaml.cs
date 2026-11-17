@@ -26,6 +26,7 @@ public partial class MacroDock : UserControl
 
     readonly GameEngine _engine;
     readonly MediaSession _session;
+    readonly ScorebugCatalog? _catalog;
     readonly MacroRunner _runner;
     List<SavedMacro> _macros = [];
     SavedMacro? _draft;
@@ -68,6 +69,11 @@ public partial class MacroDock : UserControl
     }
 
     sealed record MediaChoice(string Path, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    sealed record LayoutChoice(string DisplayId, string LayoutId, string Label)
     {
         public override string ToString() => Label;
     }
@@ -119,12 +125,14 @@ public partial class MacroDock : UserControl
         return luminance > 0.6 ? Color.FromRgb(24, 32, 43) : Colors.White;
     }
 
-    public MacroDock(GameEngine engine, MediaSession session, string? theme = null, Action<string>? executeControl = null)
+    public MacroDock(GameEngine engine, MediaSession session, string? theme = null, Action<string>? executeControl = null,
+        ScorebugCatalog? catalog = null, Action? publishOutput = null)
     {
         InitializeComponent();
         _engine = engine;
         _session = session;
-        _runner = new MacroRunner(engine, session, executeControl);
+        _catalog = catalog;
+        _runner = new MacroRunner(engine, session, executeControl, catalog, publishOutput);
         // The board paints itself from its own palette so generated cards, the step list and the
         // editor all follow the active theme. Opting out keeps the window-wide theme pass from
         // flattening the card hierarchy and its accent.
@@ -142,15 +150,18 @@ public partial class MacroDock : UserControl
             new KindChoice(MacroActionKind.SetPlayClock, "Play clock — set the clock"),
             new KindChoice(MacroActionKind.SetTimeoutClock, "Timeout clock — set the clock"),
             new KindChoice(MacroActionKind.SetPeriod, "Period — set the current period"),
-            new KindChoice(MacroActionKind.PlayVideo, "Media — play a clip or put a camera, mic or speaker on air"),
+            new KindChoice(MacroActionKind.PutOnAir, "Media — take a clip, mic, speaker or camera on air"),
             new KindChoice(MacroActionKind.TakeOffAir, "Media — take a camera, mic, speaker or clip off air"),
+            new KindChoice(MacroActionKind.SwitchLayout, "Layout — switch a display to a layout"),
+            new KindChoice(MacroActionKind.PenaltyFlag, "Flag — put a flag down or clear it"),
             new KindChoice(MacroActionKind.RosterStat, "Roster stat — change any player's stat"),
             new KindChoice(MacroActionKind.Control, "Console button — run any control action"),
             new KindChoice(MacroActionKind.SportValue, "Sport value — set any counter or flag"),
             new KindChoice(MacroActionKind.SetFootballDistance, "Football — set distance to go"),
             new KindChoice(MacroActionKind.SetFootballBallSpot, "Football — set ball spot"),
             new KindChoice(MacroActionKind.SetPossession, "Possession — set the team with the ball"),
-            new KindChoice(MacroActionKind.CustomValue, "Custom value — set a value on the console")
+            new KindChoice(MacroActionKind.CustomValue, "Custom value — set a value on the console"),
+            new KindChoice(MacroActionKind.Wait, "Wait — pause before the next step")
         };
         KindBox.SelectedIndex = 0;
         SideBox.ItemsSource = new[] { "Home", "Visitors" };
@@ -451,13 +462,17 @@ public partial class MacroDock : UserControl
         finally { _syncing = false; }
     }
 
-    MacroActionKind SelectedKind => KindBox.SelectedItem is KindChoice choice ? choice.Kind : MacroActionKind.Score;
+    MacroActionKind SelectedKind => KindBox.SelectedItem is KindChoice choice
+        ? choice.Kind
+        // Legacy steps (the old PlayVideo media step) are no longer offered, but opening one
+        // must keep its kind so editing another field cannot silently turn it into a score.
+        : (StepList.SelectedItem as MacroAction)?.Kind ?? MacroActionKind.Score;
 
     void UpdateFields()
     {
         var kind = SelectedKind;
         SidePanel.Visibility = kind is MacroActionKind.Score or MacroActionKind.SetTimeouts
-            or MacroActionKind.RosterStat or MacroActionKind.SetPossession
+            or MacroActionKind.RosterStat or MacroActionKind.SetPossession or MacroActionKind.PenaltyFlag
             ? Visibility.Visible : Visibility.Collapsed;
         AmountPanel.Visibility = kind == MacroActionKind.Score ? Visibility.Visible : Visibility.Collapsed;
         ValuePanel.Visibility = kind is MacroActionKind.SetDown or MacroActionKind.SetTimeouts
@@ -466,9 +481,12 @@ public partial class MacroDock : UserControl
             or MacroActionKind.RosterStat or MacroActionKind.SportValue or MacroActionKind.CustomValue
             or MacroActionKind.SetFootballDistance or MacroActionKind.SetFootballBallSpot
             ? Visibility.Visible : Visibility.Collapsed;
+        WaitPanel.Visibility = kind == MacroActionKind.Wait ? Visibility.Visible : Visibility.Collapsed;
         RosterPanel.Visibility = kind == MacroActionKind.RosterStat ? Visibility.Visible : Visibility.Collapsed;
-        var mediaStep = kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir;
+        var mediaStep = kind is MacroActionKind.PlayVideo or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir;
         VideoPanel.Visibility = mediaStep ? Visibility.Visible : Visibility.Collapsed;
+        FlagPanel.Visibility = kind == MacroActionKind.PenaltyFlag ? Visibility.Visible : Visibility.Collapsed;
+        LayoutPanel.Visibility = kind == MacroActionKind.SwitchLayout ? Visibility.Visible : Visibility.Collapsed;
         CommandPanel.Visibility = kind == MacroActionKind.Control ? Visibility.Visible : Visibility.Collapsed;
         SportValuePanel.Visibility = kind == MacroActionKind.SportValue ? Visibility.Visible : Visibility.Collapsed;
         CustomValuePanel.Visibility = kind == MacroActionKind.CustomValue ? Visibility.Visible : Visibility.Collapsed;
@@ -476,7 +494,7 @@ public partial class MacroDock : UserControl
         {
             MacroActionKind.SetDown => "DOWN (1–4)",
             MacroActionKind.SetTimeouts => "TIMEOUTS REMAINING",
-            MacroActionKind.SetGameClock => "SECONDS",
+            MacroActionKind.SetGameClock => "GAME CLOCK (MM:SS)",
             MacroActionKind.SetPlayClock => "SECONDS",
             MacroActionKind.SetTimeoutClock => "SECONDS",
             MacroActionKind.SetPeriod => "PERIOD",
@@ -491,11 +509,16 @@ public partial class MacroDock : UserControl
         if (kind is MacroActionKind.Control) RefreshCommandChoices();
         if (kind is MacroActionKind.SportValue) RefreshSportValueChoices();
         if (kind is MacroActionKind.CustomValue) RefreshCustomValueChoices();
+        if (kind is MacroActionKind.PenaltyFlag) RefreshFlagChoices();
+        if (kind is MacroActionKind.SwitchLayout) RefreshLayoutChoices();
         if (mediaStep) RefreshMediaChoices();
-        // Media is always direct: there is no staged playback state to publish. The checkbox stays
-        // checked and disabled for that step so the rule is visible instead of merely implicit.
-        if (mediaStep) BypassOutputBox.IsChecked = true;
-        BypassOutputBox.IsEnabled = !mediaStep;
+        // Media and layout switching are always direct: there is no staged playback or layout state
+        // to publish. A wait has no output at all. The checkbox reflects that rather than offering
+        // an option that does nothing.
+        var directStep = mediaStep || kind == MacroActionKind.SwitchLayout;
+        if (directStep) BypassOutputBox.IsChecked = true;
+        if (kind == MacroActionKind.Wait) BypassOutputBox.IsChecked = false;
+        BypassOutputBox.IsEnabled = !directStep && kind != MacroActionKind.Wait;
     }
 
     /// <summary>Lists every routeable library item, including live cameras and audio buses.</summary>
@@ -514,6 +537,28 @@ public partial class MacroDock : UserControl
     {
         if (_syncing || MediaBox.SelectedItem is not MediaChoice choice) return;
         VideoPathBox.Text = choice.Path;
+    }
+
+    void RefreshFlagChoices()
+    {
+        var selected = FlagTypeBox.SelectedItem as string;
+        var types = GameEngine.PenaltyTypesFor(_engine.State.SportId);
+        FlagTypeBox.ItemsSource = types;
+        FlagTypeBox.SelectedItem = types.Contains(selected) ? selected : types.FirstOrDefault();
+    }
+
+    void RefreshLayoutChoices()
+    {
+        var selectedDisplay = (LayoutBox.SelectedItem as LayoutChoice)?.DisplayId;
+        var selectedLayout = (LayoutBox.SelectedItem as LayoutChoice)?.LayoutId;
+        var choices = _catalog?.Displays
+            .SelectMany(display => display.Layouts.Select(layout =>
+                new LayoutChoice(display.Id, layout.Id, $"{display.Name} · {layout.Name}")))
+            .ToList() ?? [];
+        LayoutBox.ItemsSource = choices;
+        LayoutBox.SelectedItem = choices.FirstOrDefault(choice =>
+            string.Equals(choice.DisplayId, selectedDisplay, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(choice.LayoutId, selectedLayout, StringComparison.OrdinalIgnoreCase)) ?? choices.FirstOrDefault();
     }
 
     void SyncRoster()
@@ -577,13 +622,14 @@ public partial class MacroDock : UserControl
         SportValueBox.SelectedItem = match ?? choices.FirstOrDefault();
     }
 
-    void RunMacro_Click(object sender, RoutedEventArgs e)
+    async void RunMacro_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: SavedMacro macro }) return;
         if (_draft is not null && _draft.Id == macro.Id && _dirty) SaveDraft(false);
         var current = _macros.FirstOrDefault(item => item.Id == macro.Id);
         if (current is null) return;
-        var message = _runner.Run(current);
+        EditStatus.Text = "RUNNING";
+        var message = await _runner.RunAsync(current);
         EditStatus.Text = "RAN";
         Status?.Invoke(message);
     }
@@ -984,6 +1030,23 @@ public partial class MacroDock : UserControl
         }
     }
 
+    /// <summary>Reads the game-clock field as MM:SS. A plain number is still accepted as seconds so
+    /// macros saved by an older build keep their value when they are opened.</summary>
+    static bool TryParseClock(string? text, out int seconds)
+    {
+        seconds = 0;
+        text = (text ?? "").Trim();
+        if (text.Length == 0) return false;
+        if (!text.Contains(':')) return int.TryParse(text, out seconds);
+        var parts = text.Split(':');
+        if (parts.Length != 2 || !int.TryParse(parts[0].Trim(), out var minutes)
+            || !int.TryParse(parts[1].Trim(), out var remainder) || minutes < 0 || remainder is < 0 or > 59) return false;
+        seconds = Math.Clamp(minutes * 60 + remainder, 0, 9999);
+        return true;
+    }
+
+    static string ClockText(int seconds) => GameEngine.FormatClock(Math.Clamp(seconds, 0, 9999));
+
     static bool TryParseColor(string? text, out Color color)
     {
         color = default;
@@ -1035,15 +1098,22 @@ public partial class MacroDock : UserControl
         var sportValue = SportValueBox.SelectedItem as SportValueChoice;
         var customValue = CustomValueBox.SelectedItem as CustomValueChoice;
         var media = MediaBox.SelectedItem as MediaChoice;
+        var flagType = FlagTypeBox.SelectedItem as string ?? "";
+        var layout = LayoutBox.SelectedItem as LayoutChoice;
+        var value = int.TryParse(ValueBox.Text, out var parsedValue) ? parsedValue : 0;
+        if (kind == MacroActionKind.SetGameClock && TryParseClock(ValueBox.Text, out var clockSeconds)) value = clockSeconds;
+        if (kind == MacroActionKind.PenaltyFlag) value = ClearFlagBox.IsChecked == true ? 0 : 1;
         return new MacroAction
         {
             Kind = kind,
             Home = SideBox.SelectedIndex != 1,
             Amount = int.TryParse(AmountBox.Text, out var amount) ? amount : 1,
-            Value = int.TryParse(ValueBox.Text, out var value) ? value : 0,
+            Value = value,
             Path = kind switch
             {
-                MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir => VideoPathBox.Text.Trim(),
+                MacroActionKind.PlayVideo or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir => VideoPathBox.Text.Trim(),
+                MacroActionKind.SwitchLayout => layout?.LayoutId ?? "",
+                MacroActionKind.PenaltyFlag => flagType,
                 MacroActionKind.Control => command?.Id ?? "",
                 MacroActionKind.SportValue => sportValue?.Id ?? "",
                 MacroActionKind.CustomValue => customValue?.Id ?? "",
@@ -1052,14 +1122,18 @@ public partial class MacroDock : UserControl
             Label = kind == MacroActionKind.Control ? command?.Label ?? ""
                 : kind == MacroActionKind.SportValue ? sportValue?.Label ?? ""
                 : kind == MacroActionKind.CustomValue ? customValue?.Label ?? ""
-                : (kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir) && media is not null
+                : kind == MacroActionKind.SwitchLayout ? layout?.Label ?? ""
+                : kind == MacroActionKind.PenaltyFlag ? flagType
+                : (kind is MacroActionKind.PlayVideo or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir) && media is not null
                     && string.Equals(media.Path, VideoPathBox.Text.Trim(), StringComparison.OrdinalIgnoreCase)
                     ? media.Label
                     : "",
+            DisplayId = kind == MacroActionKind.SwitchLayout ? layout?.DisplayId ?? "" : "",
             PlayerId = (PlayerBox.SelectedItem as PlayerChoice)?.Id ?? "",
             PlayerName = (PlayerBox.SelectedItem as PlayerChoice)?.Label ?? "",
             StatName = StatBox.Text.Trim(),
-            BypassOutput = (kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir) || BypassOutputBox.IsChecked == true,
+            BypassOutput = (kind is MacroActionKind.PlayVideo or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir or MacroActionKind.SwitchLayout) || BypassOutputBox.IsChecked == true,
+            WaitSeconds = double.TryParse(WaitSecondsBox.Text, out var waitSeconds) ? waitSeconds : 1,
             Delta = kind == MacroActionKind.SportValue
                 ? SportDeltaBox.IsChecked == true
                 : kind == MacroActionKind.CustomValue
@@ -1087,12 +1161,14 @@ public partial class MacroDock : UserControl
         action.Amount = replacement.Amount;
         action.Value = replacement.Value;
         action.Path = replacement.Path;
+        action.DisplayId = replacement.DisplayId;
         action.Label = replacement.Label;
         action.PlayerId = replacement.PlayerId;
         action.PlayerName = replacement.PlayerName;
         action.StatName = replacement.StatName;
         action.Delta = replacement.Delta;
         action.BypassOutput = replacement.BypassOutput;
+        action.WaitSeconds = replacement.WaitSeconds;
         _dirty = true;
         StepList.Items.Refresh();
         EditStatus.Text = "UNSAVED";
@@ -1107,8 +1183,10 @@ public partial class MacroDock : UserControl
             KindBox.SelectedItem = KindBox.Items.OfType<KindChoice>().FirstOrDefault(choice => choice.Kind == action.Kind);
             SideBox.SelectedIndex = action.Home ? 0 : 1;
             AmountBox.Text = action.Amount.ToString();
-            ValueBox.Text = action.Value.ToString();
-            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir;
+            ValueBox.Text = action.Kind == MacroActionKind.SetGameClock ? ClockText(action.Value) : action.Value.ToString();
+            WaitSecondsBox.Text = Math.Clamp(action.WaitSeconds, 0, 60).ToString("0.##");
+            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind is MacroActionKind.PlayVideo
+                or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir or MacroActionKind.SwitchLayout;
             VideoPathBox.Text = action.Path;
             RefreshMediaChoices();
             MediaBox.SelectedItem = MediaBox.Items.OfType<MediaChoice>()
@@ -1140,8 +1218,22 @@ public partial class MacroDock : UserControl
                 PlayerBox.SelectedItem = PlayerBox.Items.OfType<PlayerChoice>().FirstOrDefault(choice => choice.Id == action.PlayerId);
                 StatBox.Text = action.StatName;
             }
+            if (action.Kind == MacroActionKind.PenaltyFlag)
+            {
+                RefreshFlagChoices();
+                FlagTypeBox.SelectedItem = action.Path;
+                ClearFlagBox.IsChecked = action.Value == 0;
+            }
+            if (action.Kind == MacroActionKind.SwitchLayout)
+            {
+                RefreshLayoutChoices();
+                LayoutBox.SelectedItem = LayoutBox.Items.OfType<LayoutChoice>().FirstOrDefault(choice =>
+                    string.Equals(choice.DisplayId, action.DisplayId, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(choice.LayoutId, action.Path, StringComparison.OrdinalIgnoreCase));
+            }
             UpdateFields();
-            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind is MacroActionKind.PlayVideo or MacroActionKind.TakeOffAir;
+            BypassOutputBox.IsChecked = action.BypassOutput || action.Kind is MacroActionKind.PlayVideo
+                or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir or MacroActionKind.SwitchLayout;
         }
         finally { _syncing = false; }
     }

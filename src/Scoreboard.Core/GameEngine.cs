@@ -1737,12 +1737,15 @@ public sealed class GameEngine
     void Log(string type, string description) => State.Events.Add(new GameEvent(DateTimeOffset.Now, type, description, State.HomeScore, State.AwayScore));
     static string Abbreviate(string value) => string.Concat(value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(3).Select(s => char.ToUpperInvariant(s[0])));
     /// <summary>
-    /// How a clock prints. Padded is 10:00, 09:59 and 0:59; compact drops the minutes' leading
-    /// zero and leaves only :59 under a minute. A show-wide preference, so every clock agrees.
+    /// The console and remote clocks use the familiar padded shape. A graphic's game clock chooses
+    /// its own leading zero in the element properties, so two clocks on one show can print
+    /// differently.
     /// </summary>
-    public static ClockStyle ClockDisplay { get; set; } = ClockStyle.Padded;
+    public static string FormatClock(int seconds) => FormatClock(seconds, ClockStyle.Padded);
 
-    public static string FormatClock(int seconds) => FormatClock(seconds, ClockDisplay);
+    /// <summary>Formats one element's clock: true keeps 09:59, false prints 9:59 and :59.</summary>
+    public static string FormatClock(int seconds, bool leadingZero) =>
+        FormatClock(seconds, leadingZero ? ClockStyle.Padded : ClockStyle.Compact);
 
     public static string FormatClock(int seconds, ClockStyle style)
     {

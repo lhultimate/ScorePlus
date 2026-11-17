@@ -35,7 +35,24 @@ public enum ScorebugTransition
     Flip,
     Zoom,
     Pop,
-    Drop
+    Drop,
+    /// <summary>Shrink, count through the values, then grow back to full size.</summary>
+    ShrinkWheel,
+    /// <summary>Jump up, flip through a full turn while changing value, then drop back.</summary>
+    JumpFlip
+}
+
+/// <summary>The axis and direction of a JumpFlip's full turn.</summary>
+public enum ScorebugJumpDirection
+{
+    /// <summary>A side-to-side turn, moving left to right. The default.</summary>
+    LeftToRight,
+    /// <summary>A side-to-side turn in the opposite direction.</summary>
+    RightToLeft,
+    /// <summary>A top-to-bottom turn, moving down to up.</summary>
+    DownToUp,
+    /// <summary>A top-to-bottom turn in the opposite direction.</summary>
+    UpToDown
 }
 
 /// <summary>
@@ -280,6 +297,20 @@ public sealed class ScorebugElement
     /// <summary>How long a value change takes, in seconds: 0 snaps, 5 is a slow dissolve.</summary>
     public double TransitionSeconds { get; set; } = 0.2;
 
+    /// <summary>A readable starting speed for the two large special crossings. Their old default
+    /// was the generic 0.2 seconds, which turned a full jump-flip or a multi-number wheel into a
+    /// blur. It is only a starting value; any speed the operator types is kept.</summary>
+    public const double ReadableSpecialTransitionSeconds = 1.0;
+
+    /// <summary>For <see cref="ScorebugTransition.ShrinkWheel"/>: how small the value shrinks, 0–1.</summary>
+    public double TransitionShrink { get; set; } = 0.82;
+
+    /// <summary>For <see cref="ScorebugTransition.JumpFlip"/>: how far the value jumps up, in design pixels.</summary>
+    public double TransitionJumpHeight { get; set; } = 40;
+
+    /// <summary>For <see cref="ScorebugTransition.JumpFlip"/>: which way the full turn travels.</summary>
+    public ScorebugJumpDirection TransitionJumpDirection { get; set; } = ScorebugJumpDirection.LeftToRight;
+
     /// <summary>A different crossing for a value that falls. Null uses <see cref="Transition"/> both ways.</summary>
     public ScorebugTransition? TransitionDown { get; set; }
 
@@ -297,6 +328,9 @@ public sealed class ScorebugElement
 
     /// <summary>Print {{PLAY_CLOCK}} with a leading colon, e.g. :22, on this element.</summary>
     public bool PlayClockColon { get; set; }
+
+    /// <summary>Print {{GAME_CLOCK}} as 09:59. Off prints 9:59 and :59 under a minute on this element.</summary>
+    public bool GameClockLeadingZero { get; set; } = true;
 
     /// <summary>Optional artwork from live data: timeout bars or a possession dot.</summary>
     public ScorebugIcon Icon { get; set; } = ScorebugIcon.None;
@@ -321,6 +355,24 @@ public sealed class ScorebugElement
 
     /// <summary>For timeout bars: stack the bars downward instead of in one row.</summary>
     public bool IconVertical { get; set; }
+
+    /// <summary>For the possession arrow: point down at the plate instead of sideways into it.</summary>
+    public bool IconArrowDown { get; set; }
+
+    /// <summary>The colour of a timeout bar or pip that has already been used.</summary>
+    public string IconUsedColor { get; set; } = "#FF9AA5B2";
+
+    /// <summary>Outline drawn around the icon artwork, separate from the element's border.</summary>
+    public double IconBorderThickness { get; set; }
+
+    /// <summary>The icon outline's fixed colour.</summary>
+    public string IconBorderColor { get; set; } = "#FFFFFFFF";
+
+    /// <summary>Fill painted behind the icon artwork, independent of the element's background.</summary>
+    public string IconBackground { get; set; } = "";
+
+    /// <summary>How solid the icon artwork is, independent of the element's opacity.</summary>
+    public double IconOpacity { get; set; } = 1;
 
     /// <summary>
     /// A value the icon follows, written as a token — <c>{{PENALTY_TYPE}}</c>, <c>{{STAT:Turnovers}}</c>.
@@ -1122,8 +1174,31 @@ public sealed class ScorebugCatalog
                     item.Rotation = Math.Clamp(double.IsFinite(item.Rotation) ? item.Rotation : 0, -360, 360);
                     item.BorderThickness = Math.Clamp(double.IsFinite(item.BorderThickness) ? item.BorderThickness : 0, 0, 40);
                     item.TransitionSeconds = Math.Clamp(double.IsFinite(item.TransitionSeconds) ? item.TransitionSeconds : 0.2, 0, 5);
+                    // Older layouts saved the generic 0.2-second default onto Jump Flip and Shrink
+                    // Wheel before those presets had a readable default. Promote that untouched
+                    // default once on load; a deliberately different speed is left alone.
+                    if (item.Transition is ScorebugTransition.ShrinkWheel or ScorebugTransition.JumpFlip
+                        && item.TransitionSeconds is > 0.001 and <= 0.201)
+                        item.TransitionSeconds = ScorebugElement.ReadableSpecialTransitionSeconds;
+                    item.TransitionShrink = Math.Clamp(double.IsFinite(item.TransitionShrink) ? item.TransitionShrink : 0.82, 0.2, 1);
+                    item.TransitionJumpHeight = Math.Clamp(double.IsFinite(item.TransitionJumpHeight) ? item.TransitionJumpHeight : 40, 0, 300);
+                    if (!Enum.IsDefined(item.TransitionJumpDirection)) item.TransitionJumpDirection = ScorebugJumpDirection.LeftToRight;
+                    item.IconOpacity = Math.Clamp(double.IsFinite(item.IconOpacity) ? item.IconOpacity : 1, 0, 1);
+                    item.IconBorderThickness = Math.Clamp(double.IsFinite(item.IconBorderThickness) ? item.IconBorderThickness : 0, 0, 40);
+                    item.IconUsedColor = (item.IconUsedColor ?? "").Trim();
+                    item.IconBorderColor = (item.IconBorderColor ?? "").Trim();
+                    item.IconBackground = (item.IconBackground ?? "").Trim();
+                    if (!IsColor(item.IconUsedColor)) item.IconUsedColor = "#FF9AA5B2";
+                    if (!IsColor(item.IconBorderColor)) item.IconBorderColor = "#FFFFFFFF";
+                    if (item.IconBackground.Length > 0 && !IsColor(item.IconBackground)) item.IconBackground = "";
                     if (item.TransitionDownSeconds is { } downSeconds)
-                        item.TransitionDownSeconds = Math.Clamp(double.IsFinite(downSeconds) ? downSeconds : 0.2, 0, 5);
+                    {
+                        downSeconds = Math.Clamp(double.IsFinite(downSeconds) ? downSeconds : 0.2, 0, 5);
+                        if (item.TransitionDown is ScorebugTransition.ShrinkWheel or ScorebugTransition.JumpFlip
+                            && downSeconds is > 0.001 and <= 0.201)
+                            downSeconds = ScorebugElement.ReadableSpecialTransitionSeconds;
+                        item.TransitionDownSeconds = downSeconds;
+                    }
                     item.VideoAspect = Math.Clamp(double.IsFinite(item.VideoAspect) && item.VideoAspect > 0.05 ? item.VideoAspect : 16.0 / 9.0, 0.1, 10);
                     item.VideoCropLeft = Math.Clamp(double.IsFinite(item.VideoCropLeft) ? item.VideoCropLeft : 0, 0, 0.49);
                     item.VideoCropTop = Math.Clamp(double.IsFinite(item.VideoCropTop) ? item.VideoCropTop : 0, 0, 0.49);

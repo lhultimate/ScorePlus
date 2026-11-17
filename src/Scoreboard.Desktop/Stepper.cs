@@ -82,6 +82,9 @@ public sealed class Stepper : Grid
                 Margin = compact ? new Thickness(0) : new Thickness(0, 0, 0, 4)
             };
             _captionRow.Children.Add(label);
+            // Compact captions span the value and accessory columns, so the word stays centred
+            // over the number even when the Ball On side switch is attached on the right.
+            if (compact) SetColumnSpan(label, 2);
             SetRow(_captionRow, 0);
             if (compact) SetColumnSpan(_captionRow, 3);
             Children.Add(_captionRow);
@@ -147,6 +150,7 @@ public sealed class Stepper : Grid
         SetColumn(accessory, 1);
         accessory.HorizontalAlignment = HorizontalAlignment.Right;
         accessory.VerticalAlignment = VerticalAlignment.Center;
+        Panel.SetZIndex(accessory, 1);
         _captionRow.Children.Add(accessory);
     }
 

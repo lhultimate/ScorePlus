@@ -68,7 +68,7 @@ internal static class Program
             var smokeEngine = new GameEngine();
             smokeEngine.NewGame("football");
             var smokeEditor = new ScorebugEditorWindow(smokeCatalog, smokeEngine, null, "Dark");
-            smokeEditor.Show();
+            ShowForSmoke(smokeEditor);
             smokeEditor.UpdateLayout();
             var smokeAll = smokeCatalog.Layout.Elements.ToArray();
             var smokeLayers = (ListBox)smokeEditor.FindName("Layers")!;
@@ -115,7 +115,7 @@ internal static class Program
             motionEngine.NewGame("basketball");
             motionEngine.Score(true, 3);
             var transitionMaker = new MotionMakerWindow(MotionKind.Transition, motionCatalog, motionEngine, "Dark");
-            transitionMaker.Show();
+            ShowForSmoke(transitionMaker);
             transitionMaker.UpdateLayout();
             Pump(TimeSpan.FromMilliseconds(180));
             var layoutTimeline = FindAll<Canvas>(transitionMaker)
@@ -155,7 +155,7 @@ internal static class Program
             if (string.Equals(motionCatalog.Layout.Id, authoredLayoutId, StringComparison.OrdinalIgnoreCase))
                 throw new Exception("FAIL: the smoke catalog did not switch to its second layout");
             var reloadMaker = new MotionMakerWindow(MotionKind.Transition, motionCatalog, motionEngine, "Dark");
-            reloadMaker.Show();
+            ShowForSmoke(reloadMaker);
             reloadMaker.UpdateLayout();
             Pump(TimeSpan.FromMilliseconds(180));
             var libraryList = (ListBox?)typeof(MotionMakerWindow)
@@ -201,7 +201,7 @@ internal static class Program
                 keyClip.ItemStagger = 0.08;
                 keyClip.PieceOrder = keyCatalog.Layout.Elements.Select(element => element.Id).ToList();
                 var keyMaker = new MotionMakerWindow(MotionKind.Transition, keyCatalog, motionEngine, "Dark", keyClip);
-                keyMaker.Show();
+                ShowForSmoke(keyMaker);
                 keyMaker.UpdateLayout();
                 Pump(TimeSpan.FromMilliseconds(180));
                 var liveClip = (MotionClip?)clipField?.GetValue(keyMaker)
@@ -348,7 +348,7 @@ internal static class Program
                     WindowStyle = WindowStyle.None, ShowInTaskbar = false,
                     ShowActivated = false, Left = -2000, Top = -2000
                 };
-                colourWindow.Show();
+                ShowForSmoke(colourWindow);
                 colourWindow.UpdateLayout();
                 Pump(TimeSpan.FromMilliseconds(50));
                 var playbackType = typeof(MotionMakerWindow).Assembly.GetType("Scoreboard.Desktop.MotionPlayback")
@@ -378,7 +378,7 @@ internal static class Program
             }
 
             var animationMaker = new MotionMakerWindow(MotionKind.Animation, motionCatalog, motionEngine, "Dark");
-            animationMaker.Show();
+            ShowForSmoke(animationMaker);
             animationMaker.UpdateLayout();
             Pump(TimeSpan.FromMilliseconds(180));
             if (!FindAll<Button>(animationMaker).Any(button => (button.Content as string) == "+3 take"))
@@ -395,7 +395,7 @@ internal static class Program
 
             // The exit prompt is the app's own chrome, not a system message box.
             var unsavedPrompt = new UnsavedChangesWindow("Dark", "detail");
-            unsavedPrompt.Show();
+            ShowForSmoke(unsavedPrompt);
             unsavedPrompt.UpdateLayout();
             if (FindAll<Button>(unsavedPrompt).Count(b => (b.Content as string) is "Keep editing" or "Exit without saving" or "Save & exit") != 3)
                 throw new Exception("FAIL: the unsaved-game prompt does not offer keep, discard and save");
@@ -411,7 +411,7 @@ internal static class Program
             var penaltyEngine = new GameEngine();
             penaltyEngine.NewGame("football");
             var penaltyWindow = new GameControlWindow(penaltyEngine, () => { }, _ => { }, () => true) { Width = 1280, Height = 860 };
-            penaltyWindow.Show();
+            ShowForSmoke(penaltyWindow);
             penaltyWindow.UpdateLayout();
             var penaltyTypeBox = (ComboBox)penaltyWindow.Panel.FindName("PenaltyTypeBox")!;
             var penaltyTeamBox = (ComboBox)penaltyWindow.Panel.FindName("PenaltyTeamBox")!;
@@ -466,7 +466,7 @@ internal static class Program
                     [typeof(ScorebugCatalog), typeof(GameEngine), typeof(ScorebugElement), typeof(string)],
                     null) ?? throw new Exception("FAIL: paint window has no editable constructor");
                 var paintWindow = (Window)paintCtor.Invoke([paintCatalog, new GameEngine(), paintElement, "Dark"]);
-                paintWindow.Show();
+                ShowForSmoke(paintWindow);
                 paintWindow.UpdateLayout();
                 CheckBox Material() => FindAll<CheckBox>(paintWindow)
                     .First(box => (box.Content as string)?.StartsWith("Lay a material", StringComparison.Ordinal) == true && box.IsChecked != true);
@@ -524,7 +524,7 @@ internal static class Program
                     [typeof(ScorebugCatalog), typeof(GameEngine), typeof(ScorebugElement), typeof(string)],
                     null) ?? throw new Exception("FAIL: paint window has no editable constructor");
                 var autoWindow = (Window)autoCtor.Invoke([autoCatalog, new GameEngine(), autoElement, "Dark"]);
-                autoWindow.Show();
+                ShowForSmoke(autoWindow);
                 autoWindow.UpdateLayout();
                 var autoSlider = FindAll<Slider>(autoWindow).FirstOrDefault()
                     ?? throw new Exception("FAIL: paint window has no sliders");
@@ -571,7 +571,7 @@ internal static class Program
                     Content = tickerView, Width = 900, Height = 100, WindowStyle = WindowStyle.None,
                     ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual
                 };
-                tickerHost.Show();
+                ShowForSmoke(tickerHost);
                 tickerHost.UpdateLayout();
                 Pump(TimeSpan.FromMilliseconds(250));
                 string TickerText() => FindAll<TextBlock>(tickerView).FirstOrDefault()?.Text ?? "";
@@ -607,7 +607,7 @@ internal static class Program
                     Content = scrollView, Width = 900, Height = 100, WindowStyle = WindowStyle.None,
                     ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual
                 };
-                scrollHost.Show();
+                ShowForSmoke(scrollHost);
                 scrollHost.UpdateLayout();
                 Pump(TimeSpan.FromMilliseconds(200));
                 var scrollTrack = scrollView.Children.OfType<StackPanel>().First();
@@ -627,7 +627,7 @@ internal static class Program
                 // received games, accepts headlines, and writes the rotation settings to the game.
                 using var tickerService = new LeagueCloudService(tickerEngine, new UserPreferences());
                 var tickerWindow = new TickerWindow(tickerEngine, tickerService);
-                tickerWindow.Show();
+                ShowForSmoke(tickerWindow);
                 tickerWindow.UpdateLayout();
                 var newsBox = FindAll<TextBox>(tickerWindow).FirstOrDefault(box => box.AcceptsReturn)
                     ?? throw new Exception("FAIL: ticker rotation has no news box");
@@ -770,7 +770,7 @@ internal static class Program
             }
 
             var main = new MainWindow();
-            main.Show();
+            ShowForSmoke(main);
             main.UpdateLayout();
             main.Close();
             Console.WriteLine("PASS: main window loads");
@@ -778,7 +778,7 @@ internal static class Program
             // Macros are part of the main workspace. Conditionals now belong to the Display Studio,
             // where their rules sit beside the display they affect.
             var tabShell = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-            tabShell.Show();
+            ShowForSmoke(tabShell);
             tabShell.UpdateLayout();
             ((Button)tabShell.FindName("MacrosTab")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             tabShell.UpdateLayout();
@@ -930,13 +930,14 @@ internal static class Program
                     [
                         new MacroAction { Kind = MacroActionKind.Score, Home = true, Amount = 3 },
                         new MacroAction { Kind = MacroActionKind.SetDown, Value = 1 },
+                        new MacroAction { Kind = MacroActionKind.Wait, WaitSeconds = 0.02 },
                         new MacroAction { Kind = MacroActionKind.SetTimeouts, Home = false, Value = 2 }
                     ]
                 };
                 macroEngine.StoreMacros([macro]);
-                var result = new MacroRunner(macroEngine, macroSession).Run(macroEngine.State.Macros[0]);
+                var result = RunMacro(new MacroRunner(macroEngine, macroSession), macroEngine.State.Macros[0]);
                 if (macroEngine.State.HomeScore != 3 || macroEngine.State.Down != 1 || macroEngine.State.AwayTimeouts != 2
-                    || !result.Contains("3 steps run", StringComparison.Ordinal))
+                    || !result.Contains("4 steps run", StringComparison.Ordinal))
                     throw new Exception($"FAIL: macro steps did not run in order ({result})");
 
                 // A speaker bus is a live source, not a file. A media macro must switch it on
@@ -948,7 +949,7 @@ internal static class Program
                     Label = "Speaker on air",
                     Actions = [new MacroAction { Kind = MacroActionKind.PlayVideo, Path = speaker.Path, Label = "Smoke speaker" }]
                 };
-                new MacroRunner(macroEngine, macroSession).Run(speakerMacro);
+                RunMacro(new MacroRunner(macroEngine, macroSession), speakerMacro);
                 var liveSpeaker = macroSession.Library.First(entry => entry.Path == speaker.Path);
                 if (!liveSpeaker.IsSpeakerOnAir)
                     throw new Exception("FAIL: a media macro did not put a speaker bus on air");
@@ -966,7 +967,7 @@ internal static class Program
                     Label = "Player stat",
                     Actions = [new MacroAction { Kind = MacroActionKind.RosterStat, Home = true, PlayerId = statPlayer.Id, PlayerName = statPlayer.Name, StatName = "Yards", Value = 4, Delta = true }]
                 };
-                new MacroRunner(macroEngine, macroSession).Run(statMacro);
+                RunMacro(new MacroRunner(macroEngine, macroSession), statMacro);
                 if (statPlayer.Stat("Yards") != 7 || macroEngine.State.HomePlayer?.Stat("Yards") != 7)
                     throw new Exception($"FAIL: a macro did not change the live player stat (roster {statPlayer.Stat("Yards")}, graphic {macroEngine.State.HomePlayer?.Stat("Yards")})");
             }
@@ -995,7 +996,7 @@ internal static class Program
                     ]
                 };
                 var pressed = "";
-                var extendedResult = new MacroRunner(extendedEngine, extendedSession, id => pressed = id).Run(extended);
+                var extendedResult = RunMacro(new MacroRunner(extendedEngine, extendedSession, id => pressed = id), extended);
                 if (pressed != "football.down.next"
                     || SportValues.Read(extendedEngine.State, "football.firstdowns.home") != 4
                     || extendedEngine.State.YardsToGo != 12 || extendedEngine.State.YardsToGoal != 35
@@ -1003,16 +1004,79 @@ internal static class Program
                     || extendedEngine.State.Stats.First(stat => stat.Id == custom.Id).Value != 7
                     || !extendedResult.Contains("6 steps run", StringComparison.Ordinal))
                     throw new Exception($"FAIL: extended macro steps did not run ({extendedResult})");
+
+                // New direct steps: media on air, a layout switch, and a penalty flag. Bypass must
+                // actually publish each checked step instead of only changing the working game.
+                var extendedLayoutPath = Path.Combine(appDataPath, $"macro-layouts-{Guid.NewGuid():N}.json");
+                try
+                {
+                    var macroCatalog = new ScorebugCatalog(extendedLayoutPath);
+                    var secondIndex = macroCatalog.AddLayout("Halftime");
+                    var secondLayout = macroCatalog.Layouts[secondIndex];
+                    var speakerOnAir = new MediaEntry(MediaLibrary.SpeakerPath(1), Tag: "Smoke", Name: "Put on air speaker", SpeakerMuted: true);
+                    extendedSession.Library.Add(speakerOnAir);
+                    var flagType = GameEngine.PenaltyTypesFor("football").First();
+                    var direct = new SavedMacro
+                    {
+                        Label = "Direct changes",
+                        Actions =
+                        [
+                            new MacroAction { Kind = MacroActionKind.PutOnAir, Path = speakerOnAir.Path, Label = speakerOnAir.Name },
+                            new MacroAction { Kind = MacroActionKind.SwitchLayout, DisplayId = macroCatalog.Displays[0].Id, Path = secondLayout.Id, Label = "Halftime" },
+                            new MacroAction { Kind = MacroActionKind.PenaltyFlag, Home = true, Path = flagType, Value = 1 }
+                        ]
+                    };
+                    var directResult = RunMacro(new MacroRunner(extendedEngine, extendedSession,
+                        catalog: macroCatalog, publishOutput: () => { }), direct);
+                    if (!extendedSession.IsOnAir(extendedSession.Library.First(entry => entry.Path == speakerOnAir.Path))
+                        || macroCatalog.PublishedIndex != secondIndex
+                        || !extendedEngine.State.PenaltyActive || !extendedEngine.State.PenaltyHome
+                        || extendedEngine.State.PenaltyType != flagType
+                        || !directResult.Contains("3 steps run", StringComparison.Ordinal))
+                        throw new Exception($"FAIL: direct macro steps did not put media, layout and a flag on air ({directResult})");
+                    extendedEngine.ClearMacroOutputHold();
+
+                    var bypassPublished = 0;
+                    var bypass = new SavedMacro
+                    {
+                        Label = "Bypass check",
+                        Actions =
+                        [
+                            new MacroAction { Kind = MacroActionKind.Score, Home = true, Amount = 2, BypassOutput = true },
+                            new MacroAction { Kind = MacroActionKind.SetDown, Value = 2 }
+                        ]
+                    };
+                    RunMacro(new MacroRunner(extendedEngine, extendedSession, null, macroCatalog, () => bypassPublished++), bypass);
+                    if (bypassPublished != 1 || !extendedEngine.MacroOutputHold)
+                        throw new Exception($"FAIL: a bypass step published {bypassPublished} times and left the hold at {extendedEngine.MacroOutputHold}");
+                    extendedEngine.ClearMacroOutputHold();
+
+                    // The macro clock field is typed as MM:SS, not as a raw second count.
+                    var clockDock = new MacroDock(extendedEngine, extendedSession);
+                    var clockKindBox = (ComboBox)clockDock.FindName("KindBox")!;
+                    clockKindBox.SelectedItem = clockKindBox.Items.OfType<object>()
+                        .First(item => (item.ToString() ?? "").StartsWith("Game clock", StringComparison.Ordinal));
+                    var clockValueBox = (TextBox)clockDock.FindName("ValueBox")!;
+                    clockValueBox.Text = "12:34";
+                    var readAction = typeof(MacroDock).GetMethod("ReadActionFromFields", BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new Exception("FAIL: ReadActionFromFields is missing");
+                    var clockAction = (MacroAction)readAction.Invoke(clockDock, null)!;
+                    if (clockAction.Value != 754
+                        || ((TextBlock)clockDock.FindName("ValueLabel")!).Text != "GAME CLOCK (MM:SS)")
+                        throw new Exception($"FAIL: the macro clock read {clockAction.Value} from 12:34");
+                }
+                finally { if (File.Exists(extendedLayoutPath)) File.Delete(extendedLayoutPath); }
             }
             finally { extendedSession.Stop(); extendedSession.Dispose(); }
             Console.WriteLine("PASS: a macro can press a console button and set every kind of value");
+            Console.WriteLine("PASS: a macro can put media on air, switch layouts, raise a flag, and bypass publishes output");
 
             // The multiview is a source picker per tile: program previews, audience outputs, cameras,
             // replay and blank spacers all share one wall.
             var multiviewClick = typeof(MainWindow).GetMethod("Multiview_Click", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?? throw new Exception("FAIL: Multiview_Click is missing");
             var multiviewOwner = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-            multiviewOwner.Show();
+            ShowForSmoke(multiviewOwner);
             multiviewOwner.UpdateLayout();
             multiviewClick.Invoke(multiviewOwner, [multiviewOwner, new RoutedEventArgs()]);
             Pump(TimeSpan.FromMilliseconds(250));
@@ -1105,7 +1169,7 @@ internal static class Program
             var boothClick = typeof(MainWindow).GetMethod("ReplayBooth_Click", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?? throw new Exception("FAIL: ReplayBooth_Click is missing");
             var boothOwner = new MainWindow(LaunchMode.New) { Width = 1100, Height = 760 };
-            boothOwner.Show();
+            ShowForSmoke(boothOwner);
             boothOwner.UpdateLayout();
             boothClick.Invoke(boothOwner, [boothOwner, new RoutedEventArgs()]);
             Pump(TimeSpan.FromMilliseconds(250));
@@ -1132,7 +1196,7 @@ internal static class Program
 
             // The dock is a single media panel: tiles, transport and tag editor, no inline event log.
             var shell = new MainWindow { Width = 1280, Height = 800 };
-            shell.Show();
+            ShowForSmoke(shell);
             shell.UpdateLayout();
             // The dock lives on the MEDIA tab now, so it is only laid out once that tab is open.
             shell.ShowMediaTab(true);
@@ -1231,7 +1295,7 @@ internal static class Program
             Console.WriteLine("PASS: dock holds one media library with tiles, transport and tags; event log moved to the top row");
 
             var control = new GameControlWindow(engine, () => { }, _ => { }, () => true);
-            control.Show();
+            ShowForSmoke(control);
             control.UpdateLayout();
             control.Execute("home.score.plus1");
             control.Execute("football.down.next");
@@ -1263,7 +1327,7 @@ internal static class Program
             Console.WriteLine($"PASS: control panel loads and dispatches actions (score {engine.State.HomeScore}, down {engine.State.Down}, ball spot {engine.State.YardsToGoal})");
 
             var editor = new ScorebugEditorWindow(catalog, engine);
-            editor.Show();
+            ShowForSmoke(editor);
             editor.UpdateLayout();
             if (editor.FindName("ConditionalsButton") is not Button conditionalsButton)
                 throw new Exception("FAIL: Display Studio does not offer Conditionals");
@@ -1335,7 +1399,7 @@ internal static class Program
                     var nestedEngine = new GameEngine();
                     nestedEngine.NewGame("football");
                     nestedEditor = new ScorebugEditorWindow(nestedCatalog, nestedEngine);
-                    nestedEditor.Show();
+                    ShowForSmoke(nestedEditor);
                     nestedEditor.UpdateLayout();
                     if (!nestedEditor.Title.Contains("Display Studio", StringComparison.Ordinal))
                         throw new Exception($"FAIL: the editor is still titled '{nestedEditor.Title}'");
@@ -1388,7 +1452,7 @@ internal static class Program
                 {
                     var multiCatalog = new ScorebugCatalog(multiPath);
                     var multiEditor = new ScorebugEditorWindow(multiCatalog, engine);
-                    multiEditor.Show();
+                    ShowForSmoke(multiEditor);
                     multiEditor.UpdateLayout();
                     var multiLayers = (ListBox)multiEditor.FindName("Layers")!;
                     if (multiLayers.SelectionMode != SelectionMode.Extended)
@@ -1507,7 +1571,7 @@ internal static class Program
                         Width = 800, Height = 450, Content = moveView, ShowInTaskbar = false,
                         WindowStyle = WindowStyle.None, Left = -32000, Top = -32000
                     };
-                    moveWindow.Show();
+                    ShowForSmoke(moveWindow);
                     moveWindow.UpdateLayout();
                     Pump(TimeSpan.FromMilliseconds(60));
                     moveCatalog.SelectLayout(movedIndex);
@@ -1536,7 +1600,7 @@ internal static class Program
             }
 
             var keybinds = new KeybindsWindow(new KeybindSettings());
-            keybinds.Show();
+            ShowForSmoke(keybinds);
             keybinds.UpdateLayout();
             keybinds.Close();
             Console.WriteLine("PASS: keybinds window loads");
@@ -1552,7 +1616,7 @@ internal static class Program
             if (!ControlActions.ForSport("football").Any(a => a.Id == "football.playclock.toggle"))
                 throw new Exception("FAIL: football keybinds lost the play clock");
             var baseballBinds = new KeybindsWindow(new KeybindSettings(), "baseball", "Baseball");
-            baseballBinds.Show();
+            ShowForSmoke(baseballBinds);
             baseballBinds.UpdateLayout();
             var listedActions = FindAll<ListBox>(baseballBinds).First().Items.Cast<object>().Select(item => item.ToString() ?? "").ToArray();
             if (listedActions.Any(text => text.Contains("Power play", StringComparison.Ordinal) || text.Contains("Next down", StringComparison.Ordinal)))
@@ -1563,7 +1627,7 @@ internal static class Program
                 throw new Exception("FAIL: the media browser has no Back button");
             // A new game asks which sport it is played in, offering every profile.
             var newGameSportPicker = new SportPickerWindow(new SportCatalog(), "hockey", "Dark");
-            newGameSportPicker.Show();
+            ShowForSmoke(newGameSportPicker);
             newGameSportPicker.UpdateLayout();
             var sportChoices = FindAll<ListBox>(newGameSportPicker).First();
             if (sportChoices.Items.Count < 10)
@@ -1588,14 +1652,14 @@ internal static class Program
             Console.WriteLine($"PASS: keybind round trip ({text})");
 
             var outWindow = new OutputWindow(new GameEngine(), catalog);
-            outWindow.Show();
+            ShowForSmoke(outWindow);
             outWindow.UpdateLayout();
             outWindow.Close();
             Console.WriteLine("PASS: audience output loads");
 
             // Pressing Audience Output opens a new window every time instead of focusing an old one.
             var multiOutput = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-            multiOutput.Show();
+            ShowForSmoke(multiOutput);
             multiOutput.UpdateLayout();
             var outputClick = FindAll<Button>(multiOutput).First(b => (b.ToolTip as string ?? string.Empty).StartsWith("Audience output", StringComparison.OrdinalIgnoreCase));
             var outputsBefore = Application.Current.Windows.OfType<OutputWindow>().Count(w => w.IsVisible);
@@ -1613,7 +1677,7 @@ internal static class Program
 
 
             var preferencesWindow = new SettingsWindow(new UserPreferences());
-            preferencesWindow.Show();
+            ShowForSmoke(preferencesWindow);
             preferencesWindow.UpdateLayout();
             if (preferencesWindow.FindName("ThemeSelector") is not ComboBox)
                 throw new Exception("FAIL: preferences theme selector missing");
@@ -1623,7 +1687,7 @@ internal static class Program
                 throw new Exception("FAIL: preferences is missing the overtime final label option");
             preferencesWindow.Close();
             var aboutWindow = new AboutWindow("Dark");
-            aboutWindow.Show();
+            ShowForSmoke(aboutWindow);
             aboutWindow.UpdateLayout();
             if (!FindAll<TextBlock>(aboutWindow).Any(text => text.Text == "ScorePlus")
                 || !FindAll<TextBlock>(aboutWindow).Any(text => text.Text == "LHUltimate")
@@ -1638,7 +1702,7 @@ internal static class Program
             {
                 var sports = new SportCatalog(profileCatalogPath);
                 var profileWindow = new SportProfileWindow(sports);
-                profileWindow.Show();
+                ShowForSmoke(profileWindow);
                 profileWindow.UpdateLayout();
                 var profiles = (ListBox)profileWindow.FindName("Profiles")!;
                 profiles.SelectedIndex = profiles.Items.Cast<object>().Select((item, index) => (item, index)).First(x => x.item.ToString()!.Contains("American Football")).index;
@@ -1655,7 +1719,7 @@ internal static class Program
 
             engine.AddStat("Turnovers");
             var statsPanel = new GameControlWindow(engine, () => { }, _ => { }, () => true);
-            statsPanel.Show();
+            ShowForSmoke(statsPanel);
             statsPanel.UpdateLayout();
             var statsHost = (Panel)statsPanel.Panel.FindName("StatsHost")!;
             if (statsHost.Children.Count != engine.State.Stats.Count) throw new Exception("FAIL: custom value rows were not created");
@@ -1688,7 +1752,7 @@ internal static class Program
 
             var panelA = new GameControlWindow(engine, () => { }, _ => { }, () => true);
             var panelB = new GameControlWindow(engine, () => { }, _ => { }, () => true);
-            panelA.Show(); panelB.Show();
+            ShowForSmoke(panelA); ShowForSmoke(panelB);
             panelA.UpdateLayout(); panelB.UpdateLayout();
             var before = engine.State.HomeScore;
             panelA.Execute("home.score.plus2");
@@ -1699,7 +1763,7 @@ internal static class Program
             Console.WriteLine("PASS: multiple control panels stay in sync");
 
             var lightProbe = new SettingsWindow(new UserPreferences());
-            lightProbe.Show();
+            ShowForSmoke(lightProbe);
             lightProbe.UpdateLayout();
             ThemeManager.Apply(lightProbe, "Light");
             Pump(TimeSpan.FromMilliseconds(250));
@@ -1714,7 +1778,7 @@ internal static class Program
             Console.WriteLine($"PASS: dropdown text stays readable in the light theme (contrast {contrast})");
 
             var themedEditor = new ScorebugEditorWindow(catalog, engine);
-            themedEditor.Show();
+            ShowForSmoke(themedEditor);
             themedEditor.UpdateLayout();
             var canvas = (Canvas)themedEditor.FindName("DesignCanvas")!;
             var designedText = FindAll<TextBlock>(canvas).FirstOrDefault(t => t.Text.Length > 0);
@@ -1728,20 +1792,20 @@ internal static class Program
             Console.WriteLine("PASS: theme changes never recolor scorebug artwork");
 
             var picker = new ColorPickerWindow("#FF38D7A3");
-            picker.Show();
+            ShowForSmoke(picker);
             picker.UpdateLayout();
             picker.Close();
             Console.WriteLine("PASS: custom color picker loads");
 
             var prefsProbe = new UserPreferences { Theme = "Dark" };
             var cancelWindow = new SettingsWindow(prefsProbe);
-            cancelWindow.Show();
+            ShowForSmoke(cancelWindow);
             cancelWindow.UpdateLayout();
             ((ComboBox)cancelWindow.FindName("ThemeSelector")!).SelectedItem = "Light";
             cancelWindow.Close();
             if (prefsProbe.Theme != "Dark") throw new Exception("FAIL: cancelling preferences still changed the theme");
             var saveWindow = new SettingsWindow(prefsProbe);
-            saveWindow.Show();
+            ShowForSmoke(saveWindow);
             saveWindow.UpdateLayout();
             ((ComboBox)saveWindow.FindName("ThemeSelector")!).SelectedItem = "Light";
             saveWindow.FindName("ThemeSelector");
@@ -1755,7 +1819,7 @@ internal static class Program
             if (systemChoices is null || !systemChoices.Contains("System"))
                 throw new Exception("FAIL: preferences do not offer the System theme");
             var systemWindow = new SettingsWindow(prefsProbe);
-            systemWindow.Show();
+            ShowForSmoke(systemWindow);
             systemWindow.UpdateLayout();
             ((ComboBox)systemWindow.FindName("ThemeSelector")!).SelectedItem = "System";
             FindAll<Button>(systemWindow).First(b => (b.Content as string) == "Save")
@@ -1768,7 +1832,7 @@ internal static class Program
             // Save is the default button, so the keystroke used to dismiss the whole page mid-edit.
             var enterPrefs = new UserPreferences { Theme = "Dark", ValueSwitchDelay = 0 };
             var enterPrefsWindow = new SettingsWindow(enterPrefs);
-            enterPrefsWindow.Show();
+            ShowForSmoke(enterPrefsWindow);
             enterPrefsWindow.UpdateLayout();
             var enterDelay = (TextBox)enterPrefsWindow.FindName("DelayInput")!;
             enterDelay.Text = "2.5";
@@ -1799,7 +1863,7 @@ internal static class Program
                 exportPanel.UpdateLayout();
                 RosterPanel.ExportTarget? picked = null;
                 var exportBox = exportPanel.BuildExportWindow(null, target => picked = target);
-                exportBox.Show();
+                ShowForSmoke(exportBox);
                 exportBox.UpdateLayout();
                 var exportButtons = FindAll<Button>(exportBox);
                 if (exportButtons.All(b => (b.Content as string) != "Whole roster (.spr)"))
@@ -1832,7 +1896,7 @@ internal static class Program
 
                 // Messages are the app's own window, never a system message box.
                 var notice = new NoticeWindow("Dark", "No roster to export", "Load or create a roster before exporting.", warning: true);
-                notice.Show();
+                ShowForSmoke(notice);
                 notice.UpdateLayout();
                 var noticeButtons = FindAll<Button>(notice).ToArray();
                 if (noticeButtons.Length != 1 || (noticeButtons[0].Content as string) != "OK")
@@ -1843,7 +1907,7 @@ internal static class Program
                     throw new Exception($"FAIL: a notice is not painted in the dark theme ({notice.Background})");
                 noticeButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var lightNotice = new NoticeWindow("Light", "No roster to export", "Load or create a roster before exporting.");
-                lightNotice.Show();
+                ShowForSmoke(lightNotice);
                 lightNotice.UpdateLayout();
                 if (lightNotice.Background is not SolidColorBrush lightNoticeBackground || lightNoticeBackground.Color != Color.FromRgb(0xF3, 0xF5, 0xF8))
                     throw new Exception($"FAIL: a notice does not follow the light theme ({lightNotice.Background})");
@@ -1852,7 +1916,7 @@ internal static class Program
             }
 
             var enterEditor = new ScorebugEditorWindow(catalog, engine);
-            enterEditor.Show();
+            ShowForSmoke(enterEditor);
             enterEditor.UpdateLayout();
             var enterLayers = (ListBox)enterEditor.FindName("Layers")!;
             enterLayers.SelectedIndex = 1;
@@ -1869,7 +1933,7 @@ internal static class Program
             Console.WriteLine("PASS: Enter commits a studio value without closing the window");
 
             var swatchPicker = new ColorPickerWindow("#FF38D7A3");
-            swatchPicker.Show();
+            ShowForSmoke(swatchPicker);
             swatchPicker.UpdateLayout();
             ThemeManager.Apply(swatchPicker, "Light");
             Pump(TimeSpan.FromMilliseconds(250));
@@ -1881,7 +1945,7 @@ internal static class Program
 
             // Steppers put the add buttons above the value and the subtract buttons below it.
             var stepPanel = new GameControlWindow(engine, () => { }, _ => { }, () => true);
-            stepPanel.Show();
+            ShowForSmoke(stepPanel);
             stepPanel.UpdateLayout();
             var homeStepper = stepPanel.Panel.HomeScore;
             var plusRow = homeStepper.Children.OfType<System.Windows.Controls.Primitives.UniformGrid>().First();
@@ -1970,7 +2034,7 @@ internal static class Program
             {
                 var freshCatalog = new ScorebugCatalog(studioLayout);
                 var addEditor = new ScorebugEditorWindow(freshCatalog, engine);
-                addEditor.Show();
+                ShowForSmoke(addEditor);
                 addEditor.UpdateLayout();
                 // Studio buttons read as capitals with a plus: SPORT DATA +, not "Add sport data".
                 foreach (var label in new[] { "TEXT +", "LOGO +", "SHAPE +", "SPORT DATA +", "PLAYER DATA +", "VIDEO +", "HTML +", "PARTS +" })
@@ -2070,7 +2134,7 @@ internal static class Program
             // Deleting a roster asks in the app's own dialog, not a system message box.
             {
                 var confirm = new ConfirmWindow("Dark", "DELETE ROSTER", "Delete \"Visitors squad\" and its 2 players?", "Delete roster", destructive: true);
-                confirm.Show();
+                ShowForSmoke(confirm);
                 confirm.UpdateLayout();
                 if (!FindAll<Button>(confirm).Any(b => (b.Content as string) == "Delete roster") ||
                     !FindAll<Button>(confirm).Any(b => (b.Content as string) == "Cancel"))
@@ -2084,7 +2148,7 @@ internal static class Program
             // The console itself needs ~900px; the detached window also carries the media dock, so its
             // minimum usable width is the console width plus that dock.
             var fitPanel = new GameControlWindow(engine, () => { }, _ => { }, () => true) { Width = 1280, Height = 860 };
-            fitPanel.Show();
+            ShowForSmoke(fitPanel);
             fitPanel.UpdateLayout();
             var view = fitPanel.Panel;
             view.UpdateLayout();
@@ -2279,7 +2343,7 @@ internal static class Program
             var ballEngine = new GameEngine();
             ballEngine.NewGame("football");
             var ballWindow = new GameControlWindow(ballEngine, () => { }, _ => { }, () => true);
-            ballWindow.Show();
+            ShowForSmoke(ballWindow);
             ballWindow.UpdateLayout();
             var ballView = ballWindow.Panel;
             ballView.UpdateLayout();
@@ -2317,7 +2381,7 @@ internal static class Program
 
             // A profile edited while the app is running must reach the next new game, no relaunch.
             var profileShell = new MainWindow(LaunchMode.New);
-            profileShell.Show();
+            ShowForSmoke(profileShell);
             profileShell.UpdateLayout();
             profileShell.Engine.Sports.SaveProfile(profileShell.Engine.Sports.Find("football")! with { Timeouts = 4, ScoringOptions = [1, 2, 3, 6] });
             profileShell.StartNewGame("football");
@@ -2334,7 +2398,7 @@ internal static class Program
             var dialogCatalog = new SportCatalog(dialogPath);
             var dialogTarget = dialogCatalog.All.OrderBy(s => s.Name).First();
             var profileDialog = new SportProfileWindow(dialogCatalog);
-            profileDialog.Show();
+            ShowForSmoke(profileDialog);
             profileDialog.UpdateLayout();
             ((TextBox)profileDialog.FindName("TimeoutsInput")!).Text = "6";
             ((TextBox)profileDialog.FindName("ScoringInput")!).Text = "2, 3, 7";
@@ -2373,12 +2437,34 @@ internal static class Program
             if (verticalStack?.Orientation != Orientation.Vertical)
                 throw new Exception("FAIL: the vertical timeout option did not stack the bars");
             barsItem.IconVertical = false;
+            // The icon border belongs to each piece of artwork, not to one rectangle around the box.
+            barsItem.IconBorderThickness = 3;
+            barsItem.IconBorderColor = "#FFE23B3B";
+            iconsView.Update();
+            var borderedBars = FindAll<System.Windows.Shapes.Rectangle>(iconsView).ToArray();
+            if (borderedBars.Any(bar => Math.Abs(bar.StrokeThickness - 3) > 0.01
+                || bar.Stroke is not SolidColorBrush outline || outline.Color != Color.FromRgb(0xE2, 0x3B, 0x3B)))
+                throw new Exception("FAIL: the timeout bars do not carry their own icon border");
+            barsItem.IconBorderThickness = 0;
+            iconsView.Update();
+            if (FindAll<System.Windows.Shapes.Rectangle>(iconsView).Any(bar => bar.Stroke is not null || bar.StrokeThickness > 0.01))
+                throw new Exception("FAIL: clearing the icon border left an outline on a timeout bar");
             var iconName = new IconNameConverter().Convert(ScorebugIcon.PossessionDot, typeof(string), null, CultureInfo.InvariantCulture) as string;
             if (iconName != "Possession Dot")
                 throw new Exception($"FAIL: the icon picker still shows compact enum names ('{iconName}')");
             var dotItem = new ScorebugElement { Name = "Possession", Content = "{{POSSESSION}}", Kind = ScorebugElementKind.Text, Icon = ScorebugIcon.PossessionDot, Width = 200, Height = 60 };
             var dotView = new ScorebugIconView(dotItem, () => iconEngine.State);
             var dot = FindAll<System.Windows.Shapes.Ellipse>(dotView).Single();
+            dotItem.IconBorderThickness = 4;
+            dotItem.IconBorderColor = "#FFE23B3B";
+            dotView.Update();
+            if (dot.Stroke is not SolidColorBrush dotOutline || dotOutline.Color != Color.FromRgb(0xE2, 0x3B, 0x3B)
+                || Math.Abs(dot.StrokeThickness - 4) > 0.01)
+                throw new Exception("FAIL: the possession dot does not carry its own icon border");
+            dotItem.IconBorderThickness = 0;
+            dotView.Update();
+            if (dot.Stroke is not null || dot.StrokeThickness > 0.01)
+                throw new Exception("FAIL: clearing the icon border left a ring around the possession dot");
             iconEngine.SetPossession(false);
             dotView.Update();
             if (dot.HorizontalAlignment != HorizontalAlignment.Left)
@@ -2411,6 +2497,10 @@ internal static class Program
             arrowView.Update();
             if (arrowMark.RenderTransform is not TranslateTransform)
                 throw new Exception("FAIL: the possession arrow stopped animating when possession actually changed");
+            arrowItem.IconArrowDown = true;
+            arrowView.Update();
+            if (arrowMark.VerticalAlignment != VerticalAlignment.Bottom || arrowMark.Visibility != Visibility.Visible)
+                throw new Exception($"FAIL: the downward possession arrow is {arrowMark.VerticalAlignment}/{arrowMark.Visibility} instead of a visible bottom mark");
             Console.WriteLine("PASS: timeout bars and the possession dot follow live data, and the dot can be flipped");
             Console.WriteLine("PASS: the possession arrow paints its first frame still and only animates a real possession change");
 
@@ -2430,7 +2520,7 @@ internal static class Program
                 throw new Exception("FAIL: the scorebug canvas did not draw the icon elements");
             iconCanvas.Dispose();
             var iconStudio = new ScorebugEditorWindow(iconCatalog, iconEngine, null, "Dark");
-            iconStudio.Show();
+            ShowForSmoke(iconStudio);
             iconStudio.UpdateLayout();
             ((ListBox)iconStudio.FindName("Layers")!).SelectedIndex = 0;
             iconStudio.UpdateLayout();
@@ -2452,6 +2542,53 @@ internal static class Program
             iconStudio.UpdateLayout();
             if (iconColourSwatch.Background is not SolidColorBrush iconColourBrush || iconColourBrush.Color != Colors.Red)
                 throw new Exception($"FAIL: the studio's icon colour swatch did not follow the typed colour (found={iconColourSwatch.Background})");
+            // The vertical checkbox used to be written only through the group-edit list. The next
+            // property save (a move or a size change) then restored the old horizontal value.
+            // Select the timeout layer explicitly; the top layer is the possession dot.
+            var iconLayers = (ListBox)iconStudio.FindName("Layers")!;
+            var timeoutLayer = iconLayers.Items.Cast<object>().First(item =>
+                item.GetType().GetProperty("Element")?.GetValue(item) is ScorebugElement { Name: "Timeouts" });
+            iconLayers.SelectedItem = timeoutLayer;
+            iconStudio.UpdateLayout();
+            var verticalBars = (CheckBox)iconStudio.FindName("IconVerticalInput")!;
+            verticalBars.IsChecked = true;
+            Pump(TimeSpan.FromMilliseconds(450));
+            ((TextBox)iconStudio.FindName("XInput")!).Text = "37";
+            Pump(TimeSpan.FromMilliseconds(450));
+            if (!iconCatalog.Layout.Elements[0].IconVertical)
+                throw new Exception("FAIL: moving a timeout element cleared its vertical-bar setting");
+            ((TextBox)iconStudio.FindName("IconBorderWidthInput")!).Text = "3";
+            ((TextBox)iconStudio.FindName("IconBorderColorInput")!).Text = "#FFE23B3B";
+            Pump(TimeSpan.FromMilliseconds(450));
+            var borderedIcon = iconCatalog.Layout.Elements[0];
+            if (Math.Abs(borderedIcon.IconBorderThickness - 3) > 0.001 || borderedIcon.IconBorderColor != "#FFE23B3B")
+                throw new Exception($"FAIL: the icon border did not save ({borderedIcon.IconBorderThickness}, {borderedIcon.IconBorderColor})");
+            // Choosing a special crossing must reveal its tuning fields immediately, and the typed
+            // shrink and jump values must reach the saved element.
+            var transitionPicker = (ComboBox)iconStudio.FindName("TransitionInput")!;
+            transitionPicker.SelectedItem = ScorebugTransition.ShrinkWheel;
+            Pump(TimeSpan.FromMilliseconds(450));
+            if (((FrameworkElement)iconStudio.FindName("ShrinkAnimationPanel")!).Visibility != Visibility.Visible)
+                throw new Exception("FAIL: choosing ShrinkWheel hid the shrink-amount field");
+            ((TextBox)iconStudio.FindName("TransitionShrinkInput")!).Text = "0.55";
+            Pump(TimeSpan.FromMilliseconds(450));
+            transitionPicker.SelectedItem = ScorebugTransition.JumpFlip;
+            Pump(TimeSpan.FromMilliseconds(450));
+            if (((FrameworkElement)iconStudio.FindName("JumpAnimationPanel")!).Visibility != Visibility.Visible)
+                throw new Exception("FAIL: choosing JumpFlip hid the jump-height field");
+            ((TextBox)iconStudio.FindName("TransitionJumpHeightInput")!).Text = "88";
+            ((ComboBox)iconStudio.FindName("TransitionJumpDirectionInput")!).SelectedIndex = 2;
+            Pump(TimeSpan.FromMilliseconds(450));
+            var tuned = iconCatalog.Layout.Elements[0];
+            if (Math.Abs(tuned.TransitionShrink - 0.55) > 0.001 || Math.Abs(tuned.TransitionJumpHeight - 88) > 0.001
+                || tuned.TransitionJumpDirection != ScorebugJumpDirection.DownToUp)
+                throw new Exception($"FAIL: shrink/jump tuning did not save (shrink={tuned.TransitionShrink}, jump={tuned.TransitionJumpHeight}, direction={tuned.TransitionJumpDirection})");
+            if (tuned.TransitionSeconds < 0.9)
+                throw new Exception($"FAIL: a newly chosen special transition kept the unreadable 0.2 s default ({tuned.TransitionSeconds})");
+            ((TextBox)iconStudio.FindName("TransitionSpeedInput")!).Text = "2";
+            Pump(TimeSpan.FromMilliseconds(450));
+            if (Math.Abs(iconCatalog.Layout.Elements[0].TransitionSeconds - 2) > 0.001)
+                throw new Exception($"FAIL: the transition speed did not save for the special presets ({iconCatalog.Layout.Elements[0].TransitionSeconds})");
             iconStudio.Close();
             Console.WriteLine("PASS: icon elements draw on the scorebug canvas and edit from the studio");
 
@@ -2461,7 +2598,7 @@ internal static class Program
                 var creatorPath = Path.Combine(appDataPath, $"creator-icons-{Guid.NewGuid():N}.json");
                 CustomIconStore.UsePath(creatorPath);
                 var creator = new IconMakerWindow("Dark");
-                creator.Show();
+                ShowForSmoke(creator);
                 creator.UpdateLayout();
                 if (creator.Title != "ScorePlus — Icon Creator")
                     throw new Exception($"FAIL: the icon window is still titled {creator.Title}");
@@ -2523,7 +2660,7 @@ internal static class Program
                     });
                 });
                 var madeStudio = new ScorebugEditorWindow(madeCatalog, iconEngine, null, "Dark");
-                madeStudio.Show();
+                ShowForSmoke(madeStudio);
                 madeStudio.UpdateLayout();
                 ((ListBox)madeStudio.FindName("Layers")!).SelectedIndex = 0;
                 madeStudio.UpdateLayout();
@@ -2581,7 +2718,7 @@ internal static class Program
                 var navyCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"navy-{Guid.NewGuid():N}.json"));
                 navyCatalog.Update(layout => layout.Background = "#FF00B140");
                 var navyStudio = new ScorebugEditorWindow(navyCatalog, iconEngine, null, "Dark");
-                navyStudio.Show();
+                ShowForSmoke(navyStudio);
                 navyStudio.UpdateLayout();
                 FindAll<Button>(navyStudio).First(b => (b.Content as string) == "Navy")
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -2604,7 +2741,7 @@ internal static class Program
             var popOutRequests = 0;
             var chainPanel = new GameControlWindow(engine, () => { }, _ => { }, () => true);
             chainPanel.NewPanelRequested += () => popOutRequests++;
-            chainPanel.Show();
+            ShowForSmoke(chainPanel);
             chainPanel.UpdateLayout();
             if (FindAll<Button>(chainPanel).Any(b => (b.Content as string) is "Transition Builder" or "Animation Maker" or "Multiview" or "Display Studio" or "Save Game" or "Open Game"))
                 throw new Exception("FAIL: a detached panel still carries production-header buttons");
@@ -2616,7 +2753,7 @@ internal static class Program
             // the same preview rail, four desks and audience monitor, but none of the production header
             // actions that belong to the main window only.
             var mirrorOwner = new MainWindow(LaunchMode.New) { Width = 1440, Height = 900 };
-            mirrorOwner.Show();
+            ShowForSmoke(mirrorOwner);
             mirrorOwner.UpdateLayout();
             mirrorOwner.OpenControlPanel();
             mirrorOwner.UpdateLayout();
@@ -2647,7 +2784,7 @@ internal static class Program
 
             // Heading tips stay hidden unless the preference is on.
             var hintWindow = new GameControlWindow(engine, () => { }, _ => { }, () => true);
-            hintWindow.Show();
+            ShowForSmoke(hintWindow);
             hintWindow.UpdateLayout();
             var detailHint = (TextBlock)hintWindow.Panel.FindName("DetailCardHint")!;
             hintWindow.Panel.SetHintVisibility(false);
@@ -2661,7 +2798,7 @@ internal static class Program
             {
                 var tipCatalog = new ScorebugCatalog(Path.Combine(appDataPath, $"tips-{Guid.NewGuid():N}.json"));
                 var tipStudio = new ScorebugEditorWindow(tipCatalog, engine, null, "Dark");
-                tipStudio.Show();
+                ShowForSmoke(tipStudio);
                 tipStudio.UpdateLayout();
                 var headerHint = (TextBlock)tipStudio.FindName("HeaderHint")!;
                 var transitionHint = (TextBlock)tipStudio.FindName("TransitionCaption")!;
@@ -2692,7 +2829,7 @@ internal static class Program
             var outSource = new GameEngine();
             outSource.NewGame("football");
             var outWindow2 = new OutputWindow(outSource, catalog, "Dark");
-            outWindow2.Show();
+            ShowForSmoke(outWindow2);
             outWindow2.UpdateLayout();
             var renamed = new GameEngine();
             renamed.NewGame("football");
@@ -2710,7 +2847,7 @@ internal static class Program
             Console.WriteLine("PASS: renamed teams show up on the audience output right away");
 
             var eventLog = new EventLogWindow(engine, "Dark", false);
-            eventLog.Show();
+            ShowForSmoke(eventLog);
             eventLog.UpdateLayout();
             eventLog.Close();
             Console.WriteLine("PASS: event log opens in its own window");
@@ -2960,7 +3097,7 @@ internal static class Program
 
                 // Canvas size presets scale the layout and persist.
                 var presetStudio = new ScorebugEditorWindow(videoCatalog, engine);
-                presetStudio.Show();
+                ShowForSmoke(presetStudio);
                 presetStudio.UpdateLayout();
                 var firstX = videoCatalog.Layout.Elements[0].X;
                 ((ComboBox)presetStudio.FindName("CanvasPreset")!).SelectedIndex = 1; // Full HD 1920 × 1080
@@ -3030,7 +3167,7 @@ internal static class Program
                 var seekDock = new MediaDock();
                 seekDock.Attach(seekSession);
                 var seekHost = new Window { Width = 420, Height = 320, Content = seekDock };
-                seekHost.Show();
+                ShowForSmoke(seekHost);
                 seekHost.UpdateLayout();
                 var bar = (Slider)seekDock.FindName("ScrubBar")!;
                 Keyboard.Focus(bar);
@@ -3051,7 +3188,7 @@ internal static class Program
             // Update Output is bindable as a key.
             var publishCount = 0;
             var publishPanel = new GameControlWindow(engine, () => publishCount++, _ => { }, () => true);
-            publishPanel.Show();
+            ShowForSmoke(publishPanel);
             publishPanel.UpdateLayout();
             var publishKeys = new KeybindSettings();
             publishKeys.Bindings["output.publish"] = KeybindStore.ToText(Key.F8, Keyboard.Modifiers);
@@ -3072,7 +3209,7 @@ internal static class Program
                 var speakerDock = new MediaDock();
                 speakerDock.Attach(speakerSession);
                 var speakerHost = new Window { Width = 420, Height = 780, Content = speakerDock };
-                speakerHost.Show();
+                ShowForSmoke(speakerHost);
                 speakerHost.UpdateLayout();
                 var speakerBox = (ComboBox)speakerDock.FindName("AudioDeviceBox")!;
                 if (speakerBox.Items.Count > 1)
@@ -3128,7 +3265,7 @@ internal static class Program
             fsEngine.NewGame("football");
             var fsCatalog = new ScorebugCatalog(Path.Combine(Path.GetTempPath(), $"smoke-f11-{Guid.NewGuid():N}.json"));
             var fsOutput = new OutputWindow(fsEngine, fsCatalog, "Dark");
-            fsOutput.Show();
+            ShowForSmoke(fsOutput);
             fsOutput.UpdateLayout();
             var fsSource = PresentationSource.FromVisual(fsOutput);
             RaiseKey(fsOutput, fsSource, Key.F11);
@@ -3167,7 +3304,7 @@ internal static class Program
             var annotateEngine = new GameEngine();
             annotateEngine.NewGame("football");
             var annotateOutput = new OutputWindow(annotateEngine, annotateCatalog, "Dark", annotations: true);
-            annotateOutput.Show();
+            ShowForSmoke(annotateOutput);
             annotateOutput.UpdateLayout();
             if (!annotateOutput.AnnotationToolsOpen || annotateOutput.FindName("ScorebugHost") is null)
                 throw new Exception("FAIL: the audience annotation toolbar did not open");
@@ -3217,7 +3354,7 @@ internal static class Program
             // The pen must be on the real audience window, not a second duplicate window. Opening
             // annotation for a display that already has output should reuse that output.
             var annotationMain = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-            annotationMain.Show();
+            ShowForSmoke(annotationMain);
             annotationMain.UpdateLayout();
             var audienceWindow = annotationMain.OpenOutputWindow();
             var secondAudience = annotationMain.OpenOutputWindow();
@@ -3252,8 +3389,8 @@ internal static class Program
                 var liveCatalog = new ScorebugCatalog(livePath);
                 var liveOperator = new OutputWindow(inkEngine, liveCatalog, "Dark", annotations: true, annotationBoard: liveBoard);
                 var liveAudience = new OutputWindow(inkEngine, liveCatalog, "Dark", annotationBoard: liveBoard);
-                liveOperator.Show();
-                liveAudience.Show();
+                ShowForSmoke(liveOperator);
+                ShowForSmoke(liveAudience);
                 liveAudience.ShowAudienceInk();
                 liveOperator.UpdateLayout();
                 liveAudience.UpdateLayout();
@@ -3291,7 +3428,7 @@ internal static class Program
                 {
                     Width = 760, Height = 1100
                 };
-                alignOutput.Show();
+                ShowForSmoke(alignOutput);
                 alignOutput.UpdateLayout();
                 Pump(TimeSpan.FromMilliseconds(80));
                 alignOutput.UpdateLayout();
@@ -3428,7 +3565,7 @@ internal static class Program
                 // The node editor is a real window with trigger, condition and action cards. Open it
                 // on the same graph and make sure its add-rule path persists another rule.
                 var nodeWindow = new AutomationWindow(ruleCatalog, ruleEngine, "Dark", ruleDisplay.Id, runtime);
-                nodeWindow.Show();
+                ShowForSmoke(nodeWindow);
                 nodeWindow.UpdateLayout();
                 if (nodeWindow.Title != "Conditionals" || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITIONALS"))
                     throw new Exception($"FAIL: the node editor is still titled {nodeWindow.Title}");
@@ -3463,7 +3600,7 @@ internal static class Program
             var playEngine = new GameEngine();
             playEngine.NewGame("football");
             var playHost = new GameControlWindow(playEngine, () => { }, _ => { }, () => true);
-            playHost.Show();
+            ShowForSmoke(playHost);
             playHost.UpdateLayout();
             var playBox = (TextBox)playHost.Panel.FindName("PlayClockValue")!;
             playBox.Focus();
@@ -3491,7 +3628,7 @@ internal static class Program
             try
             {
                 var mediaPanel = new GameControlWindow(engine, () => { }, _ => { }, () => true, sharedMedia);
-                mediaPanel.Show();
+                ShowForSmoke(mediaPanel);
                 mediaPanel.UpdateLayout();
                 // Media is a tab of its own in a panel too, and it fills the panel when opened.
                 mediaPanel.ShowMediaTab(true);
@@ -3520,7 +3657,7 @@ internal static class Program
             demoAutosave.Score(true, 3);
             AutosaveStore.Save(demoAutosave);
             var launcherWindow = new LauncherWindow();
-            launcherWindow.Show();
+            ShowForSmoke(launcherWindow);
             launcherWindow.UpdateLayout();
             var chooserButtons = FindAll<Button>(launcherWindow).Select(b => b.Content as string).Where(t => t is not null).ToArray();
             if (!chooserButtons.Contains("New Game") || !chooserButtons.Contains("Open Game"))
@@ -3562,7 +3699,7 @@ internal static class Program
             var probeList = new ListBox();
             dialogProbe.Content = probeList;
             ThemeManager.Apply(dialogProbe, "Dark");
-            dialogProbe.Show();
+            ShowForSmoke(dialogProbe);
             dialogProbe.UpdateLayout();
             Pump(TimeSpan.FromMilliseconds(150));
             if (probeList.Background is not SolidColorBrush probeBrush || probeBrush.Color.R > 100)
@@ -3575,7 +3712,7 @@ internal static class Program
             // A new game clears the live game and the on-air copy, so the previous one cannot linger.
             var panelsBeforeGame = Application.Current.Windows.OfType<GameControlWindow>().Count(w => w.IsVisible);
             var freshGame = new MainWindow(LaunchMode.New);
-            freshGame.Show();
+            ShowForSmoke(freshGame);
             freshGame.UpdateLayout();
             if (Application.Current.Windows.OfType<GameControlWindow>().Count(w => w.IsVisible) > panelsBeforeGame)
                 throw new Exception("FAIL: opening a game popped out another control panel");
@@ -3621,7 +3758,7 @@ internal static class Program
             {
                 WritePng(reloadLogo, Color.FromRgb(0xCC, 0x33, 0x55));
                 var saved = new MainWindow(LaunchMode.New);
-                saved.Show();
+                ShowForSmoke(saved);
                 saved.UpdateLayout();
                 saved.Engine.SetTeams("Loaded Home", "Loaded Away");
                 saved.Engine.SetTeamIdentity(false, "Loaded Away", "LAW", reloadLogo, "#FFCC3355", "#FF223344");
@@ -3630,7 +3767,7 @@ internal static class Program
                 saved.Close();
 
                 var reopened = new MainWindow(LaunchMode.Open, reloadGame) { Width = 1280, Height = 800 };
-                reopened.Show();
+                ShowForSmoke(reopened);
                 reopened.UpdateLayout();
                 if (reopened.PublishedState.HomeTeam != "Loaded Home" || reopened.PublishedState.AwayTeam != "Loaded Away" || reopened.PublishedState.HomeScore != 7)
                     throw new Exception($"FAIL: reopening a saved game lost its values ({reopened.PublishedState.HomeTeam} {reopened.PublishedState.HomeScore} / {reopened.PublishedState.AwayTeam})");
@@ -3650,7 +3787,7 @@ internal static class Program
             // Closing a changed game opens the app's own prompt; Keep editing leaves it open.
             MainWindow.PromptOnExit = true;
             var dirty = new MainWindow(LaunchMode.New);
-            dirty.Show();
+            ShowForSmoke(dirty);
             dirty.UpdateLayout();
             dirty.Engine.Score(true, 3);
             var promptTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
@@ -3674,7 +3811,7 @@ internal static class Program
             // just a call to the engine: the reported bug was that the dialog never appeared.
             {
                 var ending = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-                ending.Show();
+                ShowForSmoke(ending);
                 ending.UpdateLayout();
                 ending.StartNewGame("football", announce: false);
                 ending.Engine.SetTeamIdentity(true, "Restart Home", "RST", null, "#FF112233", "#FF445566", mascot: "Eagles", record: "2-0", ranking: "#7", divisionRecord: "1-0");
@@ -3684,27 +3821,39 @@ internal static class Program
                 ending.UpdateLayout();
                 var endButton = FindAll<Button>(ending).FirstOrDefault(button => (button.Content as string) == "End Game")
                     ?? throw new Exception("FAIL: the main window has no End Game button");
-                var endTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
-                var sawEndConfirm = false;
-                endTimer.Tick += (_, _) =>
-                {
-                    var confirm = Application.Current.Windows.OfType<ConfirmWindow>().FirstOrDefault();
-                    if (confirm is null) return;
-                    endTimer.Stop();
-                    sawEndConfirm = true;
-                    var finish = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "End game")
-                        ?? throw new Exception("FAIL: the End Game confirmation has no End game action");
-                    finish.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                };
-                endTimer.Start();
+                // End Game is immediate now; the Restart Game dialog is where an accidental end can
+                // be undone, so there must be no confirmation on the way into the final state.
                 endButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Pump(TimeSpan.FromMilliseconds(250));
-                if (!sawEndConfirm || !ending.Engine.State.GameEnded || !ending.Engine.State.RecordSettled)
-                    throw new Exception("FAIL: End Game did not show its confirmation and settle the result");
+                if (Application.Current.Windows.OfType<ConfirmWindow>().Any())
+                    throw new Exception("FAIL: End Game still opened a confirmation popup");
+                if (!ending.Engine.State.GameEnded || !ending.Engine.State.RecordSettled)
+                    throw new Exception("FAIL: End Game did not settle immediately");
                 if ((endButton.Content as string) != "Restart Game")
                     throw new Exception($"FAIL: the final game still offers “{endButton.Content}” instead of Restart Game");
                 if (ending.Engine.State.HomeRecord != "3-0")
-                    throw new Exception($"FAIL: End Game did not settle the record before the restart ({ending.Engine.State.HomeRecord})");
+                    throw new Exception($"FAIL: End Game did not settle the record ({ending.Engine.State.HomeRecord})");
+                var undoSeen = false;
+                var undoRestartTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+                undoRestartTimer.Tick += (_, _) =>
+                {
+                    var confirm = Application.Current.Windows.OfType<ConfirmWindow>().FirstOrDefault();
+                    if (confirm is null) return;
+                    undoRestartTimer.Stop();
+                    undoSeen = true;
+                    var undo = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "Undo end game")
+                        ?? throw new Exception("FAIL: the Restart Game popup has no Undo end game action");
+                    undo.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                };
+                undoRestartTimer.Start();
+                endButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump(TimeSpan.FromMilliseconds(250));
+                if (!undoSeen || ending.Engine.State.GameEnded || ending.Engine.State.HomeScore != 3
+                    || (endButton.Content as string) != "End Game")
+                    throw new Exception("FAIL: Undo end game did not restore the live final state");
+                // End it again, then choose the fresh-game action from the same popup.
+                endButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Pump(TimeSpan.FromMilliseconds(250));
                 var sawRestartConfirm = false;
                 var restartTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
                 restartTimer.Tick += (_, _) =>
@@ -3713,8 +3862,8 @@ internal static class Program
                     if (confirm is null) return;
                     restartTimer.Stop();
                     sawRestartConfirm = true;
-                    var restart = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "Restart game")
-                        ?? throw new Exception("FAIL: the Restart Game confirmation has no Restart game action");
+                    var restart = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "Start fresh")
+                        ?? throw new Exception("FAIL: the Restart Game popup has no Start fresh action");
                     restart.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 };
                 restartTimer.Start();
@@ -3732,14 +3881,14 @@ internal static class Program
                     throw new Exception("FAIL: the Restart Game button did not become End Game again");
                 ending.Close();
                 Pump(TimeSpan.FromMilliseconds(200));
-                Console.WriteLine("PASS: End Game settles the result, then Restart Game resets the score and keeps the teams");
+                Console.WriteLine("PASS: End Game ends immediately, and Restart Game offers Undo end game or Start fresh");
             }
 
             // A clock-expired game with automatic records off is final but unsettled. End Game must
             // still be the action that applies its tie, not a Restart Game that discards it.
             {
                 var tieEnding = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-                tieEnding.Show();
+                ShowForSmoke(tieEnding);
                 tieEnding.UpdateLayout();
                 tieEnding.StartNewGame("football", announce: false);
                 tieEnding.Engine.SetTeamIdentity(true, "Tie Home", "TIE", null, "#FF112233", "#FF445566", record: "5-2");
@@ -3750,22 +3899,10 @@ internal static class Program
                 tieEnding.Engine.State.ClockMessage = GameClockMessage.Final;
                 var tieEndButton = FindAll<Button>(tieEnding).FirstOrDefault(button => (button.Content as string) == "End Game")
                     ?? throw new Exception("FAIL: an unsettled final no longer offers End Game");
-                var tieTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
-                var sawTieConfirm = false;
-                tieTimer.Tick += (_, _) =>
-                {
-                    var confirm = Application.Current.Windows.OfType<ConfirmWindow>().FirstOrDefault();
-                    if (confirm is null) return;
-                    tieTimer.Stop();
-                    sawTieConfirm = true;
-                    var finish = FindAll<Button>(confirm).FirstOrDefault(button => (button.Content as string) == "End game")
-                        ?? throw new Exception("FAIL: the tie End Game confirmation has no End game action");
-                    finish.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                };
-                tieTimer.Start();
                 tieEndButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Pump(TimeSpan.FromMilliseconds(250));
-                if (!sawTieConfirm || !tieEnding.Engine.State.RecordSettled
+                if (Application.Current.Windows.OfType<ConfirmWindow>().Any()
+                    || !tieEnding.Engine.State.RecordSettled
                     || tieEnding.Engine.State.HomeRecord != "5-2-1"
                     || tieEnding.Engine.State.AwayRecord != "5-2-1")
                     throw new Exception($"FAIL: End Game did not apply the tie to an unsettled final ({tieEnding.Engine.State.HomeRecord} / {tieEnding.Engine.State.AwayRecord})");
@@ -3778,7 +3915,7 @@ internal static class Program
             // has finished (calling Close from inside it is what raised the WPF error).
             MainWindow.PromptOnExit = true;
             var discarding = new MainWindow(LaunchMode.New);
-            discarding.Show();
+            ShowForSmoke(discarding);
             discarding.UpdateLayout();
             discarding.Engine.Score(true, 2);
             var discardTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
@@ -3808,7 +3945,7 @@ internal static class Program
                 foreach (var theme in new[] { "Dark", "Light" })
                 {
                     var themeStudio = new ScorebugEditorWindow(themeCatalog, engine, theme: theme);
-                    themeStudio.Show();
+                    ShowForSmoke(themeStudio);
                     Pump(TimeSpan.FromMilliseconds(150));
                     themeStudio.UpdateLayout();
                     var designCanvas = (Canvas)themeStudio.FindName("DesignCanvas")!;
@@ -3826,7 +3963,7 @@ internal static class Program
             {
                 var contextCatalog = new ScorebugCatalog(contextPath);
                 var contextEditor = new ScorebugEditorWindow(contextCatalog, engine);
-                contextEditor.Show();
+                ShowForSmoke(contextEditor);
                 contextEditor.UpdateLayout();
                 // The studio must never open past the desktop: a window that runs past the edge hides
                 // part of the artwork. Its allowance (MaxWidth/MaxHeight) is the whole monitor so a
@@ -3937,7 +4074,7 @@ internal static class Program
                 if (FindAll<TextBlock>(audience).Any(t => t.Text.Contains("VIDEO", StringComparison.OrdinalIgnoreCase)))
                     throw new Exception("FAIL: the video tag label reached the audience picture");
                 var labelEditor = new ScorebugEditorWindow(labelCatalog, engine, new MediaPlayback());
-                labelEditor.Show();
+                ShowForSmoke(labelEditor);
                 labelEditor.UpdateLayout();
                 if (!FindAll<TextBlock>(labelEditor).Any(t => t.Text.Contains("VIDEO · GENERAL", StringComparison.Ordinal)))
                     throw new Exception("FAIL: the studio does not label an empty video element");
@@ -3971,7 +4108,7 @@ internal static class Program
                     Width = 220, Height = 140, Content = transitionBlock,
                     ShowInTaskbar = false, WindowStyle = WindowStyle.None, Left = -32000, Top = -32000
                 };
-                transitionHost.Show();
+                ShowForSmoke(transitionHost);
                 Pump(TimeSpan.FromMilliseconds(80));
                 transitionBlock.UpdateText("1", ScorebugTransition.Fade, 0.8);
                 transitionBlock.ApplyStyle(transitionItem, null);
@@ -4018,7 +4155,7 @@ internal static class Program
                 styleEngine.NewGame("football");
                 styleEngine.SetTeamIdentity(true, "Home Town", "HT", null, "#FF3366CC", "#FF223344");
                 var styleEditor = new ScorebugEditorWindow(styleCatalog, styleEngine);
-                styleEditor.Show();
+                ShowForSmoke(styleEditor);
                 styleEditor.UpdateLayout();
                 var openingText = FindAll<ScorebugTextBlock>((Canvas)styleEditor.FindName("DesignCanvas")!).FirstOrDefault();
                 if (openingText is null) throw new Exception("FAIL: the studio canvas is empty when it opens");
@@ -4087,7 +4224,7 @@ internal static class Program
             // ---------- layouts: preview arrows switch the artwork, Update Output puts it on air ----------
             {
                 var layoutMain = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-                layoutMain.Show();
+                ShowForSmoke(layoutMain);
                 layoutMain.UpdateLayout();
                 if (layoutMain.FindName("LayoutPrevButton") is not Button || layoutMain.FindName("LayoutNextButton") is not Button)
                     throw new Exception($"FAIL: the program preview has no layout arrows (buttons: {string.Join(",", FindAll<Button>(layoutMain).Select(b => b.Name).Where(n => n.Length > 0))})");
@@ -4145,7 +4282,7 @@ internal static class Program
                     throw new Exception("FAIL: the back arrow did not return to the first layout");
                 // The studio's own layout picker drives the same catalog.
                 var layoutStudio = new ScorebugEditorWindow(layoutMain.Scorebug, layoutMain.Engine);
-                layoutStudio.Show();
+                ShowForSmoke(layoutStudio);
                 layoutStudio.UpdateLayout();
                 // Layouts are pictures with their names under them, not names in a drop-down.
                 var layoutStrip = (StackPanel)layoutStudio.FindName("LayoutStrip")!;
@@ -4299,7 +4436,7 @@ internal static class Program
 
                     // An audience window belongs to one display and only ever shows its published layout.
                     var outputB = new OutputWindow(displayEngine, displayCatalog, "Dark", null, lowerThirds.Id);
-                    outputB.Show();
+                    ShowForSmoke(outputB);
                     outputB.UpdateLayout();
                     if (outputB.DisplayId != lowerThirds.Id)
                         throw new Exception("FAIL: the audience window opened on the wrong display");
@@ -4312,7 +4449,7 @@ internal static class Program
                     // The link editor can pair both ways: "Both ways" writes the link coming back,
                     // and unticking it removes just that half.
                     var linkStudio = new ScorebugEditorWindow(displayCatalog, displayEngine);
-                    linkStudio.Show();
+                    ShowForSmoke(linkStudio);
                     linkStudio.UpdateLayout();
                     displayCatalog.SelectDisplay(0);
                     displayCatalog.SelectLayout(0);
@@ -4421,7 +4558,7 @@ internal static class Program
                 chromaVideoCatalog.Update(layout => layout.Elements.Add(chromaVideo));
                 var chromaTarget = chromaVideoCatalog.Layout.Elements.First(item => item.Id == chromaVideo.Id);
                 var chromaEditor = new ScorebugEditorWindow(chromaVideoCatalog, engine);
-                chromaEditor.Show();
+                ShowForSmoke(chromaEditor);
                 chromaEditor.UpdateLayout();
                 var chromaLayers = (ListBox)chromaEditor.FindName("Layers")!;
                 var chromaElements = chromaVideoCatalog.Layout.Elements.ToArray();
@@ -4448,13 +4585,13 @@ internal static class Program
             var teamEngine = new GameEngine();
             teamEngine.NewGame("football");
             var teamPanel = new GameControlWindow(teamEngine, () => { }, _ => { }, () => true);
-            teamPanel.Show();
+            ShowForSmoke(teamPanel);
             teamPanel.UpdateLayout();
             var awayDetails = (Button)teamPanel.Panel.FindName("AwayDetailsButton")!;
             if (awayDetails.ActualHeight < 32 || (awayDetails.Content as string) != "…")
                 throw new Exception($"FAIL: the team details button is missing or tiny ({awayDetails.ActualWidth:0}x{awayDetails.ActualHeight:0})");
             var teamDialog = new TeamIdentityWindow(teamEngine, false, "Dark");
-            teamDialog.Show();
+            ShowForSmoke(teamDialog);
             teamDialog.UpdateLayout();
             var doneButton = FindAll<Button>(teamDialog).FirstOrDefault(b => (b.Content as string) == "Done")
                 ?? throw new Exception("FAIL: the team pop-up has no Done button");
@@ -4482,6 +4619,10 @@ internal static class Program
                 colorView.Arrange(new Rect(0, 0, 1280, 720));
                 var awayText = FindAll<TextBlock>(colorView).FirstOrDefault(t => t.Text == "Rovers FC")
                     ?? throw new Exception("FAIL: the team colour element did not render the team name");
+                // Jump Flip lifts the text above its element box. The host must not clip it, or the
+                // top of the glyphs disappears into the artwork background.
+                if (awayText.Parent is Border textHost && textHost.ClipToBounds)
+                    throw new Exception("FAIL: a text element still clips its Jump Flip overflow");
                 if (awayText.Foreground is not SolidColorBrush awayBrush || awayBrush.Color != Color.FromArgb(0xFF, 0xAA, 0x11, 0x22))
                     throw new Exception($"FAIL: the visitors' primary colour did not reach the graphic ({awayText.Foreground})");
                 colorEngine.SetTeamIdentity(false, "Rovers FC", "RFC", null, "#FF00FF00", "#FF223344");
@@ -4518,15 +4659,16 @@ internal static class Program
 
                 // A value change must finish on the new value, whatever the animation, and a value
                 // that changes mid-flight must not leave the old one on the graphic.
-                foreach (var transition in new[] { ScorebugTransition.WheelUp, ScorebugTransition.SlideRight, ScorebugTransition.Pop, ScorebugTransition.Flip })
+                foreach (var transition in new[] { ScorebugTransition.WheelUp, ScorebugTransition.SlideRight, ScorebugTransition.Pop, ScorebugTransition.Flip, ScorebugTransition.JumpFlip })
                 {
+                    var duration = transition == ScorebugTransition.JumpFlip ? 0.8 : 0.2;
                     var block = new ScorebugTextBlock(new ScorebugElement { Transition = transition, FontSize = 40 });
                     var transitionHost = new Window { Width = 360, Height = 160, Content = block };
-                    transitionHost.Show();
+                    ShowForSmoke(transitionHost);
                     transitionHost.UpdateLayout();
                     block.UpdateText("10", ScorebugTransition.Cut);
-                    block.UpdateText("17", transition);
-                    Pump(TimeSpan.FromMilliseconds(650));
+                    block.UpdateText("17", transition, duration);
+                    Pump(TimeSpan.FromMilliseconds(transition == ScorebugTransition.JumpFlip ? 1000 : 650));
                     if (block.Text != "17" || block.Opacity < 0.95)
                         throw new Exception($"FAIL: the {transition} animation left the value at '{block.Text}' with opacity {block.Opacity:0.00}");
                     // A finished transition must sit exactly in its box: not offset like the wheel
@@ -4536,16 +4678,80 @@ internal static class Program
                     var scale = transform.Children.OfType<ScaleTransform>().First();
                     if (Math.Abs(translate.X) > 0.5 || Math.Abs(translate.Y) > 0.5 || Math.Abs(scale.ScaleX - 1) > 0.01 || Math.Abs(scale.ScaleY - 1) > 0.01)
                         throw new Exception($"FAIL: the {transition} animation settled off-centre (translate {translate.X:0.0},{translate.Y:0.0} scale {scale.ScaleX:0.00},{scale.ScaleY:0.00})");
-                    block.UpdateText("21", transition);
+                    block.UpdateText("21", transition, duration);
                     Pump(TimeSpan.FromMilliseconds(40));
-                    block.UpdateText("24", transition);
+                    block.UpdateText("24", transition, duration);
                     Pump(TimeSpan.FromMilliseconds(80));
                     if (block.Text == "24")
                         throw new Exception("FAIL: a newer value cut the running value animation short");
-                    Pump(TimeSpan.FromMilliseconds(600));
+                    Pump(TimeSpan.FromMilliseconds(transition == ScorebugTransition.JumpFlip ? 1800 : 600));
                     if (block.Text != "24")
                         throw new Exception($"FAIL: a value changed mid-animation settled on '{block.Text}' instead of the newest value");
+                    // A value after the animation finishes must still print, especially after the
+                    // jump/flip crossing that used to leave the block permanently locked.
+                    block.UpdateText("25", transition, duration);
+                    Pump(TimeSpan.FromMilliseconds(transition == ScorebugTransition.JumpFlip ? 1000 : 700));
+                    if (block.Text != "25")
+                        throw new Exception($"FAIL: the {transition} animation stopped later values from printing ('{block.Text}')");
                     transitionHost.Close();
+                }
+                // ShrinkWheel must roll through every integer, not jump from 31 to 37.
+                {
+                    var wheelBlock = new ScorebugTextBlock(new ScorebugElement { Transition = ScorebugTransition.ShrinkWheel, TransitionSeconds = 1.1, FontSize = 40 });
+                    var wheelHost = new Window { Width = 360, Height = 160, Content = wheelBlock };
+                    ShowForSmoke(wheelHost);
+                    wheelHost.UpdateLayout();
+                    wheelBlock.UpdateText("31", ScorebugTransition.Cut);
+                    var seen = new HashSet<string>();
+                    var sawRoll = false;
+                    var sampler = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
+                    sampler.Tick += (_, _) =>
+                    {
+                        seen.Add(wheelBlock.Text);
+                        if (wheelBlock.TextEffects.Count > 0) sawRoll = true;
+                    };
+                    sampler.Start();
+                    wheelBlock.UpdateText("37", ScorebugTransition.ShrinkWheel, 1.1);
+                    Pump(TimeSpan.FromMilliseconds(1500));
+                    sampler.Stop();
+                    foreach (var value in new[] { "32", "33", "34", "35", "36" })
+                        if (!seen.Contains(value))
+                            throw new Exception($"FAIL: ShrinkWheel skipped the intermediate value {value}");
+                    if (!sawRoll)
+                        throw new Exception("FAIL: ShrinkWheel changed the value without wheeling the digits");
+                    if (wheelBlock.Text != "37")
+                        throw new Exception($"FAIL: ShrinkWheel settled on '{wheelBlock.Text}' instead of 37");
+                    wheelHost.Close();
+                }
+                // Both special presets must honour their own transition time. A 2-second jump
+                // was finishing at the default 0.2-second speed, which is what made it unreadable.
+                {
+                    var slowJump = new ScorebugTextBlock(new ScorebugElement { Transition = ScorebugTransition.JumpFlip, TransitionSeconds = 2, FontSize = 40 });
+                    var slowJumpHost = new Window { Width = 360, Height = 160, Content = slowJump };
+                    ShowForSmoke(slowJumpHost);
+                    slowJumpHost.UpdateLayout();
+                    slowJump.UpdateText("10", ScorebugTransition.Cut);
+                    slowJump.UpdateText("17", ScorebugTransition.JumpFlip, 2);
+                    Pump(TimeSpan.FromMilliseconds(600));
+                    if (slowJump.Text == "17")
+                        throw new Exception("FAIL: a 2-second JumpFlip finished before 600 ms");
+                    Pump(TimeSpan.FromMilliseconds(1700));
+                    if (slowJump.Text != "17")
+                        throw new Exception($"FAIL: a 2-second JumpFlip did not land on 17 ('{slowJump.Text}')");
+                    slowJumpHost.Close();
+                    var slowWheel = new ScorebugTextBlock(new ScorebugElement { Transition = ScorebugTransition.ShrinkWheel, TransitionSeconds = 2, FontSize = 40 });
+                    var slowWheelHost = new Window { Width = 360, Height = 160, Content = slowWheel };
+                    ShowForSmoke(slowWheelHost);
+                    slowWheelHost.UpdateLayout();
+                    slowWheel.UpdateText("31", ScorebugTransition.Cut);
+                    slowWheel.UpdateText("32", ScorebugTransition.ShrinkWheel, 2);
+                    Pump(TimeSpan.FromMilliseconds(600));
+                    if (slowWheel.Text == "32")
+                        throw new Exception("FAIL: a 2-second ShrinkWheel finished before 600 ms");
+                    Pump(TimeSpan.FromMilliseconds(1700));
+                    if (slowWheel.Text != "32")
+                        throw new Exception($"FAIL: a 2-second ShrinkWheel did not land on 32 ('{slowWheel.Text}')");
+                    slowWheelHost.Close();
                 }
                 Console.WriteLine("PASS: any colour can point at a team's primary or secondary colour, team logos reach the graphic, and the newest value lands without cutting the crossing");
             }
@@ -4561,6 +4767,9 @@ internal static class Program
                 var touchdown = new MotionClip { Name = "Probe touchdown", Kind = MotionKind.Animation };
                 var touchdownPhase = new MotionPhase("Motion", 1.2);
                 touchdownPhase.Tracks.Add(new MotionTrack(MotionTarget.Scale, (0, 1), (1.2, 1.35)));
+                // Item content motion makes the celebration own each item host too, which is the
+                // path that used to cancel a running score transition and freeze later updates.
+                touchdownPhase.Tracks.Add(new MotionTrack(MotionTarget.TextOpacity, (0, 1), (1.2, 1)));
                 touchdown.Phases.Add(touchdownPhase);
                 touchdown.Normalize();
                 var fieldGoal = new MotionClip { Name = "Probe field goal", Kind = MotionKind.Animation };
@@ -4577,7 +4786,7 @@ internal static class Program
                     Width = 960, Height = 540, Content = eventView, WindowStyle = WindowStyle.None,
                     ShowInTaskbar = false, Left = -20000, Top = -20000
                 };
-                eventWindow.Show();
+                ShowForSmoke(eventWindow);
                 eventWindow.UpdateLayout();
                 var eventCanvas = (Canvas)(typeof(ScorebugCanvasView)
                     .GetField("_canvas", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(eventView)
@@ -4600,6 +4809,8 @@ internal static class Program
                 if (!CanvasScaleStarted())
                     throw new Exception("FAIL: a seven-point touchdown did not play the touchdown celebration");
                 Pump(TimeSpan.FromMilliseconds(1300));
+                if (!FindAll<TextBlock>(eventView).Any(text => text.Text == "13"))
+                    throw new Exception("FAIL: the score stopped updating after a score celebration finished");
                 scoreEventEngine.Score(true, 3);
                 Pump(TimeSpan.FromMilliseconds(180));
                 if (!CanvasRotationStarted())
@@ -4647,7 +4858,7 @@ internal static class Program
                     Width = 960, Height = 540, Content = colourView, WindowStyle = WindowStyle.None,
                     ShowInTaskbar = false, Left = -20000, Top = -20000
                 };
-                colourWindow.Show();
+                ShowForSmoke(colourWindow);
                 colourWindow.UpdateLayout();
                 var colourCanvas = (Canvas)(typeof(ScorebugCanvasView)
                     .GetField("_canvas", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(colourView)
@@ -4729,7 +4940,7 @@ internal static class Program
                     throw new Exception("FAIL: a 0-second transition did not snap to the new value");
                 var slow = new ScorebugTextBlock(new ScorebugElement { FontSize = 40, TransitionSeconds = 3 });
                 var slowHost = new Window { Width = 320, Height = 140, Content = slow };
-                slowHost.Show();
+                ShowForSmoke(slowHost);
                 slowHost.UpdateLayout();
                 slow.UpdateText("A", ScorebugTransition.Cut);
                 slow.UpdateText("B", ScorebugTransition.Fade, 3);
@@ -4765,7 +4976,7 @@ internal static class Program
                 var folderDock = new MediaDock();
                 folderDock.Attach(playlistSession);
                 var folderWindow = new Window { Width = 470, Height = 680, Content = folderDock };
-                folderWindow.Show();
+                ShowForSmoke(folderWindow);
                 folderWindow.UpdateLayout();
                 // Folders and playlists are browser items now, like a file explorer: no rails, no dropdowns.
                 foreach (var stale in new[] { "FolderFilter", "FolderBox", "PlaylistBox", "FolderRail", "PlaylistRail", "FolderRailRow" })
@@ -4906,7 +5117,7 @@ internal static class Program
 
             // Time controls carry the same full-size buttons as the rest of the console.
             var clockPanel = new GameControlWindow(new GameEngine(), () => { }, _ => { }, () => true);
-            clockPanel.Show();
+            ShowForSmoke(clockPanel);
             clockPanel.UpdateLayout();
             clockPanel.Panel.UpdateLayout();
             var minusMinute = FindAll<Button>(clockPanel.Panel).FirstOrDefault(b => (b.Tag as string) == "clock.minus60")
@@ -4924,7 +5135,7 @@ internal static class Program
             // inherit the American football console.
             {
                 var american = new MainWindow();
-                american.Show();
+                ShowForSmoke(american);
                 american.UpdateLayout();
                 american.StartNewGame("football", announce: false);
                 american.UpdateLayout();
@@ -4937,12 +5148,12 @@ internal static class Program
                 american.Close();
 
                 var australian = new MainWindow();
-                australian.Show();
+                ShowForSmoke(australian);
                 australian.UpdateLayout();
                 australian.StartNewGame("australian-football", announce: false);
                 // Picking a sport from the picker must start that sport, not leave the last one.
                 var switchWindow = new MainWindow();
-                switchWindow.Show();
+                ShowForSmoke(switchWindow);
                 switchWindow.UpdateLayout();
                 switchWindow.StartNewGame("football", announce: false);
                 switchWindow.UpdateLayout();
@@ -4982,7 +5193,7 @@ internal static class Program
                 RosterStore.Save();
 
                 var rosterWindow = new GameControlWindow(rosterEngine, () => { }, _ => { }, () => true);
-                rosterWindow.Show();
+                ShowForSmoke(rosterWindow);
                 rosterWindow.UpdateLayout();
                 var rosterTab = rosterWindow.FindName("RosterTab") as Button
                     ?? throw new Exception("FAIL: the control panel has no ROSTERS tab");
@@ -5147,14 +5358,14 @@ internal static class Program
 
                 // The studio offers the player data, and the main window carries the tab too.
                 var studio = new ScorebugEditorWindow(rosterCatalog, rosterEngine);
-                studio.Show();
+                ShowForSmoke(studio);
                 studio.UpdateLayout();
                 if (!FindAll<Button>(studio).Any(b => (b.Content as string) == "PLAYER DATA +"))
                     throw new Exception("FAIL: the studio has no Add player data button");
                 studio.Close();
                 var rosterMain = new MainWindow();
 
-                rosterMain.Show();
+                ShowForSmoke(rosterMain);
                 rosterMain.UpdateLayout();
                 if (rosterMain.FindName("RosterTab") is not Button)
                     throw new Exception("FAIL: the main window has no ROSTERS tab");
@@ -5182,7 +5393,7 @@ internal static class Program
                     layout.Elements.Add(new ScorebugElement { Name = "Plate", X = 20, Y = 20, Width = 420, Height = 180, Background = "#FF102030" });
                 });
                 var gradientEditor = new ScorebugEditorWindow(gradientStudio, engine, null, "Dark");
-                gradientEditor.Show();
+                ShowForSmoke(gradientEditor);
                 gradientEditor.UpdateLayout();
                 ((ListBox)gradientEditor.FindName("Layers")!).SelectedIndex = 0;
                 gradientEditor.UpdateLayout();
@@ -5214,7 +5425,7 @@ internal static class Program
                 var textPanelEngine = new GameEngine();
                 textPanelEngine.NewGame("football");
                 var textPanel = new GameControlWindow(textPanelEngine, () => { }, _ => { }, () => true);
-                textPanel.Show();
+                ShowForSmoke(textPanel);
                 textPanel.UpdateLayout();
                 var penalties = textPanelEngine.AddStat("Penalties");
                 textPanel.UpdateLayout();
@@ -5262,7 +5473,7 @@ internal static class Program
                         layout.Elements.Add(new ScorebugElement { Name = "Name", Content = "{{PLAYER:HOME:Name}}", X = 20, Y = 20, Width = 320, Height = 60 });
                     });
                     var backdropStudio = new ScorebugEditorWindow(backdropCatalog, backdropEngine, null, "Dark") { Width = 1500, Height = 900 };
-                    backdropStudio.Show();
+                    ShowForSmoke(backdropStudio);
                     backdropStudio.UpdateLayout();
                     // The backdrop is part of the layout, so it also paints the preview and the audience.
                     var backdropInput = (TextBox)backdropStudio.FindName("CanvasBackgroundInput")!;
@@ -5350,7 +5561,7 @@ internal static class Program
             {
                 var newSportEngine = new GameEngine();
                 var sportWindow = new SportProfileWindow(newSportEngine.Sports);
-                sportWindow.Show();
+                ShowForSmoke(sportWindow);
                 sportWindow.UpdateLayout();
                 var customBefore = newSportEngine.Sports.Custom.Count;
                 var newProfile = FindAll<Button>(sportWindow).FirstOrDefault(b => (b.Content as string) == "New profile")
@@ -5376,7 +5587,7 @@ internal static class Program
             // ---------- launch: the main window opens locked behind the launcher ----------
             {
                 var cold = new MainWindow(waitForLaunch: true) { Width = 1280, Height = 800 };
-                cold.Show();
+                ShowForSmoke(cold);
                 cold.UpdateLayout();
                 var coldRoot = (DockPanel)cold.FindName("Root")!;
                 if (coldRoot.IsEnabled)
@@ -5401,7 +5612,7 @@ internal static class Program
                 // ---------- the console fills the screen when maximized ----------
                 {
                     var fillMain = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-                    fillMain.Show();
+                    ShowForSmoke(fillMain);
                     Pump(TimeSpan.FromMilliseconds(250));
                     fillMain.WindowState = WindowState.Maximized;
                     Pump(TimeSpan.FromMilliseconds(450));
@@ -5421,7 +5632,7 @@ internal static class Program
             // ---------- program preview: the audience monitor shows what is on air ----------
             {
                 var monitorMain = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-                monitorMain.Show();
+                ShowForSmoke(monitorMain);
                 monitorMain.UpdateLayout();
                 var monitor = monitorMain.AudienceMonitor ?? throw new Exception("FAIL: the program preview has no audience monitor");
                 var staged = monitorMain.Scorebug.AddLayout("Staged only");
@@ -5456,7 +5667,7 @@ internal static class Program
                 if (autosavePrefs.AutosaveMinutes != 5)
                     throw new Exception($"FAIL: autosave defaults to {autosavePrefs.AutosaveMinutes} minutes");
                 var autosaveWindow = new SettingsWindow(autosavePrefs);
-                autosaveWindow.Show();
+                ShowForSmoke(autosaveWindow);
                 autosaveWindow.UpdateLayout();
                 var autosaveBox = (TextBox)autosaveWindow.FindName("AutosaveMinutesInput")!;
                 if (autosaveBox.Text != "5")
@@ -5467,7 +5678,7 @@ internal static class Program
                     throw new Exception($"FAIL: choosing never left autosave at {autosavePrefs.AutosaveMinutes}/{PreferencesStore.Load().AutosaveMinutes}");
                 var oneMinutePrefs = new UserPreferences { AutosaveMinutes = 0 };
                 var oneMinuteWindow = new SettingsWindow(oneMinutePrefs);
-                oneMinuteWindow.Show();
+                ShowForSmoke(oneMinuteWindow);
                 oneMinuteWindow.UpdateLayout();
                 ((TextBox)oneMinuteWindow.FindName("AutosaveMinutesInput")!).Text = "1";
                 FindAll<Button>(oneMinuteWindow).First(b => (b.Content as string) == "Save").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -5483,7 +5694,7 @@ internal static class Program
                 if (delayPrefs.ValueSwitchDelay != 0)
                     throw new Exception($"FAIL: the value switch delay defaults to {delayPrefs.ValueSwitchDelay}");
                 var delayWindow = new SettingsWindow(delayPrefs);
-                delayWindow.Show();
+                ShowForSmoke(delayWindow);
                 delayWindow.UpdateLayout();
                 var delayBox = (TextBox)delayWindow.FindName("DelayInput")!;
                 if (delayBox.Text != "0")
@@ -5583,11 +5794,16 @@ internal static class Program
                     throw new Exception("FAIL: the update version comparison is wrong");
 
                 // Tags are what a release carries, so they have to survive real-world names.
-                if (UpdateChecker.VersionFromTag("v1.2.0") != "1.2.0"
+                if (UpdateChecker.VersionFromTag("v1.2.0") != "3.2.0"
+                    || UpdateChecker.VersionFromTag("v1.0") != "3.0.0"
                     || UpdateChecker.VersionFromTag("release-2.0") != "2.0.0"
                     || UpdateChecker.VersionFromTag("a1.01") != "1.1.0"
                     || UpdateChecker.VersionFromTag("nightly") is not null)
                     throw new Exception("FAIL: a release tag was not turned into a comparable version");
+                // A b1.1 build must see both the next beta and the eventual v1.0 stable as newer.
+                if (!UpdateChecker.IsNewer("b1.2", "b1.1") || !UpdateChecker.IsNewer("v1.0", "b1.1")
+                    || !UpdateChecker.IsNewer("v1.0", "b1.2"))
+                    throw new Exception("FAIL: b1.1 cannot update to b1.2 or v1.0");
 
                 // Both spellings of the next alpha read the same, and the beta's numeric stage sits
                 // above every alpha so an installed a1.6 copy sees it as an update.
@@ -5609,9 +5825,7 @@ internal static class Program
                     "assets": [
                       { "name": "ScorePlusPortable.exe", "browser_download_url": "https://example.invalid/portable.exe", "state": "uploaded" },
                       { "name": "ScorePlusSetup.exe", "browser_download_url": "https://example.invalid/setup.exe", "state": "uploaded",
-                        "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" } ] },
-                  { "tag_name": "v1.2.0", "draft": false, "prerelease": false,
-                    "assets": [ { "name": "ScorePlusSetup.exe", "browser_download_url": "https://example.invalid/old.exe", "state": "uploaded" } ] }
+                        "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" } ] }
                 ]
                 """;
                 var offered = UpdateChecker.ParseReleases(releaseJson);
@@ -5647,7 +5861,7 @@ internal static class Program
                 // ---------- the installer wears the app's own chrome and reads its Alpha label ----------
                 {
                     var setupWindow = new SetupWindow(false) { ShowInTaskbar = false };
-                    setupWindow.Show();
+                    ShowForSmoke(setupWindow);
                     setupWindow.UpdateLayout();
                     if (!FindAll<TextBlock>(setupWindow).Any(t => t.Text.Contains("Alpha ", StringComparison.Ordinal)))
                         throw new Exception("FAIL: the installer does not show its Alpha version");
@@ -5698,7 +5912,7 @@ internal static class Program
                 // ---------- linked parts: one edit reaches every copy, and the link can be broken ----------
                 {
                     var linkMain = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
-                    linkMain.Show();
+                    ShowForSmoke(linkMain);
                     linkMain.UpdateLayout();
                     linkMain.Scorebug.AddLayout("Second");
                     linkMain.Scorebug.SelectLayout(1);
@@ -5714,7 +5928,7 @@ internal static class Program
                         layout.Elements.Add(new ScorebugElement { Name = "Linked bar", Content = "BAR", LinkId = "group-1", X = 40, Y = 40, Width = 300, Height = 80 });
                     });
                     var linkStudio = new ScorebugEditorWindow(linkMain.Scorebug, linkMain.Engine);
-                    linkStudio.Show();
+                    ShowForSmoke(linkStudio);
                     linkStudio.UpdateLayout();
                     var layerList = (ListBox)linkStudio.FindName("Layers")!;
                     layerList.SelectedIndex = 0;
@@ -5811,7 +6025,7 @@ internal static class Program
                         layout.Elements.Add(new ScorebugElement { Name = "Timeouts", Content = "{{POSSESSION}}", X = 60, Y = 60, Width = 260, Height = 70, FontSize = 30 });
                     });
                     var artStudio = new ScorebugEditorWindow(artCatalog, artEngine) { Width = 1400, Height = 900 };
-                    artStudio.Show();
+                    ShowForSmoke(artStudio);
                     artStudio.UpdateLayout();
                     ((ListBox)artStudio.FindName("Layers")!).SelectedIndex = 0;
                     artStudio.UpdateLayout();
@@ -5853,7 +6067,7 @@ internal static class Program
                     diamondEngine.NewGame("baseball");
                     var diamondView = new ScorebugIconView(diamondItem, () => diamondEngine.State);
                     var diamondHost = new Window { Content = diamondView, Width = 300, Height = 240, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
-                    diamondHost.Show();
+                    ShowForSmoke(diamondHost);
                     Pump(TimeSpan.FromMilliseconds(250));
                     diamondEngine.SetSportValue("baseball.first", 1);
                     diamondView.Update();
@@ -6054,6 +6268,38 @@ internal static class Program
         writer.Write(System.Text.Encoding.ASCII.GetBytes("data"));
         writer.Write(data);
         writer.Write(new byte[data]);
+    }
+
+    static string RunMacro(MacroRunner runner, SavedMacro macro)
+    {
+        var task = runner.RunAsync(macro);
+        // The runner waits asynchronously for a Wait step. Pump the WPF dispatcher while it waits;
+        // blocking on the task would keep its continuation from ever reaching this thread.
+        while (!task.IsCompleted) Pump(TimeSpan.FromMilliseconds(10));
+        return task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Shows a probe window without changing the operator's foreground window. Keeping the probes
+    /// offscreen and unactivated still gives WPF a real presentation source for layout, rendering
+    /// and routed events, but the smoke run no longer interrupts whatever the operator is doing.
+    /// </summary>
+    static void ShowForSmoke(Window window)
+    {
+        // WPF refuses to show an unactivated maximized window. Normalize it for the initial show
+        // and restore the state afterwards, so tests that assert full-screen sizing still work.
+        var maximized = window.WindowState == WindowState.Maximized;
+        if (maximized) window.WindowState = WindowState.Normal;
+        window.ShowActivated = false;
+        window.ShowInTaskbar = false;
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.Left = -32000;
+        window.Top = -32000;
+        // Fully transparent so a maximized probe cannot cover the desktop; it is still a visible
+        // window to WPF, so layout, rendering and focus-independent routed events work normally.
+        window.Opacity = 0;
+        window.Show();
+        if (maximized) window.WindowState = WindowState.Maximized;
     }
 
     static void Pump(TimeSpan duration)
