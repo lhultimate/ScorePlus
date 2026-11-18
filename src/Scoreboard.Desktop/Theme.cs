@@ -131,8 +131,19 @@ public sealed class UserPreferences
     /// </summary>
     public double MediaMasterVolume { get; set; } = 1;
 
-    /// <summary>Draw a sound bar beside a camera tile whose camera names a microphone.</summary>
-    public bool MultiviewCameraSoundBars { get; set; }
+    /// <summary>
+    /// Draw a sound bar beside a camera tile whose camera names a microphone. On by default:
+    /// the operator asked for levels on the wall, and the toggle only lived inside the wall's
+    /// edit menu, so a wall saved before the feature existed never showed one.
+    /// </summary>
+    public bool MultiviewCameraSoundBars { get; set; } = true;
+
+    /// <summary>
+    /// True once the operator has used the multiview sound-bar toggle. Files written before the
+    /// toggle existed carry <c>false</c> for the bars themselves, so this tells a deliberate
+    /// "off" apart from "never asked" and lets an old show take the new default once.
+    /// </summary>
+    public bool MultiviewSoundBarsChosen { get; set; }
 
     /// <summary>
     /// Off by default: a quick button only stages its layout. When this is on, the same press also
@@ -204,6 +215,7 @@ public sealed class UserPreferences
         ReplaySeconds = ReplaySeconds,
         MediaMasterVolume = MediaMasterVolume,
         MultiviewCameraSoundBars = MultiviewCameraSoundBars,
+        MultiviewSoundBarsChosen = MultiviewSoundBarsChosen,
         Hardware = Hardware.Clone(),
         HornSound = HornSound,
         HornCustomPath = HornCustomPath,
@@ -303,6 +315,10 @@ public static class PreferencesStore
             preferences.Schema = 3;
             try { Save(preferences); } catch { }
         }
+        // Camera sound bars used to default off, and their only toggle lives inside the wall's edit
+        // menu, so a saved wall never showed one. A file that never recorded a deliberate choice
+        // takes the new default once; turning the toggle off afterwards is remembered.
+        if (!preferences.MultiviewSoundBarsChosen) preferences.MultiviewCameraSoundBars = true;
         // A negative interval is not a setting; the shipped default is five minutes. Zero is a real
         // choice and means never autosave.
         if (preferences.AutosaveMinutes < 0) preferences.AutosaveMinutes = 5;

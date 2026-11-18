@@ -27,6 +27,23 @@ public sealed class MicrophoneFeed : IDisposable
     string? _outputDeviceId;
     double _volume = 1;
     bool _running;
+    // The input peak meter. A microphone is an input, so a loopback capture of it reads silence;
+    // measuring the samples as they arrive is the only honest level for its own bar.
+    readonly object _levelGate = new();
+    float _levelHeld;
+    double _level;
+    DateTime _levelAt = DateTime.UtcNow;
+    bool _floats = true;
+    // A microphone's level has to be readable while it is only sitting in the multiview, not just
+    // while it is being monitored: a camera's sound bar asks for one whether or not the mic is
+    // cued, and a cued camera never opens its microphone. This silent capture measures the input
+    // without sending it anywhere, and it is released when nothing has asked for a level lately.
+    readonly object _meterGate = new();
+    WasapiCapture? _meter;
+    MMDeviceEnumerator? _meterEnumerator;
+    bool _meterFloats = true;
+    DateTime _meterReadAt = DateTime.UtcNow;
+    Timer? _meterIdle;
 
     MicrophoneFeed(int index) => _index = index;
 
@@ -88,6 +105,7 @@ public sealed class MicrophoneFeed : IDisposable
             _enumerator = new MMDeviceEnumerator();
             var captureDevice = Resolve(DataFlow.Capture, _index);
             _capture = captureDevice is null ? new WasapiCapture() : new WasapiCapture(captureDevice);
+            _floats = _capture.WaveFormat.BitsPerSample == 32;
             _buffer = new BufferedWaveProvider(_capture.WaveFormat)
             {
                 DiscardOnBufferOverflow = true,
@@ -103,6 +121,8 @@ public sealed class MicrophoneFeed : IDisposable
             _output.Play();
             _outputDeviceId = outputDeviceId;
             _running = true;
+            // The monitor now measures the same input, so a second capture on the device is waste.
+            StopMeter();
         }
         catch (Exception ex)
         {
@@ -114,6 +134,8 @@ public sealed class MicrophoneFeed : IDisposable
     void OnData(object? sender, WaveInEventArgs e)
     {
         if (e.BytesRecorded <= 0) return;
+        var peak = Peak(e.Buffer, e.BytesRecorded, _floats);
+        lock (_levelGate) { if (peak > _levelHeld) _levelHeld = peak; }
         // The monitor level is applied to the captured samples, so the level the room hears is the
         // one set on the dock and nothing downstream has to know about it.
         var buffer = e.Buffer;
@@ -124,6 +146,131 @@ public sealed class MicrophoneFeed : IDisposable
             Scale(buffer, e.BytesRecorded, (float)Math.Clamp(_volume, 0, 1));
         }
         try { _buffer?.AddSamples(buffer, 0, e.BytesRecorded); } catch { }
+    }
+
+    /// <summary>The loudest sample in a capture buffer, 0–1. WASAPI mix formats are 32-bit float.</summary>
+    static float Peak(byte[] buffer, int bytes, bool floats)
+    {
+        var peak = 0f;
+        if (floats)
+        {
+            for (var offset = 0; offset + 4 <= bytes; offset += 4)
+            {
+                var sample = Math.Abs(BitConverter.ToSingle(buffer, offset));
+                if (sample > peak) peak = sample;
+            }
+        }
+        else
+        {
+            for (var offset = 0; offset + 2 <= bytes; offset += 2)
+            {
+                var sample = Math.Abs(BitConverter.ToInt16(buffer, offset) / 32768f);
+                if (sample > peak) peak = sample;
+            }
+        }
+        return Math.Min(1, peak);
+    }
+
+    /// <summary>
+    /// The microphone's own input level, 0–1, with the same fast rise and slow fall as the output
+    /// meters. It measures the device even while the microphone is not cued or on air, because a
+    /// camera's sound bar has to move before the mic is opened for monitoring.
+    /// </summary>
+    public double ReadLevel()
+    {
+        if (!_running) EnsureMeter();
+        lock (_levelGate)
+        {
+            var now = DateTime.UtcNow;
+            var seconds = Math.Clamp((now - _levelAt).TotalSeconds, 0, 1);
+            _levelAt = now;
+            // A microphone bar is read far more often than the output meters, and a slow fall made
+            // it look a beat behind the room, so it releases faster.
+            var decayed = _level * Math.Pow(0.10, seconds / 0.35);
+            _level = Math.Max(Math.Min(1, _levelHeld), decayed);
+            _levelHeld = 0;
+            return _level < 0.002 ? 0 : _level;
+        }
+    }
+
+    void OnMeterData(object? sender, WaveInEventArgs e)
+    {
+        if (e.BytesRecorded <= 0) return;
+        var peak = Peak(e.Buffer, e.BytesRecorded, _meterFloats);
+        lock (_levelGate) { if (peak > _levelHeld) _levelHeld = peak; }
+    }
+
+    /// <summary>Opens the level-only capture when the microphone is not being monitored already.</summary>
+    void EnsureMeter()
+    {
+        var now = DateTime.UtcNow;
+        lock (_meterGate)
+        {
+            _meterReadAt = now;
+            if (_meter is not null) return;
+            MMDeviceEnumerator? enumerator = null;
+            WasapiCapture? capture = null;
+            try
+            {
+                enumerator = new MMDeviceEnumerator();
+                var device = Resolve(enumerator, DataFlow.Capture, _index);
+                capture = device is null ? new WasapiCapture() : new WasapiCapture(device);
+                _meterFloats = capture.WaveFormat.BitsPerSample == 32;
+                capture.DataAvailable += OnMeterData;
+                capture.StartRecording();
+            }
+            catch
+            {
+                // A device another program holds exclusively simply leaves the bar at zero.
+                if (capture is not null)
+                {
+                    capture.DataAvailable -= OnMeterData;
+                    try { capture.Dispose(); } catch { }
+                }
+                try { enumerator?.Dispose(); } catch { }
+                return;
+            }
+            _meter = capture;
+            _meterEnumerator = enumerator;
+            // The wall can close while the meter is open, and nothing would then ask for a level
+            // again. Five idle seconds is long enough to ride out a theme or tile rebuild.
+            _meterIdle = new Timer(_ => ReleaseIdleMeter(), null, 5000, 2000);
+        }
+    }
+
+    void ReleaseIdleMeter()
+    {
+        lock (_meterGate)
+        {
+            if ((DateTime.UtcNow - _meterReadAt).TotalSeconds < 5) return;
+        }
+        StopMeter();
+    }
+
+    /// <summary>Closes the level-only capture, leaving any monitoring untouched.</summary>
+    void StopMeter()
+    {
+        WasapiCapture? capture;
+        MMDeviceEnumerator? enumerator;
+        Timer? idle;
+        lock (_meterGate)
+        {
+            capture = _meter;
+            enumerator = _meterEnumerator;
+            idle = _meterIdle;
+            _meter = null;
+            _meterEnumerator = null;
+            _meterIdle = null;
+        }
+        idle?.Dispose();
+        if (capture is not null)
+        {
+            capture.DataAvailable -= OnMeterData;
+            try { capture.StopRecording(); } catch { }
+            try { capture.Dispose(); } catch { }
+        }
+        try { enumerator?.Dispose(); } catch { }
+        lock (_levelGate) _levelHeld = 0;
     }
 
     /// <summary>Scales a capture buffer in place; WASAPI mix formats are 32-bit float, 16-bit is the fallback.</summary>
@@ -163,6 +310,7 @@ public sealed class MicrophoneFeed : IDisposable
     public void Stop()
     {
         _running = false;
+        lock (_levelGate) { _levelHeld = 0; _level = 0; _levelAt = DateTime.UtcNow; }
         if (_capture is not null)
         {
             _capture.DataAvailable -= OnData;
@@ -179,11 +327,13 @@ public sealed class MicrophoneFeed : IDisposable
     }
 
     /// <summary>An active capture or render device by its position in Windows' order.</summary>
-    MMDevice? Resolve(DataFlow flow, int index)
+    MMDevice? Resolve(DataFlow flow, int index) => Resolve(_enumerator!, flow, index);
+
+    static MMDevice? Resolve(MMDeviceEnumerator enumerator, DataFlow flow, int index)
     {
         try
         {
-            var devices = _enumerator!.EnumerateAudioEndPoints(flow, DeviceState.Active);
+            var devices = enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active);
             return index >= 0 && index < devices.Count ? devices[index] : null;
         }
         catch { return null; }

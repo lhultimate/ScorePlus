@@ -1027,9 +1027,33 @@ public sealed class MediaSession
     public double LevelFor(MediaEntry entry)
     {
         if (entry.IsSpeaker) return SoundLevelMeter.ReadDevice(entry.AudioDevice);
-        if (entry.IsMicrophone) return SoundLevelMeter.ReadDevice(entry.AudioDevice);
+        // A microphone is an input, not an output. A loopback capture of a capture device reads
+        // silence, which is why a camera's sound bar never moved. The feed that listens to the
+        // microphone already measures its true input level, so read that instead.
+        if (entry.IsMicrophone) return MicrophoneFeed.Get(entry.MicrophoneIndex).ReadLevel();
         var bus = SpeakerBusFor(entry);
         return SoundLevelMeter.ReadDevice(bus?.AudioDevice ?? entry.AudioDevice);
+    }
+
+    /// <summary>
+    /// Mutes or unmutes one speaker bus without touching the level it keeps. A macro step uses
+    /// this so a talkback or arena feed can be silenced and brought back at the same level.
+    /// </summary>
+    public bool SetSpeakerMuted(MediaEntry entry, bool muted)
+    {
+        entry = Resolve(entry);
+        if (!entry.IsSpeaker) return false;
+        if (entry.SpeakerMuted == muted) return true;
+        var updated = MediaLibrary.SetSpeakerMuted(Library, entry, muted);
+        if (updated is null) return false;
+        Selected = updated;
+        ApplySpeakerGains();
+        Save();
+        StateChanged?.Invoke();
+        Status?.Invoke(updated.SpeakerMuted
+            ? $"SPEAKER OFF · {updated.Label} · level kept at {updated.VolumePercent}%"
+            : $"SPEAKER ON · {updated.Label} · {updated.VolumePercent}%");
+        return true;
     }
 
     /// <summary>Every output device the show is using, for the master mix's own bar.</summary>
