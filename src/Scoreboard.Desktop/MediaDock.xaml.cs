@@ -46,6 +46,12 @@ public partial class MediaDock : UserControl
     // While a seek is being applied the bar must not snap back to the old position.
     DateTime _settleUntil;
 
+    // A live level bar beside every item that carries sound, and the master readout above the
+    // program preview. Both are painted by one small timer, not by the transport.
+    readonly List<(MediaEntry Entry, Border Fill, Border Track)> _meters = [];
+    readonly System.Windows.Threading.DispatcherTimer _meterTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
+    string _cameraMicSignature = "";
+
     MediaView _view = MediaView.Library;
     string? _openPlaylistName;
     string _search = "";
@@ -79,9 +85,20 @@ public partial class MediaDock : UserControl
         public override string ToString() => Entry.Label;
     }
 
+    /// <summary>
+    /// Opens the display's rule editor. The console host wires this to the studio's conditionals,
+    /// so the media rail can reach the rules that run a macro or put a piece on air by themselves.
+    /// </summary>
+    public Action? OpenConditionals { get; set; }
+
+    bool _syncingScreens;
+
     public MediaDock()
     {
         InitializeComponent();
+        _meterTimer.Tick += (_, _) => UpdateMeters();
+        Loaded += (_, _) => _meterTimer.Start();
+        Unloaded += (_, _) => _meterTimer.Stop();
         _audioDevices = new[] { DefaultOutput }.Concat(AudioRouter.Devices()).ToArray();
         AudioDeviceBox.ItemsSource = _audioDevices;
         AudioDeviceBox.SelectedIndex = 0;
@@ -165,6 +182,7 @@ public partial class MediaDock : UserControl
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(Refresh); return; }
         if (_session is null) return;
+        SyncScreenMonitors();
         if (_view == MediaView.Playlist && OpenPlaylist() is null)
         {
             _view = MediaView.Library;
@@ -814,6 +832,7 @@ public partial class MediaDock : UserControl
         _shownClips = list;
         _shownPlaylist = playlist;
         Tiles.Children.Clear();
+        _meters.Clear();
         // Folders and playlists are browser items, not shelves: they lead the grid like a file list.
         if (playlist is null)
         {
@@ -902,6 +921,9 @@ public partial class MediaDock : UserControl
                 Child = new TextBlock { Text = (index + 1).ToString(), Foreground = Brushes.White, FontSize = 9, FontWeight = FontWeights.Bold }
             });
         }
+        // A speaker, a microphone or a clip carries a bar down the right edge of its thumbnail,
+        // so the dock reads like a mixer without opening anything.
+        if (!entry.IsScreen && !entry.IsCamera) thumb.Children.Add(LevelBar(entry));
         Grid.SetRow(thumb, 0);
         grid.Children.Add(thumb);
 
@@ -987,6 +1009,159 @@ public partial class MediaDock : UserControl
         }
         return tile;
     }
+
+    /// <summary>A thin vertical meter for one library item, drawn inside its thumbnail.</summary>
+    Border LevelBar(MediaEntry entry)
+    {
+        var fill = new Border
+        {
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Background = Frozen("#38D7A3"),
+            Height = 0,
+            CornerRadius = new CornerRadius(2)
+        };
+        var track = new Border
+        {
+            Width = 8,
+            Margin = new Thickness(4),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = Frozen("#80000000"),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(1),
+            Child = fill,
+            IsHitTestVisible = false,
+            ToolTip = $"{entry.Label} · level"
+        };
+        ThemeManager.SetSkipTheme(track, true);
+        _meters.Add((entry, fill, track));
+        return track;
+    }
+
+    /// <summary>Moves every bar to the level of the source behind it and keeps the master readout current.</summary>
+    void UpdateMeters()
+    {
+        if (_session is null) return;
+        foreach (var (entry, fill, track) in _meters)
+        {
+            var available = track.ActualHeight - 2;
+            if (available <= 1) continue;
+            var level = Math.Clamp(_session.LevelFor(entry), 0, 1);
+            fill.Height = available * level;
+            fill.Background = Frozen(level > 0.92 ? "#FF6B6B" : level > 0.78 ? "#E8B23A" : "#38D7A3");
+        }
+        if (!_syncing)
+        {
+            MasterVolumeSlider.Value = Math.Round(_session.MasterVolume * 100);
+            MasterVolumeText.Text = $"{Math.Round(_session.MasterVolume * 100)}%";
+        }
+        // The master reads the loudest bus, which is what the program preview above shows too.
+        var master = SoundLevelMeter.ReadMaster(_session.AudioDevicesInUse);
+        MasterLevelText.Text = master <= 0 ? "−∞ dB" : $"{SoundLevelMeter.Decibels(master):0} dB · master mix";
+        RefreshCameraMics();
+    }
+
+    /// <summary>The camera's microphone picker, rebuilt only when the library actually changes.</summary>
+    void RefreshCameraMics()
+    {
+        if (_session is null) return;
+        var cameras = _session.Library.Where(entry => entry.IsCamera).ToArray();
+        var microphones = _session.Library.Where(entry => entry.IsMicrophone).ToArray();
+        var signature = string.Join("|", cameras.Select(camera => $"{camera.Path}={camera.MicrophoneLink}"))
+            + "#" + string.Join("|", microphones.Select(mic => mic.Path));
+        if (signature == _cameraMicSignature) return;
+        _cameraMicSignature = signature;
+        if (cameras.Length == 0)
+        {
+            CameraMicBox.ItemsSource = new[] { "No cameras in the library" };
+            CameraMicBox.SelectedIndex = 0;
+            CameraMicBox.IsEnabled = false;
+            return;
+        }
+        CameraMicBox.IsEnabled = true;
+        var selected = _session.Selected?.IsCamera == true ? _session.Selected : cameras[0];
+        CameraMicBox.ItemsSource = new[] { $"{selected.Label} · no microphone" }
+            .Concat(microphones.Select(mic => $"{selected.Label} · {mic.Label}")).ToArray();
+        var index = Array.FindIndex(microphones, mic =>
+            string.Equals(mic.Path, selected.MicrophoneLink, StringComparison.OrdinalIgnoreCase));
+        _syncing = true;
+        try { CameraMicBox.SelectedIndex = index < 0 ? 0 : index + 1; }
+        finally { _syncing = false; }
+    }
+
+    void CameraMic_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing || _session is null) return;
+        var camera = _session.Selected?.IsCamera == true ? _session.Selected
+            : _session.Library.FirstOrDefault(entry => entry.IsCamera);
+        if (camera is null) return;
+        var microphones = _session.Library.Where(entry => entry.IsMicrophone).ToArray();
+        var index = CameraMicBox.SelectedIndex - 1;
+        _session.SetCameraMicrophone(camera, index >= 0 && index < microphones.Length ? microphones[index].Path : null);
+    }
+
+    void MasterVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing || _session is null) return;
+        _session.SetMasterVolume(e.NewValue / 100);
+        MasterVolumeText.Text = $"{Math.Round(e.NewValue)}%";
+    }
+
+    /// <summary>Renames whatever is outlined in the library, whatever kind of item it is.</summary>
+    void Rename_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        var entry = _session.Selected;
+        if (entry is null)
+        {
+            _session.Report("SELECT AN ITEM FIRST");
+            return;
+        }
+        var current = entry.Label;
+        var name = PromptName($"Rename {current}",
+            "The name shows on the clipboard, in the multiview, in the replay booth and on macro steps.",
+            string.IsNullOrWhiteSpace(entry.Name) ? current : entry.Name);
+        if (name is null) return;
+        _session.Rename(entry, name);
+        Refresh();
+    }
+
+    /// <summary>Adds the monitor chosen in the picker as a media piece.</summary>
+    void Screen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        _session.AddScreen(Math.Max(0, ScreenMonitorBox.SelectedIndex), MediaLibrary.NormalizeTag(TagBox.Text));
+        Refresh();
+    }
+
+    /// <summary>Lists every monitor, and follows the outlined screen item's own monitor.</summary>
+    void SyncScreenMonitors()
+    {
+        if (_session is null) return;
+        var labels = _session.Screens().Select(screen => screen.Label).ToArray();
+        var shown = ScreenMonitorBox.Items.Cast<object>().Select(item => item?.ToString() ?? "").ToArray();
+        _syncingScreens = true;
+        try
+        {
+            if (!shown.SequenceEqual(labels)) ScreenMonitorBox.ItemsSource = labels;
+            var current = _session.Selected?.IsScreen == true ? _session.Selected.ScreenIndex : ScreenMonitorBox.SelectedIndex;
+            ScreenMonitorBox.SelectedIndex = Math.Clamp(current, 0, Math.Max(0, labels.Length - 1));
+        }
+        finally { _syncingScreens = false; }
+        ConditionalsButton.Visibility = OpenConditionals is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>Switches an outlined screen item to another monitor, or picks what Add screen captures.</summary>
+    void ScreenMonitor_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingScreens || _session is null) return;
+        var index = ScreenMonitorBox.SelectedIndex;
+        if (index < 0 || _session.Selected?.IsScreen != true) return;
+        _session.SetScreenMonitor(_session.Selected, index);
+        Refresh();
+    }
+
+    void Conditionals_Click(object sender, RoutedEventArgs e) => OpenConditionals?.Invoke();
 
     // ---------- transport ----------
 

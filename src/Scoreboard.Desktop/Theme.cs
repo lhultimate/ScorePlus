@@ -125,6 +125,16 @@ public sealed class UserPreferences
     public int ReplaySeconds { get; set; } = 120;
 
     /// <summary>
+    /// The show's master level, 0–1. Every speaker bus and every clip passes through it, so one
+    /// slider takes the whole room down without touching each bus, and the buses keep their own
+    /// balance underneath it.
+    /// </summary>
+    public double MediaMasterVolume { get; set; } = 1;
+
+    /// <summary>Draw a sound bar beside a camera tile whose camera names a microphone.</summary>
+    public bool MultiviewCameraSoundBars { get; set; }
+
+    /// <summary>
     /// Off by default: a quick button only stages its layout. When this is on, the same press also
     /// sends it to air, which is faster but updates output without a second confirmation.
     /// </summary>
@@ -192,6 +202,8 @@ public sealed class UserPreferences
         MultiviewShowLabels = MultiviewShowLabels,
         ReplayBoothShowLabels = ReplayBoothShowLabels,
         ReplaySeconds = ReplaySeconds,
+        MediaMasterVolume = MediaMasterVolume,
+        MultiviewCameraSoundBars = MultiviewCameraSoundBars,
         Hardware = Hardware.Clone(),
         HornSound = HornSound,
         HornCustomPath = HornCustomPath,

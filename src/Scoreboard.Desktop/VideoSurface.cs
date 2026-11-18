@@ -39,8 +39,11 @@ public sealed class VideoSurface : Grid
     // True for a surface that is showing what the audience gets, even when it is muted. The
     // audience-view monitor is one: silent, but it must never show a replay the audience cannot.
     readonly bool _onAir;
-    CameraFeed? _feed;
-    int _cameraIndex = -1;
+    // A camera and a captured desktop behave the same way here: frames arrive, and the element
+    // paints the newest one. Keeping one field for both means a screen is a media piece with no
+    // special case in the scorebug's drawing code.
+    ILiveSource? _feed;
+    string _liveKey = "";
     // The last raw picture from each live source, kept so a crop change can re-cut a paused frame
     // immediately instead of waiting for the next camera/replay update.
     ImageSource? _liveFrame;
@@ -368,6 +371,7 @@ public sealed class VideoSurface : Grid
         // picture before any layer is switched, then let it leave over the incoming source.
         var cueKey = entry is null ? ""
             : entry.IsCamera ? $"camera:{entry.CameraIndex}"
+            : entry.IsScreen ? $"screen:{entry.ScreenIndex}"
             : $"file:{entry.Path}:{entry.ReplayCue}";
         if (_cueKey is not null && !string.Equals(_cueKey, cueKey, StringComparison.OrdinalIgnoreCase))
             BeginSwitchAnimation(entry);
@@ -380,7 +384,7 @@ public sealed class VideoSurface : Grid
 
         // A live camera has no file to open: its frames replace the video player until the
         // operator cuts to an instant replay or another clip.
-        if (entry is { IsCamera: true })
+        if (entry is { IsCamera: true } or { IsScreen: true })
         {
             // A live feed has no file for the router to open. Stop the player even when the same
             // camera index is already selected: a surface that previously held a file must never
@@ -390,7 +394,7 @@ public sealed class VideoSurface : Grid
             _loadedPath = null;
             _opened = false;
             _playing = false;
-            ShowLiveCamera(entry.CameraIndex);
+            ShowLiveSource(entry);
             if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
             return;
         }
@@ -555,15 +559,16 @@ public sealed class VideoSurface : Grid
         _routedDevice = null;
     }
 
-    void ShowLiveCamera(int index)
+    void ShowLiveSource(MediaEntry entry)
     {
-        if (_cameraIndex != index)
+        var key = entry.IsScreen ? $"screen:{entry.ScreenIndex}" : $"camera:{entry.CameraIndex}";
+        if (!string.Equals(_liveKey, key, StringComparison.OrdinalIgnoreCase))
         {
             // Keep the outgoing camera's last picture visible while the new feed opens. The
             // default unsubscribe hides it, which is right when leaving camera for a file, but
             // wrong for a cut between two cameras: that briefly showed an empty video box.
             UnsubscribeLive(keepPicture: true);
-            _cameraIndex = index;
+            _liveKey = key;
             if (_loadedPath is not null)
             {
                 try { _player.Stop(); _player.Close(); } catch { }
@@ -571,7 +576,9 @@ public sealed class VideoSurface : Grid
                 _opened = false;
                 _playing = false;
             }
-            _feed = CameraFeed.Get(index);
+            _feed = entry.IsScreen
+                ? ScreenFeed.Get(entry.ScreenIndex)
+                : CameraFeed.Get(entry.CameraIndex);
             _feed.FrameReady += OnCameraFrame;
             _feed.Start();
         }
@@ -586,7 +593,7 @@ public sealed class VideoSurface : Grid
     {
         if (_feed is not null) _feed.FrameReady -= OnCameraFrame;
         _feed = null;
-        _cameraIndex = -1;
+        _liveKey = "";
         if (keepPicture) return;
         _liveFrame = null;
         _live.Visibility = Visibility.Collapsed;
@@ -602,7 +609,7 @@ public sealed class VideoSurface : Grid
 
     void HideLiveCamera()
     {
-        if (_cameraIndex < 0) return;
+        if (_liveKey.Length == 0) return;
         UnsubscribeLive();
     }
 

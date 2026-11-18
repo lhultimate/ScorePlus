@@ -2,7 +2,7 @@
 
 **A native Windows scoreboard and broadcast graphics system for live production — one operator console, unlimited displays, and a scorebug you design yourself.**
 
-> **Beta software.** ScorePlus is in beta and the beta builds are updated every few days. Expect rough edges; don't run it as the only copy of a show you care about. Current releases use labels like `b1.1` and the next beta will use `b1.2`.
+> **Beta software.** ScorePlus is in beta and the beta builds are updated every few days. Expect rough edges; don't run it as the only copy of a show you care about. Current releases use labels like `b1.2` and the next beta will use `b1.3`.
 
 Everything runs locally on one Windows PC. No browser, no server, no internet connection, and no separately installed .NET runtime. The clock, the score and the graphics are all in one program, and the audience output updates the moment a value changes — there is never a "refresh" step mid-game.
 

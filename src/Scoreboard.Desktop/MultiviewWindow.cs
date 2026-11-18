@@ -97,6 +97,14 @@ public sealed class MultiviewWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
         Margin = new Thickness(0, 0, 10, 0)
     };
+    readonly CheckBox _soundToggle = new()
+    {
+        Content = "Sound bars on cameras with a microphone",
+        Foreground = Brushes.White,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(0, 0, 10, 0),
+        ToolTip = "Draw a live level bar beside a camera tile whose camera names a microphone in the media dock"
+    };
     readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromMilliseconds(400) };
     readonly List<TileConfig> _tiles = [];
     readonly List<ScorebugCanvasView> _canvasViews = [];
@@ -106,6 +114,10 @@ public sealed class MultiviewWindow : Window
     bool _showLabels;
     int _focusedIndex;
     bool _maximized;
+    /// <summary>Off after Escape, so the wall is a clean picture with no green outline on it.</summary>
+    bool _showSelection = true;
+    // Sound bars beside camera tiles. Each entry is a camera item and the fill it drives.
+    readonly List<(MediaEntry Camera, Border Fill)> _meters = [];
 
     // Replay is a single view that can be moved between tiles; recreating it mid-replay dropped
     // the decoded frame and made the preview go black.
@@ -161,6 +173,9 @@ public sealed class MultiviewWindow : Window
         _labelsToggle.IsChecked = _showLabels;
         _labelsToggle.Checked += (_, _) => SetLabels(true);
         _labelsToggle.Unchecked += (_, _) => SetLabels(false);
+        _soundToggle.IsChecked = preferences.MultiviewCameraSoundBars;
+        _soundToggle.Checked += (_, _) => SetSoundBars(true);
+        _soundToggle.Unchecked += (_, _) => SetSoundBars(false);
         Content = BuildChrome();
         _wall.SizeChanged += (_, _) => UpdateWallColumns();
         ApplyPalette(preferences.Theme);
@@ -215,6 +230,7 @@ public sealed class MultiviewWindow : Window
         actions.Children.Add(add);
         actions.Children.Add(reset);
         actions.Children.Add(_labelsToggle);
+        actions.Children.Add(_soundToggle);
         DockPanel.SetDock(actions, Dock.Right);
         header.Children.Add(actions);
         header.Children.Add(_title);
@@ -276,6 +292,13 @@ public sealed class MultiviewWindow : Window
         _editButton.Visibility = _editing ? Visibility.Collapsed : Visibility.Visible;
         _editButton.Content = "✎";
         _editButton.ToolTip = "Edit multiview tiles";
+        RenderTiles();
+    }
+
+    void SetSoundBars(bool show)
+    {
+        _preferences.MultiviewCameraSoundBars = show;
+        PreferencesStore.Save(_preferences);
         RenderTiles();
     }
 
@@ -646,6 +669,7 @@ public sealed class MultiviewWindow : Window
             _signature = signature;
             RenderTiles();
         }
+        UpdateMeters();
         SyncReplay();
     }
 
@@ -669,6 +693,7 @@ public sealed class MultiviewWindow : Window
             // The replay view is moved from one tile to the next. Clear its old parent before the
             // tile is rebuilt or WPF refuses to add it to the new one.
             DetachFromParent(_replayBody);
+            _meters.Clear();
             _panel.Children.Clear();
             _wallTiles.Children.Clear();
 
@@ -824,7 +849,16 @@ public sealed class MultiviewWindow : Window
     }
 
     bool IsFocused(TileConfig tile) =>
-        _tiles.Count > 0 && ReferenceEquals(tile, _tiles[Math.Clamp(_focusedIndex, 0, _tiles.Count - 1)]);
+        _showSelection && _tiles.Count > 0
+        && ReferenceEquals(tile, _tiles[Math.Clamp(_focusedIndex, 0, _tiles.Count - 1)]);
+
+    /// <summary>Escape clears the green outline: the wall then reads as a clean picture.</summary>
+    void ClearSelection()
+    {
+        _showSelection = false;
+        UpdateSelectionBorders();
+        Focus();
+    }
 
     void UpdateSelectionBorders()
     {
@@ -839,6 +873,7 @@ public sealed class MultiviewWindow : Window
         var index = _tiles.IndexOf(tile);
         if (index < 0) return;
         _focusedIndex = index;
+        _showSelection = true;
         if (maximize)
         {
             _maximized = true;
@@ -908,6 +943,12 @@ public sealed class MultiviewWindow : Window
                         Focus();
                         e.Handled = true;
                     }
+                    else if (_showSelection)
+                    {
+                        // Esc is the wall's "show me the picture" key: the green outline goes.
+                        ClearSelection();
+                        e.Handled = true;
+                    }
                     return;
             }
         }
@@ -933,6 +974,7 @@ public sealed class MultiviewWindow : Window
             index = target;
         }
         _focusedIndex = index;
+        _showSelection = true;
         // Moving the selection is only a border change on the full wall. Rebuilding the tiles made
         // every camera flash black because each Image lost its Source until the next frame arrived.
         if (_maximized) RenderTiles();
@@ -1041,6 +1083,16 @@ public sealed class MultiviewWindow : Window
         var entry = _session.Library.FirstOrDefault(candidate => candidate.IsCamera && candidate.CameraIndex == cameraIndex);
         if (entry is null) return Hint("CAMERA NOT FOUND", "Add the camera in the media dock, then choose it again.");
         var picture = new Image { Stretch = Stretch.Uniform };
+        // A camera that names a microphone gets a level bar down its right edge, so the operator
+        // can see which camera is actually carrying sound without opening the media dock.
+        if (_preferences.MultiviewCameraSoundBars && _session.MicrophoneFor(entry) is not null)
+        {
+            var host = new Grid();
+            host.Children.Add(picture);
+            host.Children.Add(SoundBar(entry));
+            RegisterCameraFeed(entry.CameraIndex, picture);
+            return host;
+        }
         var feed = CameraFeed.Get(cameraIndex);
         var lastShown = DateTime.MinValue;
         // Frames arrive at capture rate; the mosaic only repaints ten times a second.
@@ -1055,6 +1107,68 @@ public sealed class MultiviewWindow : Window
         feed.Start();
         _cameraHandlers.Add((feed, handler));
         return picture;
+    }
+
+    /// <summary>Subscribes a tile's picture to its camera without adding any chrome around it.</summary>
+    void RegisterCameraFeed(int cameraIndex, Image picture)
+    {
+        var feed = CameraFeed.Get(cameraIndex);
+        var lastShown = DateTime.MinValue;
+        Action<BitmapSource> handler = frame =>
+        {
+            var now = DateTime.UtcNow;
+            if ((now - lastShown).TotalMilliseconds < 100) return;
+            lastShown = now;
+            Dispatcher.BeginInvoke(new Action(() => picture.Source = frame));
+        };
+        feed.FrameReady += handler;
+        feed.Start();
+        _cameraHandlers.Add((feed, handler));
+    }
+
+    /// <summary>A thin vertical meter pinned to a camera tile's right edge.</summary>
+    Border SoundBar(MediaEntry camera)
+    {
+        var fill = new Border
+        {
+            VerticalAlignment = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = Solid("#38D7A3"),
+            Height = 0,
+            CornerRadius = new CornerRadius(2)
+        };
+        ThemeManager.SetSkipTheme(fill, true);
+        var track = new Border
+        {
+            Width = 10,
+            Margin = new Thickness(4),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = new SolidColorBrush(Color.FromArgb(0x90, 0, 0, 0)),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(2),
+            Child = fill,
+            ToolTip = $"{camera.Label} · {_session.MicrophoneFor(camera)?.Label ?? "microphone"}"
+        };
+        ThemeManager.SetSkipTheme(track, true);
+        _meters.Add((camera, fill));
+        return track;
+    }
+
+    /// <summary>Moves every camera sound bar to the level of the microphone behind it.</summary>
+    void UpdateMeters()
+    {
+        foreach (var (camera, fill) in _meters)
+        {
+            var microphone = _session.MicrophoneFor(camera);
+            var level = microphone is null ? 0 : _session.LevelFor(microphone);
+            // The bar's parent is the track; its height comes from the available space.
+            var height = fill.Parent is FrameworkElement track && track.ActualHeight > 4
+                ? Math.Max(0, (track.ActualHeight - 4) * Math.Max(0, level))
+                : 0;
+            fill.Height = height;
+            fill.Background = Solid(level > 0.92 ? "#FF6B6B" : level > 0.78 ? "#E8B23A" : "#38D7A3");
+        }
     }
 
     UIElement Hint(string heading, string detail)

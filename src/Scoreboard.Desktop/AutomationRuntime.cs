@@ -21,6 +21,9 @@ public sealed class AutomationRuntime : IDisposable
     // Where each rule is in its trigger → wait → after-wait flow. A rule without wait-until
     // conditions is only ever Idle or AfterWait, which keeps the old flat behaviour intact.
     readonly Dictionary<string, RuleFlow> _flows = new(StringComparer.OrdinalIgnoreCase);
+    // Which scheduled rules have already run, and in which minute, so an at-time rule fires once.
+    readonly Dictionary<string, DateTime> _fired = new(StringComparer.OrdinalIgnoreCase);
+    readonly System.Windows.Threading.DispatcherTimer _schedule = new() { Interval = TimeSpan.FromSeconds(1) };
     readonly Dictionary<ScorebugLayout, (long Version, ScorebugLayout Effective)> _cache = new(ReferenceEqualityComparer.Instance);
     long _version;
     long _catalogVersion;
@@ -36,11 +39,42 @@ public sealed class AutomationRuntime : IDisposable
         _engine.Changed += Evaluate;
         // Bypass rules follow the working game, not just the copy currently on air.
         if (liveEngine is not null && !ReferenceEquals(liveEngine, engine)) liveEngine.Changed += Evaluate;
+        _schedule.Tick += Schedule_Tick;
+        _schedule.Start();
         Evaluate();
     }
 
     /// <summary>Raised when actions begin or stop applying, or when a layout switch changed.</summary>
     public event Action? Changed;
+
+    /// <summary>
+    /// Runs the actions that change the show rather than one element's artwork: a macro, a media
+    /// item on or off air. The show wires this to its macro runner and media session; without it
+    /// those actions still match and report, they just have nothing to run them.
+    /// </summary>
+    public Action<AutomationAction>? RunCommand { get; set; }
+
+    /// <summary>Re-evaluates once a second, so an at-time rule fires even while the game is still.</summary>
+    void Schedule_Tick(object? sender, EventArgs e)
+    {
+        if (_disposed) { _schedule.Stop(); return; }
+        if (!_catalog.Displays.Any(display => (display.Automations ?? []).Any(rule =>
+                rule.Enabled && AutomationRules.NormalizeTime(rule.AtTime).Length > 0)))
+            return;
+        Evaluate();
+    }
+
+    /// <summary>True when a scheduled rule's minute has arrived and it has not run for it yet.</summary>
+    bool Scheduled(string key, AutomationRule rule)
+    {
+        var at = AutomationRules.NormalizeTime(rule.AtTime);
+        if (at.Length == 0) return false;
+        var now = DateTime.Now;
+        if ($"{now.Hour:00}:{now.Minute:00}" != at) return false;
+        if (!_fired.TryGetValue(key, out var last)) return true;
+        if (!rule.AtTimeDaily) return false;
+        return last.Date != now.Date || last.Hour != now.Hour || last.Minute != now.Minute;
+    }
 
     public int ActiveRuleCount => _matched.Count;
 
@@ -104,7 +138,11 @@ public sealed class AutomationRuntime : IDisposable
                     if (!rule.Enabled) continue;
                     var key = Key(display.Id, rule.Id);
                     var state = rule.BypassOutputUpdate ? liveState : publishedState;
-                    var trigger = rule.Matches(state);
+                    // A scheduled rule triggers on its clock as well as on its conditions, so
+                    // "at 19:30 switch to the opening layout" needs no game change to fire.
+                    var scheduled = Scheduled(key, rule);
+                    if (scheduled) _fired[key] = DateTime.Now;
+                    var trigger = scheduled || rule.Matches(state);
                     // A rule with no wait-until conditions never enters a wait step, so it keeps the
                     // flat trigger/action behaviour it had before wait steps existed.
                     var waits = rule.Conditions?.Any(condition => condition.WaitUntil) == true;
@@ -170,7 +208,10 @@ public sealed class AutomationRuntime : IDisposable
                     flows[key] = nextFlow;
                     ApplyPatches(rule, patches, onMatch, afterWait, elseBranch, state);
                     if (enterOnMatch || enterAfterWait || enterElse)
+                    {
                         CollectSwitches(rule, display.Id, switchTargets, enterOnMatch, enterAfterWait, enterElse);
+                        CollectCommands(rule, enterOnMatch, enterAfterWait, enterElse);
+                    }
                 }
                 if (patches.Count > 0) next[display.Id] = patches;
             }
@@ -185,6 +226,11 @@ public sealed class AutomationRuntime : IDisposable
             foreach (var (displayId, patches) in next) _overrides[displayId] = patches;
             if (visualChange) _version++;
             if (visualChange) _cache.Clear();
+            // A decimal column on any element (in the design or in a rule's live patch) is the only
+            // reason the engine has to wake the show ten times a second.
+            // Only ever turned on: a staged layout can use decimals before it is saved, and the
+            // studio canvas latches the same flag, so clearing it here would make the column stutter.
+            _engine.ClockDecimalsInUse |= ClockDecimalsUsed();
 
             // A switch is edge-triggered per phase. A rule that stays matched must not fight the
             // operator every tick; it fires when its phase becomes active, and can fire again after
@@ -231,7 +277,8 @@ public sealed class AutomationRuntime : IDisposable
             if (!applies) continue;
             foreach (var action in rule.Actions ?? [])
             {
-                if (action.Phase != phase || action.Kind == AutomationActionKind.SwitchLayout) continue;
+                // Layout, macro, media and clock actions belong to the show, not to an element.
+                if (action.Phase != phase || AutomationRules.IsCommandAction(action.Kind)) continue;
                 if (string.IsNullOrWhiteSpace(action.ElementId)) continue;
                 if (!patches.TryGetValue(action.ElementId, out var patch))
                     patches[action.ElementId] = patch = new VisualPatch();
@@ -258,6 +305,31 @@ public sealed class AutomationRuntime : IDisposable
         }
     }
 
+    /// <summary>Runs the phase-appropriate command actions exactly when their phase becomes live.</summary>
+    void CollectCommands(AutomationRule rule, bool onMatch, bool afterWait, bool elseBranch)
+    {
+        foreach (var action in rule.Actions ?? [])
+        {
+            if (!AutomationRules.IsCommandAction(action.Kind)) continue;
+            if (action.Kind == AutomationActionKind.SwitchLayout) continue;
+            var fires = action.Phase switch
+            {
+                AutomationActionPhase.OnMatch => onMatch,
+                AutomationActionPhase.AfterWait => afterWait,
+                AutomationActionPhase.Else => elseBranch,
+                _ => false
+            };
+            if (!fires) continue;
+            RunCommand?.Invoke(action);
+        }
+    }
+
+    /// <summary>True when any element prints a decimal column, designed or patched by a rule.</summary>
+    bool ClockDecimalsUsed() =>
+        _catalog.Displays.Any(display => display.Layouts.Any(layout =>
+            layout.Elements.Any(element => element.ClockDecimals > 0)))
+        || _overrides.Values.Any(patches => patches.Values.Any(patch => patch.ClockDecimals > 0));
+
     static string Key(string displayId, string ruleId) => $"{displayId}|{ruleId}";
 
     /// <summary>A compact, stable signature of the active patches, without serializing whole layouts.</summary>
@@ -282,6 +354,7 @@ public sealed class AutomationRuntime : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _schedule.Stop();
         _catalog.Changed -= CatalogChanged;
         _engine.Changed -= Evaluate;
         if (_liveEngine is not null && !ReferenceEquals(_liveEngine, _engine)) _liveEngine.Changed -= Evaluate;
@@ -311,13 +384,15 @@ public sealed class AutomationRuntime : IDisposable
         public double? Width { get; set; }
         public double? Height { get; set; }
         public bool? Visible { get; set; }
+        public int? ClockDecimals { get; set; }
 
         public void AppendSignature(StringBuilder text)
         {
             text.Append(TextColor).Append('|').Append(BackgroundColor).Append('|').Append(BorderColor)
                 .Append('|').Append(Content).Append('|').Append(Opacity).Append('|').Append(X)
                 .Append('|').Append(Y).Append('|').Append(DeltaX).Append('|').Append(DeltaY)
-                .Append('|').Append(Width).Append('|').Append(Height).Append('|').Append(Visible);
+                .Append('|').Append(Width).Append('|').Append(Height).Append('|').Append(Visible)
+                .Append('|').Append(ClockDecimals);
         }
 
         public void Apply(AutomationAction action, GameState state)
@@ -360,6 +435,9 @@ public sealed class AutomationRuntime : IDisposable
                 case AutomationActionKind.SetText:
                     Content = action.Value;
                     break;
+                case AutomationActionKind.SetClockDecimals:
+                    ClockDecimals = GameEngine.ClampDecimals((int)Math.Round(number));
+                    break;
             }
         }
 
@@ -395,6 +473,7 @@ public sealed class AutomationRuntime : IDisposable
             if (Width is { } width) element.Width = width;
             if (Height is { } height) element.Height = height;
             if (Visible is { } visible) element.Visible = visible;
+            if (ClockDecimals is { } decimals) element.ClockDecimals = decimals;
         }
 
         static bool IsColor(string? value)

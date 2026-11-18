@@ -28,6 +28,10 @@ public partial class MacroDock : UserControl
     readonly MediaSession _session;
     readonly ScorebugCatalog? _catalog;
     readonly MacroRunner _runner;
+    readonly Action? _publishOutput;
+    readonly Func<bool>? _liveState;
+    readonly Action<bool>? _setLive;
+    readonly Action? _openConditionals;
     List<SavedMacro> _macros = [];
     SavedMacro? _draft;
     SavedMacro? _dragMacro;
@@ -126,12 +130,19 @@ public partial class MacroDock : UserControl
     }
 
     public MacroDock(GameEngine engine, MediaSession session, string? theme = null, Action<string>? executeControl = null,
-        ScorebugCatalog? catalog = null, Action? publishOutput = null)
+        ScorebugCatalog? catalog = null, Action? publishOutput = null,
+        Func<bool>? liveState = null, Action<bool>? setLive = null, Action? openConditionals = null)
     {
         InitializeComponent();
+        _openConditionals = openConditionals;
+        // A host that cannot open the rule editor leaves the button out instead of showing a dead one.
+        ConditionalsButton.Visibility = openConditionals is null ? Visibility.Collapsed : Visibility.Visible;
         _engine = engine;
         _session = session;
         _catalog = catalog;
+        _publishOutput = publishOutput;
+        _liveState = liveState;
+        _setLive = setLive;
         _runner = new MacroRunner(engine, session, executeControl, catalog, publishOutput);
         // The board paints itself from its own palette so generated cards, the step list and the
         // editor all follow the active theme. Opting out keeps the window-wide theme pass from
@@ -151,7 +162,7 @@ public partial class MacroDock : UserControl
             new KindChoice(MacroActionKind.SetTimeoutClock, "Timeout clock — set the clock"),
             new KindChoice(MacroActionKind.SetPeriod, "Period — set the current period"),
             new KindChoice(MacroActionKind.PutOnAir, "Media — take a clip, mic, speaker or camera on air"),
-            new KindChoice(MacroActionKind.TakeOffAir, "Media — take a camera, mic, speaker or clip off air"),
+            new KindChoice(MacroActionKind.TakeOffAir, "Media — take a clip, mic, speaker or camera off air"),
             new KindChoice(MacroActionKind.SwitchLayout, "Layout — switch a display to a layout"),
             new KindChoice(MacroActionKind.PenaltyFlag, "Flag — put a flag down or clear it"),
             new KindChoice(MacroActionKind.RosterStat, "Roster stat — change any player's stat"),
@@ -166,6 +177,9 @@ public partial class MacroDock : UserControl
         KindBox.SelectedIndex = 0;
         SideBox.ItemsSource = new[] { "Home", "Visitors" };
         SideBox.SelectedIndex = 0;
+        UpdateOutputButton.IsEnabled = _publishOutput is not null;
+        LiveButton.IsEnabled = _setLive is not null;
+        RefreshLiveButton();
         RefreshView();
     }
 
@@ -194,6 +208,39 @@ public partial class MacroDock : UserControl
         }
         RenderMacros();
         LoadEditor();
+    }
+
+    /// <summary>
+    /// Mirrors the console's Live toggle on the macro board. The board can pause the live feed
+    /// while a multi-step sequence is being lined up, then publish it with Update Output.
+    /// </summary>
+    public void SyncLiveState(bool live)
+    {
+        LiveButton.Content = live ? "Live: ON" : "Live: OFF";
+        LiveButton.Foreground = live
+            ? (Brush)Resources["MacroAccentBrush"]
+            : (Brush)Resources["MacroMutedBrush"];
+    }
+
+    void RefreshLiveButton() => SyncLiveState(_liveState?.Invoke() ?? true);
+
+    void Conditionals_Click(object sender, RoutedEventArgs e) => _openConditionals?.Invoke();
+
+    void UpdateOutput_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dirty) SaveDraft(false);
+        _publishOutput?.Invoke();
+        EditStatus.Text = "PUBLISHED";
+        Status?.Invoke("MACRO · staged values published to air");
+    }
+
+    void Live_Click(object sender, RoutedEventArgs e)
+    {
+        if (_setLive is null) return;
+        var next = !(_liveState?.Invoke() ?? true);
+        _setLive(next);
+        SyncLiveState(next);
+        Status?.Invoke(next ? "MACRO · live feed resumed" : "MACRO · live feed paused · Update Output still publishes");
     }
 
     /// <summary>Turns the drag/click caption on and off with Preferences → Show heading tips.</summary>

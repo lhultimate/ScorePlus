@@ -332,6 +332,14 @@ public sealed class ScorebugElement
     /// <summary>Print {{GAME_CLOCK}} as 09:59. Off prints 9:59 and :59 under a minute on this element.</summary>
     public bool GameClockLeadingZero { get; set; } = true;
 
+    /// <summary>
+    /// The decimal column this element prints after every clock token it carries: 0 is MM:SS,
+    /// 1 adds tenths (0:59.9) and 2 adds hundredths (0:59.99). It belongs to the element, so one
+    /// scorebug can read tenths while another reads whole seconds, and a conditional can switch it
+    /// on for a single element when the clock drops under a minute.
+    /// </summary>
+    public int ClockDecimals { get; set; }
+
     /// <summary>Optional artwork from live data: timeout bars or a possession dot.</summary>
     public ScorebugIcon Icon { get; set; } = ScorebugIcon.None;
 
@@ -356,8 +364,11 @@ public sealed class ScorebugElement
     /// <summary>For timeout bars: stack the bars downward instead of in one row.</summary>
     public bool IconVertical { get; set; }
 
-    /// <summary>For the possession arrow: point down at the plate instead of sideways into it.</summary>
-    public bool IconArrowDown { get; set; }
+    /// <summary>
+    /// Turns the icon artwork in degrees. 90 lays a possession arrow on its side pointing down,
+    /// 180 points it back the other way, and any angle works; 0 is the direction it was designed in.
+    /// </summary>
+    public double IconRotation { get; set; }
 
     /// <summary>The colour of a timeout bar or pip that has already been used.</summary>
     public string IconUsedColor { get; set; } = "#FF9AA5B2";
@@ -1226,6 +1237,8 @@ public sealed class ScorebugCatalog
                     item.TextShadowSoftness = Math.Clamp(double.IsFinite(item.TextShadowSoftness) ? item.TextShadowSoftness : 0, 0, 60);
                     item.TextShadowAngle = Math.Clamp(double.IsFinite(item.TextShadowAngle) ? item.TextShadowAngle : 45, 0, 360);
                     if (!Enum.IsDefined(item.TextAlign)) item.TextAlign = ScorebugTextAlign.Center;
+                    item.ClockDecimals = Math.Clamp(item.ClockDecimals, 0, 2);
+                    item.IconRotation = Math.Clamp(double.IsFinite(item.IconRotation) ? item.IconRotation : 0, -360, 360);
                     if (string.IsNullOrWhiteSpace(item.TextShadowColor)) item.TextShadowColor = "#CC000000";
                     if (string.IsNullOrWhiteSpace(item.BorderColor)) item.BorderColor = "#FFFFFFFF";
                     // A colour saved as an empty string is not a colour: repairing it here is what

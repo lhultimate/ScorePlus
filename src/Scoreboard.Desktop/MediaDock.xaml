@@ -245,6 +245,8 @@
       <StackPanel Grid.Column="0" Margin="0,0,0,5">
         <DockPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+            <Button x:Name="RenameButton" Content="Rename…" Style="{StaticResource DockAction}" Click="Rename_Click"
+                    ToolTip="Rename the selected clip, camera, microphone, speaker or screen — the new name shows in the multiview and the replay booth"/>
             <Button x:Name="RemoveButton" Content="Remove" Style="{StaticResource DockAction}" Click="Remove_Click" ToolTip="Remove the selected clip from the library"/>
             <Button Content="Import" Style="{StaticResource DockAction}" Click="Import_Click" ToolTip="Import audio or video clips"/>
             <Button Content="Clear" Style="{StaticResource ClearAction}" Click="Clear_Click"
@@ -292,6 +294,43 @@
             </WrapPanel>
             <TextBlock x:Name="SpeakerStatus" Text="" FontSize="10" Foreground="{DynamicResource DockMuted}" Opacity="0.75"
                        TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+            <!-- Every speaker bus has its own volume; this one moves all of them together. -->
+            <TextBlock Text="MASTER VOLUME" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
+            <Grid Margin="0,0,0,4">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <Slider x:Name="MasterVolumeSlider" Minimum="0" Maximum="100" Value="100"
+                      Style="{StaticResource TransportSlider}" VerticalAlignment="Center" Margin="0,0,6,0"
+                      SmallChange="5" LargeChange="10" ToolTip="The show's master level: every bus and every clip passes through it"
+                      ValueChanged="MasterVolume_Changed"/>
+              <TextBlock x:Name="MasterVolumeText" Grid.Column="1" Text="100%" FontFamily="Consolas" FontSize="10"
+                         Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center" Width="38" TextAlignment="Right"/>
+            </Grid>
+            <TextBlock x:Name="MasterLevelText" Text="—" FontSize="10" Foreground="{DynamicResource DockMuted}"
+                       Opacity="0.75" Margin="0,0,0,8" ToolTip="The loudest of every speaker bus, as one number"/>
+
+            <TextBlock Text="SCREEN" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
+            <ComboBox x:Name="ScreenMonitorBox" Style="{StaticResource DockCombo}" SelectionChanged="ScreenMonitor_Changed"
+                      ToolTip="Which computer screen to capture. Pick the second monitor here; an outlined screen item switches to it"/>
+            <WrapPanel Margin="0,3,0,4">
+              <Button Content="Add screen" Style="{StaticResource DockAction}" Click="Screen_Click"
+                      ToolTip="Add the chosen monitor as a media piece: a video box can show a computer screen exactly like a camera"/>
+            </WrapPanel>
+            <TextBlock Style="{StaticResource DockLabel}" Margin="0,0,0,8" Text="captures a desktop, no sound of its own"/>
+
+            <TextBlock Text="CONDITIONALS" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
+            <WrapPanel Margin="0,0,0,8">
+              <Button x:Name="ConditionalsButton" Content="Media Conditionals" Style="{StaticResource DockAction}" Click="Conditionals_Click"
+                      ToolTip="Media rules only — put a clip, camera or screen on or off air at a time, or when a condition is met"/>
+            </WrapPanel>
+
+            <TextBlock Text="CAMERA MICROPHONE" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
+            <ComboBox x:Name="CameraMicBox" Style="{StaticResource DockCombo}" SelectionChanged="CameraMic_Changed"
+                      ToolTip="Give the selected camera a microphone, so the multiview can draw its sound bar"/>
+            <TextBlock Style="{StaticResource DockLabel}" Margin="0,3,0,8" Text="camera sound lives here"/>
 
             <TextBlock Text="LIVE CAMERA" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
             <ComboBox x:Name="CameraBox" Style="{StaticResource DockCombo}" SelectionChanged="Camera_Changed"

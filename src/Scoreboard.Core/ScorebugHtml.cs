@@ -275,8 +275,11 @@ public static class ScorebugHtml
         if (!string.IsNullOrWhiteSpace(item.IconColor)) colour = Css(item.IconColor);
         var html = IconInner(item, state, colour);
         if (html.Length == 0) return string.Empty;
-        if (Math.Abs(item.IconOffsetX) >= 0.01 || Math.Abs(item.IconOffsetY) >= 0.01)
-            html = $"<span style=\"display:block;transform:translate({Num(item.IconOffsetX)}px,{Num(item.IconOffsetY)}px);\">{html}</span>";
+        // The icon turns on its own centre, so a possession arrow can point down (90) or back
+        // (180) without a separate shape for each direction.
+        var turn = Math.Clamp(item.IconRotation, -360, 360);
+        if (Math.Abs(item.IconOffsetX) >= 0.01 || Math.Abs(item.IconOffsetY) >= 0.01 || Math.Abs(turn) >= 0.01)
+            html = $"<span style=\"display:block;transform:translate({Num(item.IconOffsetX)}px,{Num(item.IconOffsetY)}px) rotate({Num(turn)}deg);\">{html}</span>";
         // The icon's own chrome is separate from the element's plate and outline. It sits behind the
         // artwork and carries its own background, outline and opacity.
         var opacity = Math.Clamp(item.IconOpacity, 0, 1);
@@ -323,14 +326,9 @@ public static class ScorebugHtml
                 var dotStyle = onLeft ? "left:2%;" : "right:2%;";
                 return $"<span class=\"sp-dot\" style=\"{dotStyle}color:{colour};{IconOutline(item)}\"></span>";
             case ScorebugIcon.PossessionArrow:
-                // The arrow belongs to one team's plate and only shows while that team has the ball;
-                // on the away plate it points inward from the right, mirrored by Flipped.
-                var homePlate = !item.IconVisitors;
-                if (state.HomePossession != homePlate) return string.Empty;
-                if (item.IconArrowDown)
-                    return $"<span class=\"sp-arrow down\" style=\"color:{colour};{IconOutline(item)}\"></span>";
-                var flip = (!homePlate) ^ item.IconFlipped;
-                return $"<span class=\"sp-arrow {(homePlate ? "in" : "out")}{(flip ? " flip" : string.Empty)}\" style=\"color:{colour};{IconOutline(item)}\"></span>";            case ScorebugIcon.TimeoutDots:
+                // One arrow follows the ball: it sits on the plate of the team that has it, and it
+                // keeps the direction it was drawn in. Possession moves the mark, it never flips it.
+                return $"<span class=\"sp-arrow {(state.HomePossession ? "in" : "out")}{(item.IconFlipped ? " flip" : string.Empty)}\" style=\"color:{colour};{IconOutline(item)}\"></span>";            case ScorebugIcon.TimeoutDots:
                 var remainingPips = Math.Clamp(item.IconVisitors ? state.AwayTimeouts : state.HomeTimeouts, 0, 12);
                 var totalPips = Math.Clamp(Math.Max(remainingPips, item.IconVisitors ? state.AwayTimeoutLimit : state.HomeTimeoutLimit), 0, 12);
                 if (totalPips == 0) return string.Empty;

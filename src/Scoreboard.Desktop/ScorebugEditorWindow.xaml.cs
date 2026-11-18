@@ -979,8 +979,8 @@ public partial class ScorebugEditorWindow : Window
             +$"{item.Foreground}:{item.ForegroundSource}:{item.Background}:{item.BackgroundSource}:"
             +$"{item.BackgroundColor2}:{item.BackgroundSource2}:{item.BackgroundGradient}:{item.TransparentBackground}:"
             +$"{item.Opacity}:{item.TextOpacity}:{item.BackgroundOpacity}:{item.BorderOpacity}:"
-            +$"{item.BorderThickness}:{item.BorderColor}:{item.BorderSource}:{item.Icon}:{item.IconScale}:{item.IconVertical}:{item.IconArrowDown}:"
-            +$"{item.IconFillColor}:{item.IconFillSource}:{item.IconBorderThickness}:{item.IconBorderColor}:{item.IconBackground}:{item.IconOpacity}:{item.IconUsedColor}:{item.GameClockLeadingZero}:"
+            +$"{item.BorderThickness}:{item.BorderColor}:{item.BorderSource}:{item.Icon}:{item.IconScale}:{item.IconVertical}:{item.IconRotation}:"
+            +$"{item.IconFillColor}:{item.IconFillSource}:{item.IconBorderThickness}:{item.IconBorderColor}:{item.IconBackground}:{item.IconOpacity}:{item.IconUsedColor}:{item.GameClockLeadingZero}:{item.ClockDecimals}:"
             +$"{item.Animation}:{item.MotionAnimation?.Id}:{item.MotionTransition?.Id}:{item.TransitionShrink}:{item.TransitionJumpHeight}:{item.TransitionJumpDirection}:"
             +$"{item.Shape}:{item.CornerRadius}:{item.Visible}:{item.LogoSide}:{item.ImagePath}:"
             +$"{item.NestedLayoutId}:{item.NestedPreserveAspect}"));
@@ -1212,7 +1212,7 @@ public partial class ScorebugEditorWindow : Window
         {
             if(!_visuals.TryGetValue(item.Id,out var visual))continue;
             if(visual.Content is ScorebugTextBlock block)
-                ScorebugRender.ApplyToContent(block,item,_engine.State,ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero));
+                ScorebugRender.ApplyToContent(block,item,_engine.State,ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero,item.ClockDecimals));
             else if(visual.Content is ScorebugIconView iconView)
                 iconView.Update();
             else if(visual.Content is VideoSurface videoSurface)
@@ -1250,7 +1250,7 @@ public partial class ScorebugEditorWindow : Window
             else if(visual.Content is ScorebugTextBlock block)
             {
                 block.ApplyStyle(item,_engine.State);
-                block.UpdateText(ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero),item.Transition,item.TransitionSeconds);
+                block.UpdateText(ScoreboardTemplates.Bind(item.Content,_engine.State,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero,item.ClockDecimals),item.Transition,item.TransitionSeconds);
             }
             else if(visual.Content is TickerView tickerView)
                 tickerView.Update(item,_engine.State);
@@ -1354,7 +1354,7 @@ public partial class ScorebugEditorWindow : Window
             PlayerBindingHint.Text="This text is not tied to a player yet. Pick a team, player and value above, or type any binding in CONTENT.";
             return;
         }
-        var printed=ScoreboardTemplates.Bind(ContentInput.Text,_engine.State,Selected?.PeriodFormat,DownCapsInput.IsChecked==true,PlayClockColonInput.IsChecked==true,GameClockLeadingZeroInput.IsChecked==true);
+        var printed=ScoreboardTemplates.Bind(ContentInput.Text,_engine.State,Selected?.PeriodFormat,DownCapsInput.IsChecked==true,PlayClockColonInput.IsChecked==true,GameClockLeadingZeroInput.IsChecked==true,Math.Max(0,ClockDecimalsInput.SelectedIndex));
         PlayerBindingHint.Text=printed.Length==0
             ? "Prints nothing: that player or value is empty right now."
             : $"Prints now: \"{printed}\"";
@@ -1379,7 +1379,7 @@ public partial class ScorebugEditorWindow : Window
     {
         _loading=true;
         var e=Selected; var has=e is not null;
-        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,CornerRadiusInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,DownCapsInput,PlayClockColonInput,GameClockLeadingZeroInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconArrowDownInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,IconBorderWidthInput,IconBorderColorInput,IconBackgroundInput,IconUsedColorInput,IconOpacitySlider,TransitionShrinkInput,TransitionJumpHeightInput,TransitionJumpDirectionInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput,TickerReverseInput})
+        foreach(var control in new Control[]{NameInput,ContentInput,XInput,YInput,WidthInput,HeightInput,FontInput,FontInputSize,RotationInput,ColorInput,BackgroundInput,BorderWidthInput,BorderColorInput,BorderSourceInput,AnimationInput,TransitionInput,TransitionSpeedInput,ShapeInput,CornerRadiusInput,VisibleInput,TransparentBackgroundInput,MediaTagInput,PeriodFormatInput,DownCapsInput,PlayClockColonInput,GameClockLeadingZeroInput,ClockDecimalsInput,IconInput,IconCustomInput,IconTokenInput,IconOffsetXInput,IconOffsetYInput,IconColorInput,IconVisitorsInput,IconFlipInput,IconRotationInput,IconScaleInput,IconVerticalInput,IconFillInput,IconFillSourceInput,IconBorderWidthInput,IconBorderColorInput,IconBackgroundInput,IconUsedColorInput,IconOpacitySlider,TransitionShrinkInput,TransitionJumpHeightInput,TransitionJumpDirectionInput,ForegroundSourceInput,BackgroundSourceInput,LogoInput,PlayerPhotoSideInput,BoldInput,ItalicInput,UnderlineInput,StrikeInput,PreserveAspectInput,AspectInput,VideoCropLeftInput,VideoCropTopInput,VideoCropRightInput,VideoCropBottomInput,ChromaKeyInput,ChromaKeyToleranceInput,AudioDeviceInput,GradientInput,GradientSourceInput,GradientColorInput,GradientAngleInput,OpacitySlider,TextOpacitySlider,BackgroundOpacitySlider,BorderOpacitySlider,TextShadowInput,TextShadowColorInput,TextShadowOffsetInput,TextShadowSoftnessInput,TextShadowAngleInput,TextAlignInput,NestedLayoutInput,NestedAspectInput,TickerInput,TickerSpeedInput,TickerReverseInput})
             control.IsEnabled=has;
         if(has)
         {
@@ -1403,6 +1403,7 @@ public partial class ScorebugEditorWindow : Window
             DownCapsInput.IsChecked=e.DownCaps;
             PlayClockColonInput.IsChecked=e.PlayClockColon;
             GameClockLeadingZeroInput.IsChecked=e.GameClockLeadingZero;
+            ClockDecimalsInput.SelectedIndex=Math.Clamp(e.ClockDecimals,0,2);
             TransitionShrinkInput.Text=Math.Clamp(e.TransitionShrink,0.2,1).ToString("0.##");
             TransitionJumpHeightInput.Text=Math.Clamp(e.TransitionJumpHeight,0,300).ToString("0.#");
             TransitionJumpDirectionInput.SelectedIndex=(int)Math.Clamp((int)e.TransitionJumpDirection,0,JumpDirectionLabels.Length-1);
@@ -1451,7 +1452,7 @@ public partial class ScorebugEditorWindow : Window
             PlayerPhotoSideInput.SelectedItem=PlayerPhotoSides.FirstOrDefault(o=>o.Side==e.PlayerPhotoSide)??PlayerPhotoSides[0];
             PeriodFormatInput.SelectedItem=PeriodOptions.FirstOrDefault(o=>o.Key==e.PeriodFormat)??PeriodOptions[0];
             IconInput.SelectedItem=e.Icon; IconVisitorsInput.IsChecked=e.IconVisitors; IconFlipInput.IsChecked=e.IconFlipped;
-            IconArrowDownInput.IsChecked=e.IconArrowDown;
+            IconRotationInput.Text=e.IconRotation.ToString("0.#");
             IconVerticalInput.IsChecked=e.IconVertical;
             IconBorderWidthInput.Text=Math.Clamp(e.IconBorderThickness,0,40).ToString("0.#");
             IconBorderColorInput.Text=e.IconBorderColor;
@@ -1618,7 +1619,7 @@ public partial class ScorebugEditorWindow : Window
         IconScalePanel.Visibility=text&&countedIcon?Visibility.Visible:Visibility.Collapsed;
         IconVerticalInput.Visibility=text&&icon==ScorebugIcon.TimeoutBars?Visibility.Visible:Visibility.Collapsed;
         IconFlipInput.Visibility=text&&icon is ScorebugIcon.PossessionDot or ScorebugIcon.PossessionArrow?Visibility.Visible:Visibility.Collapsed;
-        IconArrowDownInput.Visibility=text&&icon==ScorebugIcon.PossessionArrow?Visibility.Visible:Visibility.Collapsed;
+        IconRotationPanel.Visibility=text&&icon!=ScorebugIcon.None?Visibility.Visible:Visibility.Collapsed;
         IconLookPanel.Visibility=text&&icon!=ScorebugIcon.None?Visibility.Visible:Visibility.Collapsed;
         IconUsedPanel.Visibility=text&&countedIcon?Visibility.Visible:Visibility.Collapsed;
         // Only show the extra tuning that the chosen crossings actually use. A plain fade does
@@ -1935,6 +1936,7 @@ public partial class ScorebugEditorWindow : Window
         var downCaps=DownCapsInput.IsChecked==true;
         var playClockColon=PlayClockColonInput.IsChecked==true;
         var gameClockLeadingZero=GameClockLeadingZeroInput.IsChecked==true;
+        var clockDecimals=Math.Clamp(ClockDecimalsInput.SelectedIndex,0,2);
         var transitionShrinkOk=double.TryParse(TransitionShrinkInput.Text,out var transitionShrinkRaw);
         var transitionShrink=Math.Clamp(transitionShrinkOk?transitionShrinkRaw:0.82,0.2,1);
         var transitionJumpOk=double.TryParse(TransitionJumpHeightInput.Text,out var transitionJumpRaw);
@@ -1947,7 +1949,8 @@ public partial class ScorebugEditorWindow : Window
         var iconOffsetXOk=double.TryParse(IconOffsetXInput.Text,out var iconOffsetX);
         var iconOffsetYOk=double.TryParse(IconOffsetYInput.Text,out var iconOffsetY);
         var iconVisitors=IconVisitorsInput.IsChecked==true; var iconFlipped=IconFlipInput.IsChecked==true;
-        var iconArrowDown=IconArrowDownInput.IsChecked==true;
+        var iconRotationOk=double.TryParse(IconRotationInput.Text,out var iconRotation);
+        iconRotation=Math.Clamp(iconRotationOk?iconRotation:0,-360,360);
         var iconVertical=IconVerticalInput.IsChecked==true;
         var iconScaleOk=double.TryParse(IconScaleInput.Text,out var iconScale);
         iconScale=Math.Clamp(iconScaleOk?iconScale:1,0.25,3);
@@ -2000,11 +2003,11 @@ public partial class ScorebugEditorWindow : Window
             &&(shape is null||item.Shape==shape)&&(!cornerRadiusOk||Math.Abs(item.CornerRadius-cornerRadius)<0.001)
             &&item.Visible==visible&&item.TransparentBackground==transparent
             &&item.MediaTag==mediaTag&&(periodFormat is null||item.PeriodFormat==periodFormat)
-            &&item.DownCaps==downCaps&&item.PlayClockColon==playClockColon&&item.GameClockLeadingZero==gameClockLeadingZero
+            &&item.DownCaps==downCaps&&item.PlayClockColon==playClockColon&&item.GameClockLeadingZero==gameClockLeadingZero&&item.ClockDecimals==clockDecimals
             &&(!transitionShrinkOk||Math.Abs(item.TransitionShrink-transitionShrink)<0.001)
             &&(!transitionJumpOk||Math.Abs(item.TransitionJumpHeight-transitionJump)<0.001)
             &&item.TransitionJumpDirection==transitionJumpDirection
-            &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped&&item.IconArrowDown==iconArrowDown&&item.IconVertical==iconVertical
+            &&(icon is null||item.Icon==icon)&&item.IconVisitors==iconVisitors&&item.IconFlipped==iconFlipped&&(!iconRotationOk||Math.Abs(item.IconRotation-iconRotation)<0.001)&&item.IconVertical==iconVertical
             &&(!iconBorderWidthOk||Math.Abs(item.IconBorderThickness-iconBorderWidth)<0.001)
             &&(!iconBorderColorOk||string.Equals(item.IconBorderColor,iconBorderColor,StringComparison.OrdinalIgnoreCase))
             &&(!iconBackgroundOk||string.Equals(item.IconBackground,iconBackground,StringComparison.OrdinalIgnoreCase))
@@ -2077,6 +2080,7 @@ public partial class ScorebugEditorWindow : Window
         if(item.DownCaps!=downCaps)Group(t=>t.DownCaps=downCaps);
         if(item.PlayClockColon!=playClockColon)Group(t=>t.PlayClockColon=playClockColon);
         if(item.GameClockLeadingZero!=gameClockLeadingZero)Group(t=>t.GameClockLeadingZero=gameClockLeadingZero);
+        if(item.ClockDecimals!=clockDecimals)Group(t=>t.ClockDecimals=clockDecimals);
         if(transitionShrinkOk&&Math.Abs(item.TransitionShrink-transitionShrink)>0.001)Group(t=>t.TransitionShrink=transitionShrink);
         if(transitionJumpOk&&Math.Abs(item.TransitionJumpHeight-transitionJump)>0.001)Group(t=>t.TransitionJumpHeight=transitionJump);
         if(item.TransitionJumpDirection!=transitionJumpDirection)Group(t=>t.TransitionJumpDirection=transitionJumpDirection);
@@ -2093,7 +2097,7 @@ public partial class ScorebugEditorWindow : Window
         if(icon is not null&&item.Icon!=icon)Group(t=>t.Icon=icon.Value);
         if(item.IconVisitors!=iconVisitors)Group(t=>t.IconVisitors=iconVisitors);
         if(item.IconFlipped!=iconFlipped)Group(t=>t.IconFlipped=iconFlipped);
-        if(item.IconArrowDown!=iconArrowDown)Group(t=>t.IconArrowDown=iconArrowDown);
+        if(iconRotationOk&&Math.Abs(item.IconRotation-iconRotation)>0.001)Group(t=>t.IconRotation=iconRotation);
         if(item.IconVertical!=iconVertical&&item.Kind==ScorebugElementKind.Text)Group(t=>t.IconVertical=iconVertical);
         if(iconBorderWidthOk&&Math.Abs(item.IconBorderThickness-iconBorderWidth)>0.001)Group(t=>t.IconBorderThickness=iconBorderWidth);
         if(iconBorderColorOk&&!string.Equals(item.IconBorderColor,iconBorderColor,StringComparison.OrdinalIgnoreCase))Group(t=>t.IconBorderColor=iconBorderColor);
@@ -2199,6 +2203,7 @@ public partial class ScorebugEditorWindow : Window
                 target.DownCaps=downCaps;
                 target.PlayClockColon=playClockColon;
                 target.GameClockLeadingZero=gameClockLeadingZero;
+                target.ClockDecimals=clockDecimals;
                 if(transitionShrinkOk)target.TransitionShrink=transitionShrink;
                 if(transitionJumpOk)target.TransitionJumpHeight=transitionJump;
                 target.TransitionJumpDirection=transitionJumpDirection;
@@ -2219,7 +2224,8 @@ public partial class ScorebugEditorWindow : Window
                 if(chromaToleranceOk&&target.Kind==ScorebugElementKind.Video)target.ChromaKeyTolerance=chromaTolerance;
                 target.AudioDevice=string.IsNullOrWhiteSpace(audioDevice)?null:audioDevice;
                 if(icon is not null&&target.Icon!=icon.Value){target.Icon=icon.Value;artworkChanged=true;}
-                target.IconVisitors=iconVisitors; target.IconFlipped=iconFlipped; target.IconArrowDown=iconArrowDown;
+                target.IconVisitors=iconVisitors; target.IconFlipped=iconFlipped;
+                if(iconRotationOk)target.IconRotation=iconRotation;
                 // This was only written through the group-edit list, so a single selected timeout
                 // element appeared to accept the vertical option and then lost it on the next move.
                 target.IconVertical=iconVertical;
@@ -3526,7 +3532,7 @@ public partial class ScorebugEditorWindow : Window
                     Canvas.SetLeft(visual.Host,target.X); Canvas.SetTop(visual.Host,target.Y);
                     visual.Content.Width=double.NaN; visual.Content.Height=double.NaN;
                     ScorebugRender.ApplyToContent(visual.Content,target,_engine.State,
-                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat,target.DownCaps,target.PlayClockColon,target.GameClockLeadingZero));
+                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat,target.DownCaps,target.PlayClockColon,target.GameClockLeadingZero,target.ClockDecimals));
                 }
             }
             UpdateGroupSelectionAdorners();
@@ -3550,7 +3556,7 @@ public partial class ScorebugEditorWindow : Window
                     visual.Host.Width=target.Width; visual.Host.Height=target.Height;
                     visual.Content.Width=double.NaN; visual.Content.Height=double.NaN;
                     ScorebugRender.ApplyToContent(visual.Content,target,_engine.State,
-                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat,target.DownCaps,target.PlayClockColon,target.GameClockLeadingZero));
+                        ScoreboardTemplates.Bind(target.Content,_engine.State,target.PeriodFormat,target.DownCaps,target.PlayClockColon,target.GameClockLeadingZero,target.ClockDecimals));
                 }
             }
             if(ctrl)RefreshAllVisuals();

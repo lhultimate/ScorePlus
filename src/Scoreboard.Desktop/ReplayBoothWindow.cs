@@ -42,7 +42,14 @@ public sealed class ReplayBoothWindow : Window
         TextWrapping = TextWrapping.Wrap,
         Margin = new Thickness(28)
     };
-    readonly Slider _scrub = new() { Minimum = 0, Maximum = 120, Margin = new Thickness(0, 2, 10, 2) };
+    readonly Slider _scrub = new() { Name = "BigScrub", Minimum = 0, Maximum = 120, Margin = new Thickness(0, 2, 10, 2) };
+    // The wall page carries its own scrubber on the same shared playhead, so a replay can be pulled
+    // back without enlarging a camera first. Two sliders, one playhead: neither writes back over the
+    // other while it is being dragged.
+    readonly Slider _wallScrub = new() { Name = "WallScrub", Minimum = 0, Maximum = 120, Margin = new Thickness(0, 2, 10, 2) };
+    readonly TextBlock _wallTime = new() { Text = "LIVE EDGE", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x66)), VerticalAlignment = VerticalAlignment.Center, MinWidth = 104 };
+    readonly TextBlock _wallWindow = new() { Text = "2 MIN", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0xA0, 0xB4)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+    bool _updatingWallScrub;
     readonly TextBlock _timeLabel = new() { FontSize = 11, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x66)), VerticalAlignment = VerticalAlignment.Center, MinWidth = 104 };
     readonly TextBlock _windowLabel = new() { Text = "2 MIN", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0xA0, 0xB4)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
     readonly StackPanel _stoppagePanel = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed };
@@ -83,9 +90,12 @@ public sealed class ReplayBoothWindow : Window
         {
             _scrub.Style = (Style)Application.Current.FindResource("ReplayTransportSlider");
             _scrub.Maximum = Math.Max(1, CameraFeed.ReplayWindowSeconds);
+            _wallScrub.Style = (Style)Application.Current.FindResource("ReplayTransportSlider");
+            _wallScrub.Maximum = Math.Max(1, CameraFeed.ReplayWindowSeconds);
         }
         catch { }
         _windowLabel.Text = WindowLabel();
+        _wallWindow.Text = WindowLabel();
         _labelsCheck.IsChecked = _booth.ShowLabels;
         _labelsCheck.Checked += (_, _) => SetLabels(true);
         _labelsCheck.Unchecked += (_, _) => SetLabels(false);
@@ -157,8 +167,35 @@ public sealed class ReplayBoothWindow : Window
 
         _wall.Children.Add(_wallTiles);
         _wall.Focusable = true;
-        Grid.SetRow(_wall, 2);
-        root.Children.Add(_wall);
+        // The wall page is the booth's main page, so its transport sits under the tiles: the shared
+        // playhead is scrubbable there without enlarging a camera.
+        var wallRow = new Grid();
+        wallRow.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        wallRow.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        wallRow.Children.Add(_wall);
+        var wallTransport = new DockPanel { LastChildFill = true, Margin = new Thickness(14, 2, 14, 8) };
+        wallTransport.Children.Add(new TextBlock
+        {
+            Text = "LIVE",
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x38, 0xD7, 0xA3)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        });
+        wallTransport.Children.Add(_wallWindow);
+        DockPanel.SetDock(_wallTime, Dock.Right);
+        wallTransport.Children.Add(_wallTime);
+        wallTransport.Children.Add(_wallScrub);
+        Grid.SetRow(wallTransport, 1);
+        wallRow.Children.Add(wallTransport);
+        _wallScrub.ValueChanged += (_, e) =>
+        {
+            if (_updatingWallScrub || _expanded) return;
+            if (Math.Abs(e.NewValue - _booth.Back) > 0.05) _booth.Seek(e.NewValue);
+        };
+        Grid.SetRow(wallRow, 2);
+        root.Children.Add(wallRow);
         Grid.SetRow(_bigView, 2);
         root.Children.Add(_bigView);
 
@@ -256,6 +293,8 @@ public sealed class ReplayBoothWindow : Window
         _bigHint.Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA8, 0xB8));
         _timeLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x66));
         _windowLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0xA0, 0xB4));
+        _wallWindow.Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0xA0, 0xB4));
+        _wallTime.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x66));
         _stoppageValue.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x66));
         _status.Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA8, 0xB8));
         _bigMeta.Foreground = new SolidColorBrush(Color.FromRgb(0xB8, 0xC4, 0xD2));
@@ -410,9 +449,26 @@ public sealed class ReplayBoothWindow : Window
 
     void RefreshWallFrames()
     {
+        // Every tile draws at the one shared playhead, so the wall is the same instant from every
+        // angle: scrub once and the whole wall moves, whether or not a camera is expanded.
         foreach (var (index, image) in _tileImages)
-            if (_booth.LiveFrame(index) is { } frame && !ReferenceEquals(image.Source, frame))
+            if (_booth.FrameFor(index) is { } frame && !ReferenceEquals(image.Source, frame))
                 image.Source = frame;
+        RefreshWallScrub();
+    }
+
+    /// <summary>Keeps the wall's scrubber and its label on the shared playhead.</summary>
+    void RefreshWallScrub()
+    {
+        _wallWindow.Text = WindowLabel();
+        _wallTime.Text = !_booth.HasReplay ? "LIVE" : _booth.Back < 0.15 ? "LIVE EDGE" : $"{Math.Round(_booth.Back)}s BACK";
+        _updatingWallScrub = true;
+        try
+        {
+            _wallScrub.Maximum = Math.Max(1, Math.Min(CameraFeed.ReplayWindowSeconds, Math.Max(1, _booth.Depth)));
+            _wallScrub.Value = Math.Clamp(_booth.Back, 0, _wallScrub.Maximum);
+        }
+        finally { _updatingWallScrub = false; }
     }
 
     void RefreshStoppage()
@@ -514,7 +570,13 @@ public sealed class ReplayBoothWindow : Window
             case "camera.up": MoveSelection(0, -1); return true;
             case "camera.down": MoveSelection(0, 1); return true;
             case "camera.enter":
-                if (_booth.SelectedCamera is null) return true;
+                if (_booth.SelectedCamera is null)
+                {
+                    // Enter with nothing selected is a useful gesture: take the first camera.
+                    if (_booth.Cameras.Count > 0) _booth.Select(0);
+                    UpdateSelection();
+                    return true;
+                }
                 ToggleExpanded(!_expanded);
                 return true;
             case "camera.back":
@@ -577,21 +639,37 @@ public sealed class ReplayBoothWindow : Window
         // the arrow fallbacks working when a global binding happens to use one of those keys.
         switch (key)
         {
-            case Key.Left: MoveSelection(-1, 0); e.Handled = true; return;
-            case Key.Right: MoveSelection(1, 0); e.Handled = true; return;
-            case Key.Up: MoveSelection(0, -1); e.Handled = true; return;
-            case Key.Down: MoveSelection(0, 1); e.Handled = true; return;
             case Key.Enter:
+                if (_booth.SelectedCamera is null && _booth.Cameras.Count > 0)
+                {
+                    _booth.Select(0);
+                    UpdateSelection();
+                    e.Handled = true;
+                    return;
+                }
                 if (_booth.SelectedCamera is not null)
                 {
                     ToggleExpanded(!_expanded);
                     e.Handled = true;
                 }
                 return;
+            case Key.Left: MoveSelection(-1, 0); e.Handled = true; return;
+            case Key.Right: MoveSelection(1, 0); e.Handled = true; return;
+            case Key.Up: MoveSelection(0, -1); e.Handled = true; return;
+            case Key.Down: MoveSelection(0, 1); e.Handled = true; return;
             case Key.Escape:
                 if (_expanded)
                 {
                     ToggleExpanded(false);
+                    e.Handled = true;
+                }
+                else if (_booth.HasSelection)
+                {
+                    // On the wall Escape is "stop pointing at a camera": the green outline goes and
+                    // the pictures stay exactly where they are.
+                    _booth.ClearSelection();
+                    UpdateSelection();
+                    _status.Text = "Wall ready · no camera selected · arrows pick one";
                     e.Handled = true;
                 }
                 return;

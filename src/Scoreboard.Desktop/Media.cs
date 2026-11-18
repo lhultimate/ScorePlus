@@ -30,18 +30,23 @@ public sealed record MediaEntry(
         : IsCamera ? CameraFeed.CameraName(CameraIndex)
         : IsMicrophone ? MicrophoneFeed.MicrophoneName(MicrophoneIndex)
         : IsSpeaker ? $"Speaker {(MediaLibrary.SpeakerIndex(Path) ?? 0) + 1}"
+        : IsScreen ? ScreenFeed.ScreenName(ScreenIndex)
         : System.IO.Path.GetFileName(Path);
     public bool IsCamera => MediaLibrary.CameraIndex(Path) is not null;
     /// <summary>A live microphone item: captured from a device, with no file and no picture.</summary>
     public bool IsMicrophone => MediaLibrary.MicrophoneIndex(Path) is not null;
+    /// <summary>A desktop as a media piece: a monitor captured and embedded like a camera.</summary>
+    public bool IsScreen => MediaLibrary.ScreenIndex(Path) is not null;
+    /// <summary>Which monitor a screen item captures.</summary>
+    public int ScreenIndex => MediaLibrary.ScreenIndex(Path) ?? 0;
     /// <summary>An output-bus item: it names a speaker and carries that bus's level.</summary>
     public bool IsSpeaker => MediaLibrary.SpeakerIndex(Path) is not null;
     /// <summary>Which capture device this camera item routes to; an override beats the path's index.</summary>
     public int CameraIndex => CameraDevice ?? MediaLibrary.CameraIndex(Path) ?? 0;
     /// <summary>Which microphone this item listens to.</summary>
     public int MicrophoneIndex => MicrophoneDevice ?? MediaLibrary.MicrophoneIndex(Path) ?? 0;
-    public bool IsVideo => IsCamera || (!IsMicrophone && MediaLibrary.IsVideoFile(Path));
-    public string KindLabel => IsCamera ? "LIVE" : IsMicrophone ? "MIC" : IsSpeaker ? "SPEAKER" : IsVideo ? "VIDEO" : "AUDIO";
+    public bool IsVideo => IsCamera || IsScreen || (!IsMicrophone && MediaLibrary.IsVideoFile(Path));
+    public string KindLabel => IsCamera ? "LIVE" : IsScreen ? "SCREEN" : IsMicrophone ? "MIC" : IsSpeaker ? "SPEAKER" : IsVideo ? "VIDEO" : "AUDIO";
     public string FolderLabel => string.IsNullOrWhiteSpace(Folder) ? MediaLibrary.RootFolderLabel : Folder;
     public string TagAndFolder => string.IsNullOrWhiteSpace(Folder) ? Tag : $"{Tag} · {Folder}";
 
@@ -55,6 +60,12 @@ public sealed record MediaEntry(
     /// value each time it is opened so switching between two replays of the same recording still
     /// runs the incoming switch animation.</summary>
     public int ReplayCue { get; init; }
+
+    /// <summary>
+    /// For a camera: the microphone item that captures its sound. A camera carries no audio of its
+    /// own, so naming its microphone is what lets a multiview tile draw a sound bar beside it.
+    /// </summary>
+    public string? MicrophoneLink { get; init; }
 
     /// <summary>0–100, as shown on the dock's knob.</summary>
     public int VolumePercent => (int)Math.Round(Math.Clamp(Volume, 0, 1) * 100);
@@ -95,6 +106,18 @@ public static class MediaLibrary
 
     /// <summary>Where an output-bus item's path lives. <c>speaker:0</c> is the first render device.</summary>
     public const string SpeakerPrefix = "speaker:";
+
+    /// <summary>Where a screen source's path lives. <c>screen:0</c> is the first monitor.</summary>
+    public const string ScreenPrefix = "screen:";
+
+    public static string ScreenPath(int index) => $"{ScreenPrefix}{Math.Max(0, index)}";
+
+    /// <summary>The monitor number behind a screen path, or null for another media item.</summary>
+    public static int? ScreenIndex(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !path.StartsWith(ScreenPrefix, StringComparison.OrdinalIgnoreCase)) return null;
+        return int.TryParse(path[ScreenPrefix.Length..], out var index) ? index : 0;
+    }
 
     public static readonly string[] SuggestedTags = [AnyTag, "General", "Ads", "Highlights", "Music", "Anthem", "Sponsors", "Camera", "Microphone"];
 
@@ -194,6 +217,10 @@ public static class MediaLibrary
         return updated;
     }
 
+    /// <summary>Renames any library item, so a show can call a camera "Tight" or a clip "Open".</summary>
+    public static MediaEntry? Rename(IList<MediaEntry> library, MediaEntry selected, string? name) =>
+        SetName(library, selected, name);
+
     /// <summary>Renames a camera item, so a show can call it "Tight" or "Wide" rather than Camera 2.</summary>
     public static MediaEntry? SetName(IList<MediaEntry> library, MediaEntry selected, string? name)
     {
@@ -201,6 +228,17 @@ public static class MediaLibrary
         if (index < 0) return null;
         var trimmed = (name ?? "").Trim();
         var updated = selected with { Name = trimmed.Length == 0 ? null : trimmed };
+        library[index] = updated;
+        return updated;
+    }
+
+    /// <summary>Names the microphone that belongs to a camera, or clears it.</summary>
+    public static MediaEntry? SetMicrophoneLink(IList<MediaEntry> library, MediaEntry selected, string? microphonePath)
+    {
+        var index = library.IndexOf(selected);
+        if (index < 0) return null;
+        var trimmed = (microphonePath ?? "").Trim();
+        var updated = selected with { MicrophoneLink = trimmed.Length == 0 ? null : trimmed };
         library[index] = updated;
         return updated;
     }
@@ -220,6 +258,16 @@ public static class MediaLibrary
         var index = library.IndexOf(selected);
         if (index < 0) return null;
         var updated = selected with { CameraDevice = Math.Max(0, device) };
+        library[index] = updated;
+        return updated;
+    }
+
+    /// <summary>Points a screen item at another monitor, in place. The path carries the monitor.</summary>
+    public static MediaEntry? SetScreenMonitor(IList<MediaEntry> library, MediaEntry selected, int monitor)
+    {
+        var index = library.IndexOf(selected);
+        if (index < 0) return null;
+        var updated = selected with { Path = ScreenPath(Math.Max(0, monitor)) };
         library[index] = updated;
         return updated;
     }

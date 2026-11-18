@@ -285,9 +285,9 @@ public partial class ControlPanelView : UserControl
         // Soccer's added time lives under the game clock, and only for soccer.
         var soccer = s.SportId == "soccer";
         StoppageRow.Visibility = soccer ? Visibility.Visible : Visibility.Collapsed;
-        StoppageValue.Text = GameEngine.FormatClock(s.StoppageSeconds);
+        StoppageValue.Text = s.StoppageText;
         StoppageToggle.Content = s.StoppageRunning ? "Stop" : "Start";
-        if (!PlayClockValue.IsKeyboardFocused) PlayClockValue.Text = s.PlayClockSeconds.ToString();
+        if (!PlayClockValue.IsKeyboardFocused) PlayClockValue.Text = s.PlayClockPlain;
         if (!ShotClockValue.IsKeyboardFocused) ShotClockValue.Text = s.ShotClockSeconds.ToString();
         if (!TimeoutClockValue.IsKeyboardFocused) TimeoutClockValue.Text = GameEngine.FormatClock(s.TimeoutClockSeconds);
         ClockToggle.Content = s.ClockRunning ? "Stop" : "Start";
@@ -966,6 +966,7 @@ public partial class ControlPanelView : UserControl
     {
         if (sender is FrameworkElement { Tag: string actionId }) Execute(actionId);
     }
+
 
     public void Execute(string actionId)
     {

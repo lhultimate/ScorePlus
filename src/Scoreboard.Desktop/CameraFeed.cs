@@ -28,7 +28,7 @@ public sealed record CameraDevice(int Index, string Name)
 /// dispatcher. While the feed runs it records short clips to disk; <see cref="Snapshot"/> hands back
 /// the last couple of minutes, which is what Replay scrubs through and what a saved replay is cut from.
 /// </summary>
-public sealed class CameraFeed : IDisposable
+public sealed class CameraFeed : IDisposable, ILiveSource
 {
     // One capture per device index: opening the same webcam twice fails on most drivers, and two
     // scorebug elements showing the camera should share the one feed.

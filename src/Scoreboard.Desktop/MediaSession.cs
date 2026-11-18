@@ -108,6 +108,8 @@ public sealed class MediaSession
         // The meter asks this on every read, so a speaker switched off silences it at once even when
         // the rest of the machine is playing something else.
         SoundLevelMeter.AudibleGate = () => !HasSpeakerBuses || Library.Any(entry => entry.IsSpeaker && !entry.SpeakerMuted);
+        // The meter above the program preview is the master: it reads every bus the show uses.
+        SoundLevelMeter.MasterDevices = () => AudioDevicesInUse;
 
         _player.MediaOpened += (_, _) =>
         {
@@ -927,6 +929,115 @@ public sealed class MediaSession
         return entry;
     }
 
+    /// <summary>
+    /// Adds a desktop to the library as a media piece. It is a video source like a camera: it
+    /// routes by tag, it goes on air like anything else, and a video element shows it.
+    /// </summary>
+    public MediaEntry AddScreen(int index, string? tag = null)
+    {
+        var path = MediaLibrary.ScreenPath(index);
+        var existing = Library.FirstOrDefault(e => string.Equals(e.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            Selected = existing;
+            StateChanged?.Invoke();
+            Status?.Invoke($"{existing.Label} is already in the library");
+            return existing;
+        }
+        var entry = new MediaEntry(path, MediaLibrary.NormalizeTag(string.IsNullOrWhiteSpace(tag) ? "Screen" : tag));
+        Library.Add(entry);
+        Selected = entry;
+        // A screen only needs its capture running while something can show it.
+        ScreenFeed.Get(entry.ScreenIndex).Start();
+        Save();
+        StateChanged?.Invoke();
+        Status?.Invoke($"SCREEN ADDED · {entry.Label} · tag {entry.Tag}");
+        return entry;
+    }
+
+    /// <summary>The monitors a screen item can capture.</summary>
+    public IReadOnlyList<ScreenDevice> Screens() => ScreenFeed.Screens();
+
+    /// <summary>
+    /// Renames any library item — a clip, a camera, a microphone, a speaker bus or a screen — so
+    /// the multiview, the replay booth and the macro board all read the show's own words.
+    /// </summary>
+    public void Rename(MediaEntry entry, string? name)
+    {
+        entry = Resolve(entry);
+        var updated = MediaLibrary.Rename(Library, entry, name);
+        if (updated is null) return;
+        if (SameClip(Selected, updated)) Selected = updated;
+        if (SameClip(Current, updated)) Current = updated;
+        Playback.UpdateEntry(updated);
+        Save();
+        StateChanged?.Invoke();
+        Status?.Invoke($"RENAMED · {updated.Label}");
+    }
+
+    /// <summary>Names the microphone that carries a camera's sound, or clears it.</summary>
+    public void SetCameraMicrophone(MediaEntry camera, string? microphonePath)
+    {
+        camera = Resolve(camera);
+        var updated = MediaLibrary.SetMicrophoneLink(Library, camera, microphonePath);
+        if (updated is null) return;
+        if (SameClip(Selected, updated)) Selected = updated;
+        Save();
+        StateChanged?.Invoke();
+        Status?.Invoke(string.IsNullOrWhiteSpace(updated.MicrophoneLink)
+            ? $"CAMERA · {updated.Label} has no microphone"
+            : $"CAMERA · {updated.Label} listens to {Library.FirstOrDefault(item => string.Equals(item.Path, updated.MicrophoneLink, StringComparison.OrdinalIgnoreCase))?.Label ?? updated.MicrophoneLink}");
+    }
+
+    /// <summary>The microphone item a camera names, or null.</summary>
+    public MediaEntry? MicrophoneFor(MediaEntry camera) =>
+        string.IsNullOrWhiteSpace(camera.MicrophoneLink)
+            ? null
+            : Library.FirstOrDefault(item => item.IsMicrophone
+                && string.Equals(item.Path, camera.MicrophoneLink, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The show's master level, 0–1.</summary>
+    public double MasterVolume => Math.Clamp(_preferences.MediaMasterVolume, 0, 1);
+
+    /// <summary>
+    /// One slider for the whole room: it scales every bus and every clip at once, while each bus
+    /// keeps its own balance underneath it. Nothing restarts; only levels move.
+    /// </summary>
+    public void SetMasterVolume(double volume)
+    {
+        volume = Math.Clamp(double.IsFinite(volume) ? volume : 1, 0, 1);
+        if (Math.Abs(_preferences.MediaMasterVolume - volume) < 0.0005) return;
+        _preferences.MediaMasterVolume = volume;
+        PreferencesStore.Save(_preferences);
+        ApplySpeakerGains();
+        if (Current is { IsSpeaker: false } current && !current.IsCamera)
+        {
+            var (device, gain) = OutputFor(current);
+            Playback.ReportAudio(device, gain);
+        }
+        StateChanged?.Invoke();
+        Status?.Invoke($"MASTER VOLUME {Math.Round(volume * 100)}%");
+    }
+
+    /// <summary>
+    /// The live level of one library item, 0–1. A speaker bus reads its own output device; a
+    /// microphone reads its capture; a clip reads the speaker it is going to. The dock draws this
+    /// beside the item and the program preview draws the master mix.
+    /// </summary>
+    public double LevelFor(MediaEntry entry)
+    {
+        if (entry.IsSpeaker) return SoundLevelMeter.ReadDevice(entry.AudioDevice);
+        if (entry.IsMicrophone) return SoundLevelMeter.ReadDevice(entry.AudioDevice);
+        var bus = SpeakerBusFor(entry);
+        return SoundLevelMeter.ReadDevice(bus?.AudioDevice ?? entry.AudioDevice);
+    }
+
+    /// <summary>Every output device the show is using, for the master mix's own bar.</summary>
+    public IReadOnlyList<string?> AudioDevicesInUse =>
+        Library.Where(entry => entry.IsSpeaker || entry.IsMicrophone || !string.IsNullOrWhiteSpace(entry.AudioDevice))
+            .Select(entry => entry.AudioDevice).Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
     /// <summary>The output devices a speaker item can be routed to.</summary>
     public IReadOnlyList<AudioRouter.OutputDevice> SpeakerDevices() => AudioRouter.Devices();
 
@@ -974,8 +1085,9 @@ public sealed class MediaSession
     public double SpeakerGain(MediaEntry entry)
     {
         if (entry.IsSpeaker) return 0;
-        if (!HasSpeakerBuses) return 1;
-        return SpeakerBusFor(entry) is { } bus ? Math.Clamp(bus.Volume, 0, 1) : 0;
+        // The master scales everything: a show with no buses still has a master level to turn down.
+        if (!HasSpeakerBuses) return MasterVolume;
+        return SpeakerBusFor(entry) is { } bus ? Math.Clamp(bus.Volume, 0, 1) * MasterVolume : 0;
     }
 
     /// <summary>Where an item's sound comes out: its bus's device, else its own, plus the bus level.</summary>
@@ -1147,6 +1259,59 @@ public sealed class MediaSession
     /// Cues a live camera. There is no file and no duration: the feed paints every scorebug video
     /// element watching this tag, and keeps recording the clips Replay scrubs through.
     /// </summary>
+    /// <summary>
+    /// Puts a monitor on air. It behaves like a camera cue: the tag decides which video element
+    /// shows it, the transport is stopped (there is no clip to play), and the capture thread is
+    /// started on the monitor the item points at.
+    /// </summary>
+    void PlayScreen(MediaEntry entry, MediaPlaylist? playlist, int index)
+    {
+        var keepRoutedAudio = PreserveCurrentAudio();
+        try { _player.Stop(); _player.Close(); } catch { }
+        _seekApply.Stop();
+        _seekTarget = 0;
+        _playlist = playlist;
+        _playlistIndex = index;
+        if (!keepRoutedAudio)
+        {
+            _audio.Stop();
+            _audioDevice = null;
+        }
+        ResetReplaySessions();
+        _duration = 0;
+        _pendingSeek = null;
+        Selected = entry;
+        Current = entry;
+        ScreenFeed.Get(entry.ScreenIndex).Start();
+        SetTransportPlaying(true);
+        Playback.Start(entry);
+        Playback.ReportAudio(null, 1);
+        StateChanged?.Invoke();
+        Status?.Invoke($"SCREEN ON AIR · {entry.Label} · tag {entry.Tag} · {ScreenFeed.ScreenName(entry.ScreenIndex)}");
+    }
+
+    /// <summary>Points a screen item at another monitor and restarts its capture.</summary>
+    public void SetScreenMonitor(MediaEntry entry, int monitor)
+    {
+        entry = Resolve(entry);
+        if (!entry.IsScreen) return;
+        var wasOnAir = Playback.IsActive(entry);
+        var previous = entry.ScreenIndex;
+        var updated = MediaLibrary.SetScreenMonitor(Library, entry, monitor);
+        if (updated is null) return;
+        if (SameClip(Selected, updated)) Selected = updated;
+        if (SameClip(Current, updated)) Current = updated;
+        if (previous != updated.ScreenIndex) ScreenFeed.Get(previous).Stop();
+        ScreenFeed.Get(updated.ScreenIndex).Start();
+        Save();
+        if (wasOnAir) Play(updated);
+        else
+        {
+            StateChanged?.Invoke();
+            Status?.Invoke($"SCREEN · {updated.Label} → {ScreenFeed.ScreenName(updated.ScreenIndex)}");
+        }
+    }
+
     void PlayCamera(MediaEntry entry, MediaPlaylist? playlist, int index)
     {
         // Other live sources stay on air. A camera cue adds this feed rather than replacing the
@@ -1958,6 +2123,10 @@ public sealed class MediaSession
         }
         if (entry.IsCamera) { PlayCamera(entry, playlist, index); return; }
         if (entry.IsMicrophone) { PlayMicrophone(entry); return; }
+        // A desktop has no file to open. It is a live source like a camera: the transport is put
+        // away and a video element pulls its frames from the capture thread. Without this branch a
+        // screen was turned away as a missing media file, so it never reached the audience.
+        if (entry.IsScreen) { PlayScreen(entry, playlist, index); return; }
         entry = Resolve(entry);
         if (!File.Exists(entry.Path))
         {

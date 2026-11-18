@@ -86,7 +86,8 @@ public sealed class SoundMeterView : Border
     void UpdateMeter()
     {
         if (!IsVisible) return;
-        var level = SoundLevelMeter.Read();
+        // This is the master meter: the loudest of every speaker bus, read as one bar.
+        var level = SoundLevelMeter.ReadMaster();
         // The same square-root scale as the main rail, so quiet speech still moves the meter.
         var lit = (int)Math.Round(Math.Sqrt(level) * _bars.Length);
         if (lit != _lit)

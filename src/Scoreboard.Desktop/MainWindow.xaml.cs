@@ -171,10 +171,16 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         _engine.Changed += () => _leagueCloud?.MarkDirty();
         _timer.Tick += (_, _) => _engine.Tick();
         _timer.Start();
+        SyncHistory();
         _autosave.Tick += (_, _) => AutoSave();
         _autosave.Start();
 
-        _automation = new AutomationRuntime(_scorebug, _publishedEngine, _engine);
+        _automation = new AutomationRuntime(_scorebug, _publishedEngine, _engine)
+        {
+            // A conditional can run a macro or put a media piece on or off air, not only repaint an
+            // element. The runtime owns the artwork; the show owns these two.
+            RunCommand = RunAutomationCommand
+        };
         _program = new ProgramSelection(_scorebug);
         _program.Changed += ProgramChanged;
         // The preview is the staging desk: it must show the values the operator is about to put on
@@ -210,11 +216,13 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         RosterControl.Attach(_engine);
         RosterControl.ApplyTheme(_preferences.Theme);
         RosterControl.SetHintVisibility(_preferences.ShowHeadingHints);
-        _macroDock = new MacroDock(_engine, _session, _preferences.Theme, _panel.Execute, _scorebug, PublishGameState);
+        _macroDock = new MacroDock(_engine, _session, _preferences.Theme, _panel.Execute, _scorebug, PublishGameState,
+            () => _liveScoreClock, SetLiveScoreClock, () => OpenConditionals(AutomationScope.Macro));
         _macroDock.SetHintVisibility(_preferences.ShowHeadingHints);
         _macroDock.Status += message => StatusText.Text = message;
         MacroHost.Content = _macroDock;
         MediaControl.Attach(_session);
+        MediaControl.OpenConditionals = () => OpenConditionals(AutomationScope.Media);
         MediaControl.ApplyTheme(_preferences.Theme);
         // The dock now lives in a full-width tab instead of a narrow rail, so its controls are the
         // same size as the console's.
@@ -605,6 +613,43 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         _preview?.Refresh();
         // The monitor listens to the published engine itself, so the copy above already repaints it.
         foreach (var output in _outputs) output.Publish();
+    }
+
+    /// <summary>
+    /// Runs a conditional's show-level action: a saved macro from the board, or a library item on
+    /// or off air. Element artwork is applied by the runtime itself, so it never reaches here.
+    /// </summary>
+    void RunAutomationCommand(AutomationAction action)
+    {
+        var runner = new MacroRunner(_engine, _session, _panel.Execute, _scorebug, PublishGameState);
+        switch (action.Kind)
+        {
+            case AutomationActionKind.RunMacro:
+                var macro = _engine.State.Macros.FirstOrDefault(item =>
+                    string.Equals(item.Id, action.Value, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(item.Label, action.Value, StringComparison.OrdinalIgnoreCase));
+                if (macro is not null) _ = runner.RunAsync(macro.Copy());
+                break;
+            case AutomationActionKind.MediaOnAir:
+                runner.RunMediaStep(action.Value, onAir: true);
+                break;
+            case AutomationActionKind.MediaOffAir:
+                runner.RunMediaStep(action.Value, onAir: false);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Opens this display's rule editor from the macro board or the media rail, so a conditional
+    /// that runs a macro or puts a clip, camera or screen on air can be written without going into
+    /// the studio first.
+    /// </summary>
+    void OpenConditionals(AutomationScope scope)
+    {
+        var window = new AutomationWindow(_scorebug, _engine, _preferences.Theme,
+            _scorebug.ActiveDisplay.Id, _automation, _engine, scope: scope) { Owner = this };
+        ThemeManager.Apply(window, _preferences.Theme);
+        window.ShowDialog();
     }
 
     public void PublishOutput()
@@ -1203,9 +1248,11 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
                 "Start fresh", "Undo end game");
             if (restart.SecondaryConfirmed)
             {
-                if (_engine.Undo())
+                // The end may have been recorded twice (the clock expiring, then the final record), so
+                // this goes back to the last state where the game was still live rather than one step.
+                if (_engine.UndoEndGame())
                 {
-                    StatusText.Text = "END GAME UNDONE · the final result was restored";
+                    StatusText.Text = "END GAME UNDONE · the clock, the down and the result are back";
                     AutoSave();
                 }
                 else StatusText.Text = "NOTHING TO UNDO · End Game could not be undone";
@@ -1438,8 +1485,36 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         if (enabled) PublishLiveValues();
     }
 
+    void Undo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine.Undo())
+        {
+            StatusText.Text = "UNDONE · the last action was taken back";
+            AutoSave();
+        }
+        SyncHistory();
+    }
+
+    void Redo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine.Redo())
+        {
+            StatusText.Text = "REDONE · the action was put back";
+            AutoSave();
+        }
+        SyncHistory();
+    }
+
+    /// <summary>Greys a history button out when there is nothing to step to.</summary>
+    void SyncHistory()
+    {
+        UndoButton.IsEnabled = _engine.CanUndo;
+        RedoButton.IsEnabled = _engine.CanRedo;
+    }
+
     void EngineChanged()
     {
+        SyncHistory();
         // The Replay Booth maps a recorded frame back to the game and play clocks that were showing
         // when it happened. Sample here, on the same UI thread as every clock tick and correction.
         ReplayBoothHistory.Sample(_engine.State);

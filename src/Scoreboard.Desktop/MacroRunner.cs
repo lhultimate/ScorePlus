@@ -130,6 +130,13 @@ public sealed class MacroRunner
         }
     }
 
+    /// <summary>
+    /// One media step on its own, for a conditional that puts a library item on or off air
+    /// without a whole macro behind it. It goes through the same path a macro step does.
+    /// </summary>
+    public bool RunMediaStep(string path, bool onAir) =>
+        onAir ? PlayVideo(path, restartClip: false) : TakeOffAir(path);
+
     bool PlayVideo(string path, bool restartClip)
     {
         path = (path ?? "").Trim();

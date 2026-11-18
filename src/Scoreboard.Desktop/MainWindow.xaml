@@ -132,7 +132,16 @@
           </Grid.RowDefinitions>
 
           <DockPanel Margin="0,0,0,6">
-            <TextBlock x:Name="PreviewAudienceHint" DockPanel.Dock="Right" Text="AUDIENCE" Foreground="#38D7A3" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" Visibility="Collapsed"/>
+            <TextBlock x:Name="PreviewAudienceHint" DockPanel.Dock="Right" Text="AUDIENCE" Foreground="#38D7A3" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="Collapsed"/>
+            <!-- Undo lives with the program preview: it steps the whole show back one action, which
+                 is the place an operator looks when a wrong score reaches the graphic. -->
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,6,0">
+              <!-- Same width and margin, so the pair lines up instead of sizing to its letters. -->
+              <Button x:Name="UndoButton" Content="Undo" Width="58" FontSize="10" Padding="0" MinHeight="24" Margin="0,0,4,0"
+                      Click="Undo_Click" ToolTip="Take back the last action — a score, a clock, a team or a statistic"/>
+              <Button x:Name="RedoButton" Content="Redo" Width="58" FontSize="10" Padding="0" MinHeight="24" Margin="0,0,4,0"
+                      Click="Redo_Click" ToolTip="Put back the action that was just undone"/>
+            </StackPanel>
             <StackPanel Orientation="Horizontal">
               <Border Style="{StaticResource RailAccent}"/>
               <TextBlock Text="PROGRAM PREVIEW" Style="{StaticResource RailTitle}"/>

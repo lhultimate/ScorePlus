@@ -494,14 +494,27 @@ Check(playClock.State.PlayClockSeconds<=1&&playClock.State.PlayClockRunning,"the
 Thread.Sleep(1250);playClock.Tick();
 Check(playClock.State.PlayClockSeconds==0&&!playClock.State.PlayClockRunning,"the play clock reaches zero and stops there");
 Check(ScoreboardTemplates.Bind("{{PLAY_CLOCK}}",playClock.State)=="0","the graphic prints zero when the play clock expires");
+// Pausing must bank the time since the last tick. It used to throw it away, so every stop and
+// start quietly handed the clock a little time back — the operator's "pause adds time" report.
 var pauseClock=new GameEngine();pauseClock.NewGame("football");
 pauseClock.SetClock(44);pauseClock.SetPlayClock(40);
 pauseClock.ToggleClock();pauseClock.TogglePlayClock();
 Thread.Sleep(1100);
 pauseClock.ToggleClock();pauseClock.TogglePlayClock();
-Check(pauseClock.State.ClockSeconds==44&&!pauseClock.State.ClockRunning
-    &&pauseClock.State.PlayClockSeconds==40&&!pauseClock.State.PlayClockRunning,
-    "stopping the game clock or play clock preserves the displayed value instead of consuming the elapsed fraction");
+var paused=pauseClock.State.ClockSeconds; var pausedPlay=pauseClock.State.PlayClockSeconds;
+Check(paused==43&&pausedPlay==39&&!pauseClock.State.ClockRunning&&!pauseClock.State.PlayClockRunning,
+    "stopping a clock banks the time since the last tick instead of handing it back");
+// The stopped clock holds still, and resuming continues from that fraction rather than waiting a
+// fresh second: the last 0.9 s of the second should be what is left to play.
+Thread.Sleep(400);pauseClock.Tick();
+Check(pauseClock.State.ClockSeconds==paused&&pauseClock.State.PlayClockSeconds==pausedPlay,
+    "a stopped clock holds its value while the show waits");
+var resumeAt=DateTime.UtcNow;pauseClock.ToggleClock();pauseClock.TogglePlayClock();
+while(pauseClock.State.ClockSeconds==paused&&(DateTime.UtcNow-resumeAt).TotalSeconds<2)
+{pauseClock.Tick();Thread.Sleep(10);}
+var resumeWait=(DateTime.UtcNow-resumeAt).TotalSeconds;
+Check(resumeWait>0.6&&resumeWait<0.98,"a resumed clock does not add a fresh second");
+pauseClock.ToggleClock();pauseClock.TogglePlayClock();
 var carryClock=new GameEngine();carryClock.NewGame("football");
 carryClock.SetClock(44);carryClock.SetPlayClock(40);
 carryClock.ToggleClock();carryClock.TogglePlayClock();
@@ -860,12 +873,13 @@ try
         new ScorebugElement{Name="Home arrow",Content="",Icon=ScorebugIcon.PossessionArrow,Width=80,Height=40},
         new ScorebugElement{Name="Away arrow",Content="",Icon=ScorebugIcon.PossessionArrow,IconVisitors=true,Width=80,Height=40}]};
     var homeArrowPage=ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession");
-    Check(homeArrowPage.Contains("class=\"sp-arrow in")&&!homeArrowPage.Contains("class=\"sp-arrow out"),"the possession arrow only marks the team with the ball");
+    Check(homeArrowPage.Split("class=\"sp-arrow in").Length-1==2&&!homeArrowPage.Contains("class=\"sp-arrow out"),"the possession arrow sits on the side of the team with the ball");
     arrowGame.SetPossession(false);
-    Check(ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession").Contains("class=\"sp-arrow out flip"),"the possession arrow follows the ball to the other plate");
+    var awayArrowPage=ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession");
+    Check(awayArrowPage.Split("class=\"sp-arrow out").Length-1==2&&!awayArrowPage.Contains(" flip\""),"switching possession moves the arrow without flipping it");
     arrowGame.SetPossession(true);
-    arrowLayout.Elements[0].IconArrowDown=true;
-    Check(ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession").Contains("class=\"sp-arrow down\""),"the web export can draw the downward possession arrow");
+    arrowLayout.Elements[0].IconRotation=90;
+    Check(ScorebugHtml.Build(arrowLayout,arrowGame.State,"Possession").Contains("rotate(90deg)"),"an icon is turned on its centre by the rotation property");
     var webBars=new ScorebugElement{Name="Timeouts",Content="",Icon=ScorebugIcon.TimeoutBars,Width=160,Height=60,IconBorderThickness=3,IconBorderColor="#FFE23B3B"};
     var webBarsPage=ScorebugHtml.Build(new ScorebugLayout{Elements=[webBars]},arrowGame.State,"Bars");
     Check(webBarsPage.Contains("sp-bar")&&webBarsPage.Contains("box-shadow:0 0 0 3px rgba(226,59,59,1)"),"the web export draws the icon border on each timeout bar");
@@ -1304,4 +1318,115 @@ finally
 {
     if(File.Exists(exportLayoutPath))File.Delete(exportLayoutPath);
     if(File.Exists(displayPath))File.Delete(displayPath);
+}
+
+// A decimal column moves many times a second, and it does so on its own event: the show's general
+// change event stays at whole seconds so nothing else is rebuilt at that rate.
+{
+    var fractionEngine=new GameEngine();
+    fractionEngine.NewGame("football");
+    fractionEngine.SetClock(600);
+    var whole=0;var fractions=0;
+    fractionEngine.Changed+=()=>whole++;
+    fractionEngine.FractionsChanged+=()=>fractions++;
+    fractionEngine.ToggleClock();
+    var until=DateTime.UtcNow.AddMilliseconds(320);
+    while(DateTime.UtcNow<until){fractionEngine.Tick();Thread.Sleep(10);}
+    Check(fractions==0,"a show without decimals never wakes for a fraction");
+    fractionEngine.ClockDecimalsInUse=true;
+    whole=0;fractions=0;
+    until=DateTime.UtcNow.AddMilliseconds(320);
+    while(DateTime.UtcNow<until){fractionEngine.Tick();Thread.Sleep(10);}
+    Check(fractions>=6,"a decimal column reports every tick, not ten times a second");
+    Check(whole<=1,"a running clock does not report whole-second changes ten times a second");
+    var printed=GameEngine.FormatClock(fractionEngine.State.ClockSeconds,ClockStyle.Padded,2,fractionEngine.State.ClockFraction,countDown:true);
+    Check(printed.Contains('.')&&printed.Length>=6,"a two-decimal clock prints its hundredths: "+printed);
+}
+
+// Undo steps the show back one action, and Redo puts it on air again.
+{
+    var history=new GameEngine();
+    history.NewGame("football");
+    Check(!history.CanUndo&&!history.CanRedo,"a new game has nothing to undo or redo");
+    history.Score(true,3);
+    Check(history.State.HomeScore==3&&history.CanUndo,"scoring records an undo step");
+    Check(history.Undo()&&history.State.HomeScore==0,"undo takes the score back");
+    Check(history.CanRedo,"undo leaves a redo step");
+    Check(history.Redo()&&history.State.HomeScore==3,"redo puts the score back");
+    history.Score(false,2);
+    Check(!history.CanRedo,"a new action clears the redo branch");
+}
+
+// Every conditionals page saves with the show: a layout's own rules, the media rules and the macro
+// rules all come back on their own pages after a reload.
+{
+    var scopePath=Path.Combine(Path.GetTempPath(),$"cond-scopes-{Guid.NewGuid():N}.json");
+    try
+    {
+        var catalog=new ScorebugCatalog(scopePath);
+        var display=catalog.ActiveDisplay;
+        var layoutId=catalog.Layout.Id;
+        AutomationCondition Less()=>new(){Field=AutomationField.PlayClock,Operator=AutomationOperator.Less,Value=5};
+        catalog.UpdateAutomations(display.Id,
+        [
+            new AutomationRule{Name="Layout rule",Scope=AutomationScope.Layout,LayoutId=layoutId,Conditions=[Less()],Actions=[new AutomationAction{Kind=AutomationActionKind.SetTextColor,LayoutId=layoutId,ElementId="x",Value="#FFFF3B30"}]},
+            new AutomationRule{Name="Media rule",Scope=AutomationScope.Media,Conditions=[Less()],Actions=[new AutomationAction{Kind=AutomationActionKind.MediaOnAir,Value="clip.mp4"}]},
+            new AutomationRule{Name="Macro rule",Scope=AutomationScope.Macro,Conditions=[Less()],Actions=[new AutomationAction{Kind=AutomationActionKind.RunMacro,Value="macro-1"}]}
+        ]);
+        var reloaded=new ScorebugCatalog(scopePath);
+        var rules=reloaded.FindDisplay(display.Id)!.Automations;
+        Check(rules.Count==3,"every conditionals page is saved with the show");
+        Check(rules.Any(rule=>rule.Scope==AutomationScope.Media&&rule.Actions[0].Value=="clip.mp4")
+            &&rules.Any(rule=>rule.Scope==AutomationScope.Macro&&rule.Actions[0].Value=="macro-1")
+            &&rules.Any(rule=>rule.Scope==AutomationScope.Layout&&rule.LayoutId==layoutId),
+            "each rule reloads onto its own page and keeps its layout");
+    }
+    finally{ if(File.Exists(scopePath))File.Delete(scopePath); }
+}
+
+// Ending a game only stops the clocks and marks the result final, so undoing it must put the
+// clock, the period, the down and the distance back exactly as they were.
+{
+    var endEngine=new GameEngine();
+    endEngine.NewGame("football");
+    endEngine.SetClock(345);
+    endEngine.SetDown(2);
+    endEngine.State.YardsToGo=7;
+    endEngine.State.YardsToGoal=35;
+    endEngine.State.Period=3;
+    endEngine.State.ClockRunning=true;
+    var seconds=endEngine.State.ClockSeconds;
+    Check(endEngine.EndGame(),"a game can be ended from the console");
+    Check(!endEngine.State.ClockRunning&&endEngine.State.GameEnded,"ending a game stops the clocks and marks it final");
+    Check(endEngine.Undo(),"the end of a game can be undone");
+    Check(endEngine.State.ClockSeconds==seconds,"undoing the end restores the game clock");
+    Check(endEngine.State.Down==2&&endEngine.State.YardsToGo==7&&endEngine.State.YardsToGoal==35,
+        $"undoing the end restores the down and distance ({endEngine.State.Down} & {endEngine.State.YardsToGo}, ball on {endEngine.State.YardsToGoal})");
+    Check(endEngine.State.Period==3&&!endEngine.State.GameEnded&&endEngine.State.ClockRunning,
+        "undoing the end restores the period, the running clock and the live game");
+}
+
+// An end recorded twice — the clock expiring, then the operator's End Game settling the record —
+// still undoes to a live game with the clock, the down, the distance and the period intact.
+{
+    var twiceEngine=new GameEngine();
+    twiceEngine.NewGame("football");
+    twiceEngine.SetClock(225);
+    twiceEngine.SetDown(3);
+    twiceEngine.State.YardsToGo=4;
+    twiceEngine.State.YardsToGoal=28;
+    twiceEngine.State.Period=4;
+    twiceEngine.SetPossession(false);   // records a step of the live game
+    var liveSeconds=twiceEngine.State.ClockSeconds;
+    // The clock runs out on its own and marks the game final before any End Game press.
+    twiceEngine.State.GameEnded=true;
+    twiceEngine.State.ClockMessage=GameClockMessage.EndOfRegulation;
+    twiceEngine.State.ClockRunning=false;
+    twiceEngine.EndGame();
+    Check(twiceEngine.UndoEndGame(),"an end recorded twice still undoes");
+    Check(!twiceEngine.State.GameEnded&&twiceEngine.State.ClockMessage!=GameClockMessage.Final,
+        "undoing a double-recorded end makes the game live again");
+    Check(twiceEngine.State.ClockSeconds==liveSeconds&&twiceEngine.State.Down==3
+        &&twiceEngine.State.YardsToGo==4&&twiceEngine.State.Period==4,
+        $"undoing the end restores the clock, down, distance and period ({twiceEngine.State.ClockSeconds}s, {twiceEngine.State.Down} & {twiceEngine.State.YardsToGo}, period {twiceEngine.State.Period})");
 }

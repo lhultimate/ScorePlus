@@ -85,7 +85,19 @@ public enum AutomationActionKind
     Show,
     Hide,
     SetText,
-    SwitchLayout
+    SwitchLayout,
+    /// <summary>Runs a saved macro from the game's macro board, by its id.</summary>
+    RunMacro,
+    /// <summary>Puts one media library item on air: a clip, a camera, a microphone or a screen.</summary>
+    MediaOnAir,
+    /// <summary>Takes one media library item off air again.</summary>
+    MediaOffAir,
+    /// <summary>
+    /// Sets the decimal column an element prints after its clocks: 0 is MM:SS, 1 adds tenths,
+    /// 2 hundredths. The change is live only while the rule matches, so a decimal can appear for
+    /// the last minute of a period and leave again on its own.
+    /// </summary>
+    SetClockDecimals
 }
 
 /// <summary>When an action runs in a rule whose conditions include a wait-until step.</summary>
@@ -185,12 +197,29 @@ public sealed class AutomationAction
 }
 
 /// <summary>
+/// Which page a rule belongs to. Each page lists only its own rules, so media rules, macro rules
+/// and a layout's rules never share one list and never edit each other by accident.
+/// </summary>
+public enum AutomationScope
+{
+    /// <summary>One layout's own rules, in the studio's conditionals page beside that layout.</summary>
+    Layout,
+    /// <summary>Rules about the media library: put a clip, camera or screen on air, or take one off.</summary>
+    Media,
+    /// <summary>Rules that run a macro from the game's macro board.</summary>
+    Macro
+}
+
+/// <summary>
 /// A node graph rule: all (or any) conditions in the middle, then the actions on the right.
 /// Rules travel with their display, so an automation survives a saved game and an .spd export.
 /// </summary>
 public sealed class AutomationRule
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>Which conditionals page owns this rule. Layout rules also carry a layout id.</summary>
+    public AutomationScope Scope { get; set; } = AutomationScope.Layout;
     public string Name { get; set; } = "New rule";
     public bool Enabled { get; set; } = true;
 
@@ -206,6 +235,15 @@ public sealed class AutomationRule
     /// waiting for Update Output to publish the state and layout first.
     /// </summary>
     public bool BypassOutputUpdate { get; set; }
+
+    /// <summary>
+    /// A local time of day as HH:mm. When it arrives the rule fires once, even if the game is not
+    /// changing, which is what makes "at 19:30 switch to the opening layout" possible.
+    /// </summary>
+    public string AtTime { get; set; } = "";
+
+    /// <summary>Run the at-time rule again on later days instead of only once per session.</summary>
+    public bool AtTimeDaily { get; set; }
 
     public bool MatchAny { get; set; }
     public List<AutomationCondition> Conditions { get; set; } = [];
@@ -328,8 +366,30 @@ public static class AutomationRules
         (AutomationActionKind.Show, "Show"),
         (AutomationActionKind.Hide, "Hide"),
         (AutomationActionKind.SetText, "Set text"),
-        (AutomationActionKind.SwitchLayout, "Switch layout")
+        (AutomationActionKind.SwitchLayout, "Switch layout"),
+        (AutomationActionKind.RunMacro, "Run macro"),
+        (AutomationActionKind.MediaOnAir, "Media on air"),
+        (AutomationActionKind.MediaOffAir, "Media off air"),
+        (AutomationActionKind.SetClockDecimals, "Clock decimals")
     ];
+
+    /// <summary>Actions that change the show itself rather than one element's artwork.</summary>
+    public static bool IsCommandAction(AutomationActionKind kind) => kind is
+        AutomationActionKind.RunMacro or AutomationActionKind.MediaOnAir
+        or AutomationActionKind.MediaOffAir
+        or AutomationActionKind.SwitchLayout;
+
+    /// <summary>Reads a typed time as HH:mm; anything unreadable clears the schedule.</summary>
+    public static string NormalizeTime(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (text.Length == 0) return "";
+        var parts = text.Split(':');
+        if (parts.Length == 2 && int.TryParse(parts[0], out var hours) && int.TryParse(parts[1], out var minutes)
+            && hours is >= 0 and <= 23 && minutes is >= 0 and <= 59)
+            return $"{hours:00}:{minutes:00}";
+        return "";
+    }
 
     public static string FieldLabel(AutomationField field) =>
         Fields.FirstOrDefault(option => option.Field == field).Label ?? field.ToString();
@@ -459,6 +519,8 @@ public static class AutomationRules
             rule.Id = string.IsNullOrWhiteSpace(rule.Id) ? Guid.NewGuid().ToString("N") : rule.Id.Trim();
             rule.Name = string.IsNullOrWhiteSpace(rule.Name) ? "Untitled rule" : rule.Name.Trim();
             rule.LayoutId = (rule.LayoutId ?? "").Trim();
+            if (!Enum.IsDefined(rule.Scope)) rule.Scope = AutomationScope.Layout;
+            rule.AtTime = NormalizeTime(rule.AtTime);
             rule.Conditions ??= [];
             rule.Actions ??= [];
             rule.Conditions = rule.Conditions.Where(c => c is not null).Take(24).Select(c => c.Copy()).ToList();
@@ -520,6 +582,11 @@ public static class AutomationRules
             AutomationActionKind.Hide => $"{target} hide",
             AutomationActionKind.SetText => $"{target} text → “{action.Value}”",
             AutomationActionKind.SwitchLayout => "switch layout",
+            AutomationActionKind.RunMacro => $"run macro · {(string.IsNullOrWhiteSpace(action.Value) ? "macro" : action.Value)}",
+            AutomationActionKind.MediaOnAir => $"put {(string.IsNullOrWhiteSpace(action.Value) ? "media" : System.IO.Path.GetFileName(action.Value))} on air",
+            AutomationActionKind.MediaOffAir => $"take {(string.IsNullOrWhiteSpace(action.Value) ? "media" : System.IO.Path.GetFileName(action.Value))} off air",
+            AutomationActionKind.SetClockDecimals =>
+                $"{target} clock decimals → {Math.Clamp((int)Math.Round(action.Number), 0, 2)}",
             _ => action.Kind.ToString()
         };
     }

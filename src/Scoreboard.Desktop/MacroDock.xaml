@@ -109,6 +109,17 @@
       <StackPanel DockPanel.Dock="Top">
         <DockPanel Margin="0,0,0,4">
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+            <!-- The two controls an operator needs between presses of a macro: publish what the
+                 steps staged, and stop or resume the live feed, without leaving this tab. -->
+            <Button x:Name="LiveButton" Style="{StaticResource MacroAction}" Content="Live: ON"
+                    Click="Live_Click" Margin="0,0,6,0" MinWidth="86"
+                    ToolTip="Pause or resume the live score, clock and name feed without leaving the macro board"/>
+            <Button x:Name="UpdateOutputButton" Style="{StaticResource MacroAccent}" Content="Update Output"
+                    Click="UpdateOutput_Click" Margin="0,0,6,0"
+                    ToolTip="Publish every staged value now, the same button the console has"/>
+            <Button x:Name="ConditionalsButton" Style="{StaticResource MacroAction}" Content="Macro Conditionals"
+                    Click="Conditionals_Click" Margin="0,0,6,0"
+                    ToolTip="Macro rules only — run a macro at a time, or when a condition is met. Media and layout rules have their own pages"/>
             <Button x:Name="EditorToggleButton" Style="{StaticResource MacroAction}" Content="Hide editor"
                     Click="ToggleEditor_Click" Margin="0,0,6,0"
                     ToolTip="Hide the step editor so more macro buttons fit on screen"/>

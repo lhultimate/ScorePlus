@@ -123,6 +123,8 @@ public sealed class ScorebugCanvasView : Grid
         // A roster edit changes what a specific-player binding prints, without touching the game.
         RosterStore.Changed+=UpdateValues;
         if(stateProvider is null||liveValues)_engine.Changed+=UpdateValues;else _engine.Changed+=UpdateClockValues;
+        // A decimal column ticks many times a second; only the clock text follows that event.
+        _engine.FractionsChanged+=UpdateFractionValues;
         _wallClock.Tick+=(_,_)=>{if(UsesWallClock())UpdateValues();};
         _wallClock.Start();
         _layoutChain.Add(Layout.Id);
@@ -225,6 +227,9 @@ public sealed class ScorebugCanvasView : Grid
         foreach(var (id,_) in _pendingText) CancelPending(id);
         _videoSurfaces.Clear();_htmlSurfaces.Clear();_visuals.Clear();_animations.Clear();_backgrounds.Clear();_transparentStates.Clear();_borders.Clear();_shownText.Clear();
         var layout = incoming;
+        // A layout that prints a decimal column needs the engine to wake the show ten times a
+        // second; a show without one keeps the cheaper whole-second notifications.
+        if (layout.Elements.Any(element => element.ClockDecimals > 0)) _engine.ClockDecimalsInUse = true;
         ClearValuePieces();
         _stage.Width=layout.Width;_stage.Height=layout.Height;
         _canvas.Width=layout.Width;_canvas.Height=layout.Height;
@@ -1127,10 +1132,43 @@ public sealed class ScorebugCanvasView : Grid
         try { UpdateValues(); } finally { _flushDelay=false; }
     }
 
+    /// <summary>
+    /// Repaints only the clock text, for the decimal column. Everything else on the graphic — the
+    /// score, the plates, the style brushes — is left exactly as it is, so a clock with decimals
+    /// costs one string per clock element instead of a redraw of the whole show.
+    /// </summary>
+    void UpdateFractionValues()
+    {
+        if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(UpdateFractionValues);return;}
+        if(_disposed)return;
+        var state=_stateProvider();
+        var layout=Layout;
+        foreach(var item in layout.Elements)
+        {
+            if(!PrintsAClock(item.Content))continue;
+            if(!_visuals.TryGetValue(item.Id,out var visual))continue;
+            if(visual.Content is not ScorebugTextBlock block)continue;
+            var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero,item.ClockDecimals);
+            block.UpdateClockText(text);
+            _shownText[item.Id]=text;
+        }
+    }
+
+    /// <summary>True when this element prints a clock, so the fast path has something to update.</summary>
+    static bool PrintsAClock(string content) =>
+        content.Contains("{{GAME_CLOCK}}",StringComparison.OrdinalIgnoreCase)
+        ||content.Contains("{{PLAY_CLOCK}}",StringComparison.OrdinalIgnoreCase)
+        ||content.Contains("{{STOPPAGE}}",StringComparison.OrdinalIgnoreCase)
+        ||content.Contains("{{TIMEOUT_CLOCK}}",StringComparison.OrdinalIgnoreCase);
+
     void UpdateClockValues()
     {
         var state=_stateProvider();
         state.ClockSeconds=_engine.State.ClockSeconds;
+        state.ClockFraction=_engine.State.ClockFraction;
+        state.PlayClockFraction=_engine.State.PlayClockFraction;
+        state.StoppageFraction=_engine.State.StoppageFraction;
+        state.StoppageSeconds=_engine.State.StoppageSeconds;
         state.ShotClockSeconds=_engine.State.ShotClockSeconds;
         state.ClockRunning=_engine.State.ClockRunning;
         state.ShotClockRunning=_engine.State.ShotClockRunning;
@@ -1182,7 +1220,7 @@ public sealed class ScorebugCanvasView : Grid
             }
             if(visual.Content is ScorebugTextBlock block)
             {
-                var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero);
+                var text=ScoreboardTemplates.Bind(item.Content,state,item.PeriodFormat,item.DownCaps,item.PlayClockColon,item.GameClockLeadingZero,item.ClockDecimals);
                 block.ApplyStyle(item,state);
                 ShowValue(item,block,text);
             }
@@ -1493,6 +1531,7 @@ public sealed class ScorebugCanvasView : Grid
         if(_automation is not null)_automation.Changed-=Rebuild;
         RosterStore.Changed-=UpdateValues;
         if(_live||_liveValues)_engine.Changed-=UpdateValues;else _engine.Changed-=UpdateClockValues;
+        _engine.FractionsChanged-=UpdateFractionValues;
         foreach(var visual in _visuals.Values)
             if(visual.Content is ScorebugLayoutFeed feed)feed.Dispose();
         foreach(var surface in _videoSurfaces.Values) surface.Dispose();

@@ -775,6 +775,30 @@ internal static class Program
             main.Close();
             Console.WriteLine("PASS: main window loads");
 
+            // Undo and Redo live in the program preview and step the whole show back and forward.
+            {
+                var historyShell = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
+                ShowForSmoke(historyShell);
+                historyShell.UpdateLayout();
+                if (historyShell.FindName("UndoButton") is not Button undoButton)
+                    throw new Exception("FAIL: the program preview has no undo button");
+                if (historyShell.FindName("RedoButton") is not Button redoButton)
+                    throw new Exception("FAIL: the program preview has no redo button");
+                if (undoButton.IsEnabled || redoButton.IsEnabled)
+                    throw new Exception("FAIL: the history buttons are live before any action");
+                historyShell.Engine.Score(true, 2);
+                if (!undoButton.IsEnabled || redoButton.IsEnabled)
+                    throw new Exception("FAIL: an action did not arm the undo button");
+                undoButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (historyShell.Engine.State.HomeScore != 0 || !redoButton.IsEnabled)
+                    throw new Exception($"FAIL: the preview's undo button left the score at {historyShell.Engine.State.HomeScore}");
+                redoButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (historyShell.Engine.State.HomeScore != 2)
+                    throw new Exception($"FAIL: the preview's redo button left the score at {historyShell.Engine.State.HomeScore}");
+                historyShell.Close();
+                Console.WriteLine("PASS: the program preview's undo and redo buttons step the show back and forward");
+            }
+
             // Macros are part of the main workspace. Conditionals now belong to the Display Studio,
             // where their rules sit beside the display they affect.
             var tabShell = new MainWindow(LaunchMode.New) { Width = 1280, Height = 800 };
@@ -1177,6 +1201,13 @@ internal static class Program
                 ?? throw new Exception("FAIL: the Replay Booth button opened no window");
             if (!FindAll<TextBlock>(booth).Any(text => text.Text == "REPLAY BOOTH"))
                 throw new Exception("FAIL: the Replay Booth window has no heading");
+            // The wall page is the booth's main page, and it carries the shared playback scrubber.
+            var wallScrub = FindAll<Slider>(booth).FirstOrDefault(slider => slider.Name == "WallScrub")
+                ?? throw new Exception("FAIL: the booth's wall page has no replay scrubber");
+            if (!wallScrub.IsVisible || wallScrub.ActualWidth < 80)
+                throw new Exception($"FAIL: the wall scrubber is not laid out ({wallScrub.IsVisible}, {wallScrub.ActualWidth:0} px)");
+            if (!FindAll<TextBlock>(booth).Any(text => text.Text is "LIVE" or "LIVE EDGE" || text.Text.EndsWith("s BACK", StringComparison.Ordinal)))
+                throw new Exception("FAIL: the wall scrubber has no live-edge label");
             var editBooth = FindAll<Button>(booth).First(button =>
                 (button.ToolTip as string ?? "").StartsWith("Edit the booth's labels", StringComparison.Ordinal));
             editBooth.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -2491,17 +2522,61 @@ internal static class Program
             };
             var arrowView = new ScorebugIconView(arrowItem, () => arrowEngine.State);
             var arrowMark = FindAll<System.Windows.Shapes.Polygon>(arrowView).Single();
-            if (arrowMark.Opacity < 0.999 || arrowMark.RenderTransform is TranslateTransform)
+            // The mark carries a rotate and a slide in one group, so the tumble and the possession
+            // turn never fight over the same transform slot.
+            static TranslateTransform? SlideOf(System.Windows.Shapes.Polygon mark) =>
+                mark.RenderTransform is TransformGroup group
+                    ? group.Children.OfType<TranslateTransform>().FirstOrDefault()
+                    : mark.RenderTransform as TranslateTransform;
+            if (arrowMark.Opacity < 0.999 || SlideOf(arrowMark)?.HasAnimatedProperties == true)
                 throw new Exception("FAIL: the possession arrow plays an entrance on its first paint");
             arrowEngine.SetPossession(false);
             arrowView.Update();
-            if (arrowMark.RenderTransform is not TranslateTransform)
+            if (SlideOf(arrowMark) is not { HasAnimatedProperties: true })
                 throw new Exception("FAIL: the possession arrow stopped animating when possession actually changed");
-            arrowItem.IconArrowDown = true;
+            // The mark moves to the other plate but keeps the direction it was drawn in: switching
+            // possession must never turn the arrow around.
+            if (arrowMark.HorizontalAlignment != HorizontalAlignment.Right)
+                throw new Exception($"FAIL: the possession arrow did not move to the away plate ({arrowMark.HorizontalAlignment})");
+            var awayPoints = arrowMark.Points.Select(point => (point.X, point.Y)).ToArray();
+            arrowEngine.SetPossession(true);
             arrowView.Update();
-            if (arrowMark.VerticalAlignment != VerticalAlignment.Bottom || arrowMark.Visibility != Visibility.Visible)
-                throw new Exception($"FAIL: the downward possession arrow is {arrowMark.VerticalAlignment}/{arrowMark.Visibility} instead of a visible bottom mark");
+            if (!arrowMark.Points.Select(point => (point.X, point.Y)).SequenceEqual(awayPoints))
+                throw new Exception("FAIL: switching possession flipped the possession arrow");
+            if (arrowMark.HorizontalAlignment != HorizontalAlignment.Left)
+                throw new Exception("FAIL: the possession arrow did not move back to the home plate");
+            // The turned arrow must still paint. It used to swing out of its plate and vanish,
+            // because the whole icon box turned instead of the mark on its own centre.
+            // A fresh mark, so no possession animation is mid-flight while the pixels are counted.
+            arrowEngine.SetPossession(true);
+            var paintItem = new ScorebugElement
+            {
+                Name = "Arrow paint", Kind = ScorebugElementKind.Text, Content = "",
+                Icon = ScorebugIcon.PossessionArrow, Width = 80, Height = 40, FontSize = 24,
+                IconColor = "#FFFFFFFF"
+            };
+            var paintView = new ScorebugIconView(paintItem, () => arrowEngine.State);
+            paintView.Update();
+            var paintedStraight = PaintedArrowPixels(paintView);
+            paintItem.IconRotation = 90;
+            paintView.Update();
+            var paintMark = FindAll<System.Windows.Shapes.Polygon>(paintView).Single();
+            var turnedMark = paintMark.RenderTransform is TransformGroup turnGroup
+                ? turnGroup.Children.OfType<RotateTransform>().FirstOrDefault()
+                : null;
+            if (turnedMark is null || Math.Abs(turnedMark.Angle - 90) > 0.01)
+                throw new Exception("FAIL: the icon rotation property does not turn the possession arrow");
+            if (paintMark.RenderTransformOrigin.X < 0.49 || paintMark.RenderTransformOrigin.Y < 0.49)
+                throw new Exception("FAIL: the turned arrow does not pivot on its own centre");
+            var paintedTurned = PaintedArrowPixels(paintView);
+            if (paintedStraight < 20 || paintedTurned < paintedStraight * 0.5)
+                throw new Exception($"FAIL: turning the possession arrow lost it ({paintedStraight} → {paintedTurned} painted pixels)");
+            paintItem.IconRotation = 0;
+            paintView.Update();
+            if (turnedMark.Angle > 0.01)
+                throw new Exception("FAIL: a zero icon rotation still turns the possession arrow");
             Console.WriteLine("PASS: timeout bars and the possession dot follow live data, and the dot can be flipped");
+            Console.WriteLine("PASS: the possession arrow turns on its own centre and keeps painting");
             Console.WriteLine("PASS: the possession arrow paints its first frame still and only animates a real possession change");
 
             // The same icons render on a real scorebug canvas, and the studio offers the property.
@@ -3567,7 +3642,7 @@ internal static class Program
                 var nodeWindow = new AutomationWindow(ruleCatalog, ruleEngine, "Dark", ruleDisplay.Id, runtime);
                 ShowForSmoke(nodeWindow);
                 nodeWindow.UpdateLayout();
-                if (nodeWindow.Title != "Conditionals" || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITIONALS"))
+                if (nodeWindow.Title != "Layout Conditionals" || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITIONALS"))
                     throw new Exception($"FAIL: the node editor is still titled {nodeWindow.Title}");
                 if (nodeWindow.Rules.Count != 2 || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "TRIGGER")
                     || !FindAll<TextBlock>(nodeWindow).Any(text => text.Text == "CONDITION 1")
@@ -3592,6 +3667,30 @@ internal static class Program
                 if (nodeWindow.Rules.Count != 3)
                     throw new Exception("FAIL: the node editor did not add a rule");
                 nodeWindow.Close();
+                // The three conditionals pages are separate lists. A rule added on the media page
+                // must not appear on the layout's page or the macro page, and each page starts with
+                // the action it is about.
+                var mediaWindow = new AutomationWindow(ruleCatalog, ruleEngine, "Dark", ruleDisplay.Id, runtime, scope: AutomationScope.Media);
+                ShowForSmoke(mediaWindow);
+                mediaWindow.UpdateLayout();
+                if (mediaWindow.Title != "Media Conditionals" || mediaWindow.Rules.Count != 0)
+                    throw new Exception($"FAIL: the media page is not separate ({mediaWindow.Title}, {mediaWindow.Rules.Count} rules)");
+                mediaWindow.AddRule();
+                if (!mediaWindow.Rules[0].Actions.Any(action => action.Kind == AutomationActionKind.MediaOnAir))
+                    throw new Exception("FAIL: a media rule did not start with a media action");
+                var macroWindow = new AutomationWindow(ruleCatalog, ruleEngine, "Dark", ruleDisplay.Id, runtime, scope: AutomationScope.Macro);
+                ShowForSmoke(macroWindow);
+                macroWindow.UpdateLayout();
+                if (macroWindow.Title != "Macro Conditionals" || macroWindow.Rules.Count != 0)
+                    throw new Exception("FAIL: the media page's rule leaked into the macro page");
+                var layoutWindow = new AutomationWindow(ruleCatalog, ruleEngine, "Dark", ruleDisplay.Id, runtime);
+                ShowForSmoke(layoutWindow);
+                layoutWindow.UpdateLayout();
+                if (layoutWindow.Rules.Count != 3)
+                    throw new Exception("FAIL: a media rule leaked into the layout page");
+                layoutWindow.Close();
+                macroWindow.Close();
+                mediaWindow.Close();
             }
             Console.WriteLine("PASS: annotation toolbar opens; conditionals recolor the live layout, switch layouts, and draw in the conditionals editor");
 
@@ -6284,6 +6383,25 @@ internal static class Program
     /// offscreen and unactivated still gives WPF a real presentation source for layout, rendering
     /// and routed events, but the smoke run no longer interrupts whatever the operator is doing.
     /// </summary>
+    /// <summary>
+    /// Counts how many pixels an icon actually paints at 80×40, so a mark that turns and vanishes
+    /// is caught by a measurement instead of by eye.
+    /// </summary>
+    static int PaintedArrowPixels(FrameworkElement view)
+    {
+        view.Measure(new Size(80, 40));
+        view.Arrange(new Rect(0, 0, 80, 40));
+        view.UpdateLayout();
+        var bitmap = new RenderTargetBitmap(80, 40, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(view);
+        var pixels = new byte[80 * 40 * 4];
+        bitmap.CopyPixels(pixels, 80 * 4, 0);
+        var lit = 0;
+        for (var index = 3; index < pixels.Length; index += 4)
+            if (pixels[index] > 40) lit++;
+        return lit;
+    }
+
     static void ShowForSmoke(Window window)
     {
         // WPF refuses to show an unactivated maximized window. Normalize it for the initial show

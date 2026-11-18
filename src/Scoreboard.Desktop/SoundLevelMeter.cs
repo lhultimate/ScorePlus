@@ -1,3 +1,4 @@
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace Scoreboard.Desktop;
@@ -101,4 +102,127 @@ public static class SoundLevelMeter
 
     /// <summary>The level in dBFS, which is what an operator reads: 0 dB is full scale.</summary>
     public static double Decibels(double level) => level <= 0 ? double.NegativeInfinity : 20 * Math.Log10(level);
+
+    // Every speaker bus on a second sound card has its own level, so the dock can show a bar beside
+    // each one instead of one blurry number for the whole machine. Captures are made on demand and
+    // kept, because opening a loopback stream is far too slow to do per frame.
+    static readonly Dictionary<string, DeviceMeter> DeviceMeters = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The level coming out of one named speaker. It falls back to the default output when the
+    /// device cannot be listened to, so a bar never sticks at full or reads zero because a driver
+    /// refuses a loopback capture.
+    /// </summary>
+    public static double ReadDevice(string? deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return Read();
+        DeviceMeter? meter;
+        lock (Gate)
+        {
+            if (!DeviceMeters.TryGetValue(deviceId, out meter))
+            {
+                meter = new DeviceMeter(deviceId);
+                DeviceMeters[deviceId] = meter;
+            }
+        }
+        return meter.Available ? meter.Read() : Read();
+    }
+
+    /// <summary>
+    /// The devices the show is using. The media session installs this once, so the meter above the
+    /// program preview can read every speaker bus as one master mix without a window passing the
+    /// list in by hand.
+    /// </summary>
+    public static Func<IEnumerable<string?>>? MasterDevices { get; set; }
+
+    /// <summary>The master mix: the loudest of the machine's output and every bus the show names.</summary>
+    public static double ReadMaster() => ReadMaster(MasterDevices?.Invoke() ?? []);
+
+    /// <summary>
+    /// The master level: the loudest of the machine's own output and every bus the show names, so
+    /// the meter above the program preview reads the whole mix as one bar.
+    /// </summary>
+    public static double ReadMaster(IEnumerable<string?> deviceIds)
+    {
+        var level = Read();
+        foreach (var id in deviceIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var device = ReadDevice(id);
+            if (device > level) level = device;
+        }
+        return level;
+    }
+
+    /// <summary>One speaker's own loopback peak meter, with the same fast-rise slow-fall shape.</summary>
+    sealed class DeviceMeter
+    {
+        readonly object _gate = new();
+        readonly bool _floats = true;
+        WasapiLoopbackCapture? _capture;
+        float _held;
+        double _level;
+        DateTime _last = DateTime.UtcNow;
+
+        public DeviceMeter(string deviceId)
+        {
+            try
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                var device = enumerator.GetDevice(deviceId);
+                if (device is null) return;
+                _capture = new WasapiLoopbackCapture(device);
+                _floats = _capture.WaveFormat.BitsPerSample == 32;
+                _capture.DataAvailable += OnData;
+                _capture.StartRecording();
+                Available = true;
+            }
+            catch
+            {
+                try { _capture?.Dispose(); } catch { }
+                _capture = null;
+                Available = false;
+            }
+        }
+
+        public bool Available { get; }
+
+        void OnData(object? sender, WaveInEventArgs e)
+        {
+            if (e.BytesRecorded <= 0) return;
+            var peak = 0f;
+            if (_floats)
+            {
+                for (var offset = 0; offset + 4 <= e.BytesRecorded; offset += 4)
+                {
+                    var sample = Math.Abs(BitConverter.ToSingle(e.Buffer, offset));
+                    if (sample > peak) peak = sample;
+                }
+            }
+            else
+            {
+                for (var offset = 0; offset + 2 <= e.BytesRecorded; offset += 2)
+                {
+                    var sample = Math.Abs(BitConverter.ToInt16(e.Buffer, offset) / 32768f);
+                    if (sample > peak) peak = sample;
+                }
+            }
+            lock (_gate) { if (peak > _held) _held = peak; }
+        }
+
+        public double Read()
+        {
+            lock (_gate)
+            {
+                if (Suppressed) { _held = 0; _level = 0; _last = DateTime.UtcNow; return 0; }
+                var now = DateTime.UtcNow;
+                var seconds = Math.Clamp((now - _last).TotalSeconds, 0, 1);
+                _last = now;
+                var decayed = _level * Math.Pow(0.10, seconds / 0.55);
+                _level = Math.Max(Math.Min(1, _held), decayed);
+                _held = 0;
+                if (_level < 0.002) _level = 0;
+                return _level;
+            }
+        }
+    }
 }

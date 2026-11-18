@@ -94,8 +94,8 @@
               <Button Content="New display…" Style="{StaticResource LayoutButton}" Click="DisplayNew_Click" ToolTip="Add another screen, for example a lower-thirds display"/>
               <Button Content="Import .spd…" Style="{StaticResource LayoutButton}" Click="DisplayImport_Click" ToolTip="Add a whole ScorePlus Display file — every layout it holds — to this game"/>
               <Button Content="Export .spd…" Style="{StaticResource LayoutButton}" Click="DisplayExport_Click" ToolTip="Write this display and all its layouts to a ScorePlus Display file"/>
-              <Button x:Name="ConditionalsButton" Content="Conditionals…" Style="{StaticResource LayoutButton}" Click="Conditionals_Click"
-                      ToolTip="Edit this display's automation rules in their own window"/>
+              <Button x:Name="ConditionalsButton" Content="Layout Conditionals" Style="{StaticResource LayoutButton}" Click="Conditionals_Click"
+                      ToolTip="Edit this layout's own automation rules. Media and macro rules live on their own pages"/>
               <Button Content="Motions…" Style="{StaticResource LayoutButton}" Click="MotionWindow_Click"
                       ToolTip="Open transitions and score celebrations in their own window"/>
               <Button Content="Rename…" Style="{StaticResource LayoutButton}" Click="DisplayRename_Click"/>
@@ -460,7 +460,14 @@
             <CheckBox x:Name="GameClockLeadingZeroInput" Content="Print the game clock with a leading zero (09:59)" FontSize="11" Margin="10,2,10,2"
                       Checked="Property_Changed" Unchecked="Property_Changed"
                       ToolTip="This element only. Off prints 9:59 and :59 under a minute. The setting travels with the element."/>
-            <TextBlock Text="Use on any element that prints {{GAME_CLOCK}}." Foreground="#93A0B2" FontSize="10"
+            <TextBlock Text="Clock decimals on this element" Style="{StaticResource FieldLabel}"/>
+            <ComboBox x:Name="ClockDecimalsInput" Margin="10,0,10,4" SelectedIndex="0" SelectionChanged="Property_Changed"
+                      ToolTip="This element only: prints 0:59, 0:59.9 or 0:59.99 after every clock token it carries. A conditional can switch it on for the last minute.">
+              <ComboBoxItem Content="No decimals (0:59)"/>
+              <ComboBoxItem Content="One decimal (0:59.9)"/>
+              <ComboBoxItem Content="Two decimals (0:59.99)"/>
+            </ComboBox>
+            <TextBlock Text="Use on any element that prints {{GAME_CLOCK}}, {{PLAY_CLOCK}} or {{STOPPAGE}}." Foreground="#93A0B2" FontSize="10"
                        TextWrapping="Wrap" Margin="10,0,10,4"/>
           </StackPanel>
           <StackPanel x:Name="TickerSection">
@@ -696,9 +703,11 @@
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
           <CheckBox x:Name="IconFlipInput" Content="Put the home side on the left" Margin="10,2,10,8"
                     Checked="Property_Changed" Unchecked="Property_Changed"/>
-          <CheckBox x:Name="IconArrowDownInput" Content="Point the possession arrow down" Margin="10,2,10,8"
-                    Checked="Property_Changed" Unchecked="Property_Changed"
-                    ToolTip="Draw a downward arrow instead of pointing it sideways into the team with possession"/>
+          <StackPanel x:Name="IconRotationPanel">
+            <TextBlock Text="Icon rotation (degrees)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="IconRotationInput" Style="{StaticResource FieldBox}" TextChanged="Property_Changed"
+                     ToolTip="Turn the icon on its own centre: 90 makes a possession arrow point down, 180 points it back, any angle works"/>
+          </StackPanel>
           <!-- Timeout bars have their own size, independent of the plate. -->
           <StackPanel x:Name="IconScalePanel">
             <TextBlock Text="Timeout bar size (0.25–3)" Style="{StaticResource FieldLabel}"/>
