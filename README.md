@@ -8,6 +8,8 @@ Everything runs locally on one Windows PC. No browser, no server, no internet co
 
 Linux builds are maintained separately at [MysteriousJose/ScorePlus-Linux](https://github.com/MysteriousJose/ScorePlus-Linux) and are not officially supported.
 
+**ScorePlus is in no way affiliated with, endorsed by, or connected to Renewed Vision or ProScoreboard.**
+
 ---
 
 ## Contents
