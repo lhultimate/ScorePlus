@@ -57,6 +57,7 @@ button,a{-webkit-tap-highlight-color:transparent}
 .skip-link:focus{top:16px}
 
 .container{width:min(var(--max),calc(100% - (var(--pad) * 2)));margin-inline:auto}
+#download{scroll-margin-top:92px}
 .scroll-progress{position:fixed;inset:0 0 auto;height:2px;z-index:80;background:transparent;pointer-events:none}
 .scroll-progress span{display:block;height:100%;background:var(--accent);transform:scaleX(0);transform-origin:left center;box-shadow:0 0 16px var(--accent)}
 

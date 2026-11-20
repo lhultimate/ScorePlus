@@ -47,6 +47,20 @@
     });
   }
 
+  document.querySelectorAll('[data-scroll]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      const target = document.getElementById(link.dataset.scroll);
+      if (!target) return;
+      event.preventDefault();
+      const root = document.documentElement;
+      const previousBehavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = 'auto';
+      window.scrollTo(0, Math.max(0, target.getBoundingClientRect().top + window.scrollY - 92));
+      root.style.scrollBehavior = previousBehavior;
+      history.replaceState(null, '', `#${link.dataset.scroll}`);
+    });
+  });
+
   const year = document.getElementById('year');
   if (year) year.textContent = String(new Date().getFullYear());
 
