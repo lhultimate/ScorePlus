@@ -49,4 +49,82 @@
 
   const year = document.getElementById('year');
   if (year) year.textContent = String(new Date().getFullYear());
+
+  const releaseApi = 'https://api.github.com/repos/lhultimate/ScorePlus/releases?per_page=20';
+  const releasesPage = 'https://github.com/lhultimate/ScorePlus/releases';
+
+  const formatBytes = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '';
+    const megabytes = bytes / 1048576;
+    return `${megabytes >= 100 ? megabytes.toFixed(0) : megabytes.toFixed(1)} MB`;
+  };
+
+  const setAll = (selector, value) => {
+    document.querySelectorAll(selector).forEach((element) => {
+      element.textContent = value;
+    });
+  };
+
+  const loadLatestRelease = async () => {
+    try {
+      const response = await fetch(releaseApi, {
+        headers: { Accept: 'application/vnd.github+json' },
+        cache: 'no-store'
+      });
+      if (!response.ok) throw new Error(`GitHub API ${response.status}`);
+
+      const releases = await response.json();
+      const release = releases
+        .filter((item) => !item.draft && item.published_at)
+        .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))[0];
+      if (!release) throw new Error('No published release');
+
+      const findAsset = (name) => (release.assets || []).find((asset) => asset.name.toLowerCase() === name);
+      const installer = findAsset('scoreplussetup.exe');
+      const portable = findAsset('scoreplusportable.exe');
+
+      document.querySelectorAll('[data-download="installer"]').forEach((link) => {
+        if (!installer) return;
+        link.href = installer.browser_download_url;
+        link.removeAttribute('target');
+        link.title = `Download ScorePlus ${release.tag_name} installer`;
+      });
+      document.querySelectorAll('[data-download="portable"]').forEach((link) => {
+        if (!portable) return;
+        link.href = portable.browser_download_url;
+        link.removeAttribute('target');
+        link.title = `Download ScorePlus ${release.tag_name} portable build`;
+      });
+
+      setAll('[data-release-version]', release.tag_name);
+      setAll('[data-release-date]', new Date(release.published_at).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      }));
+
+      const sizes = [];
+      if (installer) sizes.push(`${formatBytes(installer.size)} installer`);
+      if (portable) sizes.push(`${formatBytes(portable.size)} portable`);
+      setAll('[data-release-hint]', sizes.length
+        ? `Latest published build · ${sizes.join(' · ')}`
+        : 'Latest published build · choose an asset on GitHub.');
+
+      if (installer) {
+        setAll('[data-asset="installer"]', `ScorePlusSetup.exe · ${formatBytes(installer.size)} · recommended`);
+      }
+      if (portable) {
+        setAll('[data-asset="portable"]', `ScorePlusPortable.exe · ${formatBytes(portable.size)} · one file`);
+      }
+      document.querySelectorAll('[data-release-hint]').forEach((element) => element.classList.remove('is-error'));
+    } catch (error) {
+      setAll('[data-release-hint]', 'Could not reach GitHub. Open the releases page to choose the newest installer or portable build.');
+      document.querySelectorAll('[data-release-hint]').forEach((element) => element.classList.add('is-error'));
+      document.querySelectorAll('[data-download]').forEach((link) => {
+        if (link.getAttribute('href') === '#download') link.href = releasesPage;
+      });
+    }
+  };
+
+  loadLatestRelease();
 })();
