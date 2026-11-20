@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -96,14 +97,14 @@ internal static class Program
             Capture(automation, Path.Combine(output, "conditionals.png"), 1500, 820);
             automation.Close();
 
-            Capture(new SettingsWindow(new UserPreferences { Theme = "Dark" }), Path.Combine(output, "settings.png"), 1900, 900);
+            Capture(new SettingsWindow(new UserPreferences { Theme = "Dark" }), Path.Combine(output, "settings.png"), 1900, 1100, borderless: true);
             var keybinds = new KeybindsWindow(new KeybindSettings())
             {
                 Background = new SolidColorBrush(Color.FromRgb(11, 17, 24))
             };
             ThemeManager.Apply(keybinds, "Dark");
             Capture(keybinds, Path.Combine(output, "keybinds.png"), 1500, 900);
-            Capture(new SportProfileWindow(new SportCatalog()), Path.Combine(output, "sport-profiles.png"), 1550, 900);
+            Capture(new SportProfileWindow(new SportCatalog()), Path.Combine(output, "sport-profiles.png"), 1600, 1000, borderless: true);
             var team = new TeamIdentityWindow(engine, true, "Dark")
             {
                 SizeToContent = SizeToContent.Manual,
@@ -111,9 +112,10 @@ internal static class Program
                 Height = 900
             };
             Capture(team, Path.Combine(output, "team-identity.png"), 1200, 900);
-            Capture(new AboutWindow("Dark"), Path.Combine(output, "about.png"), 720, 620);
+            Capture(new AboutWindow("Dark"), Path.Combine(output, "about.png"), 760, 540, borderless: true);
 
             SaveOnAir(catalog, engine, Path.Combine(output, "on-air.png"));
+            CaptureWindows(output, catalog, engine);
             Console.WriteLine($"Screenshots written to {output}");
             return 0;
         }
@@ -280,11 +282,154 @@ internal static class Program
         view.Dispose();
     }
 
-    static void Capture(Window window, string path, int width, int height, bool selectLayer = false)
+    static void CaptureWindows(string output, ScorebugCatalog catalog, GameEngine engine)
+    {
+        var preferences = new UserPreferences { Theme = "Dark" };
+        var session = new MediaSession(preferences);
+        SeedMedia(session);
+        SeedRoster(engine);
+
+        Capture(new OutputWindow(engine, catalog, "Dark"), Path.Combine(output, "output.png"), 1280, 720);
+
+        var hardware = new HardwareWindow(preferences, new HardwareService(engine));
+        ThemeManager.Apply(hardware, "Dark");
+        Capture(hardware, Path.Combine(output, "hardware.png"), 1100, 1000, borderless: true);
+
+        var program = new ProgramSelection(catalog);
+        var published = new GameEngine();
+        var automation = new AutomationRuntime(catalog, published, engine);
+        Capture(new MultiviewWindow(session, preferences, catalog, engine, published, program, automation, session.Playback),
+            Path.Combine(output, "multiview.png"), 1320, 820);
+
+        var booth = new ReplayBoothController(session, engine, preferences);
+        Capture(new ReplayBoothWindow(booth, preferences), Path.Combine(output, "replay-booth.png"), 1340, 860);
+
+        var league = new LeagueCloudService(engine, preferences);
+        Capture(new LeagueCloudWindow(league, preferences, catalog, program, engine),
+            Path.Combine(output, "league-cloud.png"), 760, 780, borderless: true);
+        Capture(new TickerWindow(engine, league), Path.Combine(output, "ticker.png"), 820, 760);
+
+        Capture(new EventLogWindow(engine, "Dark", false), Path.Combine(output, "event-log.png"), 1080, 760);
+        Capture(new MotionMakerWindow(MotionKind.Transition, catalog, engine, "Dark"),
+            Path.Combine(output, "transition-builder.png"), 1440, 920);
+        Capture(new MotionMakerWindow(MotionKind.Animation, catalog, engine, "Dark"),
+            Path.Combine(output, "animation-maker.png"), 1440, 920);
+        Capture(new IconMakerWindow("Dark"), Path.Combine(output, "icon-creator.png"), 1320, 1000, borderless: true);
+
+        Capture(new GameControlWindow(engine, published, catalog, () => { }, () => false, _ => { }, () => true,
+            session, "Dark", automation), Path.Combine(output, "control-panel.png"), 1280, 900);
+
+        var newGame = new SportPickerWindow(new SportCatalog(), "football", "Dark")
+        {
+            SizeToContent = SizeToContent.Manual,
+            Width = 920,
+            Height = 1000
+        };
+        Capture(newGame, Path.Combine(output, "new-game.png"), 920, 1000, borderless: true);
+
+        var pickerType = typeof(MainWindow).Assembly.GetType("Scoreboard.Desktop.DisplayPickerWindow")!;
+        var pickerCtor = pickerType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .First(ctor => ctor.GetParameters().Length == 8);
+        var picker = (Window)pickerCtor.Invoke([catalog, "Dark", null,
+            "Audience output", "Which display is this window for?",
+            "Each display has its own audience window and its own layout. Opening one again adds another window rather than replacing the first.",
+            "Open output", null]);
+        picker.SizeToContent = SizeToContent.Manual;
+        Capture(picker, Path.Combine(output, "display-picker.png"), 640, 360, borderless: true);
+
+        var mediaShell = new MainWindow(LaunchMode.New) { Width = 1440, Height = 960 };
+        Seed(mediaShell.Engine);
+        SeedRoster(mediaShell.Engine);
+        SeedMedia(SessionOf(mediaShell));
+        mediaShell.PublishOutput();
+        ShowForShot(mediaShell);
+        mediaShell.ShowMediaTab(true);
+        Pump(350);
+        Capture(mediaShell, Path.Combine(output, "media.png"), 1440, 960);
+
+        var statsShell = new MainWindow(LaunchMode.New) { Width = 1440, Height = 960 };
+        Seed(statsShell.Engine);
+        SeedRoster(statsShell.Engine);
+        ShowForShot(statsShell);
+        Click(statsShell, "RosterTab_Click");
+        Pump(350);
+        Capture(statsShell, Path.Combine(output, "stats.png"), 1440, 960);
+    }
+
+    static void SeedMedia(MediaSession session)
+    {
+        session.CreateFolder("Game Day");
+        session.Library.Add(new MediaEntry(@"C:\ScorePlus\Media\Game Day\Show Open.mp4", "Show", "Game Day", Name: "Show Open"));
+        session.Library.Add(new MediaEntry(@"C:\ScorePlus\Media\Highlights\Halftime Reel.mp4", "Highlights", "Highlights", Name: "Halftime Reel"));
+        session.Library.Add(new MediaEntry(@"C:\ScorePlus\Media\Highlights\Big Play.mp4", "Highlights", "Highlights", Name: "Big Play"));
+        session.Library.Add(new MediaEntry(@"C:\ScorePlus\Media\Sponsors\Spot 04.mp4", "Ads", "Sponsors", Name: "Spot 04"));
+        session.Library.Add(new MediaEntry(@"C:\ScorePlus\Media\Music\Crowd Bed.mp3", "Music", Name: "Crowd Bed"));
+        session.AddCamera(0, "Game Day");
+        session.AddMicrophone(0, "Game Day");
+        session.AddSpeaker(0, "House");
+        var playlist = session.CreatePlaylist("Show Open");
+        session.AddToPlaylist(playlist, session.Library[0]);
+    }
+
+    static void SeedRoster(GameEngine engine)
+    {
+        var roster = RosterStore.Book.Add("Portland Varsity");
+        (int Number, string Name, string Position, string Group, (string Name, int Value)[] Stats)[] players =
+        [
+            (12, "Jalen Morgan", "QB", "Offense", [("Passing yards", 284), ("Passing TDs", 3), ("Interceptions thrown", 0), ("Completions", 24), ("Attempts", 31), ("Rushing yards", 22)]),
+            (28, "Andre Rivera", "RB", "Offense", [("Rushing yards", 96), ("Rushing TDs", 1), ("Carries", 18), ("Receiving yards", 24)]),
+            (7, "Kai Lee", "WR", "Offense", [("Receiving yards", 118), ("Receptions", 7), ("Receiving TDs", 2)]),
+            (88, "Marcus Hayes", "TE", "Offense", [("Receiving yards", 46), ("Receptions", 4)]),
+            (54, "Devin Cole", "LB", "Defense", [("Tackles", 9), ("Solo tackles", 6), ("Sacks", 1)]),
+            (23, "Noah Park", "CB", "Defense", [("Tackles", 5), ("Passes defended", 2), ("Interceptions", 1)]),
+            (5, "Eli Brooks", "K", "Special Teams", [("Field goals", 1), ("Extra points", 3)]),
+            (41, "Sam Ortiz", "LS", "Special Teams", [("Tackles", 1)])
+        ];
+        foreach (var player in players)
+        {
+            var entry = roster.AddPlayer();
+            entry.Number = player.Number;
+            entry.Name = player.Name;
+            entry.Position = player.Position;
+            entry.Group = player.Group;
+            foreach (var stat in player.Stats) entry.SetStat(stat.Name, stat.Value);
+        }
+        roster.EnsureColumns(players.SelectMany(player => player.Stats.Select(stat => stat.Name)));
+        RosterStore.Save();
+        engine.AssignRoster(true, roster.Id);
+        engine.SelectPlayer(true, roster.Players[0].Id);
+    }
+
+    static MediaSession SessionOf(MainWindow window) =>
+        (MediaSession)typeof(MainWindow).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+
+    static void Click(MainWindow window, string method) =>
+        typeof(MainWindow).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, [window, new RoutedEventArgs()]);
+
+    static void ShowForShot(Window window)
+    {
+        window.WindowState = WindowState.Normal;
+        window.ShowActivated = false;
+        window.ShowInTaskbar = false;
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.Left = -32000;
+        window.Top = -32000;
+        window.Show();
+        Pump(220);
+        window.UpdateLayout();
+    }
+
+    static void Capture(Window window, string path, int width, int height, bool selectLayer = false, bool borderless = false)
     {
         window.WindowState = WindowState.Normal;
         window.Width = width;
         window.Height = height;
+        if (borderless)
+        {
+            window.WindowStyle = WindowStyle.None;
+            window.ResizeMode = ResizeMode.NoResize;
+        }
         window.ShowActivated = false;
         window.ShowInTaskbar = false;
         window.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -309,7 +454,9 @@ internal static class Program
         else if (content is Border border && border.Background is null) border.Background = window.Background;
         else if (content is Control control && control.Background is null) control.Background = window.Background;
         content.UpdateLayout();
-        Save(content, (int)Math.Ceiling(content.ActualWidth), (int)Math.Ceiling(content.ActualHeight), path);
+        var renderWidth = borderless ? width : (int)Math.Ceiling(content.ActualWidth);
+        var renderHeight = borderless ? height : (int)Math.Ceiling(content.ActualHeight);
+        Save(content, renderWidth, renderHeight, path);
         window.Close();
     }
 
