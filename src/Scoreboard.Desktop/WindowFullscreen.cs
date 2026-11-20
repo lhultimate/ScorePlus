@@ -57,6 +57,26 @@ public static class WindowFullscreen
         };
         States.Add(window, state);
 
+        // The smoke suite exercises F11 while it runs unattended. Moving a real topmost window onto
+        // the monitor would knock the operator out of a full-screen application, so the probe keeps
+        // the same full-screen client size off-screen without showing or activating anything.
+        if (App.SuppressStartupForSmoke)
+        {
+            window.WindowState = WindowState.Normal;
+            window.WindowStyle = WindowStyle.None;
+            window.ResizeMode = ResizeMode.NoResize;
+            window.ShowInTaskbar = false;
+            window.Topmost = false;
+            window.MaxWidth = double.PositiveInfinity;
+            window.MaxHeight = double.PositiveInfinity;
+            window.Left = -32000;
+            window.Top = -32000;
+            window.Width = SystemParameters.PrimaryScreenWidth;
+            window.Height = SystemParameters.PrimaryScreenHeight;
+            window.UpdateLayout();
+            return;
+        }
+
         // Changing WindowStyle makes WPF rebuild the window surface. A background-coloured shield
         // covers that one-frame rebuild; without it the new client area can appear white before
         // the app's content is painted again.
@@ -112,7 +132,7 @@ public static class WindowFullscreen
         States.Remove(window);
         // Cover the reverse style change too: restoring the frame makes WPF expose its client
         // surface again, which otherwise flashes white on the way back to a normal window.
-        state.Shield = ShowShield(window);
+        state.Shield = App.SuppressStartupForSmoke ? null : ShowShield(window);
         window.Topmost = state.Topmost;
         window.ShowInTaskbar = state.ShowInTaskbar;
         window.WindowStyle = state.Style;
@@ -125,7 +145,7 @@ public static class WindowFullscreen
         window.Width = state.Width;
         window.Height = state.Height;
         window.WindowState = state.WindowState;
-        window.Activate();
+        if (!App.SuppressStartupForSmoke) window.Activate();
         if (state.Shield is not null)
         {
             BringToFront(state.Shield);
@@ -157,6 +177,7 @@ public static class WindowFullscreen
 
     static void Apply(Window window)
     {
+        if (App.SuppressStartupForSmoke) return;
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero) return;
         var monitor = MonitorFromWindow(handle, MonitorDefaultToNearest);
@@ -183,6 +204,7 @@ public static class WindowFullscreen
 
     static Window? ShowShield(Window window)
     {
+        if (App.SuppressStartupForSmoke) return null;
         var bounds = MonitorBounds(window);
         if (bounds is null) return null;
         var background = window.Background ?? Brushes.Black;

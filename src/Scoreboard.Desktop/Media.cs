@@ -21,7 +21,8 @@ public sealed record MediaEntry(
     string? Name = null,
     int? CameraDevice = null,
     int? MicrophoneDevice = null,
-    bool SpeakerMuted = false)
+    bool SpeakerMuted = false,
+    string Source = "")
 {
     /// <summary>A camera or microphone with no name of its own is labelled with the device it uses,
     /// so the dock says "icspring camera" rather than "Live camera 1".</summary>
@@ -46,7 +47,11 @@ public sealed record MediaEntry(
     /// <summary>Which microphone this item listens to.</summary>
     public int MicrophoneIndex => MicrophoneDevice ?? MediaLibrary.MicrophoneIndex(Path) ?? 0;
     public bool IsVideo => IsCamera || IsScreen || (!IsMicrophone && MediaLibrary.IsVideoFile(Path));
-    public string KindLabel => IsCamera ? "LIVE" : IsScreen ? "SCREEN" : IsMicrophone ? "MIC" : IsSpeaker ? "SPEAKER" : IsVideo ? "VIDEO" : "AUDIO";
+    /// <summary>A still picture from a player's media list. It is shown as a tile, not played on the transport.</summary>
+    public bool IsImage => !IsCamera && !IsScreen && !IsMicrophone && !IsSpeaker && MediaLibrary.IsImageFile(Path);
+    /// <summary>Where this entry came from. "Roster" items are rebuilt from player assignments and are not saved in the media library.</summary>
+    public bool IsPlayerMedia => string.Equals(Source, "Roster", StringComparison.OrdinalIgnoreCase);
+    public string KindLabel => IsCamera ? "LIVE" : IsScreen ? "SCREEN" : IsMicrophone ? "MIC" : IsSpeaker ? "SPEAKER" : IsImage ? "IMAGE" : IsVideo ? "VIDEO" : "AUDIO";
     public string FolderLabel => string.IsNullOrWhiteSpace(Folder) ? MediaLibrary.RootFolderLabel : Folder;
     public string TagAndFolder => string.IsNullOrWhiteSpace(Folder) ? Tag : $"{Tag} · {Folder}";
 
@@ -153,6 +158,8 @@ public static class MediaLibrary
         double.IsFinite(seconds) ? Math.Clamp(seconds, 0, 5) : DefaultTransitionSeconds;
 
     public static bool IsVideoFile(string path) => Path.GetExtension(path).ToLowerInvariant() is ".mp4" or ".mov" or ".mkv" or ".webm" or ".avi" or ".m4v";
+
+    public static bool IsImageFile(string path) => Path.GetExtension(path).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp";
 
     public static string CameraPath(int index) => $"{CameraPrefix}{Math.Max(0, index)}";
 

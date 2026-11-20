@@ -22,11 +22,9 @@ internal static class Program
     {
         // The real App, not a bare Application: the console's drop-downs only exist in the app's own
         // styles, so a probe that runs without them proves nothing about what the operator sees.
-        // The smoke hook suppresses the launch box: the suite drives its own windows, and the
-        // first dispatcher pump would otherwise block inside the real App's startup dialog.
-#if DEBUG
-        App.SuppressStartupForSmoke = true;
-#endif
+        // The environment switch works in Release too: otherwise the real console and launch box
+        // open on top of whatever full-screen app the operator is working in.
+        Environment.SetEnvironmentVariable("SCOREPLUS_SMOKE", "1");
         var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.InitializeComponent();
         var layoutPath = Path.Combine(Path.GetTempPath(), $"smoke-scorebug-{Guid.NewGuid():N}.json");
@@ -4157,6 +4155,9 @@ internal static class Program
             {
                 var contextCatalog = new ScorebugCatalog(contextPath);
                 var contextEditor = new ScorebugEditorWindow(contextCatalog, engine);
+                // ShowForSmoke keeps probes off-screen and normal-sized so they cannot disturb a
+                // full-screen operator app. Remember the state the studio asked for before that.
+                var studioOpenedFullWindow = contextEditor.WindowState == WindowState.Maximized;
                 ShowForSmoke(contextEditor);
                 contextEditor.UpdateLayout();
                 // The studio must never open past the desktop: a window that runs past the edge hides
@@ -4167,7 +4168,7 @@ internal static class Program
                 if (contextEditor.ActualWidth > SystemParameters.WorkArea.Width + 40 ||
                     contextEditor.ActualHeight > SystemParameters.WorkArea.Height + 40)
                     throw new Exception($"FAIL: the studio opened {contextEditor.ActualWidth:0}x{contextEditor.ActualHeight:0} on a {SystemParameters.WorkArea.Width:0}x{SystemParameters.WorkArea.Height:0} desktop");
-                if (contextEditor.WindowState != WindowState.Maximized)
+                if (!studioOpenedFullWindow)
                     throw new Exception($"FAIL: the studio opened {contextEditor.WindowState} instead of full windowed");
                 var contextLayers = (ListBox)contextEditor.FindName("Layers")!;
                 var textIndex = contextCatalog.Layout.Elements.FindIndex(e => e.Kind == ScorebugElementKind.Text);
@@ -6501,20 +6502,17 @@ internal static class Program
 
     static void ShowForSmoke(Window window)
     {
-        // WPF refuses to show an unactivated maximized window. Normalize it for the initial show
-        // and restore the state afterwards, so tests that assert full-screen sizing still work.
-        var maximized = window.WindowState == WindowState.Maximized;
-        if (maximized) window.WindowState = WindowState.Normal;
+        // Keep every probe a normal off-screen window. Restoring a maximized state put an
+        // invisible full-screen window on the operator's monitor, which knocked full-screen
+        // applications out of exclusive mode even though the probe had Opacity 0.
+        window.WindowState = WindowState.Normal;
         window.ShowActivated = false;
         window.ShowInTaskbar = false;
         window.WindowStartupLocation = WindowStartupLocation.Manual;
         window.Left = -32000;
         window.Top = -32000;
-        // Fully transparent so a maximized probe cannot cover the desktop; it is still a visible
-        // window to WPF, so layout, rendering and focus-independent routed events work normally.
         window.Opacity = 0;
         window.Show();
-        if (maximized) window.WindowState = WindowState.Maximized;
     }
 
     static void Pump(TimeSpan duration)

@@ -27,6 +27,9 @@ public partial class LauncherWindow : Window
     /// <summary>The optional name typed in the new-game prompt.</summary>
     public string? GameName { get; private set; }
 
+    /// <summary>The scorebug or stadium starting design chosen in the new-game prompt.</summary>
+    public string? TemplateId { get; private set; }
+
     // Deleting needs a second click, so a stray one never wipes the recovery points.
     readonly System.Windows.Threading.DispatcherTimer _deleteReset = new() { Interval = TimeSpan.FromSeconds(5) };
     bool _deleteArmed;
@@ -97,6 +100,7 @@ public partial class LauncherWindow : Window
         if (picker.ShowDialog() != true || string.IsNullOrWhiteSpace(picker.SportId)) return;
         SportId = picker.SportId;
         GameName = picker.GameName;
+        TemplateId = picker.TemplateId;
         Mode = LaunchMode.New;
         GamePath = null;
         DialogResult = true;

@@ -679,6 +679,32 @@ try
 }
 finally{if(File.Exists(gradientPath))File.Delete(gradientPath);}
 
+// ---------- starting designs ----------
+{
+    var factory=ScorebugLayout.Default();
+    var factoryHome=factory.Elements.First(element=>element.Name=="Home score");
+    var factoryAway=factory.Elements.First(element=>element.Name=="Away score");
+    Check(factoryHome.X>factoryAway.X,"the current starting template puts home on the right side of the canvas and away on the left");
+    Check(ScorebugPresets.All.Any(preset=>preset.Id==ScorebugPresets.Stadium)
+        &&ScorebugPresets.All.Any(preset=>preset.Id==ScorebugPresets.LowerThird),
+        "new games offer scorebug and stadium-display starting templates");
+    var stadium=ScorebugPresets.Build(ScorebugPresets.Stadium);
+    var stadiumVideo=stadium.Elements.First(element=>element.Name=="Stadium video");
+    var stadiumScore=stadium.Elements.First(element=>element.Name=="Home score");
+    Check(stadium.Width==1920&&stadium.Height==1080
+        &&stadiumVideo.Kind==ScorebugElementKind.Video&&stadiumVideo.X==0&&stadiumVideo.Y==0
+        &&stadiumVideo.Width==1920&&stadiumVideo.Height==820
+        &&stadiumScore.Y>=stadiumVideo.Y+stadiumVideo.Height
+        &&stadiumScore.X>stadium.Elements.First(element=>element.Name=="Away score").X
+        &&!stadium.Elements.Any(element=>(element.Content??"").Contains("ABBR",StringComparison.OrdinalIgnoreCase)),
+        "the stadium template is a full-frame video board with the score strip along the bottom, home on the right and no abbreviations");
+    var lower=ScorebugPresets.Build(ScorebugPresets.LowerThird);
+    Check(lower.Elements.Any(element=>element.Name=="Game clock")&&lower.Elements.Any(element=>element.Name=="Home score"),
+        "the broadcast lower third template carries clocks and both scores");
+    Check(ScorebugPresets.Build("not-a-template").Elements.Count==ScorebugLayout.Default().Elements.Count,
+        "an unknown starting template falls back to the classic scorebug");
+}
+
 // ---------- player stat columns arrive with the player ----------
 var presetRoster=Roster.Create("Preset check");
 var presetPlayer=presetRoster.AddPlayer();
@@ -698,6 +724,7 @@ try
 {
     var shared=Roster.Create("Shared squad");
     var one=shared.AddPlayer(); one.Number=9; one.Name="Ada"; one.Position="QB"; one.SetStat("Yards",250);
+    one.MediaPaths.Add(@"C:\clips\ada-highlight.mp4"); one.MediaPaths.Add(@"C:\art\ada.png");
     var two=shared.AddPlayer(); two.Number=4; two.Name="Bea"; two.Position="WR"; two.SetStat("Yards",80);
     RosterFiles.SaveRoster(exportPath,shared);
     var readBack=RosterFiles.LoadRoster(exportPath);
@@ -705,6 +732,8 @@ try
         &&readBack.Players[0].Name=="Ada"&&readBack.Players[0].Position=="QB"&&readBack.Players[0].Number==9,
         "a .spr file round trips the roster and its players");
     Check(readBack!.Id!=shared.Id&&readBack.Players[0].Id!=one.Id,"an imported roster and its players get fresh ids");
+    Check(readBack.Players[0].MediaPaths.Count==2&&readBack.Players[0].MediaPaths[0].EndsWith("ada-highlight.mp4"),
+        "a roster carries each player's extra media assignments");
     // A shared roster says who is on the team, not what they have done: columns travel, values do not.
     Check(readBack.Players.All(p=>p.Stats.All(s=>s.Value==0&&s.Text is null)),
         "a .spr file carries no stat values");
@@ -1211,7 +1240,7 @@ try
         var automationCatalog=new ScorebugCatalog(automationPath);
         var automationDisplay=automationCatalog.ActiveDisplay;
         var target=automationCatalog.Layout.Elements.First(element=>element.Name=="Home team");
-        var rule=new AutomationRule{Name="Play clock warning",LayoutId=automationDisplay.Layouts[0].Id};
+        var rule=new AutomationRule{Name="Play clock warning",LayoutId=automationDisplay.Layouts[0].Id,AtTime="7:05",AtTimeDaily=true};
         rule.Conditions.Add(new AutomationCondition{Field=AutomationField.PlayClock,Operator=AutomationOperator.Less,Value=5});
         rule.Actions.Add(new AutomationAction{Kind=AutomationActionKind.SetTextColor,LayoutId=automationDisplay.Layouts[0].Id,ElementId=target.Id,Value="#FFFF3B30",ColorSource=ScorebugColorSource.HomePrimary});
         automationCatalog.UpdateAutomations(automationDisplay.Id,[rule]);
@@ -1220,8 +1249,28 @@ try
         Check(savedRule.Name=="Play clock warning"&&savedRule.LayoutId==automationDisplay.Layouts[0].Id
             &&savedRule.Conditions.Single().Field==AutomationField.PlayClock
             &&savedRule.Actions.Single().Kind==AutomationActionKind.SetTextColor&&savedRule.Actions.Single().Value=="#FFFF3B30"
-            &&savedRule.Actions.Single().ColorSource==ScorebugColorSource.HomePrimary,
-            "conditionals, their layout scope, actions and team-palette colours persist with their display");
+            &&savedRule.Actions.Single().ColorSource==ScorebugColorSource.HomePrimary
+            &&savedRule.AtTime=="07:05"&&savedRule.AtTimeDaily,
+            "conditionals, their layout scope, actions, team-palette colours and real-world time trigger persist with their display");
+        Check(AutomationRules.NormalizeTime("19:30")=="19:30"&&AutomationRules.NormalizeTime("25:00")==""
+            &&AutomationRules.NormalizeTime("7:5:3")=="07:05:03"&&AutomationRules.NormalizeTime("19:30:75")=="",
+            "a real-world time trigger accepts HH:mm or HH:mm:ss and rejects an impossible time");
+        var atSecond=new DateTime(2026,11,20,19,30,45);
+        Check(AutomationRules.TimeMatches("19:30:45",atSecond)&&!AutomationRules.TimeMatches("19:30:44",atSecond)
+            &&AutomationRules.TimeMatches("19:30",atSecond),
+            "an HH:mm:ss trigger matches its exact second while an HH:mm trigger covers the minute");
+        var clockParsed=AutomationRules.TryParseClockValue("00:59",out var clockSeconds)
+            &&AutomationRules.TryParseClockValue("1:30",out var ninetySeconds)&&ninetySeconds==90
+            &&!AutomationRules.TryParseClockValue("00:75",out _);
+        Check(clockParsed&&clockSeconds==59&&AutomationRules.FormatClockValue(59)=="00:59"
+            &&AutomationRules.FormatClockValue(600)=="10:00"&&AutomationRules.IsClockField(AutomationField.GameClock)
+            &&!AutomationRules.IsClockField(AutomationField.HomeScore),
+            "clock conditions are typed and shown as MM:SS while still comparing seconds");
+        Check(AutomationRules.HasClockToken("{{GAME_CLOCK}}")&&AutomationRules.HasClockToken("{{PLAY_CLOCK}}")
+            &&!AutomationRules.HasClockToken("{{HOME_SCORE}}"),
+            "only timing-clock elements qualify for a decimal column");
+        Check(AutomationRules.ValueChoices(AutomationField.PossessionSide).SequenceEqual(["Home","Away"]),
+            "possession offers Home and Away as a value list instead of free text");
         var paletteState=new GameState{HomePrimaryColor="#FF123456",AwaySecondaryColor="#FF654321"};
         Check(AutomationRules.ResolveColor(savedRule.Actions.Single(),paletteState)=="#FF123456",
             "a conditional colour can resolve against the home team's primary colour");
@@ -1309,7 +1358,7 @@ try
         made.States.Add(new CustomIconState
         {
             Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Away"},
-            Glyph="A",ImagePath=@"C:\art\away.png",Color="#FF112233",Plate="#FF445566",Round=false,OffsetX=8,OffsetY=-4,Scale=1.4,Opacity=0.6,Rotation=20
+            Glyph="A",ImagePath=@"C:\art\away.png",Color="#FF112233",Plate="#FF445566",Round=false,Anchor=CustomIconAnchor.Left,OffsetX=8,OffsetY=-4,Scale=1.4,Opacity=0.6,Rotation=20
         });
         made.States.Add(new CustomIconState
         {
@@ -1320,7 +1369,7 @@ try
         var away=stored.Resolve(new GameState{HomePossession=false});
         var home=stored.Resolve(new GameState{HomePossession=true});
         Check(stored.States.Count==2&&away.Glyph=="A"&&home.Glyph=="H"
-            &&away.Color=="#FF112233"&&away.OffsetX==8&&Math.Abs(away.Scale-1.4)<0.001&&Math.Abs(away.Opacity-0.6)<0.001
+            &&away.Color=="#FF112233"&&away.Anchor==CustomIconAnchor.Left&&away.OffsetX==8&&Math.Abs(away.Scale-1.4)<0.001&&Math.Abs(away.Opacity-0.6)<0.001
             &&away.ImagePath==@"C:\art\away.png"&&home.ImagePath=="",
             "a made icon chooses the first matching data state, including its image, colour, location, scale and opacity");
         Check(home.Color=="#FF778899"&&home.Round,"each icon state keeps its own plate and roundness");
@@ -1338,11 +1387,12 @@ try
         try
         {
             var shared=new CustomIcon{Name="Shared icon",Glyph="◆",Color="#FF102030",Plate="#FF405060",Round=false,OffsetX=3,Scale=1.2,Opacity=0.8,Rotation=15};
-            shared.States.Add(new CustomIconState{Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Home"},Glyph="H",ImagePath=@"C:\art\home.png",Color="#FF00FF00",OffsetY=-2});
+            shared.States.Add(new CustomIconState{Condition=new AutomationCondition{Field=AutomationField.PossessionSide,Operator=AutomationOperator.Equal,Text="Home"},Glyph="H",ImagePath=@"C:\art\home.png",Color="#FF00FF00",Anchor=CustomIconAnchor.Right,OffsetY=-2});
             IconFiles.Save(iconFile,shared);
             var imported=IconFiles.Load(iconFile);
             Check(imported is not null&&imported.Name=="Shared icon"&&imported.Glyph=="◆"
                 &&imported.States.Count==1&&imported.States[0].Glyph=="H"&&imported.States[0].ImagePath==@"C:\art\home.png"&&imported.States[0].Condition.Text=="Home"
+                &&imported.States[0].Anchor==CustomIconAnchor.Right
                 &&imported.Id!=shared.Id&&imported.States[0].Id!=shared.States[0].Id,
                 "a .spi file carries an icon and its data states and imports as an independent copy");
             File.WriteAllText(iconFile,"not a ScorePlus icon");
@@ -1383,6 +1433,10 @@ finally
     Check(whole<=1,"a running clock does not report whole-second changes ten times a second");
     var printed=GameEngine.FormatClock(fractionEngine.State.ClockSeconds,ClockStyle.Padded,2,fractionEngine.State.ClockFraction,countDown:true);
     Check(printed.Contains('.')&&printed.Length>=6,"a two-decimal clock prints its hundredths: "+printed);
+    Check(GameEngine.FormatClock(59,ClockStyle.Padded,1,0.8,countDown:true)=="0:59.8"
+        &&GameEngine.FormatClock(59,ClockStyle.Padded,1,0.0,countDown:true)=="0:59.0"
+        &&GameEngine.FormatClock(58,ClockStyle.Padded,1,1.0,countDown:true)=="0:58.9",
+        "switching decimals on at 59 keeps the whole second at 59 instead of dropping to 58");
 }
 
 // Undo steps the show back one action, and Redo puts it on air again.

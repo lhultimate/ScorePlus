@@ -315,13 +315,13 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
     /// <summary>
     /// Applies the choice made in the launch box to the window that is already open behind it.
     /// </summary>
-    public void StartFromLauncher(LaunchMode mode, string? path, string? sportId = null, string? gameName = null)
+    public void StartFromLauncher(LaunchMode mode, string? path, string? sportId = null, string? gameName = null, string? templateId = null)
     {
         if (mode == LaunchMode.Open && !string.IsNullOrWhiteSpace(path) && LoadGame(path))
             StatusText.Text = $"GAME OPENED · {Path.GetFileNameWithoutExtension(path)}";
         else
         {
-            StartNewGame(sportId ?? (string.IsNullOrWhiteSpace(_preferences.LastSport) ? "football" : _preferences.LastSport), announce: false, gameName: gameName);
+            StartNewGame(sportId ?? (string.IsNullOrWhiteSpace(_preferences.LastSport) ? "football" : _preferences.LastSport), announce: false, gameName: gameName, templateId: templateId);
             StatusText.Text = "NEW GAME · set the teams and you are live";
         }
         _savedStateJson = _engine.ExportJson();
@@ -1248,7 +1248,7 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         // states what a new game resets.
         var picker = new SportPickerWindow(_engine.Sports, _engine.State.SportId, _preferences.Theme) { Owner = this };
         if (picker.ShowDialog() != true || string.IsNullOrWhiteSpace(picker.SportId)) return;
-        StartNewGame(picker.SportId, gameName: picker.GameName);
+        StartNewGame(picker.SportId, gameName: picker.GameName, templateId: picker.TemplateId);
     }
 
     /// <summary>
@@ -1306,10 +1306,10 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
     /// from the previous game survives on air. Operator settings that are not part of a game — sport
     /// profiles, keybinds, preferences, the media library and the scorebug design — are untouched.
     /// </summary>
-    public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null)
-        => WithoutLayoutTransitions(() => StartNewGameCore(sportId, announce, keepDesign, restart, gameName));
+    public void StartNewGame(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null, string? templateId = null)
+        => WithoutLayoutTransitions(() => StartNewGameCore(sportId, announce, keepDesign, restart, gameName, templateId));
 
-    void StartNewGameCore(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null)
+    void StartNewGameCore(string sportId, bool announce = true, bool keepDesign = false, bool restart = false, string? gameName = null, string? templateId = null)
     {
         _autoHornReady = false;
         // keepDesign is the sport switch: the teams, their rosters and the scorebug layout stay.
@@ -1335,7 +1335,7 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         try { PreferencesStore.Save(_preferences); } catch { }
         // A new game really starts over: one factory layout and no folder/playlist organisation.
         // Imported media files stay in the library; the game's design and shelves begin blank.
-        if (!keepDesign) _scorebug.ResetToDefault();
+        if (!keepDesign) _scorebug.ResetToDefault(templateId);
         _savedDesignJson = DesignJson();
         _program.Sync();
         SyncDisplayPicker();

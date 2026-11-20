@@ -103,6 +103,10 @@ public sealed class MediaSession
             var normalized = MediaLibrary.NormalizeFolder(folder);
             if (normalized.Length > 0 && !_folders.Contains(normalized, StringComparer.OrdinalIgnoreCase)) _folders.Add(normalized);
         }
+        // Player media lives on the roster, not in preferences. Rebuild its tiles whenever the
+        // roster library changes so a clip assigned in Rosters is visible in MEDIA straight away.
+        RefreshPlayerMedia(notify: false, save: false);
+        RosterStore.Changed += () => RefreshPlayerMedia();
 
 
         // The meter asks this on every read, so a speaker switched off silences it at once even when
@@ -205,6 +209,43 @@ public sealed class MediaSession
 
     /// <summary>Clips in the library, in import order. Shared by every dock.</summary>
     public ObservableCollection<MediaEntry> Library { get; } = [];
+
+    /// <summary>
+    /// Mirrors every roster player's extra media into the library so the MEDIA tab lists it with
+    /// clips, cameras and screens. Entries carry Source = Roster and are rebuilt from rosters.json,
+    /// never written into the media preferences.
+    /// </summary>
+    public void RefreshPlayerMedia(bool notify = true, bool save = false)
+    {
+        if (!_ui.CheckAccess()) { _ui.BeginInvoke(() => RefreshPlayerMedia(notify, save)); return; }
+        var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var roster in RosterStore.All())
+        {
+            foreach (var player in roster.Players)
+            {
+                foreach (var path in player.MediaPaths ?? [])
+                {
+                    if (string.IsNullOrWhiteSpace(path) || !wanted.Add(path)) continue;
+                    var label = $"{player.Record} · {Path.GetFileName(path)}";
+                    var existingIndex = Library.ToList().FindIndex(entry => entry.IsPlayerMedia
+                        && string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase));
+                    var entry = new MediaEntry(path, "Roster", "Roster Media", Loop: MediaLibrary.IsVideoFile(path),
+                        Name: label, Source: "Roster");
+                    if (existingIndex < 0) Library.Add(entry);
+                    else
+                    {
+                        var current = Library[existingIndex];
+                        if (current.Name != label || current.Folder != "Roster Media" || current.Tag != "Roster")
+                            Library[existingIndex] = entry;
+                    }
+                }
+            }
+        }
+        for (var index = Library.Count - 1; index >= 0; index--)
+            if (Library[index].IsPlayerMedia && !wanted.Contains(Library[index].Path)) Library.RemoveAt(index);
+        if (save) Save();
+        if (notify) StateChanged?.Invoke();
+    }
 
     /// <summary>Saved playlists, shared by every dock.</summary>
     public ObservableCollection<MediaPlaylist> Playlists { get; } = [];
@@ -390,6 +431,22 @@ public sealed class MediaSession
     public ImageSource? Thumbnail(MediaEntry entry)
     {
         if (_thumbs.TryGetValue(entry.Path, out var cached)) return cached;
+        if (entry.IsImage && File.Exists(entry.Path))
+        {
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.DecodePixelWidth = 320;
+                image.UriSource = new Uri(entry.Path);
+                image.EndInit();
+                image.Freeze();
+                _thumbs[entry.Path] = image;
+                return image;
+            }
+            catch { return null; }
+        }
         QueueThumbnail(entry);
         return null;
     }
@@ -424,7 +481,8 @@ public sealed class MediaSession
         Playlists.Clear();
         _folders.Clear();
         for (var index = 0; index < Library.Count; index++)
-            if (Library[index].Folder.Length > 0) Library[index] = Library[index] with { Folder = "" };
+            if (!Library[index].IsPlayerMedia && Library[index].Folder.Length > 0) Library[index] = Library[index] with { Folder = "" };
+        RefreshPlayerMedia(notify: false, save: false);
         FolderFilter = null;
         Save();
         StateChanged?.Invoke();
@@ -523,6 +581,8 @@ public sealed class MediaSession
         Playlists.Clear();
         _folders.Clear();
         Library.Clear();
+        // Player media is part of the roster, not the removable library, so it comes straight back.
+        RefreshPlayerMedia(notify: false, save: false);
         FolderFilter = null;
         Selected = null;
         Current = null;
@@ -2313,6 +2373,15 @@ public sealed class MediaSession
         }
         if (entry.IsCamera) { PlayCamera(entry, playlist, index); return; }
         if (entry.IsMicrophone) { PlayMicrophone(entry); return; }
+        if (entry.IsImage)
+        {
+            // A still is a media-library picture, not a transport clip. Selecting it shows its
+            // preview without handing WPF an image file as if it were audio or video.
+            Selected = entry;
+            StateChanged?.Invoke();
+            Status?.Invoke($"IMAGE · {entry.Label} · assigned to a roster player");
+            return;
+        }
         // A desktop has no file to open. It is a live source like a camera: the transport is put
         // away and a video element pulls its frames from the capture thread. Without this branch a
         // screen was turned away as a missing media file, so it never reached the audience.
@@ -2718,7 +2787,8 @@ public sealed class MediaSession
 
     public void Save()
     {
-        _preferences.Media = Library.ToList();
+        // Player media belongs to rosters.json and is mirrored into the library at load time.
+        _preferences.Media = Library.Where(entry => !entry.IsPlayerMedia).ToList();
         _preferences.Playlists = Playlists.Select(p => new MediaPlaylist { Name = p.Name, Loop = p.Loop, Paths = p.Paths.ToList() }).ToList();
         _preferences.MediaFolders = _folders.ToList();
         try { PreferencesStore.Save(_preferences); } catch { }

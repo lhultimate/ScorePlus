@@ -1980,6 +1980,26 @@ public sealed class ScorebugIconView : Grid
         _customText.Text = look.Glyph;
         _customText.FontSize = Math.Clamp(Math.Min(width, height) * 0.62, 8, 260);
         _customText.Foreground = ScorebugRender.ParseBrush(string.IsNullOrWhiteSpace(_item.IconColor) ? look.Color : _item.IconColor);
+        // A data state can anchor the mark to an edge or corner of its box. The box stays where the
+        // element sits on the canvas, so “left” really means the left side of this scorebug item.
+        _customText.HorizontalAlignment = look.Anchor is CustomIconAnchor.Left or CustomIconAnchor.TopLeft or CustomIconAnchor.BottomLeft
+            ? HorizontalAlignment.Left
+            : look.Anchor is CustomIconAnchor.Right or CustomIconAnchor.TopRight or CustomIconAnchor.BottomRight
+                ? HorizontalAlignment.Right
+                : HorizontalAlignment.Center;
+        _customText.VerticalAlignment = look.Anchor is CustomIconAnchor.Top or CustomIconAnchor.TopLeft or CustomIconAnchor.TopRight
+            ? VerticalAlignment.Top
+            : look.Anchor is CustomIconAnchor.Bottom or CustomIconAnchor.BottomLeft or CustomIconAnchor.BottomRight
+                ? VerticalAlignment.Bottom
+                : VerticalAlignment.Center;
+        if (_customImage is not null)
+        {
+            var side = Math.Max(8, Math.Min(width, height));
+            _customImage.Width = side;
+            _customImage.Height = side;
+            _customImage.HorizontalAlignment = _customText.HorizontalAlignment;
+            _customImage.VerticalAlignment = _customText.VerticalAlignment;
+        }
         _customHost.Background = ScorebugRender.ParseBrush(look.Plate);
         _customHost.Width = width;
         _customHost.Height = height;

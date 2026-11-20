@@ -612,16 +612,27 @@ public sealed class AutomationWindow : Window
 
         // A time of day is a trigger of its own: at 19:30 the rule fires even if nobody has touched
         // the console, which is how a show opens on its opening layout on the dot.
-        panel.Children.Add(FieldLabel("Also run at a time (optional)"));
+        panel.Children.Add(FieldLabel("Run at real-world time (optional)"));
         var atTime = Box(rule.AtTime, 11);
-        atTime.ToolTip = "24-hour HH:mm. Leave it empty for a rule that only reacts to the game.";
+        atTime.ToolTip = "24-hour HH:mm or HH:mm:ss. HH:mm runs once during that minute; HH:mm:ss runs on that exact second. The actions run even if nobody touches the game. Leave it empty for a rule that only reacts to the game.";
         atTime.TextChanged += (_, _) =>
         {
             if (_building) return;
             rule.AtTime = AutomationRules.NormalizeTime(atTime.Text);
             Persist();
         };
+        atTime.LostFocus += (_, _) =>
+        {
+            var normalized = AutomationRules.NormalizeTime(atTime.Text);
+            if (normalized.Length > 0) atTime.Text = normalized;
+        };
         panel.Children.Add(atTime);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "HH:mm for a minute, or HH:mm:ss for an exact second.",
+            Foreground = MutedBrush, FontSize = 9, TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 0)
+        });
         var daily = new CheckBox
         {
             Content = "Run again every day",
@@ -727,15 +738,41 @@ public sealed class AutomationWindow : Window
                 };
                 panel.Children.Add(key);
             }
-            panel.Children.Add(FieldLabel("Value"));
-            var value = Box(condition.Value.ToString("0.##"), 11);
-            value.TextChanged += (_, _) =>
+            // A clock is read as MM:SS on air, so it is typed the same way here. The rule still
+            // stores seconds, which keeps old saved rules and every comparison unchanged.
+            var clockField = AutomationRules.IsClockField(condition.Field);
+            panel.Children.Add(FieldLabel(clockField ? "Value (MM:SS)" : "Value"));
+            var value = Box(clockField
+                ? AutomationRules.FormatClockValue(condition.Value)
+                : condition.Value.ToString("0.##"), 11);
+            if (clockField)
             {
-                if (_building || !double.TryParse(value.Text, out var number)) return;
-                condition.Value = number;
-                Persist();
-            };
+                value.ToolTip = "Type a clock as MM:SS, for example 00:59. It is compared with the clock in seconds.";
+                value.TextChanged += (_, _) =>
+                {
+                    if (_building || !AutomationRules.TryParseClockValue(value.Text, out var seconds)) return;
+                    condition.Value = seconds;
+                    Persist();
+                };
+                value.LostFocus += (_, _) => value.Text = AutomationRules.FormatClockValue(condition.Value);
+            }
+            else
+            {
+                value.TextChanged += (_, _) =>
+                {
+                    if (_building || !double.TryParse(value.Text, out var number)) return;
+                    condition.Value = number;
+                    Persist();
+                };
+            }
             panel.Children.Add(value);
+            if (clockField)
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Minutes and seconds, for example 00:59. This compares against the clock, not a raw number.",
+                    Foreground = MutedBrush, FontSize = 9, TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 3, 0, 0)
+                });
         }
         else
         {
@@ -806,6 +843,17 @@ public sealed class AutomationWindow : Window
             if (choice.Kind == AutomationActionKind.SwitchLayout
                 && string.IsNullOrWhiteSpace(action.LayoutId))
                 action.LayoutId = _catalog.FindDisplay(_displayId)?.Layouts.FirstOrDefault()?.Id ?? "";
+            if (choice.Kind == AutomationActionKind.SetClockDecimals)
+            {
+                // Decimals only exist on a clock, so never leave the action pointing at a score
+                // or a down line just because that happened to be the previous target.
+                var clocks = ClockElementChoices(_catalog.FindDisplay(_displayId));
+                if (!clocks.Any(choice => string.Equals(choice.ElementId, action.ElementId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    action.ElementId = clocks.FirstOrDefault()?.ElementId ?? "";
+                    action.LayoutId = clocks.FirstOrDefault()?.LayoutId ?? action.LayoutId;
+                }
+            }
             Persist();
             RefreshGraph();
         };
@@ -946,7 +994,39 @@ public sealed class AutomationWindow : Window
         {
             // The decimal column belongs to the element, so the rule points at the element that
             // prints the clock. It is live only while the rule matches, and leaves again by itself.
-            var clockElements = ElementChoices(display);
+            var clockElements = ClockElementChoices(display);
+            if (clockElements.Length == 0)
+            {
+                panel.Children.Add(FieldLabel("Element whose clock prints the decimal"));
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "This display has no clock element. Add an element that prints {{GAME_CLOCK}}, {{PLAY_CLOCK}} or {{STOPPAGE}} in the studio first.",
+                    Foreground = MutedBrush, FontSize = 9, TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 5)
+                });
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Decimals are a timing-clock readout. Scores, downs, periods and other whole numbers never show a decimal column.",
+                    Foreground = MutedBrush, FontSize = 9, TextWrapping = TextWrapping.Wrap
+                });
+                var noClockRemove = new Button { Content = "Remove action", FontSize = 9, Padding = new Thickness(7, 2, 7, 2), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 7, 0, 0) };
+                noClockRemove.Click += (_, _) =>
+                {
+                    _selected?.Actions.Remove(action);
+                    Persist();
+                    RefreshGraph();
+                };
+                panel.Children.Add(noClockRemove);
+                return card;
+            }
+            if (!clockElements.Any(choice => string.Equals(choice.ElementId, action.ElementId, StringComparison.OrdinalIgnoreCase)))
+            {
+                action.ElementId = clockElements[0].ElementId;
+                action.LayoutId = clockElements[0].LayoutId;
+                // Repair a rule made before the target list was limited to clocks, after the graph
+                // finishes rebuilding (Persist intentionally ignores edits during the build).
+                Dispatcher.BeginInvoke(() => Persist());
+            }
             var elementPicker = new ComboBox
             {
                 ItemsSource = clockElements,
@@ -1174,6 +1254,18 @@ public sealed class AutomationWindow : Window
             .ToArray();
     }
 
+    /// <summary>Only elements that print a timing clock can carry a decimal column.</summary>
+    static ElementChoice[] ClockElementChoices(ScorebugDisplay? display)
+    {
+        if (display is null) return [];
+        return display.Layouts
+            .SelectMany(layout => layout.Elements
+                .Where(element => AutomationRules.HasClockToken(element.Content))
+                .Select(element => new ElementChoice(
+                    layout.Id, element.Id, $"{layout.Name} · {element.Name}")))
+            .ToArray();
+    }
+
     void AddCard(Border card, double x, double y, double width)
     {
         card.Width = width;
@@ -1229,7 +1321,7 @@ public sealed class AutomationWindow : Window
             Text = eyebrow, Foreground = accent, FontSize = 9, FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 0, 0, 5)
         });
-        return new Border
+        var card = new Border
         {
             Background = PanelBrush,
             BorderBrush = EdgeBrush,
@@ -1239,6 +1331,11 @@ public sealed class AutomationWindow : Window
             Child = panel,
             MinHeight = 150
         };
+        // The global theme pass repaints every Border with the window panel colour. On the dark
+        // graph that made these cards disappear into the canvas until a hover or a control forced
+        // a repaint. Keep the card's own raised fill and edge intact.
+        ThemeManager.SetSkipTheme(card, true);
+        return card;
     }
 
     static TextBlock FieldLabel(string text) => new()

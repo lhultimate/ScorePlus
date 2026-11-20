@@ -112,7 +112,7 @@ public partial class RosterPanel : UserControl
         var signature = string.Join('|',
             RosterStore.Version, rosterId, _roster?.Name, _player?.Id, _search,
             selected?.PlayerId, RosterStore.All().Count,
-            string.Join(",", _roster?.Players.Select(p => $"{p.Id}:{p.Number}:{p.Name}:{p.Position}:{p.Group}:{p.PhotoPath}:{p.Stats.Count}") ?? []));
+            string.Join(",", _roster?.Players.Select(p => $"{p.Id}:{p.Number}:{p.Name}:{p.Position}:{p.Group}:{p.PhotoPath}:{p.Stats.Count}:{string.Join(';', p.MediaPaths)}") ?? []));
         if (signature == _signature)
         {
             UpdateOnAir(selected);
@@ -160,6 +160,8 @@ public partial class RosterPanel : UserControl
         NumberInput.IsEnabled = NameInput.IsEnabled = PositionInput.IsEnabled = GroupInput.IsEnabled = hasPlayer;
         ChoosePhotoButton.IsEnabled = hasPlayer;
         RemovePhotoButton.IsEnabled = hasPlayer && !string.IsNullOrWhiteSpace(_player?.PhotoPath);
+        AddPlayerMediaButton.IsEnabled = hasPlayer;
+        RemovePlayerMediaButton.IsEnabled = hasPlayer && _player?.MediaPaths.Count > 0;
         AddStatButton.IsEnabled = StatPresetBox.IsEnabled = hasPlayer;
     }
 
@@ -407,6 +409,7 @@ public partial class RosterPanel : UserControl
             ? "highlight a player on the left"
             : $"{_player.Record} · {(_player.Position.Length == 0 ? "no position" : _player.Position)}";
         ShowPlayerPhoto();
+        ShowPlayerMedia();
     }
 
     /// <summary>Draws the uploaded portrait, or the empty frame when this player has none.</summary>
@@ -461,6 +464,58 @@ public partial class RosterPanel : UserControl
     {
         if (_player is null || string.IsNullOrWhiteSpace(_player.PhotoPath)) return;
         _player.PhotoPath = "";
+        SaveAndReload();
+    }
+
+    /// <summary>Lists the extra media assigned to this player, by file name.</summary>
+    void ShowPlayerMedia()
+    {
+        PlayerMediaList.ItemsSource = null;
+        if (_player is null) return;
+        PlayerMediaList.ItemsSource = _player.MediaPaths
+            .Select(path => string.IsNullOrWhiteSpace(path) ? "(missing)" : Path.GetFileName(path))
+            .ToArray();
+    }
+
+    void AddPlayerMedia_Click(object sender, RoutedEventArgs e)
+    {
+        if (_player is null) return;
+        var dialog = new OpenFileDialog
+        {
+            Title = $"Choose media for {_player.Record}",
+            Filter = "Media (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v;*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp)|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v;*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = true
+        };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        try
+        {
+            var folder = AppPaths.Combine("PlayerMedia");
+            Directory.CreateDirectory(folder);
+            foreach (var source in dialog.FileNames)
+            {
+                if (string.IsNullOrWhiteSpace(source) || !File.Exists(source)) continue;
+                // Keep a private copy so the original can be moved without breaking the show.
+                var target = Path.Combine(folder, $"{_player.Id}-{Guid.NewGuid():N}{Path.GetExtension(source)}");
+                File.Copy(source, target, true);
+                if (!_player.MediaPaths.Contains(target, StringComparer.OrdinalIgnoreCase))
+                    _player.MediaPaths.Add(target);
+            }
+            if (_player.MediaPaths.Count > 48) _player.MediaPaths = _player.MediaPaths.Take(48).ToList();
+            SaveAndReload();
+        }
+        catch (Exception ex)
+        {
+            NoticeWindow.Tell(Window.GetWindow(this), "That media could not be added", ex.Message, warning: true);
+        }
+    }
+
+    void RemovePlayerMedia_Click(object sender, RoutedEventArgs e)
+    {
+        if (_player is null || _player.MediaPaths.Count == 0) return;
+        var index = PlayerMediaList.SelectedIndex;
+        if (index < 0 || index >= _player.MediaPaths.Count) index = _player.MediaPaths.Count - 1;
+        _player.MediaPaths.RemoveAt(index);
         SaveAndReload();
     }
 

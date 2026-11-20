@@ -64,16 +64,19 @@ public sealed class AutomationRuntime : IDisposable
         Evaluate();
     }
 
-    /// <summary>True when a scheduled rule's minute has arrived and it has not run for it yet.</summary>
+    /// <summary>True when a scheduled rule's time has arrived and it has not run for it yet.</summary>
     bool Scheduled(string key, AutomationRule rule)
     {
         var at = AutomationRules.NormalizeTime(rule.AtTime);
         if (at.Length == 0) return false;
         var now = DateTime.Now;
-        if ($"{now.Hour:00}:{now.Minute:00}" != at) return false;
-        if (!_fired.TryGetValue(key, out var last)) return true;
+        if (!AutomationRules.TimeMatches(at, now)) return false;
+        // The schedule is part of the identity: changing 19:30 to 20:00 must be able to fire again
+        // in the same session, and a daily rule still remembers the last day it ran.
+        var fireKey = $"{key}|{at}";
+        if (!_fired.TryGetValue(fireKey, out var last)) return true;
         if (!rule.AtTimeDaily) return false;
-        return last.Date != now.Date || last.Hour != now.Hour || last.Minute != now.Minute;
+        return last.Date != now.Date;
     }
 
     public int ActiveRuleCount => _matched.Count;
@@ -141,7 +144,7 @@ public sealed class AutomationRuntime : IDisposable
                     // A scheduled rule triggers on its clock as well as on its conditions, so
                     // "at 19:30 switch to the opening layout" needs no game change to fire.
                     var scheduled = Scheduled(key, rule);
-                    if (scheduled) _fired[key] = DateTime.Now;
+                    if (scheduled) _fired[$"{key}|{AutomationRules.NormalizeTime(rule.AtTime)}"] = DateTime.Now;
                     var trigger = scheduled || rule.Matches(state);
                     // A rule with no wait-until conditions never enters a wait step, so it keeps the
                     // flat trigger/action behaviour it had before wait steps existed.
@@ -473,7 +476,9 @@ public sealed class AutomationRuntime : IDisposable
             if (Width is { } width) element.Width = width;
             if (Height is { } height) element.Height = height;
             if (Visible is { } visible) element.Visible = visible;
-            if (ClockDecimals is { } decimals) element.ClockDecimals = decimals;
+            // A stale rule may still point at a score or a down. A decimal column belongs only to a
+            // timing clock, so never let a whole-number element pretend to carry one.
+            if (ClockDecimals is { } decimals && AutomationRules.HasClockToken(element.Content)) element.ClockDecimals = decimals;
         }
 
         static bool IsColor(string? value)

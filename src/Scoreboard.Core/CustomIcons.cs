@@ -4,6 +4,20 @@ using System.Text.Json.Serialization;
 
 namespace Scoreboard.Core;
 
+/// <summary>Where a made icon sits inside its scorebug element.</summary>
+public enum CustomIconAnchor
+{
+    Center,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight
+}
+
 /// <summary>
 /// One designed look for a made icon while a data condition is true — for example, the away
 /// possession icon, or the home possession icon. It carries its own glyph, plate, colour,
@@ -30,7 +44,10 @@ public sealed class CustomIconState
     public string Plate { get; set; } = "#00000000";
     public bool Round { get; set; } = true;
 
-    /// <summary>Where the icon sits inside its scorebug element, in design pixels.</summary>
+    /// <summary>Which edge or corner of the scorebug box this design hugs. Left puts an away-possession mark on the left of the box wherever the box is on the canvas.</summary>
+    public CustomIconAnchor Anchor { get; set; } = CustomIconAnchor.Center;
+
+    /// <summary>Where the icon sits inside its scorebug element, in design pixels, after the anchor.</summary>
     public double OffsetX { get; set; }
     public double OffsetY { get; set; }
 
@@ -67,6 +84,7 @@ public sealed class CustomIconState
         ImagePath = (ImagePath ?? string.Empty).Trim();
         Color = CustomIcon.Hex(Color, "#FFFFFF");
         Plate = CustomIcon.Hex(Plate, "#00000000");
+        if (!Enum.IsDefined(Anchor)) Anchor = CustomIconAnchor.Center;
         OffsetX = double.IsFinite(OffsetX) ? Math.Clamp(OffsetX, -2000, 2000) : 0;
         OffsetY = double.IsFinite(OffsetY) ? Math.Clamp(OffsetY, -2000, 2000) : 0;
         Scale = double.IsFinite(Scale) ? Math.Clamp(Scale, 0.05, 8) : 1;
@@ -96,6 +114,7 @@ public sealed record CustomIconLook(
     string Color,
     string Plate,
     bool Round,
+    CustomIconAnchor Anchor,
     double OffsetX,
     double OffsetY,
     double Scale,
@@ -127,7 +146,10 @@ public sealed class CustomIcon
     /// <summary>A round plate, the way a badge reads; otherwise a soft-cornered square.</summary>
     public bool Round { get; set; } = true;
 
-    /// <summary>Where the fallback look sits inside its scorebug element, in design pixels.</summary>
+    /// <summary>Which edge or corner the fallback look hugs inside its scorebug element.</summary>
+    public CustomIconAnchor Anchor { get; set; } = CustomIconAnchor.Center;
+
+    /// <summary>Where the fallback look sits inside its scorebug element, in design pixels, after the anchor.</summary>
     public double OffsetX { get; set; }
     public double OffsetY { get; set; }
     public double Scale { get; set; } = 1;
@@ -158,10 +180,10 @@ public sealed class CustomIcon
             {
                 if (candidate is null || !candidate.Matches(state)) continue;
                 return new CustomIconLook(candidate.Glyph, candidate.ImagePath, candidate.Color, candidate.Plate, candidate.Round,
-                    candidate.OffsetX, candidate.OffsetY, candidate.Scale, candidate.Opacity, candidate.Rotation);
+                    candidate.Anchor, candidate.OffsetX, candidate.OffsetY, candidate.Scale, candidate.Opacity, candidate.Rotation);
             }
         }
-        return new CustomIconLook(Glyph, ImagePath, Color, Plate, Round, OffsetX, OffsetY, Scale, Opacity, Rotation);
+        return new CustomIconLook(Glyph, ImagePath, Color, Plate, Round, Anchor, OffsetX, OffsetY, Scale, Opacity, Rotation);
     }
 
     public void Normalize()
@@ -173,6 +195,7 @@ public sealed class CustomIcon
         ImagePath = (ImagePath ?? string.Empty).Trim();
         Color = Hex(Color, "#FFFFFF");
         Plate = Hex(Plate, "#00000000");
+        if (!Enum.IsDefined(Anchor)) Anchor = CustomIconAnchor.Center;
         OffsetX = double.IsFinite(OffsetX) ? Math.Clamp(OffsetX, -2000, 2000) : 0;
         OffsetY = double.IsFinite(OffsetY) ? Math.Clamp(OffsetY, -2000, 2000) : 0;
         Scale = double.IsFinite(Scale) ? Math.Clamp(Scale, 0.05, 8) : 1;
@@ -283,6 +306,7 @@ public static class CustomIconStore
             existing.Color = icon.Color;
             existing.Plate = icon.Plate;
             existing.Round = icon.Round;
+            existing.Anchor = icon.Anchor;
             existing.OffsetX = icon.OffsetX;
             existing.OffsetY = icon.OffsetY;
             existing.Scale = icon.Scale;

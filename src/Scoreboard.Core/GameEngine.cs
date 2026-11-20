@@ -2026,35 +2026,37 @@ public sealed class GameEngine
         FormatClock(seconds, style, decimals, part, countDown: false);
 
     /// <summary>
-    /// A countdown borrows its decimal from the whole seconds, so a three-second clock reads 3.0,
-    /// then 2.9, and reaches 0.0 exactly on time. Printing 3.9 at the start instead (and skipping
-    /// the last second) is what made a set clock look like it jumped to zero.
+    /// A running clock's decimal column keeps the same whole second the no-decimal clock shows.
+    /// A 59-second clock therefore reads 59.9, 59.8 … 59.0, 58.9 — turning decimals on no longer
+    /// makes it jump straight to 58 while the console still says 59.
     /// </summary>
     public static string FormatClock(int seconds, ClockStyle style, int decimals, double part, bool countDown)
     {
         seconds = Math.Max(0, seconds);
         if (decimals <= 0) return FormatClock(seconds, style);
         var fraction = Math.Clamp(double.IsFinite(part) ? part : 0, 0, 1);
-        var shown = countDown && fraction < 1 - 1e-9 ? Math.Max(0, seconds - 1) : seconds;
         return decimals == 1
-            ? $"{FormatClock(shown, style)}.{TenthDigit(fraction)}"
-            : $"{FormatClock(shown, style)}.{HundredthDigit(fraction):00}";
+            ? $"{FormatClock(seconds, style)}.{TenthDigit(fraction, countDown)}"
+            : $"{FormatClock(seconds, style)}.{HundredthDigit(fraction, countDown):00}";
     }
 
-    static int TenthDigit(double part) => (int)Math.Floor(part * 10 + 1e-9) % 10;
-    static int HundredthDigit(double part) => (int)Math.Floor(part * 100 + 1e-9) % 100;
+    static int TenthDigit(double part, bool countDown = false) => countDown && part >= 1 - 1e-9
+        ? 9
+        : (int)Math.Floor(part * 10 + 1e-9) % 10;
+    static int HundredthDigit(double part, bool countDown = false) => countDown && part >= 1 - 1e-9
+        ? 99
+        : (int)Math.Floor(part * 100 + 1e-9) % 100;
 
-    /// <summary>The play clock prints as :SS, with a decimal column and the same countdown borrow.</summary>
+    /// <summary>The play clock prints as :SS, with the same whole-second decimal readout.</summary>
     public static string FormatPlayClock(int seconds, int decimals, double part, bool colon = true)
     {
         seconds = Math.Clamp(seconds, 0, 99);
         var fraction = Math.Clamp(double.IsFinite(part) ? part : 0, 0, 1);
-        var shown = decimals > 0 && fraction < 1 - 1e-9 ? Math.Max(0, seconds - 1) : seconds;
-        var text = colon ? $":{shown:00}" : shown.ToString();
+        var text = colon ? $":{seconds:00}" : seconds.ToString();
         if (decimals <= 0) return text;
         return decimals == 1
-            ? $"{text}.{TenthDigit(fraction)}"
-            : $"{text}.{HundredthDigit(fraction):00}";
+            ? $"{text}.{TenthDigit(fraction, countDown: true)}"
+            : $"{text}.{HundredthDigit(fraction, countDown: true):00}";
     }
 
     /// <summary>Which clock a decimal setting or a conditional action is aimed at.</summary>

@@ -29,6 +29,7 @@ public sealed class IconMakerWindow : Window
     };
     readonly TextBox _plate = new() { MinWidth = 100 };
     readonly CheckBox _round = new() { Content = "Round plate" };
+    readonly ComboBox _anchor = new() { MinHeight = 28, MinWidth = 120, Margin = new Thickness(0, 0, 8, 0) };
     readonly TextBox _offsetX = new() { MinWidth = 64 };
     readonly TextBox _offsetY = new() { MinWidth = 64 };
     readonly TextBox _scale = new() { MinWidth = 64 };
@@ -38,6 +39,7 @@ public sealed class IconMakerWindow : Window
     readonly ComboBox _stateField = new() { MinHeight = 28, MinWidth = 150 };
     readonly ComboBox _stateOperator = new() { MinHeight = 28, MinWidth = 140, Margin = new Thickness(6, 0, 0, 0) };
     readonly TextBox _stateValue = new() { MinWidth = 110, Margin = new Thickness(6, 0, 0, 0) };
+    readonly ComboBox _stateValueChoices = new() { MinWidth = 110, MinHeight = 28, Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed };
     readonly TextBlock _imageLabel = new() { FontSize = 10, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
     readonly Button _removeState;
     string _imagePath = "";
@@ -266,6 +268,12 @@ public sealed class IconMakerWindow : Window
         editor.Children.Add(_round);
 
         var positionRow = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var anchorPanel = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
+        anchorPanel.Children.Add(FieldLabel("PLACE IN BOX"));
+        _anchor.ItemsSource = Enum.GetValues<CustomIconAnchor>();
+        _anchor.ToolTip = "Left or Right hugs that edge of the scorebug element wherever the element sits on the canvas. Offset still nudges it afterwards.";
+        anchorPanel.Children.Add(_anchor);
+        positionRow.Children.Add(anchorPanel);
         positionRow.Children.Add(Field("OFFSET X", _offsetX));
         positionRow.Children.Add(Field("OFFSET Y", _offsetY));
         positionRow.Children.Add(Field("SCALE", _scale));
@@ -317,6 +325,7 @@ public sealed class IconMakerWindow : Window
         conditionRow.Children.Add(_stateField);
         conditionRow.Children.Add(_stateOperator);
         conditionRow.Children.Add(_stateValue);
+        conditionRow.Children.Add(_stateValueChoices);
         editor.Children.Add(conditionRow);
         editor.Children.Add(new TextBlock
         {
@@ -336,6 +345,13 @@ public sealed class IconMakerWindow : Window
 
         foreach (var box in new[] { _name, _glyph, _color, _plate, _offsetX, _offsetY, _scale, _opacity, _rotation })
             box.TextChanged += (_, _) => UpdatePreview();
+        _anchor.SelectionChanged += (_, _) =>
+        {
+            if (_filling) return;
+            if (_designTarget is null) _editing.Anchor = _anchor.SelectedItem is CustomIconAnchor fallback ? fallback : CustomIconAnchor.Center;
+            else _designTarget.Anchor = _anchor.SelectedItem is CustomIconAnchor anchor ? anchor : CustomIconAnchor.Center;
+            UpdatePreview();
+        };
         _stateName.TextChanged += (_, _) =>
         {
             if (_filling || _designTarget is null) return;
@@ -360,11 +376,17 @@ public sealed class IconMakerWindow : Window
         };
         _stateValue.TextChanged += (_, _) =>
         {
-            if (_filling || _designTarget is null) return;
+            if (_filling || _designTarget is null || _stateValueChoices.Visibility == Visibility.Visible) return;
             var condition = _designTarget.Condition;
             if (AutomationRules.IsTextField(condition.Field)) condition.Text = _stateValue.Text.Trim();
             else if (AutomationRules.IsNumericField(condition.Field) && double.TryParse(_stateValue.Text, out var number))
                 condition.Value = number;
+            RefreshStateLabels();
+        };
+        _stateValueChoices.SelectionChanged += (_, _) =>
+        {
+            if (_filling || _designTarget is null || _stateValueChoices.SelectedItem is not string value) return;
+            _designTarget.Condition.Text = value;
             RefreshStateLabels();
         };
         _states.SelectionChanged += (_, _) =>
@@ -497,6 +519,7 @@ public sealed class IconMakerWindow : Window
             _color.Text = design?.Color ?? _editing.Color;
             _plate.Text = design?.Plate ?? _editing.Plate;
             _round.IsChecked = design?.Round ?? _editing.Round;
+            _anchor.SelectedItem = design?.Anchor ?? _editing.Anchor;
             _offsetX.Text = (design?.OffsetX ?? _editing.OffsetX).ToString("0.##");
             _offsetY.Text = (design?.OffsetY ?? _editing.OffsetY).ToString("0.##");
             _scale.Text = (design?.Scale ?? _editing.Scale).ToString("0.##");
@@ -531,13 +554,29 @@ public sealed class IconMakerWindow : Window
             _stateOperator.ItemsSource = operatorChoices;
             _stateOperator.DisplayMemberPath = "Label";
             _stateOperator.SelectedItem = operatorChoices.FirstOrDefault(option => option.Operator == condition.Operator) ?? operatorChoices[0];
+            var choices = AutomationRules.ValueChoices(condition.Field);
             if (AutomationRules.IsBooleanField(condition.Field))
             {
                 _stateValue.Text = "";
+                _stateValue.Visibility = Visibility.Collapsed;
+                _stateValueChoices.Visibility = Visibility.Collapsed;
                 _stateValue.IsEnabled = false;
+            }
+            else if (choices.Count > 0)
+            {
+                _stateValue.Visibility = Visibility.Collapsed;
+                _stateValueChoices.ItemsSource = choices;
+                _stateValueChoices.Visibility = Visibility.Visible;
+                _stateValueChoices.IsEnabled = true;
+                var current = condition.Text.Trim();
+                _stateValueChoices.SelectedItem = choices.FirstOrDefault(choice =>
+                    string.Equals(choice, current, StringComparison.OrdinalIgnoreCase)) ?? choices[0];
+                condition.Text = _stateValueChoices.SelectedItem as string ?? choices[0];
             }
             else
             {
+                _stateValueChoices.Visibility = Visibility.Collapsed;
+                _stateValue.Visibility = Visibility.Visible;
                 _stateValue.Text = AutomationRules.IsTextField(condition.Field)
                     ? condition.Text
                     : condition.Value.ToString("0.##");
@@ -558,6 +597,7 @@ public sealed class IconMakerWindow : Window
             _editing.Color = _color.Text.Trim();
             _editing.Plate = _plate.Text.Trim();
             _editing.Round = _round.IsChecked == true;
+            _editing.Anchor = _anchor.SelectedItem is CustomIconAnchor fallbackAnchor ? fallbackAnchor : CustomIconAnchor.Center;
             if (double.TryParse(_offsetX.Text, out var x)) _editing.OffsetX = x;
             if (double.TryParse(_offsetY.Text, out var y)) _editing.OffsetY = y;
             if (double.TryParse(_scale.Text, out var scale)) _editing.Scale = scale;
@@ -571,6 +611,7 @@ public sealed class IconMakerWindow : Window
             design.Color = _color.Text.Trim();
             design.Plate = _plate.Text.Trim();
             design.Round = _round.IsChecked == true;
+            design.Anchor = _anchor.SelectedItem is CustomIconAnchor stateAnchor ? stateAnchor : CustomIconAnchor.Center;
             if (double.TryParse(_offsetX.Text, out var x)) design.OffsetX = x;
             if (double.TryParse(_offsetY.Text, out var y)) design.OffsetY = y;
             if (double.TryParse(_scale.Text, out var scale)) design.Scale = scale;
@@ -596,6 +637,7 @@ public sealed class IconMakerWindow : Window
             Color = _editing.Color,
             Plate = _editing.Plate,
             Round = _editing.Round,
+            Anchor = _editing.Anchor,
             OffsetX = _editing.OffsetX,
             OffsetY = _editing.OffsetY,
             Scale = _editing.Scale,
@@ -702,6 +744,19 @@ public sealed class IconMakerWindow : Window
         var rotation = double.TryParse(_rotation.Text, out var r) ? r : 0;
         var offsetX = double.TryParse(_offsetX.Text, out var x) ? x : 0;
         var offsetY = double.TryParse(_offsetY.Text, out var y) ? y : 0;
+        var anchor = _anchor.SelectedItem is CustomIconAnchor placement ? placement : CustomIconAnchor.Center;
+        _previewGlyph.HorizontalAlignment = anchor is CustomIconAnchor.Left or CustomIconAnchor.TopLeft or CustomIconAnchor.BottomLeft
+            ? HorizontalAlignment.Left
+            : anchor is CustomIconAnchor.Right or CustomIconAnchor.TopRight or CustomIconAnchor.BottomRight
+                ? HorizontalAlignment.Right
+                : HorizontalAlignment.Center;
+        _previewGlyph.VerticalAlignment = anchor is CustomIconAnchor.Top or CustomIconAnchor.TopLeft or CustomIconAnchor.TopRight
+            ? VerticalAlignment.Top
+            : anchor is CustomIconAnchor.Bottom or CustomIconAnchor.BottomLeft or CustomIconAnchor.BottomRight
+                ? VerticalAlignment.Bottom
+                : VerticalAlignment.Center;
+        _previewImage.HorizontalAlignment = _previewGlyph.HorizontalAlignment;
+        _previewImage.VerticalAlignment = _previewGlyph.VerticalAlignment;
         var transform = new TransformGroup();
         transform.Children.Add(new ScaleTransform(scale * 0.72, scale * 0.72));
         transform.Children.Add(new RotateTransform(rotation));

@@ -14,7 +14,15 @@ namespace Scoreboard.Desktop;
 /// </summary>
 public sealed class SportPickerWindow : Window
 {
-    readonly ListBox _sports = new() { Margin = new Thickness(0, 0, 0, 14), MinHeight = 220, MaxHeight = 310 };
+    readonly ListBox _sports = new() { Margin = new Thickness(0, 0, 0, 14), MinHeight = 190, MaxHeight = 270 };
+    readonly ComboBox _template = new() { MinHeight = 36, Margin = new Thickness(0, 0, 0, 5) };
+    readonly TextBlock _templateDetail = new()
+    {
+        FontSize = 10,
+        TextWrapping = TextWrapping.Wrap,
+        Foreground = new SolidColorBrush(Color.FromRgb(0x5C, 0x6B, 0x7E)),
+        Margin = new Thickness(2, 0, 2, 12)
+    };
     readonly TextBox _gameName = new()
     {
         FontSize = 13,
@@ -37,6 +45,9 @@ public sealed class SportPickerWindow : Window
     /// <summary>The optional fixture name typed before the game starts.</summary>
     public string GameName => _gameName.Text.Trim();
 
+    /// <summary>The starting scorebug or stadium design chosen for this game.</summary>
+    public string TemplateId => (_template.SelectedItem as ScorebugPreset)?.Id ?? ScorebugPresets.Classic;
+
     sealed record SportChoice(string Id, string Label, string Detail)
     {
         public override string ToString() => Label;
@@ -45,7 +56,7 @@ public sealed class SportPickerWindow : Window
     public SportPickerWindow(SportCatalog catalog, string? current, string theme, string heading = "START A NEW GAME")
     {
         Title = $"{heading} — ScorePlus";
-        Width = 580;
+        Width = 620;
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -101,6 +112,22 @@ public sealed class SportPickerWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(2, 4, 2, 12)
         });
+
+        root.Children.Add(new TextBlock
+        {
+            Text = "STARTING DESIGN",
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x93, 0xA0, 0xB2)),
+            Margin = new Thickness(0, 0, 0, 5)
+        });
+        _template.ItemsSource = ScorebugPresets.All;
+        _template.DisplayMemberPath = nameof(ScorebugPreset.Name);
+        _template.SelectionChanged += (_, _) =>
+            _templateDetail.Text = (_template.SelectedItem as ScorebugPreset)?.Description ?? "";
+        _template.SelectedIndex = 0;
+        root.Children.Add(_template);
+        root.Children.Add(_templateDetail);
 
         root.Children.Add(new TextBlock
         {

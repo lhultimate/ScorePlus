@@ -19,6 +19,12 @@ public sealed class RosterPlayer
     public string PhotoPath { get; set; } = "";
 
     /// <summary>
+    /// Extra clips and pictures assigned to this player. They are copied into the app's own
+    /// PlayerMedia folder and shown in the media tab, so a highlight or headshot is one cue away.
+    /// </summary>
+    public List<string> MediaPaths { get; set; } = [];
+
+    /// <summary>
     /// Which squad section this player sits in — "Defence", "Bench", "U12" — so a long roster can
     /// be folded and read in pieces. Empty means ungrouped.
     /// </summary>
@@ -215,6 +221,8 @@ public static class RosterStore
                 {
                     player.Stats ??= [];
                     player.Group ??= "";
+                    player.MediaPaths ??= [];
+                    player.MediaPaths = player.MediaPaths.Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 }
             }
             return book;

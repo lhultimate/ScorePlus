@@ -591,14 +591,16 @@ public sealed class ScorebugLayout
     {
         Elements =
         [
-            new() { Name="Home team", Content="{{HOME_TEAM}}", X=74, Y=236, Width=300, Height=54, FontSize=36 },
-            new() { Name="Home score", Content="{{HOME_SCORE}}", X=74, Y=300, Width=300, Height=126, FontSize=102, ForegroundSource=ScorebugColorSource.HomePrimary },
-            new() { Name="Away team", Content="{{AWAY_TEAM}}", X=906, Y=236, Width=300, Height=54, FontSize=36 },
-            new() { Name="Away score", Content="{{AWAY_SCORE}}", X=906, Y=300, Width=300, Height=126, FontSize=102, ForegroundSource=ScorebugColorSource.AwayPrimary },
+            // Home is the right-hand side and the visitors are on the left, matching the way the
+            // default console and most broadcast layouts read from the operator's seat.
+            new() { Name="Home team", Content="{{HOME_TEAM}}", X=906, Y=236, Width=300, Height=54, FontSize=36 },
+            new() { Name="Home score", Content="{{HOME_SCORE}}", X=906, Y=300, Width=300, Height=126, FontSize=102, ForegroundSource=ScorebugColorSource.HomePrimary },
+            new() { Name="Away team", Content="{{AWAY_TEAM}}", X=74, Y=236, Width=300, Height=54, FontSize=36 },
+            new() { Name="Away score", Content="{{AWAY_SCORE}}", X=74, Y=300, Width=300, Height=126, FontSize=102, ForegroundSource=ScorebugColorSource.AwayPrimary },
             new() { Name="Period", Content="{{PERIOD}}", X=470, Y=225, Width=340, Height=52, FontSize=28 },
             new() { Name="Game clock", Content="{{GAME_CLOCK}}", X=430, Y=300, Width=420, Height=92, FontSize=72, Transition=ScorebugTransition.Cut },
-            new() { Name="Home logo", Kind=ScorebugElementKind.Logo, LogoSide=ScorebugLogoSide.Home, Content="HOME LOGO", X=78, Y=160, Width=120, Height=64, FontSize=20 },
-            new() { Name="Away logo", Kind=ScorebugElementKind.Logo, LogoSide=ScorebugLogoSide.Away, Content="AWAY LOGO", X=1082, Y=160, Width=120, Height=64, FontSize=20 }
+            new() { Name="Home logo", Kind=ScorebugElementKind.Logo, LogoSide=ScorebugLogoSide.Home, Content="HOME LOGO", X=1082, Y=160, Width=120, Height=64, FontSize=20 },
+            new() { Name="Away logo", Kind=ScorebugElementKind.Logo, LogoSide=ScorebugLogoSide.Away, Content="AWAY LOGO", X=78, Y=160, Width=120, Height=64, FontSize=20 }
         ]
     };
 
@@ -745,10 +747,10 @@ public sealed class ScorebugCatalog
     /// <summary>A display and the layout that has to change with it, in another display.</summary>
     public sealed record LayoutLink(string DisplayId, int LayoutIndex);
 
-    static ScorebugDisplay DefaultDisplay() => new()
+    static ScorebugDisplay DefaultDisplay(string? presetId = null) => new()
     {
         Name = "Program",
-        Layouts = [ScorebugLayout.Default()]
+        Layouts = [ScorebugPresets.Build(presetId)]
     };
 
     static ScorebugDisplay BlankDisplay(int number) => new()
@@ -1567,9 +1569,9 @@ public sealed class ScorebugCatalog
     /// Starts over with a single display and the factory layout. A new game is a blank slate: no
     /// layouts or displays from the previous game, and the same design every fresh install opens with.
     /// </summary>
-    public void ResetToDefault()
+    public void ResetToDefault(string? presetId = null)
     {
-        Displays = [DefaultDisplay()];
+        Displays = [DefaultDisplay(presetId)];
         ActiveDisplayIndex = 0;
         Save(); Changed?.Invoke();
     }

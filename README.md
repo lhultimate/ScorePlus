@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="site/assets/console.png" alt="ScorePlus operator console driving a Portland vs Seattle game" width="900">
+  <img src="site/assets/console.png" alt="ScorePlus operator console driving Portland 24, Seattle 17 with 3rd & 7 and 04:12 left" width="900">
 </p>
 
 > **Beta software.** ScorePlus ships frequent beta builds under labels like `b1.1`. The operator manual and tutorials live in the [ScorePlus Wiki](https://github.com/lhultimate/ScorePlus/wiki); the [website](https://lhultimate.github.io/ScorePlus) is the product tour and download page.

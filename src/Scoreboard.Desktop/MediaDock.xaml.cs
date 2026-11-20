@@ -918,7 +918,7 @@ public partial class MediaDock : UserControl
         {
             thumb.Children.Add(new TextBlock
             {
-                Text = entry.IsCamera ? "●" : entry.IsMicrophone ? "◎" : entry.IsVideo ? "▶" : "♪",
+                Text = entry.IsCamera ? "●" : entry.IsMicrophone ? "◎" : entry.IsImage ? "▣" : entry.IsVideo ? "▶" : "♪",
                 Style = (Style)Resources["TileGlyph"],
                 FontSize = 22
             });
@@ -949,7 +949,7 @@ public partial class MediaDock : UserControl
         }
         // A speaker, a microphone or a clip carries a bar down the right edge of its thumbnail,
         // so the dock reads like a mixer without opening anything.
-        if (!entry.IsScreen && !entry.IsCamera) thumb.Children.Add(LevelBar(entry));
+        if (!entry.IsScreen && !entry.IsCamera && !entry.IsImage) thumb.Children.Add(LevelBar(entry));
         Grid.SetRow(thumb, 0);
         grid.Children.Add(thumb);
 

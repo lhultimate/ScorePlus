@@ -138,6 +138,8 @@ public static class RosterFiles
             Name = Trimmed(player.Name) ?? "Imported player",
             Position = Trimmed(player.Position) ?? "",
             PhotoPath = player.PhotoPath ?? "",
+            MediaPaths = (player.MediaPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => path.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             Stats = stats
         };
     }

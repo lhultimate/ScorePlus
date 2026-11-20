@@ -13,18 +13,17 @@ public partial class App : Application
     // Held for the life of the process; the OS releases it when ScorePlus exits.
     static Mutex? _singleInstance;
 
-#if DEBUG
-    /// <summary>Set by the UI smoke harness before its first dispatcher pump; the suite drives its own windows.</summary>
-    public static bool SuppressStartupForSmoke { get; set; }
-#endif
+    /// <summary>
+    /// The smoke harness sets this environment variable before creating the App. It is read in
+    /// every build, because the harness is normally run with -c Release; a Debug-only hook let
+    /// the real launcher open over the operator's full-screen app during a release smoke run.
+    /// </summary>
+    public static bool SuppressStartupForSmoke =>
+        Environment.GetEnvironmentVariable("SCOREPLUS_SMOKE") == "1";
 
     protected override void OnStartup(StartupEventArgs e)
     {
-#if DEBUG
-        // Release builds never carry this hook: it exists only so the smoke suite can pump the real
-        // app's dispatcher without opening the launch box and blocking on an operator click.
         if (SuppressStartupForSmoke) return;
-#endif
         // Media decoders and other native components can fail on threads the dispatcher never
         // sees. Log those too, so a window that closes on its own leaves a trace to diagnose.
         // F11 belongs to the application, not to one window: the studio, output, media panel and
@@ -73,7 +72,7 @@ public partial class App : Application
 
         var launcher = new LauncherWindow { Owner = window };
         if (launcher.ShowDialog() != true) { window.Close(); return; }
-        window.StartFromLauncher(launcher.Mode, launcher.GamePath, launcher.SportId, launcher.GameName);
+        window.StartFromLauncher(launcher.Mode, launcher.GamePath, launcher.SportId, launcher.GameName, launcher.TemplateId);
     }
 
     static void HandleWindowKey(object sender, KeyEventArgs e)
@@ -118,11 +117,9 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         base.OnExit(e);
-#if DEBUG
         // The smoke harness shares this App but creates and closes windows all run; don't terminate
         // it before its own cleanup and result reporting.
         if (SuppressStartupForSmoke) return;
-#endif
         // A native codec, capture driver or audio endpoint can keep a thread alive after WPF has
         // closed every window. The operator closed ScorePlus, so the process must leave Task Manager
         // too, rather than sitting there with no window.

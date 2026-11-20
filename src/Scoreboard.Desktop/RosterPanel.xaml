@@ -311,6 +311,27 @@
                            Margin="0,5,0,0" Foreground="{DynamicResource RosterMutedBrush}"/>
               </StackPanel>
             </Grid>
+            <!-- Extra clips and pictures belong to this player and appear in the MEDIA tab. -->
+            <TextBlock Text="PLAYER MEDIA" FontSize="10" FontWeight="Bold"
+                       Foreground="{DynamicResource RosterMutedBrush}" Margin="0,2,0,4"/>
+            <Grid Margin="0,0,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <ListBox x:Name="PlayerMediaList" Height="66" Margin="0,0,8,0"
+                       Background="{DynamicResource RosterSurfaceAltBrush}"
+                       BorderBrush="{DynamicResource RosterBorderBrush}"
+                       Foreground="{DynamicResource RosterTextBrush}"
+                       ToolTip="Videos and pictures assigned to this player. They appear in the MEDIA tab."/>
+              <StackPanel Grid.Column="1" VerticalAlignment="Top">
+                <Button x:Name="AddPlayerMediaButton" Style="{StaticResource SmallButton}" Content="Add media…"
+                        Click="AddPlayerMedia_Click"
+                        ToolTip="Choose videos or pictures for this player; ScorePlus keeps its own copy and lists them in MEDIA"/>
+                <Button x:Name="RemovePlayerMediaButton" Style="{StaticResource SmallButton}" Content="Remove"
+                        Margin="0,4,0,0" Click="RemovePlayerMedia_Click"/>
+              </StackPanel>
+            </Grid>
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="92"/>
