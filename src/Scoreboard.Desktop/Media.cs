@@ -92,8 +92,14 @@ public static class MediaLibrary
 {
     public const string DefaultTag = "General";
 
-    /// <summary>A video element tagged ANY plays whatever is cued, whatever tag it carries.</summary>
-    public const string AnyTag = "ANY";
+    /// <summary>A video element tagged GLOBAL plays whatever is cued, whatever tag it carries.</summary>
+    public const string AnyTag = "GLOBAL";
+
+    /// <summary>The old catch-all tag. Layouts saved before the rename still carry it.</summary>
+    public const string LegacyAnyTag = "ANY";
+
+    /// <summary>The tag an instant replay carries unless the operator names another one.</summary>
+    public const string ReplayTagName = "REPLAY";
 
     /// <summary>Clips with no folder still need a name in the filter list.</summary>
     public const string RootFolderLabel = "Unfiled";
@@ -119,7 +125,15 @@ public static class MediaLibrary
         return int.TryParse(path[ScreenPrefix.Length..], out var index) ? index : 0;
     }
 
-    public static readonly string[] SuggestedTags = [AnyTag, "General", "Ads", "Highlights", "Music", "Anthem", "Sponsors", "Camera", "Microphone"];
+    public static readonly string[] SuggestedTags = [AnyTag, ReplayTagName, "General", "Ads", "Highlights", "Music", "Anthem", "Sponsors", "Camera", "Microphone"];
+
+    /// <summary>True for either spelling of the catch-all tag.</summary>
+    public static bool IsAnyTag(string? tag)
+    {
+        var trimmed = (tag ?? "").Trim();
+        return string.Equals(trimmed, AnyTag, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, LegacyAnyTag, StringComparison.OrdinalIgnoreCase);
+    }
 
     public static readonly string[] TransitionOptions = ["Cut", "Fade", "Slide", "Zoom"];
 
@@ -312,11 +326,11 @@ public static class MediaLibrary
         return updated;
     }
 
-    /// <summary>True when a scorebug element with this tag should show this clip. ANY and blank match everything.</summary>
+    /// <summary>True when a scorebug element with this tag should show this clip. GLOBAL and blank match everything.</summary>
     public static bool TagMatches(string? elementTag, string clipTag)
     {
         if (string.IsNullOrWhiteSpace(elementTag)) return true;
-        if (string.Equals(elementTag.Trim(), AnyTag, StringComparison.OrdinalIgnoreCase)) return true;
+        if (IsAnyTag(elementTag)) return true;
         return string.Equals(NormalizeTag(clipTag), NormalizeTag(elementTag), StringComparison.OrdinalIgnoreCase);
     }
 }

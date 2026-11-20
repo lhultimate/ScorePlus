@@ -342,7 +342,7 @@ internal static class Program
                     Background = new LinearGradientBrush(Colors.Blue, Colors.White, 0),
                     Child = colourText
                 };
-                var colourWindow = new Window
+                var colourWindow = new TestWindow
                 {
                     Content = colourPlate, Width = 220, Height = 110,
                     WindowStyle = WindowStyle.None, ShowInTaskbar = false,
@@ -566,7 +566,7 @@ internal static class Program
                     Foreground = "#FFFFFFFF", TextOpacity = 1
                 };
                 var tickerView = new TickerView(tickerItem, () => tickerEngine.State);
-                var tickerHost = new Window
+                var tickerHost = new TestWindow
                 {
                     Content = tickerView, Width = 900, Height = 100, WindowStyle = WindowStyle.None,
                     ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual
@@ -602,7 +602,7 @@ internal static class Program
                     Foreground = "#FFFFFFFF", TextOpacity = 1
                 };
                 var scrollView = new TickerView(scrollItem, () => scrollEngine.State);
-                var scrollHost = new Window
+                var scrollHost = new TestWindow
                 {
                     Content = scrollView, Width = 900, Height = 100, WindowStyle = WindowStyle.None,
                     ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual
@@ -846,6 +846,39 @@ internal static class Program
             Pump(TimeSpan.FromMilliseconds(120));
             if (macroEditor.Visibility != Visibility.Visible)
                 throw new Exception("FAIL: the macro editor could not be shown again");
+            // The detailed steps a long macro needs are offered in the editor, and each one shows its
+            // own fields instead of leaving the operator with a score form.
+            var kindBox = (ComboBox)macroDock.FindName("KindBox")!;
+            var kindLabels = kindBox.Items.OfType<object>().Select(item => item.ToString() ?? "").ToList();
+            foreach (var expected in new[] { "Clock —", "Clock message —", "Level —", "Ticker —", "Run macro —", "Note —" })
+                if (!kindLabels.Any(label => label.StartsWith(expected, StringComparison.Ordinal)))
+                    throw new Exception($"FAIL: the macro editor does not offer a {expected} step ({string.Join(" | ", kindLabels)})");
+            kindBox.SelectedItem = kindBox.Items.OfType<object>()
+                .First(item => (item.ToString() ?? "").StartsWith("Clock —", StringComparison.Ordinal));
+            Pump(TimeSpan.FromMilliseconds(60));
+            var macroClockPanel = macroDock.FindName("ClockPanel") as StackPanel;
+            var macroValuePanel = macroDock.FindName("ValuePanel") as StackPanel;
+            if (macroClockPanel is null || macroClockPanel.Visibility != Visibility.Visible
+                || macroValuePanel is null || macroValuePanel.Visibility != Visibility.Collapsed)
+                throw new Exception("FAIL: a clock step did not show its own clock fields");
+            if (macroDock.FindName("AmountLabel") is not TextBlock { Text: var amountLabel }
+                || !amountLabel.Contains("RESET TO", StringComparison.Ordinal))
+                throw new Exception("FAIL: a clock step's number field is not labelled as reset seconds");
+            if (!new UserPreferences().MultiviewCameraSoundBars)
+                throw new Exception("FAIL: multiview camera sound bars are off by default");
+            // A show saved before the sound-bar toggle existed must take the new default once, while
+            // an operator who deliberately turned the bars off keeps them off.
+            var migratePrefs = typeof(PreferencesStore).GetMethod("Migrate", BindingFlags.Static | BindingFlags.NonPublic)
+                ?? throw new Exception("FAIL: preferences migration is missing");
+            var legacyPrefs = new UserPreferences { Schema = 3, MultiviewCameraSoundBars = false };
+            migratePrefs.Invoke(null, [legacyPrefs]);
+            if (!legacyPrefs.MultiviewCameraSoundBars)
+                throw new Exception("FAIL: an old show did not take the new multiview sound-bar default");
+            var chosenOff = new UserPreferences { Schema = 3, MultiviewCameraSoundBars = false, MultiviewSoundBarsChosen = true };
+            migratePrefs.Invoke(null, [chosenOff]);
+            if (chosenOff.MultiviewCameraSoundBars)
+                throw new Exception("FAIL: a deliberate multiview sound-bar choice was overwritten on load");
+            Console.WriteLine("PASS: the macro editor offers clock, clock-message, level, ticker, chained and note steps");
             macroCards = FindAll<Border>(macroDock).Where(border => border.Tag is SavedMacro).ToList();
             var macroMenu = macroCards[0].ContextMenu!;
             macroMenu.PlacementTarget = macroCards[0];
@@ -989,11 +1022,33 @@ internal static class Program
                 var statMacro = new SavedMacro
                 {
                     Label = "Player stat",
-                    Actions = [new MacroAction { Kind = MacroActionKind.RosterStat, Home = true, PlayerId = statPlayer.Id, PlayerName = statPlayer.Name, StatName = "Yards", Value = 4, Delta = true }]
+                    // No player id: the step follows the player on air for that side.
+                    Actions = [new MacroAction { Kind = MacroActionKind.RosterStat, Home = true, StatName = "Yards", Value = 4, Delta = true }]
                 };
+                // The audience copy keeps the reading that was last published, while the program
+                // preview paints the staged number from the working state.
+                var statAudience = new GameEngine();
+                statAudience.LoadFromState(macroEngine.CloneState());
+                macroEngine.PlayerStatsLive = false;
                 RunMacro(new MacroRunner(macroEngine, macroSession), statMacro);
-                if (statPlayer.Stat("Yards") != 7 || macroEngine.State.HomePlayer?.Stat("Yards") != 7)
-                    throw new Exception($"FAIL: a macro did not change the live player stat (roster {statPlayer.Stat("Yards")}, graphic {macroEngine.State.HomePlayer?.Stat("Yards")})");
+                if (statPlayer.Stat("Yards") != 7
+                    || macroEngine.State.HomePlayer?.Stat("Yards") != 7
+                    || macroEngine.State.HomePlayerPending?.Stat("Yards") != 7)
+                    throw new Exception($"FAIL: a macro with automatic updates off did not stage the on-air player stat (roster {statPlayer.Stat("Yards")}, preview {macroEngine.State.HomePlayer?.Stat("Yards")}, staged {macroEngine.State.HomePlayerPending?.Stat("Yards")})");
+                statAudience.UpdateLiveScoreClock(macroEngine.State);
+                if (statAudience.State.HomePlayer?.Stat("Yards") != 3)
+                    throw new Exception($"FAIL: a staged player stat reached the audience early ({statAudience.State.HomePlayer?.Stat("Yards")})");
+                macroEngine.PublishStagedPlayers();
+                statAudience.UpdateLiveScoreClock(macroEngine.State);
+                if (macroEngine.State.HomePlayer?.Stat("Yards") != 7 || statAudience.State.HomePlayer?.Stat("Yards") != 7)
+                    throw new Exception("FAIL: Update Output did not put the macro's staged player stat on the graphic");
+                // With the desk's Live switch on, the same on-air-target step prints at once.
+                macroEngine.PlayerStatsLive = true;
+                RunMacro(new MacroRunner(macroEngine, macroSession), statMacro);
+                statAudience.UpdateLiveScoreClock(macroEngine.State);
+                if (statPlayer.Stat("Yards") != 11 || macroEngine.State.HomePlayer?.Stat("Yards") != 11
+                    || statAudience.State.HomePlayer?.Stat("Yards") != 11)
+                    throw new Exception($"FAIL: a macro with automatic updates on did not change the live player stat (roster {statPlayer.Stat("Yards")}, graphic {macroEngine.State.HomePlayer?.Stat("Yards")})");
             }
             finally { macroSession.Stop(); macroSession.Dispose(); }
             Console.WriteLine("PASS: a macro changes score, down, timeouts, a speaker bus and a player stat");
@@ -1073,6 +1128,46 @@ internal static class Program
                     RunMacro(new MacroRunner(extendedEngine, extendedSession, null, macroCatalog, () => bypassPublished++), bypass);
                     if (bypassPublished != 1 || !extendedEngine.MacroOutputHold)
                         throw new Exception($"FAIL: a bypass step published {bypassPublished} times and left the hold at {extendedEngine.MacroOutputHold}");
+                    extendedEngine.ClearMacroOutputHold();
+
+                    // The detailed step kinds: a clock that starts twice must not flip itself off, a
+                    // clock message prints Final, a level and a mute reach a speaker bus, a ticker
+                    // step replaces the headlines, a note runs nothing and a chained macro runs here.
+                    var chainTarget = new SavedMacro
+                    {
+                        Label = "Chain target",
+                        Actions =
+                        [
+                            new MacroAction { Kind = MacroActionKind.Score, Home = false, Amount = 2 },
+                            new MacroAction { Kind = MacroActionKind.Note, Text = "chain tail" }
+                        ]
+                    };
+                    var detailedMacro = new SavedMacro
+                    {
+                        Label = "Detailed",
+                        Actions =
+                        [
+                            new MacroAction { Kind = MacroActionKind.Note, Text = "timeout routine" },
+                            new MacroAction { Kind = MacroActionKind.ClockControl, Path = "game", Value = 0 },
+                            new MacroAction { Kind = MacroActionKind.ClockControl, Path = "game", Value = 0 },
+                            new MacroAction { Kind = MacroActionKind.ClockControl, Path = "game", Value = 1 },
+                            new MacroAction { Kind = MacroActionKind.ClockMessage, Value = 1 },
+                            new MacroAction { Kind = MacroActionKind.MediaVolume, Path = speakerOnAir.Path, Label = speakerOnAir.Name, Value = 40 },
+                            new MacroAction { Kind = MacroActionKind.MediaVolume, Path = speakerOnAir.Path, Label = speakerOnAir.Name, Mute = true, Muted = true },
+                            new MacroAction { Kind = MacroActionKind.TickerNews, Text = "Home wins|Next game Friday" },
+                            new MacroAction { Kind = MacroActionKind.RunMacro, Path = chainTarget.Id, Label = chainTarget.Label }
+                        ]
+                    };
+                    extendedEngine.StoreMacros([chainTarget, detailedMacro]);
+                    var detailedResult = RunMacro(new MacroRunner(extendedEngine, extendedSession),
+                        extendedEngine.State.Macros.First(entry => entry.Label == "Detailed"));
+                    var mutedSpeaker = extendedSession.Library.First(entry => entry.Path == speakerOnAir.Path);
+                    if (extendedEngine.State.ClockRunning || extendedEngine.State.ClockMessage != GameClockMessage.Final
+                        || extendedEngine.State.AwayScore != 2
+                        || extendedEngine.State.TickerNews.Count != 2
+                        || mutedSpeaker.VolumePercent != 40 || !mutedSpeaker.SpeakerMuted
+                        || detailedResult.Contains("skipped", StringComparison.Ordinal))
+                        throw new Exception($"FAIL: detailed macro steps did not run ({detailedResult}, clock {extendedEngine.State.ClockRunning}, message {extendedEngine.State.ClockMessage}, away {extendedEngine.State.AwayScore}, headlines {extendedEngine.State.TickerNews.Count}, level {mutedSpeaker.VolumePercent}, muted {mutedSpeaker.SpeakerMuted})");
                     extendedEngine.ClearMacroOutputHold();
 
                     // The macro clock field is typed as MM:SS, not as a raw second count.
@@ -1597,7 +1692,7 @@ internal static class Program
                     moveCatalog.SelectLayout(0);
                     moveView = new ScorebugCanvasView(moveCatalog, engine, stateProvider: () => engine.State,
                         layoutProvider: () => moveCatalog.Layout);
-                    moveWindow = new Window
+                    moveWindow = new TestWindow
                     {
                         Width = 800, Height = 450, Content = moveView, ShowInTaskbar = false,
                         WindowStyle = WindowStyle.None, Left = -32000, Top = -32000
@@ -3241,7 +3336,7 @@ internal static class Program
                 // where the operator left it.
                 var seekDock = new MediaDock();
                 seekDock.Attach(seekSession);
-                var seekHost = new Window { Width = 420, Height = 320, Content = seekDock };
+                var seekHost = new TestWindow { Width = 420, Height = 320, Content = seekDock };
                 ShowForSmoke(seekHost);
                 seekHost.UpdateLayout();
                 var bar = (Slider)seekDock.FindName("ScrubBar")!;
@@ -3283,7 +3378,7 @@ internal static class Program
                 speakerSession.Select(speakerSession.Library[0]);
                 var speakerDock = new MediaDock();
                 speakerDock.Attach(speakerSession);
-                var speakerHost = new Window { Width = 420, Height = 780, Content = speakerDock };
+                var speakerHost = new TestWindow { Width = 420, Height = 780, Content = speakerDock };
                 ShowForSmoke(speakerHost);
                 speakerHost.UpdateLayout();
                 var speakerBox = (ComboBox)speakerDock.FindName("AudioDeviceBox")!;
@@ -3794,7 +3889,7 @@ internal static class Program
             AutosaveStore.Save(demoAutosave, startNewPoint: true);
 
             // Studio dialogs are plain Windows: the theme has to reach them too.
-            var dialogProbe = new Window { Width = 300, Height = 200 };
+            var dialogProbe = new TestWindow { Width = 300, Height = 200 };
             var probeList = new ListBox();
             dialogProbe.Content = probeList;
             ThemeManager.Apply(dialogProbe, "Dark");
@@ -4202,7 +4297,7 @@ internal static class Program
                 };
                 var transitionBlock = new ScorebugTextBlock(transitionItem);
                 transitionBlock.UpdateText("0", ScorebugTransition.Cut);
-                var transitionHost = new Window
+                var transitionHost = new TestWindow
                 {
                     Width = 220, Height = 140, Content = transitionBlock,
                     ShowInTaskbar = false, WindowStyle = WindowStyle.None, Left = -32000, Top = -32000
@@ -4762,7 +4857,7 @@ internal static class Program
                 {
                     var duration = transition == ScorebugTransition.JumpFlip ? 0.8 : 0.2;
                     var block = new ScorebugTextBlock(new ScorebugElement { Transition = transition, FontSize = 40 });
-                    var transitionHost = new Window { Width = 360, Height = 160, Content = block };
+                    var transitionHost = new TestWindow { Width = 360, Height = 160, Content = block };
                     ShowForSmoke(transitionHost);
                     transitionHost.UpdateLayout();
                     block.UpdateText("10", ScorebugTransition.Cut);
@@ -4797,7 +4892,7 @@ internal static class Program
                 // ShrinkWheel must roll through every integer, not jump from 31 to 37.
                 {
                     var wheelBlock = new ScorebugTextBlock(new ScorebugElement { Transition = ScorebugTransition.ShrinkWheel, TransitionSeconds = 1.1, FontSize = 40 });
-                    var wheelHost = new Window { Width = 360, Height = 160, Content = wheelBlock };
+                    var wheelHost = new TestWindow { Width = 360, Height = 160, Content = wheelBlock };
                     ShowForSmoke(wheelHost);
                     wheelHost.UpdateLayout();
                     wheelBlock.UpdateText("31", ScorebugTransition.Cut);
@@ -4826,7 +4921,7 @@ internal static class Program
                 // was finishing at the default 0.2-second speed, which is what made it unreadable.
                 {
                     var slowJump = new ScorebugTextBlock(new ScorebugElement { Transition = ScorebugTransition.JumpFlip, TransitionSeconds = 2, FontSize = 40 });
-                    var slowJumpHost = new Window { Width = 360, Height = 160, Content = slowJump };
+                    var slowJumpHost = new TestWindow { Width = 360, Height = 160, Content = slowJump };
                     ShowForSmoke(slowJumpHost);
                     slowJumpHost.UpdateLayout();
                     slowJump.UpdateText("10", ScorebugTransition.Cut);
@@ -4839,7 +4934,7 @@ internal static class Program
                         throw new Exception($"FAIL: a 2-second JumpFlip did not land on 17 ('{slowJump.Text}')");
                     slowJumpHost.Close();
                     var slowWheel = new ScorebugTextBlock(new ScorebugElement { Transition = ScorebugTransition.ShrinkWheel, TransitionSeconds = 2, FontSize = 40 });
-                    var slowWheelHost = new Window { Width = 360, Height = 160, Content = slowWheel };
+                    var slowWheelHost = new TestWindow { Width = 360, Height = 160, Content = slowWheel };
                     ShowForSmoke(slowWheelHost);
                     slowWheelHost.UpdateLayout();
                     slowWheel.UpdateText("31", ScorebugTransition.Cut);
@@ -4880,7 +4975,7 @@ internal static class Program
                 scoreEventCatalog.ApplyScoreAnimationToLayout(false, fieldGoal);
                 var eventView = new ScorebugCanvasView(scoreEventCatalog, scoreEventEngine,
                     stateProvider: () => scoreEventEngine.State, layoutProvider: () => scoreEventCatalog.Layout);
-                var eventWindow = new Window
+                var eventWindow = new TestWindow
                 {
                     Width = 960, Height = 540, Content = eventView, WindowStyle = WindowStyle.None,
                     ShowInTaskbar = false, Left = -20000, Top = -20000
@@ -4952,7 +5047,7 @@ internal static class Program
                 colourCatalog.ApplyScoreAnimationToLayout(true, colourClip);
                 var colourView = new ScorebugCanvasView(colourCatalog, colourEngine,
                     stateProvider: () => colourEngine.State, layoutProvider: () => colourCatalog.Layout);
-                var colourWindow = new Window
+                var colourWindow = new TestWindow
                 {
                     Width = 960, Height = 540, Content = colourView, WindowStyle = WindowStyle.None,
                     ShowInTaskbar = false, Left = -20000, Top = -20000
@@ -5038,7 +5133,7 @@ internal static class Program
                 if (instant.Text != "B")
                     throw new Exception("FAIL: a 0-second transition did not snap to the new value");
                 var slow = new ScorebugTextBlock(new ScorebugElement { FontSize = 40, TransitionSeconds = 3 });
-                var slowHost = new Window { Width = 320, Height = 140, Content = slow };
+                var slowHost = new TestWindow { Width = 320, Height = 140, Content = slow };
                 ShowForSmoke(slowHost);
                 slowHost.UpdateLayout();
                 slow.UpdateText("A", ScorebugTransition.Cut);
@@ -5074,7 +5169,7 @@ internal static class Program
 
                 var folderDock = new MediaDock();
                 folderDock.Attach(playlistSession);
-                var folderWindow = new Window { Width = 470, Height = 680, Content = folderDock };
+                var folderWindow = new TestWindow { Width = 470, Height = 680, Content = folderDock };
                 ShowForSmoke(folderWindow);
                 folderWindow.UpdateLayout();
                 // Folders and playlists are browser items now, like a file explorer: no rails, no dropdowns.
@@ -5701,9 +5796,11 @@ internal static class Program
                 cold.UpdateLayout();
                 if (!coldRoot.IsEnabled)
                     throw new Exception("FAIL: choosing New Game left the workspace locked");
+                // The log now records the media reset that a new game performs too, so the check is
+                // that the game itself starts blank and its own New game event is present.
                 if (cold.Engine.State.HomeScore != 0 || cold.Engine.State.AwayScore != 0
-                    || cold.Engine.State.Period != 1 || cold.Engine.State.Events.Count != 1
-                    || !cold.Engine.State.Events[0].Description.Contains("New", StringComparison.Ordinal))
+                    || cold.Engine.State.Period != 1
+                    || !cold.Engine.State.Events.Any(e => e.Type == "Game" && e.Description.Contains("New", StringComparison.Ordinal)))
                     throw new Exception($"FAIL: a fresh game from the launcher is not a blank slate ({cold.Engine.State.HomeScore}-{cold.Engine.State.AwayScore}, period {cold.Engine.State.Period}, {cold.Engine.State.Events.Count} events)");
                 cold.Close();
                 Console.WriteLine("PASS: the main window opens locked behind the launch box, keeps its tab outline, and starts blank");
@@ -6165,7 +6262,7 @@ internal static class Program
                     var diamondEngine = new GameEngine();
                     diamondEngine.NewGame("baseball");
                     var diamondView = new ScorebugIconView(diamondItem, () => diamondEngine.State);
-                    var diamondHost = new Window { Content = diamondView, Width = 300, Height = 240, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+                    var diamondHost = new TestWindow { Content = diamondView, Width = 300, Height = 240, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
                     ShowForSmoke(diamondHost);
                     Pump(TimeSpan.FromMilliseconds(250));
                     diamondEngine.SetSportValue("baseball.first", 1);
@@ -6427,5 +6524,24 @@ internal static class Program
         timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
         timer.Start();
         System.Windows.Threading.Dispatcher.PushFrame(frame);
+    }
+}
+
+/// <summary>
+/// A probe window for the smoke suite. WPF still lays it out and renders its content into
+/// RenderTargetBitmap, but it is transparent and parked off the desktop, so running the suite
+/// never flashes a black window over the operator's work or steals focus from a full-screen app.
+/// </summary>
+sealed class TestWindow : Window
+{
+    public TestWindow()
+    {
+        ShowActivated = false;
+        ShowInTaskbar = false;
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = -32000;
+        Top = -32000;
+        Opacity = 0;
+        Topmost = false;
     }
 }

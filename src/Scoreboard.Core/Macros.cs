@@ -36,7 +36,21 @@ public enum MacroActionKind
     /// <summary>Switch a display to a layout. The layout goes on air immediately.</summary>
     SwitchLayout,
     /// <summary>Raise or clear a referee flag for one side.</summary>
-    PenaltyFlag
+    PenaltyFlag,
+    /// <summary>Start, stop, toggle or reset one of the game's clocks.</summary>
+    ClockControl,
+    /// <summary>The words the audience clock prints instead of a time: the clock, Final, or End of Reg.</summary>
+    ClockMessage,
+    /// <summary>Set a library item's own level, or mute and unmute a speaker bus.</summary>
+    MediaVolume,
+    /// <summary>Replace the news ticker's headlines.</summary>
+    TickerNews,
+    /// <summary>Run another saved macro's steps at this point.</summary>
+    RunMacro,
+    /// <summary>A heading in the step list. It runs nothing; it keeps a long macro readable.</summary>
+    Note,
+    /// <summary>Replay speed, setting up a replay at a point, and starting it on air.</summary>
+    Replay
 }
 
 /// <summary>A single console, media or roster change saved inside a macro.</summary>
@@ -75,6 +89,18 @@ public sealed class MacroAction
     /// <summary>How long a Wait step pauses before the next step runs.</summary>
     public double WaitSeconds { get; set; } = 1;
 
+    /// <summary>A Replay step's playback speed, from 0.1x to 2.0x. Zero leaves the speed alone.</summary>
+    public double ReplaySpeed { get; set; }
+
+    /// <summary>Free text for a step: a ticker headline list, or the words of a Note heading.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>A media level step mutes or unmutes a speaker bus instead of setting a level.</summary>
+    public bool Mute { get; set; }
+
+    /// <summary>For a mute step, true leaves the bus muted and false puts it back on.</summary>
+    public bool Muted { get; set; }
+
     public MacroAction Copy() => new()
     {
         Kind = Kind,
@@ -89,7 +115,11 @@ public sealed class MacroAction
         PlayerId = PlayerId,
         PlayerName = PlayerName,
         StatName = StatName,
-        WaitSeconds = WaitSeconds
+        WaitSeconds = WaitSeconds,
+        ReplaySpeed = ReplaySpeed,
+        Text = Text,
+        Mute = Mute,
+        Muted = Muted
     };
 
     public void Normalize()
@@ -100,9 +130,14 @@ public sealed class MacroAction
         PlayerId = (PlayerId ?? "").Trim();
         PlayerName = (PlayerName ?? "").Trim();
         StatName = (StatName ?? "").Trim();
+        Text = (Text ?? "").Trim();
+        if (Text.Length > 400) Text = Text[..400];
         Amount = Math.Clamp(Amount, -999, 999);
         Value = Math.Clamp(Value, -999, 9999);
         WaitSeconds = Math.Clamp(double.IsFinite(WaitSeconds) ? WaitSeconds : 1, 0, 60);
+        ReplaySpeed = ReplaySpeed <= 0 || !double.IsFinite(ReplaySpeed)
+            ? 0
+            : Math.Clamp(ReplaySpeed, 0.1, 2.0);
     }
 
     [JsonIgnore]
@@ -130,8 +165,58 @@ public sealed class MacroAction
         MacroActionKind.PenaltyFlag => Value == 0
             ? $"Clear flag · {(Home ? "Home" : "Visitors")}"
             : $"Flag down · {(Home ? "Home" : "Visitors")} · {(string.IsNullOrWhiteSpace(Path) ? "flag" : Path)}",
+        MacroActionKind.ClockControl => $"{ClockTitle} · {ClockVerb}{(ClockVerb == "reset" && Amount > 0 ? $" to {Amount}s" : "")}",
+        MacroActionKind.ClockMessage => Math.Clamp(Value, 0, 2) switch
+        {
+            1 => "Clock message · Final",
+            2 => "Clock message · End of regulation",
+            _ => "Clock message · the time"
+        },
+        MacroActionKind.MediaVolume => Mute
+            ? $"{(Muted ? "Mute" : "Unmute")} · {MediaName}"
+            : $"Level {Math.Clamp(Value, 0, 100)}% · {MediaName}",
+        MacroActionKind.TickerNews => $"Ticker headlines · {HeadlineCount} line{(HeadlineCount == 1 ? "" : "s")}",
+        MacroActionKind.RunMacro => $"Run macro · {(string.IsNullOrWhiteSpace(Label) ? Path : Label)}",
+        MacroActionKind.Note => string.IsNullOrWhiteSpace(Text) ? "Note" : $"▸ {Text}",
+        MacroActionKind.Replay => ReplayTitle,
         _ => Kind.ToString()
     };
+
+    [JsonIgnore]
+    string ClockTitle => (Path ?? "").Trim().ToLowerInvariant() switch
+    {
+        "play" => "Play clock",
+        "timeout" => "Timeout clock",
+        "shot" => "Shot clock",
+        "stoppage" => "Stoppage clock",
+        _ => "Game clock"
+    };
+
+    [JsonIgnore]
+    string ClockVerb => Math.Clamp(Value, 0, 3) switch
+    {
+        0 => "start",
+        1 => "stop",
+        2 => "toggle",
+        _ => "reset"
+    };
+
+    [JsonIgnore]
+    string ReplayTitle => (Path ?? "").Trim().ToLowerInvariant() switch
+    {
+        "speed" => $"Replay speed · {Math.Clamp(ReplaySpeed, 0.1, 2) * 100:0}%",
+        "prepare" => $"Set up replay · {WaitSeconds:0.#}s back",
+        "start" => "Start Replay",
+        "playpause" => "Play/Pause replay",
+        "live" => "Return to live",
+        _ => "Replay"
+    };
+
+    [JsonIgnore]
+    string MediaName => string.IsNullOrWhiteSpace(Label) ? System.IO.Path.GetFileName(Path) : Label;
+
+    [JsonIgnore]
+    int HeadlineCount => (Text ?? "").Split(['\r', '\n', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
 }
 
 /// <summary>A row of macro buttons saved with the game.</summary>

@@ -488,8 +488,10 @@ public partial class RosterPanel : UserControl
 
             var row = new Grid();
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(78) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(15) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
 
             var label = new TextBlock
             {
@@ -520,15 +522,24 @@ public partial class RosterPanel : UserControl
             value.SetResourceReference(TextBox.CaretBrushProperty, "RosterTextBrush");
             value.LostKeyboardFocus += StatValue_LostFocus;
             value.KeyDown += StatValue_KeyDown;
-            Grid.SetColumn(value, 1);
+            Grid.SetColumn(value, 2);
             row.Children.Add(value);
+
+            // Stepping a count is the common edit, so every stat gets its own − and + buttons.
+            var minus = StatStepButton("−", stat.Name, -1);
+            Grid.SetColumn(minus, 1);
+            row.Children.Add(minus);
+            var plus = StatStepButton("+", stat.Name, 1);
+            Grid.SetColumn(plus, 3);
+            row.Children.Add(plus);
 
             var remove = new Button
             {
                 Content = "×",
                 FontSize = 10,
-                Width = 15,
-                Height = 20,
+                Width = 16,
+                Height = 22,
+                Margin = new Thickness(0),
                 Padding = new Thickness(0),
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
@@ -539,7 +550,7 @@ public partial class RosterPanel : UserControl
             };
             remove.SetResourceReference(ForegroundProperty, "RosterDangerBrush");
             remove.Click += RemoveStat_Click;
-            Grid.SetColumn(remove, 2);
+            Grid.SetColumn(remove, 4);
             row.Children.Add(remove);
 
             cell.Child = row;
@@ -556,6 +567,40 @@ public partial class RosterPanel : UserControl
             empty.SetResourceReference(ForegroundProperty, "RosterMutedBrush");
             StatsHost.Children.Add(empty);
         }
+    }
+
+    Button StatStepButton(string glyph, string statName, int delta)
+    {
+        var button = new Button
+        {
+            Content = glyph,
+            VerticalAlignment = VerticalAlignment.Center,
+            Tag = (statName, delta),
+            ToolTip = delta > 0 ? $"Add one {statName}" : $"Take one {statName} away"
+        };
+        // The keyed style owns the size and the hover face, so the glyphs fit inside the cell
+        // and the accent fill disappears as soon as the pointer leaves.
+        if (Resources["StatStep"] is Style step) button.Style = step;
+        button.Click += StatStep_Click;
+        return button;
+    }
+
+    void StatStep_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine is null || _roster is null || _player is null) return;
+        if (sender is not Button { Tag: ValueTuple<string, int> tag }) return;
+        var stat = _player.Stats.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, tag.Item1, StringComparison.OrdinalIgnoreCase));
+        if (stat is null) return;
+        // Undo carries the roster with it, so Ctrl+Z puts the count back rather than only rewinding
+        // the game around it.
+        _engine.SaveRosterUndo("Player stat", _roster);
+        _player.SetStat(stat.Name, Math.Max(0, _player.Stat(stat.Name) + tag.Item2));
+        RosterStore.Save();
+        _engine.RecordEvent("Roster", $"{(_home ? "Home" : "Visitors")} · {_player.Record} · {stat.Name} {(tag.Item2 >= 0 ? "+" : "−")}{Math.Abs(tag.Item2)} = {_player.Stat(stat.Name)}");
+        _engine.ReloadSelectedPlayer(_home, publish: _engine.PlayerStatsLive);
+        _signature = "";
+        Refresh(force: true);
     }
 
     /// <summary>The stat picker: the sport's columns first, then anything this roster already uses.</summary>
@@ -577,7 +622,7 @@ public partial class RosterPanel : UserControl
     void SaveAndReload()
     {
         RosterStore.Save();
-        _engine?.ReloadSelectedPlayer(_home);
+        _engine?.ReloadSelectedPlayer(_home, publish: _engine.PlayerStatsLive);
         _signature = "";
         Refresh();
     }
@@ -636,7 +681,7 @@ public partial class RosterPanel : UserControl
         RosterStore.Save();
         _engine.AssignRoster(_home, imported.Id);
         _player = imported.Players.FirstOrDefault();
-        _engine.ReloadSelectedPlayer(_home);
+        _engine.ReloadSelectedPlayer(_home, publish: _engine.PlayerStatsLive);
         _signature = ""; _choiceSignature = "";
         Refresh(force: true);
         RosterSummary.Text = $"imported {System.IO.Path.GetFileName(path)}";
@@ -664,7 +709,7 @@ public partial class RosterPanel : UserControl
         _roster.EnsureColumns(PlayerStatPresets.For(_engine.State.SportId));
         _player = imported;
         RosterStore.Save();
-        _engine.ReloadSelectedPlayer(_home);
+        _engine.ReloadSelectedPlayer(_home, publish: _engine.PlayerStatsLive);
         _signature = "";
         Refresh(force: true);
         RosterSummary.Text = $"imported {System.IO.Path.GetFileName(path)}";
@@ -808,7 +853,7 @@ public partial class RosterPanel : UserControl
         RosterStore.Save();
         _engine.AssignRoster(_home, roster.Id);
         _player = roster.Players.FirstOrDefault();
-        _engine.ReloadSelectedPlayer(_home);
+        _engine.ReloadSelectedPlayer(_home, publish: _engine.PlayerStatsLive);
         _signature = ""; _choiceSignature = "";
         Refresh(force: true);
     }
@@ -856,6 +901,7 @@ public partial class RosterPanel : UserControl
         if (_engine is null || _roster is null) return;
         _player = _roster.AddPlayer();
         _roster.EnsureColumns(PlayerStatPresets.For(_engine.State.SportId));
+        _engine.RecordEvent("Roster", $"{(_home ? "Home" : "Visitors")} · player added · {_player.Record}");
         SaveAndReload();
         NameInput.Focus();
         NameInput.SelectAll();
@@ -865,7 +911,9 @@ public partial class RosterPanel : UserControl
     {
         if (_engine is null || _roster is null || _player is null) return;
         var wasSelected = (_home ? _engine.State.HomePlayer : _engine.State.AwayPlayer)?.PlayerId == _player.Id;
+        var removed = _player.Record;
         if (!_roster.RemovePlayer(_player.Id)) return;
+        _engine.RecordEvent("Roster", $"{(_home ? "Home" : "Visitors")} · player removed · {removed}");
         _player = _roster.Players.FirstOrDefault();
         // Removing the player who was on air clears the graphic; it must not quietly promote the
         // next name in the list to on-air status.
@@ -880,7 +928,8 @@ public partial class RosterPanel : UserControl
         if (group is null) return;
         _player.Group = group.Trim();
         RosterStore.Save();
-        _engine.ReloadSelectedPlayer(_home);
+        _engine.RecordEvent("Roster", $"{(_home ? "Home" : "Visitors")} · {_player.Record} · group {(string.IsNullOrWhiteSpace(_player.Group) ? "cleared" : _player.Group)}");
+        _engine.ReloadSelectedPlayer(_home, publish: _engine.PlayerStatsLive);
         _signature = "";
         Refresh(force: true);
     }
@@ -928,7 +977,8 @@ public partial class RosterPanel : UserControl
         if (group != (_player.Group ?? "")) { _player.Group = group; changed = true; }
         if (!changed) return;
         RosterStore.Save();
-        _engine.ReloadSelectedPlayer(_home);
+        _engine.RecordEvent("Roster", $"{(_home ? "Home" : "Visitors")} · player updated · {_player.Record} · {(string.IsNullOrWhiteSpace(_player.Position) ? "no position" : _player.Position)}");
+        _engine.ReloadSelectedPlayer(_home, publish: _engine.PlayerStatsLive);
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => { _signature = ""; Refresh(); }));
     }
 
@@ -944,6 +994,7 @@ public partial class RosterPanel : UserControl
         foreach (var player in _roster.Players)
             if (!player.Stats.Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
                 player.Stats.Add(new GameStat(Guid.NewGuid().ToString("N"), name));
+        _engine.RecordEvent("Roster", $"{(_home ? "Home" : "Visitors")} · stat column added · {name}");
         SaveAndReload();
         StatPresetBox.Text = "";
     }
@@ -953,6 +1004,7 @@ public partial class RosterPanel : UserControl
         if (_roster is null || sender is not Button { Tag: string name }) return;
         foreach (var player in _roster.Players)
             player.Stats.RemoveAll(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
+        _engine.RecordEvent("Roster", $"{(_home ? "Home" : "Visitors")} · stat column removed · {name}");
         SaveAndReload();
     }
 
@@ -968,7 +1020,7 @@ public partial class RosterPanel : UserControl
 
     void CommitStat(object sender)
     {
-        if (_syncing || _engine is null || _player is null) return;
+        if (_syncing || _engine is null || _roster is null || _player is null) return;
         if (sender is not TextBox { Tag: string name } box) return;
         var text = box.Text.Trim();
         var stat = _player.Stats.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -976,9 +1028,13 @@ public partial class RosterPanel : UserControl
         if (stat.Display == text) return;
         // Player stats are counts; a non-number is rejected and the stored value comes back.
         if (!int.TryParse(text, out var value)) { box.Text = stat.Display; return; }
+        _engine.SaveRosterUndo("Player stat", _roster);
         _player.SetStat(name, Math.Max(0, value));
         RosterStore.Save();
-        _engine.ReloadSelectedPlayer(_home);
+        _engine.RecordEvent("Roster", $"{(_home ? "Home" : "Visitors")} · {_player.Record} · {name} = {Math.Max(0, value)}");
+        // Off by default: the roster holds the edit but the graphic keeps the number that is on
+        // air until Update Output. The Live switch on the desk puts it straight on the graphic.
+        _engine.ReloadSelectedPlayer(_home, publish: _engine.PlayerStatsLive);
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => { _signature = ""; Refresh(); }));
     }
 }

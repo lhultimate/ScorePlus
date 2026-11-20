@@ -219,8 +219,8 @@
         <StackPanel Orientation="Horizontal">
           <Button x:Name="ControlTab" Style="{StaticResource TabButton}" Content="CONTROL PANEL" Click="ControlTab_Click"/>
           <Button x:Name="MediaTab" Style="{StaticResource TabButton}" Content="MEDIA" Click="MediaTab_Click" ToolTip="Clips, camera, replay and playlists"/>
-          <Button x:Name="RosterTab" Style="{StaticResource TabButton}" Content="ROSTERS" Click="RosterTab_Click"
-                  ToolTip="Team rosters, player stats and the player on the graphic"/>
+          <Button x:Name="RosterTab" Style="{StaticResource TabButton}" Content="STATS" Click="RosterTab_Click"
+                  ToolTip="Rosters, player stats and the player on the graphic"/>
           <Button x:Name="MacrosTab" Style="{StaticResource TabButton}" Content="MACROS" Click="MacrosTab_Click"
                   ToolTip="One button that changes several things in order, and plays media or roster stats"/>
         </StackPanel>

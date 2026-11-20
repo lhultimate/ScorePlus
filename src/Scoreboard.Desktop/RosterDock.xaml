@@ -15,6 +15,29 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Foreground" Value="{DynamicResource RosterHeaderTextBrush}"/>
       <Setter Property="Cursor" Value="Hand"/>
+      <!-- Own the template: the system chrome drew its own hover fill, which lingered after a
+           side switch and did not belong to the desk's palette. -->
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Face" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Face" Property="Opacity" Value="0.86"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Face" Property="Opacity" Value="0.7"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style x:Key="SideTab" TargetType="Button">
       <Setter Property="FontSize" Value="12"/>
@@ -27,6 +50,24 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Foreground" Value="{DynamicResource RosterMutedBrush}"/>
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Face" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Face" Property="Opacity" Value="0.86"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Face" Property="Opacity" Value="0.7"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
   </UserControl.Resources>
 
@@ -37,6 +78,10 @@
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
           <TextBlock x:Name="LibraryText" Text="" FontSize="11" Foreground="{DynamicResource RosterHeaderTextBrush}"
                      Opacity="0.8" VerticalAlignment="Center" Margin="0,0,4,0"/>
+          <Button x:Name="RosterLiveButton" Style="{StaticResource HeaderPill}" Content="Live: OFF" Click="Live_Click"
+                  ToolTip="Off: player stat edits stay staged until Update Output. On: every edit prints immediately."/>
+          <Button x:Name="RosterUpdateButton" Style="{StaticResource HeaderPill}" Content="Update Output" Click="UpdateOutput_Click"
+                  ToolTip="Put the staged player stats on air"/>
           <Button Style="{StaticResource HeaderPill}" Content="Import…" Click="Import_Click"
                   ToolTip="Add a ScorePlus Roster (.spr) to the library, or a ScorePlus Player (.spp) to this side's roster"/>
           <Button Style="{StaticResource HeaderPill}" Content="Export…" Click="Export_Click"
@@ -48,7 +93,7 @@
           <Border Width="26" Height="26" CornerRadius="13" Background="{DynamicResource RosterPillBrush}" Margin="0,0,10,0">
             <TextBlock Text="👥" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
-          <TextBlock Text="Players" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"
+          <TextBlock Text="Stats" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"
                      Foreground="{DynamicResource RosterHeaderTextBrush}" Margin="0,0,16,0"/>
           <Button x:Name="AwaySideTab" Style="{StaticResource SideTab}" Content="VISITORS" Click="SideTab_Click" Tag="away"
                   ToolTip="Edit the visitors' roster"/>
@@ -63,7 +108,7 @@
       <DockPanel>
         <TextBlock x:Name="HintText" DockPanel.Dock="Right" FontSize="10" Foreground="{DynamicResource RosterMutedBrush}"
                    TextWrapping="Wrap" MaxWidth="520" TextAlignment="Right" VerticalAlignment="Center"
-                   Text="Rosters live with the app, so a new game keeps them. Pick this side's roster in the left column, then select a player for the graphic — or press No player to print nobody. Import… and Export… move rosters (.spr) and players (.spp) between computers."/>
+                   Text="Rosters live with the app, so a new game keeps them. Player stats are staged: change them here, then press Update Output to put them on air, or turn Live on to print each edit as you make it. Import… and Export… move rosters (.spr) and players (.spp) between computers."/>
         <TextBlock x:Name="DeskText" Text="ROSTER" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"
                    Foreground="{DynamicResource RosterMutedBrush}"/>
       </DockPanel>

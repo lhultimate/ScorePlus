@@ -25,6 +25,8 @@ public partial class SettingsWindow : Window
         ThemeSelector.SelectedItem = ThemeSelector.Items.Contains(_draft.Theme) ? _draft.Theme : "System";
         ShowHints.IsChecked = _draft.ShowHeadingHints;
         QuickPublishInput.IsChecked = _draft.QuickLayoutsPublish;
+        QuickMediaPublishInput.IsChecked = _draft.QuickMediaPublish;
+        RosterLiveInput.IsChecked = _draft.RosterStatsLive;
         DownPreviewInput.IsChecked = _draft.NextDownPreview;
         NewSeriesInput.IsChecked = _draft.NewSeriesLive;
         ReplaySecondsInput.Text = Math.Clamp(_draft.ReplaySeconds, 10, 900).ToString(CultureInfo.InvariantCulture);
@@ -260,6 +262,18 @@ public partial class SettingsWindow : Window
         _draft.QuickLayoutsPublish = QuickPublishInput.IsChecked == true;
     }
 
+    void QuickMedia_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || QuickMediaPublishInput is null) return;
+        _draft.QuickMediaPublish = QuickMediaPublishInput.IsChecked == true;
+    }
+
+    void RosterLive_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || RosterLiveInput is null) return;
+        _draft.RosterStatsLive = RosterLiveInput.IsChecked == true;
+    }
+
     void ClockHorn_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading || GameClockHornInput is null || PlayClockHornInput is null) return;
@@ -383,6 +397,10 @@ public partial class SettingsWindow : Window
         _original.Theme = _draft.Theme;
         _original.ShowHeadingHints = _draft.ShowHeadingHints;
         _original.QuickLayoutsPublish = _draft.QuickLayoutsPublish;
+        _original.QuickMediaPublish = _draft.QuickMediaPublish;
+        _original.RosterStatsLive = _draft.RosterStatsLive;
+        // An explicit choice in this page becomes the desk's switch too, so the two never disagree.
+        PreferencesStore.RosterStatsLive = _draft.RosterStatsLive;
         _original.NextDownPreview = _draft.NextDownPreview;
         _original.NewSeriesLive = _draft.NewSeriesLive;
         _original.HornOnGameClockZero = _draft.HornOnGameClockZero;

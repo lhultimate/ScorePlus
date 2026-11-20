@@ -124,6 +124,31 @@ public sealed class UserPreferences
     /// <summary>How far back the Replay Booth and its browser page can rewind, in seconds.</summary>
     public int ReplaySeconds { get; set; } = 120;
 
+    /// <summary>Replay playback speed, 0.1x to 2.0x. One is real time.</summary>
+    public double ReplaySpeed { get; set; } = 1;
+
+    /// <summary>
+    /// The tag a replay carries. A scorebug video element tagged with this shows replays, so the
+    /// operator can give replays their own box instead of reusing a camera's tag.
+    /// </summary>
+    public string ReplayTag { get; set; } = MediaLibrary.ReplayTagName;
+
+    /// <summary>The Replay Booth wall's own column count. Zero lays the wall out automatically.</summary>
+    public int ReplayBoothColumns { get; set; }
+
+    /// <summary>The booth's own camera order, by library path. Cameras not listed follow in library order.</summary>
+    public List<string> ReplayBoothOrder { get; set; } = [];
+
+    /// <summary>Cameras hidden from the booth wall. Multiview has its own, separate choice.</summary>
+    public List<string> ReplayBoothHidden { get; set; } = [];
+
+    /// <summary>
+    /// When on, a player stat edit publishes to the graphic at once. Off (the shipped default) keeps
+    /// the edit staged until Update Output, so a number is never changed in front of the audience by
+    /// a stray keystroke.
+    /// </summary>
+    public bool RosterStatsLive { get; set; }
+
     /// <summary>
     /// The show's master level, 0–1. Every speaker bus and every clip passes through it, so one
     /// slider takes the whole room down without touching each bus, and the buses keep their own
@@ -150,6 +175,12 @@ public sealed class UserPreferences
     /// sends it to air, which is faster but updates output without a second confirmation.
     /// </summary>
     public bool QuickLayoutsPublish { get; set; }
+
+    /// <summary>
+    /// Off by default: a quick-media press stages its item and Update Output puts it on air, the
+    /// same way the quick layout buttons stage a layout. On, the press bypasses Update Output.
+    /// </summary>
+    public bool QuickMediaPublish { get; set; }
 
     /// <summary>Controller input and its connection details.</summary>
     public HardwareSettings Hardware { get; set; } = new();
@@ -210,9 +241,16 @@ public sealed class UserPreferences
         QuickLayouts = QuickLayouts.Select(binding => new QuickLayoutBinding { Label = binding.Label, DisplayId = binding.DisplayId, LayoutId = binding.LayoutId }).ToList(),
         QuickMedia = QuickMedia.Select(binding => new QuickMediaBinding { Label = binding.Label, Path = binding.Path }).ToList(),
         QuickLayoutsPublish = QuickLayoutsPublish,
+        QuickMediaPublish = QuickMediaPublish,
         MultiviewShowLabels = MultiviewShowLabels,
         ReplayBoothShowLabels = ReplayBoothShowLabels,
         ReplaySeconds = ReplaySeconds,
+        ReplaySpeed = ReplaySpeed,
+        ReplayTag = ReplayTag,
+        ReplayBoothColumns = ReplayBoothColumns,
+        ReplayBoothOrder = [.. ReplayBoothOrder],
+        ReplayBoothHidden = [.. ReplayBoothHidden],
+        RosterStatsLive = RosterStatsLive,
         MediaMasterVolume = MediaMasterVolume,
         MultiviewCameraSoundBars = MultiviewCameraSoundBars,
         MultiviewSoundBarsChosen = MultiviewSoundBarsChosen,
@@ -263,9 +301,25 @@ public sealed class QuickLayoutBinding
 public static class PreferencesStore
 {
     static string? _overridePath;
+    static bool? _rosterStatsLive;
 
     /// <summary>Test hook: aim storage at a throwaway file so a suite can never rewrite the operator's real preferences.</summary>
-    public static void UsePath(string? path) => _overridePath = path;
+    public static void UsePath(string? path)
+    {
+        _overridePath = path;
+        _rosterStatsLive = null;
+    }
+
+    /// <summary>
+    /// The stats desk's Live switch. It is saved with the preferences, but while the app runs the
+    /// desk is the authority: a window that writes back an older copy of the file (media, hardware
+    /// or a new game) must not silently switch automatic stat updates off again.
+    /// </summary>
+    public static bool RosterStatsLive
+    {
+        get => _rosterStatsLive ??= Load().RosterStatsLive;
+        set => _rosterStatsLive = value;
+    }
 
     static string FilePath => _overridePath ?? AppPaths.Combine("preferences.json");
 
@@ -277,6 +331,8 @@ public static class PreferencesStore
             var loaded = JsonSerializer.Deserialize<UserPreferences>(File.ReadAllText(FilePath)) ?? new();
             Migrate(loaded);
             ApplyPreferences(loaded);
+            // The live switch outranks a stale file value once the desk has set it this session.
+            _rosterStatsLive ??= loaded.RosterStatsLive;
             return loaded;
         }
         catch { return new(); }
@@ -319,6 +375,16 @@ public static class PreferencesStore
         // menu, so a saved wall never showed one. A file that never recorded a deliberate choice
         // takes the new default once; turning the toggle off afterwards is remembered.
         if (!preferences.MultiviewSoundBarsChosen) preferences.MultiviewCameraSoundBars = true;
+        preferences.ReplayBoothOrder ??= [];
+        preferences.ReplayBoothHidden ??= [];
+        preferences.ReplayBoothColumns = Math.Clamp(preferences.ReplayBoothColumns, 0, 6);
+        // A malformed speed must not make the replay run at zero or a thousand times real time.
+        if (!double.IsFinite(preferences.ReplaySpeed) || preferences.ReplaySpeed <= 0) preferences.ReplaySpeed = 1;
+        preferences.ReplaySpeed = Math.Clamp(preferences.ReplaySpeed, 0.1, 2.0);
+        // A blank replay tag would route replays nowhere; the shipped name is REPLAY.
+        preferences.ReplayTag = string.IsNullOrWhiteSpace(preferences.ReplayTag)
+            ? MediaLibrary.ReplayTagName
+            : preferences.ReplayTag.Trim();
         // A negative interval is not a setting; the shipped default is five minutes. Zero is a real
         // choice and means never autosave.
         if (preferences.AutosaveMinutes < 0) preferences.AutosaveMinutes = 5;
@@ -353,6 +419,8 @@ public static class PreferencesStore
 
     public static void Save(UserPreferences preferences)
     {
+        // A save carries the desk's current Live choice, whatever copy of the file the caller had.
+        if (_rosterStatsLive is bool live) preferences.RosterStatsLive = live;
         ApplyPreferences(preferences);
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
         var temp = FilePath + ".tmp";

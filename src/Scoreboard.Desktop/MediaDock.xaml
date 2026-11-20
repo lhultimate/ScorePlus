@@ -245,6 +245,10 @@
       <StackPanel Grid.Column="0" Margin="0,0,0,5">
         <DockPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+            <!-- The rule editor sits beside Rename because both act on the thing under the
+                 cursor; keeping it in the rail made the rail scroll. -->
+            <Button x:Name="ConditionalsButton" Content="Media Conditionals" Style="{StaticResource DockAction}" Click="Conditionals_Click"
+                    ToolTip="Media rules only — put a clip, camera or screen on or off air at a time, or when a condition is met"/>
             <Button x:Name="RenameButton" Content="Rename…" Style="{StaticResource DockAction}" Click="Rename_Click"
                     ToolTip="Rename the selected clip, camera, microphone, speaker or screen — the new name shows in the multiview and the replay booth"/>
             <Button x:Name="RemoveButton" Content="Remove" Style="{StaticResource DockAction}" Click="Remove_Click" ToolTip="Remove the selected clip from the library"/>
@@ -261,8 +265,9 @@
       </StackPanel>
 
       <Border Grid.Column="2" Grid.RowSpan="11" Background="{DynamicResource DockRail}" CornerRadius="9" Padding="10,8" Margin="0,0,0,0">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel>
+        <!-- No scroll viewer: every control here has to fit the rail at once, so the source
+             pickers that duplicated the library were removed instead of scrolling. -->
+        <StackPanel>
             <DockPanel Margin="0,0,0,8">
               <Border Width="3" Height="12" CornerRadius="2" Background="{DynamicResource DockAccent}" Margin="0,0,6,0"/>
               <TextBlock Text="ADD &amp; ROUTE" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center"/>
@@ -321,21 +326,6 @@
             </WrapPanel>
             <TextBlock Style="{StaticResource DockLabel}" Margin="0,0,0,8" Text="captures a desktop, no sound of its own"/>
 
-            <TextBlock Text="CONDITIONALS" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
-            <WrapPanel Margin="0,0,0,8">
-              <Button x:Name="ConditionalsButton" Content="Media Conditionals" Style="{StaticResource DockAction}" Click="Conditionals_Click"
-                      ToolTip="Media rules only — put a clip, camera or screen on or off air at a time, or when a condition is met"/>
-            </WrapPanel>
-
-            <TextBlock Text="CAMERA MICROPHONE" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
-            <ComboBox x:Name="CameraMicBox" Style="{StaticResource DockCombo}" SelectionChanged="CameraMic_Changed"
-                      ToolTip="Give the selected camera a microphone, so the multiview can draw its sound bar"/>
-            <TextBlock Style="{StaticResource DockLabel}" Margin="0,3,0,8" Text="camera sound lives here"/>
-
-            <TextBlock Text="LIVE CAMERA" Style="{StaticResource DockLabel}" Margin="0,0,0,3"/>
-            <ComboBox x:Name="CameraBox" Style="{StaticResource DockCombo}" SelectionChanged="Camera_Changed"
-                      ToolTip="Choose which camera item is on air"/>
-
             <TextBlock Text="SWITCH ANIMATION" Style="{StaticResource DockLabel}" Margin="0,7,0,3"/>
             <ComboBox x:Name="TransitionBox" Style="{StaticResource DockCombo}" SelectionChanged="Transition_Changed"
                       ToolTip="How the selected clip or camera arrives when it replaces the previous picture"/>
@@ -353,23 +343,50 @@
                          VerticalAlignment="Center" Margin="5,0,0,0"/>
             </Grid>
 
-            <TextBlock Text="REPLAY" Style="{StaticResource DockLabel}" Margin="0,7,0,3"/>
+            <!-- The heading row carries the replay tag too, so the rail grows by no extra line:
+                 a scorebug box tagged with this name is the one replays appear in. -->
+            <Grid Margin="0,7,0,3">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="REPLAY" Style="{StaticResource DockLabel}"/>
+              <TextBlock Grid.Column="1" Text="TAG" Style="{StaticResource DockLabel}" Margin="0,0,4,0"/>
+              <ComboBox x:Name="ReplayTagBox" Grid.Column="2" Width="102" MinHeight="22" Style="{StaticResource DockCombo}"
+                        IsEditable="True" SelectionChanged="ReplayTag_Changed"
+                        LostKeyboardFocus="ReplayTag_LostFocus" KeyDown="ReplayTag_KeyDown"
+                        ToolTip="The tag every replay carries — a scorebug video element with this tag shows replays"/>
+            </Grid>
             <WrapPanel>
               <Button x:Name="ReplayButton" Content="Replay" Style="{StaticResource DockAction}" Click="Replay_Click"
                       ToolTip="Freeze the selected camera's last replay window in the preview. Press it again during a replay to prepare another one without leaving the first on air"/>
-              <Button x:Name="StartReplayButton" Style="{StaticResource DockAction}" Content="Start replay" Click="StartReplay_Click"
+              <Button x:Name="StartReplayButton" Style="{StaticResource DockAction}" Content="Start Replay" Click="StartReplay_Click"
                       IsEnabled="False"
                       ToolTip="Put the replay on air at the frame you have scrubbed to; Play rolls it"/>
-              <Button x:Name="JumpToLiveButton" Style="{StaticResource DockAction}" Content="↩ Jump to live" Click="Live_Click"
+              <Button x:Name="JumpToLiveButton" Style="{StaticResource DockAction}" Content="↩ Jump to Live" Click="Live_Click"
                       IsEnabled="False" ToolTip="Leave the replay and go straight back to the live camera"/>
-              <Button x:Name="SaveReplayButton" Style="{StaticResource DockAction}" Content="Save replay…" Click="SaveReplay_Click"
+              <Button x:Name="SaveReplayButton" Style="{StaticResource DockAction}" Content="Save Replay…" Click="SaveReplay_Click"
                       IsEnabled="False"
                       ToolTip="Save everything from where the replay is paused through to now as a clip on your computer"/>
             </WrapPanel>
-            <TextBlock x:Name="ReplayHint" Text="Scrub back, start it, then save from there to now." FontSize="10"
-                       Foreground="{DynamicResource DockMuted}" Opacity="0.7" TextWrapping="Wrap" Margin="0,4,0,0"/>
-          </StackPanel>
-        </ScrollViewer>
+            <!-- Speed belongs beside the transport: it applies to the replay being prepared and
+                 to the one already on air. -->
+            <Grid Margin="0,4,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="SPEED" Style="{StaticResource DockLabel}" VerticalAlignment="Center"/>
+              <Slider x:Name="ReplaySpeedSlider" Grid.Column="1" Minimum="0.1" Maximum="2.0" Value="1"
+                      Style="{StaticResource TransportSlider}" VerticalAlignment="Center" Margin="0,0,6,0"
+                      SmallChange="0.1" LargeChange="0.5" ValueChanged="ReplaySpeed_Changed"
+                      ToolTip="Replay speed, 0.1× to 2.0×"/>
+              <TextBlock x:Name="ReplaySpeedText" Grid.Column="2" Text="1.0×" FontFamily="Consolas" FontSize="10"
+                         Foreground="{DynamicResource DockMuted}" VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
+            </Grid>
+        </StackPanel>
       </Border>
 
       <!-- Search is library-wide: it deliberately ignores the open folder so a clip is never

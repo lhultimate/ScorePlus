@@ -350,6 +350,12 @@ public sealed class GameState
     public SelectedPlayer? HomePlayer { get; set; }
     public SelectedPlayer? AwayPlayer { get; set; }
     /// <summary>
+    /// A player edit waiting for Update Output: the roster already holds the new numbers, but the
+    /// audience keeps the reading that is on air until the operator publishes it.
+    /// </summary>
+    public SelectedPlayer? HomePlayerPending { get; set; }
+    public SelectedPlayer? AwayPlayerPending { get; set; }
+    /// <summary>
     /// True when the operator deliberately put no player on the graphic for that side. Without
     /// this, reloading a roster would quietly put its first player back up.
     /// </summary>
@@ -392,7 +398,7 @@ public sealed class GameState
 }
 
 public sealed record GameEvent(DateTimeOffset At, string Type, string Description, int? HomeScore = null, int? AwayScore = null);
-public sealed record GameSnapshot(GameState State, string Label);
+public sealed record GameSnapshot(GameState State, string Label, string RosterId = "", string RosterJson = "");
 
 /// <summary>The two shapes a clock can print in: 09:59 (padded) or 9:59 / :59 (compact).</summary>
 public enum ClockStyle { Padded, Compact }
@@ -496,6 +502,26 @@ public sealed class GameEngine
     /// so the local timer must not also tick the same clock down between snapshots.
     /// </summary>
     public bool HardwareControlled { get; set; }
+
+    /// <summary>
+    /// True when roster stat edits go straight to the graphic. Off by default: the stats desk
+    /// stages its numbers and Update Output publishes them, so a stray keystroke never changes the
+    /// audience graphic on its own.
+    /// </summary>
+    public bool PlayerStatsLive
+    {
+        get => _playerStatsLive;
+        set
+        {
+            if (_playerStatsLive == value) return;
+            _playerStatsLive = value;
+            // Every open stats desk follows the same switch, so a control panel window and the
+            // main window can never disagree about whether edits are printing.
+            Changed?.Invoke();
+        }
+    }
+
+    bool _playerStatsLive;
 
     /// <summary>
     /// When on, the end of the final period (or full time in soccer) adds the result to each team's
@@ -760,7 +786,8 @@ public sealed class GameEngine
     /// <summary>Starts or stops soccer's stoppage clock. Its total is how long the clock runs past 90:00.</summary>
     public void ToggleStoppageClock()
     {
-        if (State.SportId != "soccer") return;
+        // The booth always shows the added-time controls, so they have to act on every sport.
+        // Only soccer folds the time into full time, but the clock itself is just a stopwatch.
         Tick(); SaveUndo("Stoppage clock");
         State.StoppageRunning = !State.StoppageRunning;
         _lastTick = _watch.ElapsedTicks;
@@ -770,7 +797,6 @@ public sealed class GameEngine
 
     public void AdjustStoppageClock(int seconds)
     {
-        if (State.SportId != "soccer") return;
         Tick(); SaveUndo("Stoppage time");
         State.StoppageSeconds = Math.Clamp(State.StoppageSeconds + seconds, 0, 59 * 60);
         Log("Stoppage", $"Stoppage time {FormatClock(State.StoppageSeconds)}");
@@ -779,7 +805,6 @@ public sealed class GameEngine
 
     public void ResetStoppageClock()
     {
-        if (State.SportId != "soccer") return;
         Tick(); SaveUndo("Stoppage time");
         State.StoppageSeconds = 0;
         State.StoppageRunning = false;
@@ -1382,7 +1407,9 @@ public sealed class GameEngine
         if (_undo.Count == 0) return false;
         var snapshot = _undo.Pop();
         // The state being left behind is what Redo returns to, under the same action name.
-        _redo.Push(new GameSnapshot(CloneState(), snapshot.Label));
+        _redo.Push(new GameSnapshot(CloneState(), snapshot.Label, snapshot.RosterId,
+            snapshot.RosterId.Length == 0 ? "" : RosterJson(snapshot.RosterId)));
+        RestoreRoster(snapshot);
         State = snapshot.State; ResetClockCarries(); _lastTick = _watch.ElapsedTicks; Log("Undo", $"Undid {snapshot.Label}"); Changed?.Invoke(); return true;
     }
 
@@ -1442,8 +1469,46 @@ public sealed class GameEngine
     {
         if (_redo.Count == 0) return false;
         var snapshot = _redo.Pop();
-        _undo.Push(new GameSnapshot(CloneState(), snapshot.Label));
+        _undo.Push(new GameSnapshot(CloneState(), snapshot.Label, snapshot.RosterId,
+            snapshot.RosterId.Length == 0 ? "" : RosterJson(snapshot.RosterId)));
+        RestoreRoster(snapshot);
         State = snapshot.State; ResetClockCarries(); _lastTick = _watch.ElapsedTicks; Log("Redo", $"Redid {snapshot.Label}"); Changed?.Invoke(); return true;
+    }
+
+    /// <summary>
+    /// Records an undo point that also carries the roster it is about to edit, so Undo puts a
+    /// player's stat back instead of only rewinding the game around it. Roster data lives outside
+    /// the game state, which is why an ordinary snapshot cannot restore it.
+    /// </summary>
+    public void SaveRosterUndo(string label, Roster roster)
+    {
+        _redo.Clear();
+        _undo.Push(new GameSnapshot(CloneState(), label, roster.Id,
+            JsonSerializer.Serialize(roster, JsonOptions)));
+        if (_undo.Count > 100)
+        {
+            var keep = _undo.Reverse().TakeLast(100).ToArray();
+            _undo.Clear();
+            foreach (var item in keep) _undo.Push(item);
+        }
+    }
+
+    static string RosterJson(string rosterId) =>
+        RosterStore.Book.Find(rosterId) is { } roster ? JsonSerializer.Serialize(roster, JsonOptions) : "";
+
+    static void RestoreRoster(GameSnapshot snapshot)
+    {
+        if (snapshot.RosterId.Length == 0 || snapshot.RosterJson.Length == 0) return;
+        try
+        {
+            var restored = JsonSerializer.Deserialize<Roster>(snapshot.RosterJson, JsonOptions);
+            if (restored is null) return;
+            var book = RosterStore.Book;
+            var index = book.Rosters.FindIndex(roster => roster.Id == restored.Id);
+            if (index < 0) book.Rosters.Add(restored); else book.Rosters[index] = restored;
+            RosterStore.Save();
+        }
+        catch { }
     }
 
     // ---------- rosters ----------
@@ -1477,6 +1542,9 @@ public sealed class GameEngine
         if ((home ? State.HomePlayer : State.AwayPlayer)?.PlayerId == player.Id && !(home ? State.HomePlayerCleared : State.AwayPlayerCleared)) return;
         SaveUndo("Selected player");
         if (home) State.HomePlayerCleared = false; else State.AwayPlayerCleared = false;
+        // Choosing who is on the graphic is an explicit cue, so it releases anything that was
+        // waiting for Update Output for that side.
+        if (home) State.HomePlayerPending = null; else State.AwayPlayerPending = null;
         ApplySelected(home, roster, player);
         Log("Player", $"{(home ? State.HomeTeam : State.AwayTeam)}: {player.Record}");
         Changed?.Invoke();
@@ -1491,6 +1559,7 @@ public sealed class GameEngine
         if ((home ? State.HomePlayerCleared : State.AwayPlayerCleared) && (home ? State.HomePlayer : State.AwayPlayer) is null) return;
         SaveUndo("Selected player");
         if (home) State.HomePlayerCleared = true; else State.AwayPlayerCleared = true;
+        if (home) State.HomePlayerPending = null; else State.AwayPlayerPending = null;
         ApplySelected(home, null, null);
         Log("Player", $"{(home ? State.HomeTeam : State.AwayTeam)}: no player on the graphic");
         Changed?.Invoke();
@@ -1531,17 +1600,54 @@ public sealed class GameEngine
     }
 
     /// <summary>Re-resolves the selected player after the roster was edited, keeping the game on air.</summary>
-    public void ReloadSelectedPlayer(bool home)
+    /// <param name="publish">False stages the new numbers for Update Output instead of putting them
+    /// on the graphic at once.</param>
+    public void ReloadSelectedPlayer(bool home, bool publish = true)
     {
-        ResolveSelected(home);
+        if (publish)
+        {
+            // ResolveSelected also honours "No player", so a roster edit cannot put a cleared
+            // player back on the graphic.
+            ResolveSelected(home);
+            if (home) State.HomePlayerPending = null; else State.AwayPlayerPending = null;
+        }
+        else
+        {
+            var roster = RosterStore.Book.Find(home ? State.HomeRosterId : State.AwayRosterId);
+            var current = home ? State.HomePlayer : State.AwayPlayer;
+            var player = roster?.Find(current?.PlayerId);
+            var snapshot = roster is not null && player is not null ? SelectedPlayer.From(roster, player) : null;
+            // The program preview paints the working state, so the edit shows there at once. The
+            // pending marker keeps the live tick from sending it to the audience until Update Output.
+            if (home) { State.HomePlayer = snapshot; State.HomePlayerPending = snapshot; }
+            else { State.AwayPlayer = snapshot; State.AwayPlayerPending = snapshot; }
+        }
         Changed?.Invoke();
+    }
+
+    /// <summary>Puts a staged player reading on the graphic. Update Output calls this.</summary>
+    public bool PublishStagedPlayers()
+    {
+        var changed = false;
+        if (State.HomePlayerPending is { } home) { State.HomePlayer = home; State.HomePlayerPending = null; changed = true; }
+        if (State.AwayPlayerPending is { } away) { State.AwayPlayer = away; State.AwayPlayerPending = null; changed = true; }
+        if (changed) Changed?.Invoke();
+        return changed;
     }
 
     /// <summary>Replaces the saved macro buttons without adding an undo point for every keystroke.</summary>
     public void StoreMacros(IEnumerable<SavedMacro> macros, int? pageCount = null)
     {
-        State.Macros = macros.Select(macro => macro.Copy()).ToList();
-        if (pageCount is int pages) State.MacroPages = Math.Clamp(pages, 1, 99);
+        // Normalise the copies on the way in: a step's text, colour or page is cleaned once here,
+        // so the file the operator saves is already the one that will be read back.
+        var next = macros.Where(macro => macro is not null).Select(macro => macro.Copy()).ToList();
+        foreach (var macro in next) macro.Normalize();
+        var pages = pageCount is int count ? Math.Clamp(count, 1, 99) : State.MacroPages;
+        // A save that changes nothing must not fill the undo history with empty steps.
+        if (JsonSerializer.Serialize(next) != JsonSerializer.Serialize(State.Macros) || pages != State.MacroPages)
+            SaveUndo("Macro board");
+        State.Macros = next;
+        State.MacroPages = pages;
         Changed?.Invoke();
     }
 
@@ -1633,7 +1739,9 @@ public sealed class GameEngine
         s.HomeYards, s.AwayYards, s.HomeTurnovers, s.AwayTurnovers,
         s.HomeShots, s.AwayShots, s.HomeCorners, s.AwayCorners,
         string.Join(",", s.Controls.Select(c => $"{c.Id}={SportValues.Read(s, c.Id)}")),
-        string.Join(",", s.Stats.Select(x => $"{x.Name}={x.Display}")));
+        string.Join(",", s.Stats.Select(x => $"{x.Name}={x.Display}")),
+        // A roster stat edit waits for Update Output, so it belongs to the staged reading.
+        PlayerSignature(s.HomePlayerPending), PlayerSignature(s.AwayPlayerPending));
 
     /// <summary>What the graphic reads from a selected player, compared by the live publish.</summary>
     public static string PlayerSignature(SelectedPlayer? player) => player is null
@@ -1812,6 +1920,12 @@ public sealed class GameEngine
     public void LoadFromState(GameState state){State=JsonSerializer.Deserialize<GameState>(JsonSerializer.Serialize(state,JsonOptions),JsonOptions)!;NormalizeFootballTimeouts();RefreshSelectedPlayers();_undo.Clear();_redo.Clear();ResetClockCarries();_lastTick=_watch.ElapsedTicks;Changed?.Invoke();}
     public bool UpdateLiveScoreClock(GameState source)
     {
+        // A roster edit waiting for Update Output is already painted in the program preview, but
+        // the audience keeps the reading that was last published. The pending marker decides.
+        var homePlayer = source.HomePlayerPending is not null ? State.HomePlayer : source.HomePlayer;
+        var awayPlayer = source.AwayPlayerPending is not null ? State.AwayPlayer : source.AwayPlayer;
+        var homeCleared = source.HomePlayerPending is not null ? State.HomePlayerCleared : source.HomePlayerCleared;
+        var awayCleared = source.AwayPlayerPending is not null ? State.AwayPlayerCleared : source.AwayPlayerCleared;
         if (State.HomeScore == source.HomeScore && State.AwayScore == source.AwayScore &&
             State.HomeTeam == source.HomeTeam && State.AwayTeam == source.AwayTeam &&
             State.HomeAbbreviation == source.HomeAbbreviation && State.AwayAbbreviation == source.AwayAbbreviation &&
@@ -1830,9 +1944,10 @@ public sealed class GameEngine
             State.PlayClockSeconds == source.PlayClockSeconds && State.PlayClockRunning == source.PlayClockRunning &&
             State.TimeoutClockSeconds == source.TimeoutClockSeconds && State.TimeoutClockRunning == source.TimeoutClockRunning &&
             // Player data is live too: a substitution on the roster desk reprints the graphic at once.
-            State.HomePlayerCleared == source.HomePlayerCleared && State.AwayPlayerCleared == source.AwayPlayerCleared &&
-            PlayerSignature(State.HomePlayer) == PlayerSignature(source.HomePlayer) &&
-            PlayerSignature(State.AwayPlayer) == PlayerSignature(source.AwayPlayer) &&
+            // A staged edit is the exception; it keeps the published reading until Update Output.
+            State.HomePlayerCleared == homeCleared && State.AwayPlayerCleared == awayCleared &&
+            PlayerSignature(State.HomePlayer) == PlayerSignature(homePlayer) &&
+            PlayerSignature(State.AwayPlayer) == PlayerSignature(awayPlayer) &&
             // The new down goes on air at once when the preview is on; the distance waits for publish.
             (!source.DownPending || (State.Down == source.Down && State.DownPending))) return false;
         State.HomeScore=source.HomeScore;State.AwayScore=source.AwayScore;
@@ -1854,8 +1969,8 @@ public sealed class GameEngine
         State.TimeoutClockSeconds=source.TimeoutClockSeconds;State.TimeoutClockRunning=source.TimeoutClockRunning;
         // Live: the down changes, the distance does not; the pending flag stays until publication.
         if (source.DownPending) { State.Down=source.Down; State.DownPending=true; }
-        State.HomePlayerCleared=source.HomePlayerCleared;State.AwayPlayerCleared=source.AwayPlayerCleared;
-        State.HomePlayer=CopyPlayer(source.HomePlayer);State.AwayPlayer=CopyPlayer(source.AwayPlayer);
+        State.HomePlayerCleared=homeCleared;State.AwayPlayerCleared=awayCleared;
+        State.HomePlayer=CopyPlayer(homePlayer);State.AwayPlayer=CopyPlayer(awayPlayer);
         Changed?.Invoke();
         return true;
     }
@@ -1867,6 +1982,17 @@ public sealed class GameEngine
 
     void SaveUndo(string label) { _redo.Clear(); _undo.Push(new GameSnapshot(JsonSerializer.Deserialize<GameState>(JsonSerializer.Serialize(State, JsonOptions), JsonOptions)!, label)); if (_undo.Count > 100) { var keep = _undo.Reverse().TakeLast(100).ToArray(); _undo.Clear(); foreach (var x in keep) _undo.Push(x); } }
     void Log(string type, string description) => State.Events.Add(new GameEvent(DateTimeOffset.Now, type, description, State.HomeScore, State.AwayScore));
+
+    /// <summary>
+    /// Writes one operator-visible event to the log. Media, macro and roster actions use this so
+    /// the log records the whole show, not only the values the console itself changes.
+    /// </summary>
+    public void RecordEvent(string type, string description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return;
+        Log(type, description.Trim());
+        Changed?.Invoke();
+    }
     static string Abbreviate(string value) => string.Concat(value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(3).Select(s => char.ToUpperInvariant(s[0])));
     /// <summary>
     /// The console and remote clocks use the familiar padded shape. A graphic's game clock chooses

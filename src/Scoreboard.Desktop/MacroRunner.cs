@@ -28,44 +28,101 @@ public sealed class MacroRunner
         _publishOutput = publishOutput;
     }
 
+    /// <summary>Counters and loop guards for one press of a macro, shared by the macros it chains to.</summary>
+    sealed class RunScope
+    {
+        public readonly HashSet<string> Running = new(StringComparer.OrdinalIgnoreCase);
+        public bool Held;
+        public int Completed;
+        public int Skipped;
+    }
+
+    // A macro that runs another macro can chain, so the depth is capped and a macro that is
+    // already running is skipped rather than recursing forever.
+    const int MaxChainDepth = 8;
+
     public async Task<string> RunAsync(SavedMacro macro)
     {
-        var completed = 0;
-        var skipped = 0;
-        var held = false;
-        foreach (var action in macro.Actions)
+        var scope = new RunScope();
+        scope.Running.Add(macro.Id);
+        await RunStepsAsync(macro.Actions ?? [], scope, depth: 0);
+        var waiting = _engine.MacroOutputHold ? " · press Update Output to publish" : string.Empty;
+        var completed = scope.Completed;
+        var skipped = scope.Skipped;
+        var result = skipped == 0
+            ? $"MACRO · {macro.Label} · {completed} step{(completed == 1 ? "" : "s")} run{waiting}"
+            : $"MACRO · {macro.Label} · {completed} run, {skipped} skipped (missing player, source or macro){waiting}";
+        // Every macro press belongs in the show record, including how many steps it actually ran.
+        _engine.RecordEvent("Macro", result);
+        return result;
+    }
+
+    /// <summary>
+    /// True for a step that acts at once rather than waiting for Update Output: playback, a layout
+    /// switch, a pause, a heading, a level change, or a chained macro (whose own steps decide).
+    /// </summary>
+    static bool IsDirect(MacroAction action) => action.BypassOutput || action.Kind is MacroActionKind.PlayVideo
+        or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir or MacroActionKind.SwitchLayout
+        or MacroActionKind.Wait or MacroActionKind.Note or MacroActionKind.RunMacro
+        or MacroActionKind.MediaVolume or MacroActionKind.Replay;
+
+    async Task RunStepsAsync(IEnumerable<MacroAction> steps, RunScope scope, int depth)
+    {
+        foreach (var action in steps)
         {
-            // A media, layout or wait step is never staged: playback, a layout switch and a pause
-            // are immediate. Every other step defaults to staged, so a macro cannot accidentally
-            // put a score or clock on air before the operator presses Update Output. Once a step
-            // holds output, later checked steps stay held too; otherwise they would publish the
-            // earlier staged values along with their own.
-            var bypass = action.BypassOutput || action.Kind is MacroActionKind.PlayVideo
-                or MacroActionKind.PutOnAir or MacroActionKind.TakeOffAir or MacroActionKind.SwitchLayout
-                or MacroActionKind.Wait;
-            if (!bypass)
+            // A direct step is never staged. Every other step defaults to staged, so a macro cannot
+            // accidentally put a score or clock on air before the operator presses Update Output.
+            // Once a step holds output, later checked steps stay held too; otherwise they would
+            // publish the earlier staged values along with their own.
+            var direct = IsDirect(action);
+            if (!direct)
             {
                 _engine.HoldMacroOutput();
-                held = true;
+                scope.Held = true;
             }
             if (action.Kind == MacroActionKind.Wait)
             {
                 var pause = Math.Clamp(double.IsFinite(action.WaitSeconds) ? action.WaitSeconds : 0, 0, 60);
                 if (pause > 0) await Task.Delay(TimeSpan.FromSeconds(pause));
-                completed++;
+                scope.Completed++;
+                continue;
+            }
+            if (action.Kind == MacroActionKind.Note)
+            {
+                // A heading is a signpost in the step list, not a change to the show.
+                scope.Completed++;
+                continue;
+            }
+            if (action.Kind == MacroActionKind.RunMacro)
+            {
+                if (await RunLinkedAsync(action, scope, depth)) scope.Completed++;
+                else scope.Skipped++;
                 continue;
             }
             var ran = Execute(action);
-            if (ran) completed++;
-            else skipped++;
+            if (ran) scope.Completed++;
+            else scope.Skipped++;
             // A checked step has to publish, not merely avoid the hold. A macro made only of
             // checked steps previously changed the working game and left the output untouched.
-            if (ran && bypass && !held) _publishOutput?.Invoke();
+            if (ran && direct && !scope.Held) _publishOutput?.Invoke();
         }
-        var waiting = _engine.MacroOutputHold ? " · press Update Output to publish" : string.Empty;
-        return skipped == 0
-            ? $"MACRO · {macro.Label} · {completed} step{(completed == 1 ? "" : "s")} run{waiting}"
-            : $"MACRO · {macro.Label} · {completed} run, {skipped} skipped (missing player or video){waiting}";
+    }
+
+    /// <summary>Runs the macro named by a Run macro step, inside the same press and hold state.</summary>
+    async Task<bool> RunLinkedAsync(MacroAction action, RunScope scope, int depth)
+    {
+        if (depth >= MaxChainDepth) return false;
+        var macros = _engine.State.Macros;
+        var target = macros.FirstOrDefault(macro =>
+                !string.IsNullOrWhiteSpace(action.Path)
+                && string.Equals(macro.Id, action.Path, StringComparison.OrdinalIgnoreCase))
+            ?? macros.FirstOrDefault(macro => string.Equals(macro.Label, action.Label, StringComparison.OrdinalIgnoreCase));
+        if (target is null) return false;
+        // A loop (or a macro that runs itself) is skipped, not a failure of the whole press.
+        if (!scope.Running.Add(target.Id)) return false;
+        try { await RunStepsAsync(target.Actions ?? [], scope, depth + 1); }
+        finally { scope.Running.Remove(target.Id); }
+        return true;
     }
 
     bool Execute(MacroAction action)
@@ -125,6 +182,17 @@ public sealed class MacroRunner
                 return true;
             case MacroActionKind.CustomValue:
                 return ChangeCustomValue(action);
+            case MacroActionKind.ClockControl:
+                return ControlClock(action);
+            case MacroActionKind.ClockMessage:
+                _engine.SetClockMessage((GameClockMessage)Math.Clamp(action.Value, 0, 2));
+                return true;
+            case MacroActionKind.MediaVolume:
+                return SetMediaVolume(action);
+            case MacroActionKind.TickerNews:
+                return ApplyTickerNews(action);
+            case MacroActionKind.Replay:
+                return RunReplay(action);
             default:
                 return false;
         }
@@ -137,10 +205,11 @@ public sealed class MacroRunner
     public bool RunMediaStep(string path, bool onAir) =>
         onAir ? PlayVideo(path, restartClip: false) : TakeOffAir(path);
 
-    bool PlayVideo(string path, bool restartClip)
+    /// <summary>The library item a step names, importing a file the library has not seen yet.</summary>
+    MediaEntry? FindMedia(string? path)
     {
         path = (path ?? "").Trim();
-        if (path.Length == 0) return false;
+        if (path.Length == 0) return null;
         var entry = _session.Library.FirstOrDefault(item =>
             string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
         if (entry is null && File.Exists(path))
@@ -149,6 +218,12 @@ public sealed class MacroRunner
             entry = _session.Library.FirstOrDefault(item =>
                 string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
         }
+        return entry;
+    }
+
+    bool PlayVideo(string path, bool restartClip)
+    {
+        var entry = FindMedia(path);
         if (entry is null) return false;
         // Cameras, microphones and speaker buses are on/off sources, not transport clips. A macro
         // should put one on air without restarting a source that is already live.
@@ -188,21 +263,128 @@ public sealed class MacroRunner
         return true;
     }
 
+    /// <summary>
+    /// Starts, stops, toggles or resets one clock. Start and stop are explicit so a macro can be
+    /// pressed twice without flipping a running clock back on; toggle stays for a single button.
+    /// </summary>
+    bool ControlClock(MacroAction action)
+    {
+        var clock = (action.Path ?? "").Trim().ToLowerInvariant();
+        var operation = Math.Clamp(action.Value, 0, 3);
+        var resetSeconds = Math.Max(0, action.Amount);
+        var state = _engine.State;
+        switch (clock)
+        {
+            case "play":
+                if (state.SportId != "football") return false;
+                if (operation == 3) { _engine.ResetPlayClock(resetSeconds > 0 ? resetSeconds : 40); return true; }
+                if (operation == 2 || (operation == 0) != state.PlayClockRunning) _engine.TogglePlayClock();
+                return true;
+            case "timeout":
+                if (operation == 3) { _engine.ResetTimeoutClock(resetSeconds > 0 ? resetSeconds : 60); return true; }
+                if (operation == 2 || (operation == 0) != state.TimeoutClockRunning) _engine.ToggleTimeoutClock();
+                return true;
+            case "shot":
+                if (state.SportId != "basketball") return false;
+                if (operation == 3) { _engine.ResetShotClock(resetSeconds > 0 ? resetSeconds : 24); return true; }
+                if (operation == 2 || (operation == 0) != state.ShotClockRunning) _engine.ToggleShotClock();
+                return true;
+            case "stoppage":
+                if (state.SportId != "soccer") return false;
+                if (operation == 3) { _engine.ResetStoppageClock(); return true; }
+                if (operation == 2 || (operation == 0) != state.StoppageRunning) _engine.ToggleStoppageClock();
+                return true;
+            default:
+                if (operation == 3) { _engine.SetClock(resetSeconds); return true; }
+                if (operation == 2 || (operation == 0) != state.ClockRunning) _engine.ToggleClock();
+                return true;
+        }
+    }
+
+    bool SetMediaVolume(MacroAction action)
+    {
+        var entry = FindMedia(action.Path);
+        if (entry is null) return false;
+        if (action.Mute)
+        {
+            if (!entry.IsSpeaker) return false;
+            return _session.SetSpeakerMuted(entry, action.Muted);
+        }
+        _session.SetClipVolume(entry, Math.Clamp(action.Value, 0, 100) / 100.0);
+        return true;
+    }
+
+    /// <summary>
+    /// One replay step: change the speed, set up a replay at a chosen point back from the live
+    /// edge, start it on air, or come back to live. The steps drive the same session calls the
+    /// media rail uses, so a macro can set up and start a replay without dragging anything.
+    /// </summary>
+    bool RunReplay(MacroAction action)
+    {
+        switch ((action.Path ?? "").Trim().ToLowerInvariant())
+        {
+            case "speed":
+                if (action.ReplaySpeed <= 0) return false;
+                _session.SetReplaySpeed(action.ReplaySpeed);
+                return true;
+            case "prepare":
+                if (!_session.BeginReplay()) return false;
+                // WaitSeconds is how far back from the live edge to open. Zero keeps the live edge,
+                // and Start Replay then steps back on its own.
+                if (action.WaitSeconds > 0) _session.SeekReplay(action.WaitSeconds);
+                return true;
+            case "start":
+                // Start Replay puts the prepared replay on air exactly as the operator left it. A
+                // macro that says start means "run it", so a paused replay is rolled on too.
+                var started = _session.PlayReplay();
+                if (started && !_session.IsCurrentPlaying) _session.TogglePlayPause();
+                return started;
+            case "playpause":
+                _session.TogglePlayPause();
+                return true;
+            case "live":
+                return _session.ReturnToLive();
+            default:
+                return false;
+        }
+    }
+
+    bool ApplyTickerNews(MacroAction action)
+    {
+        var headlines = (action.Text ?? "")
+            .Split(['\r', '\n', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var state = _engine.State;
+        // Everything the ticker page also owns is passed through, so a macro step replaces the
+        // headlines without turning the rotation or the score alerts off.
+        _engine.SetTickerSettings(state.TickerGameIds, headlines, state.TickerAutoRotate,
+            state.TickerScoreAlerts, state.TickerDwellSeconds, state.TickerTransitionSeconds);
+        return true;
+    }
+
     bool ChangeRosterStat(MacroAction action)
     {
         if (string.IsNullOrWhiteSpace(action.StatName)) return false;
         var state = _engine.State;
         var roster = RosterStore.Book.Find(action.Home ? state.HomeRosterId : state.AwayRosterId);
         if (roster is null) return false;
+        // A step with no player named follows the show: it changes whoever is on air for that side,
+        // so the same macro works for any team and any substitution without being edited.
+        var playerId = (action.PlayerId ?? "").Trim();
+        if (playerId.Length == 0) playerId = (action.Home ? state.HomePlayer : state.AwayPlayer)?.PlayerId ?? "";
         var player = roster.Players.FirstOrDefault(candidate =>
-            (!string.IsNullOrWhiteSpace(action.PlayerId) && string.Equals(candidate.Id, action.PlayerId, StringComparison.OrdinalIgnoreCase))
-            || (string.IsNullOrWhiteSpace(action.PlayerId) && string.Equals(candidate.Name, action.PlayerName, StringComparison.OrdinalIgnoreCase)));
+                string.Equals(candidate.Id, playerId, StringComparison.OrdinalIgnoreCase))
+            ?? (string.IsNullOrWhiteSpace(action.PlayerId) && !string.IsNullOrWhiteSpace(action.PlayerName)
+                ? roster.Players.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Name, action.PlayerName, StringComparison.OrdinalIgnoreCase))
+                : null);
         if (player is null) return false;
         var before = player.Stat(action.StatName);
         player.SetStat(action.StatName, action.Delta ? before + action.Value : action.Value);
         RosterStore.Save();
-        // The graphic prints a snapshot of the selected player, so refresh the on-air copy too.
-                _engine.ReloadSelectedPlayer(action.Home);
+        _engine.RecordEvent("Roster", $"{(action.Home ? "Home" : "Visitors")} · {player.Record} · {action.StatName} {(action.Delta ? (action.Value >= 0 ? "+" : "−") + Math.Abs(action.Value) : "= " + action.Value)} = {player.Stat(action.StatName)}");
+        // The graphic prints a snapshot of the selected player. With automatic stat updates off,
+        // the change waits for Update Output like every other roster edit on the desk.
+        _engine.ReloadSelectedPlayer(action.Home, publish: _engine.PlayerStatsLive);
         return true;
     }
 

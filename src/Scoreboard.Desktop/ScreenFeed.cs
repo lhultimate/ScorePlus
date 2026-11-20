@@ -17,7 +17,7 @@ public interface ILiveSource
 /// <summary>One monitor windows draws on, as a source a video element can show.</summary>
 public sealed record ScreenDevice(int Index, string Name, int X, int Y, int Width, int Height)
 {
-    public string Label => $"{Name}   ·   screen {Index + 1}";
+    public string Label => $"{Name}   ·   Screen {Index + 1}";
 }
 
 /// <summary>

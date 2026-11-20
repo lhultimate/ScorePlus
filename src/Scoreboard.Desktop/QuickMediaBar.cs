@@ -109,14 +109,17 @@ public sealed class QuickMediaBar : Border
             var label = QuickLabels.Clean(binding!.Label);
             if (label.Length == 0) label = entry.Label;
             var onAir = _session.IsOnAir(entry);
-            button.Content = $"{(onAir ? "● " : "")}{Trim(label, 13)}";
+            var staged = _session.IsQuickMediaStaged(entry);
+            button.Content = $"{(onAir ? "● " : staged ? "◌ " : "")}{Trim(label, 13)}";
             button.ToolTip = onAir
                 ? $"{entry.KindLabel} · {entry.Label} · ON AIR — click to take it off air"
-                : $"{entry.KindLabel} · {entry.Label} · tag {entry.Tag} — click to put it on air";
-            button.Foreground = new SolidColorBrush(onAir ? _text : _muted);
+                : staged
+                    ? $"{entry.KindLabel} · {entry.Label} · STAGED — press Update Output to put it on air"
+                    : $"{entry.KindLabel} · {entry.Label} · tag {entry.Tag} — click to stage it for Update Output";
+            button.Foreground = new SolidColorBrush(onAir || staged ? _text : _muted);
             button.Background = new SolidColorBrush(onAir ? _accentFill : _surface);
-            button.BorderBrush = new SolidColorBrush(onAir ? _accentEdge : _edge);
-            button.Opacity = onAir ? 1 : 0.7;
+            button.BorderBrush = new SolidColorBrush(onAir ? _accentEdge : staged ? _muted : _edge);
+            button.Opacity = onAir || staged ? 1 : 0.7;
         }
     }
 
@@ -169,10 +172,24 @@ public sealed class QuickMediaBar : Border
             Refresh();
             return;
         }
-        var onAir = _session.ToggleOnAir(entry);
-        Status?.Invoke(onAir
-            ? $"QUICK MEDIA {slot + 1} · ON AIR · {entry.KindLabel} · {entry.Label}"
-            : $"QUICK MEDIA {slot + 1} · OFF AIR · {entry.KindLabel} · {entry.Label}");
+        // Off by default a quick media press only stages the item, so it goes on air with the same
+        // Update Output that sends a staged layout. The preference lets a show bypass that, like
+        // the quick layout preference does. A speaker bus has no picture to stage, so it acts now.
+        var bypass = entry.IsSpeaker || _session.IsOnAir(entry) || PreferencesStore.Load().QuickMediaPublish;
+        if (bypass)
+        {
+            var onAir = _session.ToggleOnAir(entry);
+            Status?.Invoke(onAir
+                ? $"QUICK MEDIA {slot + 1} · ON AIR · {entry.KindLabel} · {entry.Label}"
+                : $"QUICK MEDIA {slot + 1} · OFF AIR · {entry.KindLabel} · {entry.Label}");
+        }
+        else
+        {
+            var staged = _session.StageQuickMedia(entry);
+            Status?.Invoke(staged
+                ? $"QUICK MEDIA {slot + 1} · STAGED · {entry.KindLabel} · {entry.Label} · Update Output puts it on air"
+                : $"QUICK MEDIA {slot + 1} · STAGING CLEARED · {entry.Label}");
+        }
         Refresh();
     }
 

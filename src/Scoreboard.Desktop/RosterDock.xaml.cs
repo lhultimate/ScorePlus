@@ -14,6 +14,13 @@ public partial class RosterDock : UserControl
 {
     GameEngine? _engine;
     bool _showingHome = true;
+    // The console's Live switch is the show's live state. When a host provides it, the stats desk
+    // reads and drives the same switch instead of keeping a second one that can disagree.
+    Func<bool>? _getLive;
+    Action<bool>? _setLive;
+
+    /// <summary>The tab's Update Output button, wired to the console's own publish by the host.</summary>
+    public Action? PublishOutput { get; set; }
 
     public RosterDock()
     {
@@ -26,15 +33,60 @@ public partial class RosterDock : UserControl
     }
 
     /// <summary>Points the tab at the game. Every window has its own dock but one engine and library.</summary>
-    public void Attach(GameEngine engine)
+    public void Attach(GameEngine engine, Action? publishOutput = null, Func<bool>? getLive = null, Action<bool>? setLive = null)
     {
         if (_engine is not null) _engine.Changed -= EngineChanged;
         _engine = engine;
+        PublishOutput = publishOutput;
+        _getLive = getLive;
+        _setLive = setLive;
+        // The desk follows the console's Live switch when its host supplies one; a detached desk
+        // without a host falls back to the saved preference so it still works on its own.
+        _engine.PlayerStatsLive = getLive?.Invoke() ?? PreferencesStore.RosterStatsLive;
+        PreferencesStore.RosterStatsLive = _engine.PlayerStatsLive;
         AwayPanel.Attach(engine, home: false);
         HomePanel.Attach(engine, home: true);
         _engine.Changed += EngineChanged;
         ShowSide(_showingHome);
+        SyncLiveButton();
         RefreshSummary();
+    }
+
+    void SyncLiveButton()
+    {
+        var live = _getLive?.Invoke() ?? _engine?.PlayerStatsLive == true;
+        RosterLiveButton.Content = live ? "Live: ON" : "Live: OFF";
+        RosterLiveButton.Foreground = (Brush)(Resources[live ? "RosterAccentBrush" : "RosterMutedBrush"] ?? Brushes.Gray);
+        RosterLiveButton.ToolTip = live
+            ? "Player stat edits print on the graphic as you make them. Press to stage them instead."
+            : "Player stat edits stay staged until Update Output. Press to print them as you type.";
+    }
+
+    void Live_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine is null) return;
+        var live = !(_getLive?.Invoke() ?? _engine.PlayerStatsLive);
+        if (_setLive is not null)
+        {
+            // The host owns the one Live state for the console and this desk.
+            _setLive(live);
+        }
+        else
+        {
+            _engine.PlayerStatsLive = live;
+            PreferencesStore.RosterStatsLive = live;
+            PreferencesStore.Save(PreferencesStore.Load());
+        }
+        SyncLiveButton();
+        // Turning Live on publishes what was waiting: the operator asked for it to be current.
+        if (live && _engine.PublishStagedPlayers()) PublishOutput?.Invoke();
+    }
+
+    void UpdateOutput_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine is null) return;
+        _engine.PublishStagedPlayers();
+        PublishOutput?.Invoke();
     }
 
     /// <summary>Matches the desk to the operator theme (black page in Dark, light page in Light).</summary>
@@ -66,10 +118,33 @@ public partial class RosterDock : UserControl
     /// <summary>Which panel is on screen right now.</summary>
     public RosterPanel ActivePanel => _showingHome ? HomePanel : AwayPanel;
 
-    void EngineChanged() => RefreshSummary();
+    void EngineChanged()
+    {
+        // Every stats desk shares one engine, so a Live press in this window (or a detached control
+        // panel) has to relabel the switch everywhere.
+        SyncLiveButton();
+        RefreshSummary();
+    }
+
+    /// <summary>Applies the Preferences choice for automatic stat updates to the open desks.</summary>
+    public void ApplyStatsPreference()
+    {
+        if (_engine is null) return;
+        var live = PreferencesStore.RosterStatsLive;
+        if (_setLive is not null) _setLive(live);
+        else _engine.PlayerStatsLive = live;
+        SyncLiveButton();
+        if (live && _engine.PublishStagedPlayers()) PublishOutput?.Invoke();
+    }
 
     void RefreshSummary()
     {
+        if (_engine is not null)
+        {
+            var pending = _engine.State.HomePlayerPending is not null || _engine.State.AwayPlayerPending is not null;
+            RosterUpdateButton.Content = pending ? "Update Output •" : "Update Output";
+            RosterUpdateButton.Foreground = (Brush)(Resources[pending ? "RosterAccentBrush" : "RosterHeaderTextBrush"] ?? Brushes.Gray);
+        }
         var count = RosterStore.All().Count;
         LibraryText.Text = count switch
         {

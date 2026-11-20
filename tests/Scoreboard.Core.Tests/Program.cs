@@ -441,6 +441,48 @@ try
 }
 finally{if(File.Exists(macroPath))File.Delete(macroPath);}
 
+// ---------- detailed macro steps: clocks, levels, ticker headlines, chains and notes ----------
+var detailPath=Path.Combine(Path.GetTempPath(),$"macro-detail-{Guid.NewGuid():N}.spg");
+try
+{
+    var detailEngine=new GameEngine();detailEngine.NewGame("football");
+    var chain=new SavedMacro{Label="Chain target",Actions=[new MacroAction{Kind=MacroActionKind.Score,Home=false,Amount=2}]};
+    detailEngine.StoreMacros([chain,new SavedMacro{Label="Detailed",Actions=[
+        new MacroAction{Kind=MacroActionKind.Note,Text="  Timeout routine  "},
+        new MacroAction{Kind=MacroActionKind.ClockControl,Path="play",Value=1,Amount=25},
+        new MacroAction{Kind=MacroActionKind.ClockMessage,Value=1},
+        new MacroAction{Kind=MacroActionKind.MediaVolume,Path=@"C:\media\theme.mp3",Label="Theme",Value=35},
+        new MacroAction{Kind=MacroActionKind.MediaVolume,Path=@"C:\media\arena.wav",Label="Arena bus",Mute=true,Muted=true},
+        new MacroAction{Kind=MacroActionKind.TickerNews,Text="Home wins|Next game Friday"},
+        new MacroAction{Kind=MacroActionKind.RunMacro,Path=chain.Id,Label=chain.Label}
+    ]}]);
+    File.WriteAllText(detailPath,GameFiles.Serialize(detailEngine.State,null));
+    var (detailLoaded,_)=GameFiles.Read(detailPath);
+    var detailed=detailLoaded.Macros.Single(m=>m.Label=="Detailed");
+    Check(detailed.Actions.Count==7,"every detailed macro step survives a game save");
+    Check(detailed.Actions[0].Kind==MacroActionKind.Note&&detailed.Actions[0].Text=="Timeout routine",
+        "a note heading keeps its text and is trimmed");
+    Check(detailed.Actions[0].Summary=="▸ Timeout routine","a note heading reads as a heading in the step list");
+    Check(detailed.Actions[1].Kind==MacroActionKind.ClockControl&&detailed.Actions[1].Path=="play"
+        &&detailed.Actions[1].Value==1&&detailed.Actions[1].Amount==25,
+        "a clock step keeps its clock, action and reset seconds");
+    Check(detailed.Actions[1].Summary=="Play clock · stop","a clock step reads as the clock and the action");
+    Check(detailed.Actions[2].Summary=="Clock message · Final","a clock-message step reads as Final");
+    Check(detailed.Actions[3].Kind==MacroActionKind.MediaVolume&&detailed.Actions[3].Value==35&&!detailed.Actions[3].Mute,
+        "a level step keeps its percentage");
+    Check(detailed.Actions[3].Summary=="Level 35% · Theme","a level step reads as its percentage and item");
+    Check(detailed.Actions[4].Mute&&detailed.Actions[4].Muted&&detailed.Actions[4].Summary=="Mute · Arena bus",
+        "a mute step keeps mute on and reads as Mute");
+    Check(detailed.Actions[5].Kind==MacroActionKind.TickerNews&&detailed.Actions[5].Text=="Home wins|Next game Friday"
+        &&detailed.Actions[5].Summary=="Ticker headlines · 2 lines",
+        "a ticker step keeps its headlines and counts them");
+    Check(detailed.Actions[6].Kind==MacroActionKind.RunMacro&&detailed.Actions[6].Path==chain.Id
+        &&detailed.Actions[6].Summary=="Run macro · Chain target","a chained macro step keeps its target");
+    var longNote=new MacroAction{Kind=MacroActionKind.Note,Text=new string('x',500)};longNote.Normalize();
+    Check(longNote.Text.Length==400,"a note's text is capped so a step list stays readable");
+}
+finally{if(File.Exists(detailPath))File.Delete(detailPath);}
+
 // ---------- typography, text transitions and team colour slots ----------
 var styledPath=Path.Combine(Path.GetTempPath(),$"styled-{Guid.NewGuid():N}.json");
 try

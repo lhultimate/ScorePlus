@@ -143,6 +143,14 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         // the console off the screen; the console itself is reflowable down to its minimum width.
         ScreenFit.Track(this);
         _session = new MediaSession(_preferences);
+        // Every media action already reports a clear status line; mirror those into the event log
+        // so playing, stopping, retagging and quick-media presses are part of the show record.
+        _session.Status += message =>
+        {
+            // Media events can arrive from a decoder thread, so the log is written on the UI thread.
+            if (Dispatcher.CheckAccess()) _engine.RecordEvent("Media", message);
+            else Dispatcher.BeginInvoke(new Action(() => _engine.RecordEvent("Media", message)));
+        };
         CameraFeed.ReplayWindowSeconds = Math.Clamp(_preferences.ReplaySeconds, 10, 900);
         _booth = new ReplayBoothController(_session, _engine, _preferences);
         _playback = _session.Playback;
@@ -213,7 +221,7 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         ControlHost.Content = _panel;
         _panel.SetHintVisibility(_preferences.ShowHeadingHints);
 
-        RosterControl.Attach(_engine);
+        RosterControl.Attach(_engine, PublishGameState, () => _liveScoreClock, SetLiveScoreClock);
         RosterControl.ApplyTheme(_preferences.Theme);
         RosterControl.SetHintVisibility(_preferences.ShowHeadingHints);
         _macroDock = new MacroDock(_engine, _session, _preferences.Theme, _panel.Execute, _scorebug, PublishGameState,
@@ -420,9 +428,7 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         set => SetLiveScoreClock(value);
     }
 
-    public bool HasStagedChanges =>
-        GameEngine.StagedSignature(_engine.State) != GameEngine.StagedSignature(_publishedEngine.State) ||
-        _program.HasStagedChanges;
+    public bool HasStagedChanges => HasStagedGameState() || _program.HasStagedChanges;
 
     /// <summary>The layout the preview is showing: the one that Update Output will publish.</summary>
     public string LayoutLabel => _program.Label;
@@ -576,9 +582,11 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
                 if (player is null) return false;
                 player.SetStat(stat, number);
                 RosterStore.Save();
+                _engine.RecordEvent("Roster", $"{(home ? "Home" : "Visitors")} · {player.Record} · {stat} = {number} · remote");
                 // The graphic prints a snapshot of the selected player, so an edit to the player on
                 // air has to be re-resolved or the phone would change the number backstage only.
-                _engine.ReloadSelectedPlayer(home);
+                // With automatic stat updates off it waits for Update Output, like the desk.
+                _engine.ReloadSelectedPlayer(home, publish: _engine.PlayerStatsLive);
                 return true;
             }
             default: return false;
@@ -605,6 +613,10 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
 
     public void PublishGameState()
     {
+        // A quick-media item staged by its button goes on air with Update Output, like a layout.
+        _session.PublishQuickMedia();
+        // A staged player stat is part of what Update Output publishes.
+        _engine.PublishStagedPlayers();
         // Update Output is the explicit release for a macro that held its live values back.
         _engine.ClearMacroOutputHold();
         // Remember the down going to air, so Last down can put back the one before it.
@@ -966,9 +978,15 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
 
     void Preferences_Click(object sender, RoutedEventArgs e)
     {
+        // The desk's own Live switch is the running truth for automatic stat updates; put it on
+        // this window's copy so the page opens showing what the operator is actually using.
+        _preferences.RosterStatsLive = _engine.PlayerStatsLive;
         var dialog = new SettingsWindow(_preferences) { Owner = this };
         ThemeManager.Apply(dialog, _preferences.Theme);
         if (dialog.ShowDialog() != true) return; // Cancel discards: nothing is applied or saved.
+        // The stats desk follows the new automatic-update choice without a restart.
+        RosterControl.ApplyStatsPreference();
+        _quickMedia?.Refresh();
         ThemeManager.Apply(this, _preferences.Theme);
         _leagueCloud?.ApplySettings();
         // The new theme paints buttons as it runs; put the active tab's outline back on top.
@@ -1151,7 +1169,8 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
 
     /// <summary>True when the game data differs from what is on air, ignoring any layout choice.</summary>
     public bool HasStagedGameState() =>
-        GameEngine.StagedSignature(_engine.State) != GameEngine.StagedSignature(_publishedEngine.State);
+        GameEngine.StagedSignature(_engine.State) != GameEngine.StagedSignature(_publishedEngine.State)
+        || _session.PendingQuickMedia is not null;
 
     void SportProfiles_Click(object sender, RoutedEventArgs e)
     {
@@ -1480,9 +1499,24 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
     void SetLiveScoreClock(bool enabled)
     {
         _liveScoreClock = enabled;
+        // One Live state for the whole show: the console switch, the stats desk and the saved
+        // preference cannot drift apart, whichever one the operator presses.
+        _engine.PlayerStatsLive = enabled;
+        _preferences.RosterStatsLive = enabled;
+        PreferencesStore.RosterStatsLive = enabled;
+        // Save a fresh reading of the file, so a Live press never writes back an older copy of the
+        // media or roster settings this window happens to hold.
+        try { PreferencesStore.Save(PreferencesStore.Load()); } catch { }
         foreach (var panel in _controlPanels) panel.SyncLiveState(enabled);
         _panel.SyncLiveState(enabled);
-        if (enabled) PublishLiveValues();
+        // The macro board mirrors the same switch, so a press on any panel relabels every copy.
+        _macroDock?.SyncLiveState(enabled);
+        if (enabled)
+        {
+            // Going live means "put what is waiting on air", including staged roster readings.
+            _engine.PublishStagedPlayers();
+            PublishLiveValues();
+        }
     }
 
     void Undo_Click(object sender, RoutedEventArgs e)
@@ -1490,6 +1524,10 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         if (_engine.Undo())
         {
             StatusText.Text = "UNDONE · the last action was taken back";
+            // A macro or roster edit is part of the same history, so the board and the stats desk
+            // have to show the restored values rather than the ones they were holding.
+            _macroDock?.RefreshView();
+            RosterControl.RefreshView();
             AutoSave();
         }
         SyncHistory();
@@ -1500,6 +1538,8 @@ public partial class MainWindow : Window, IControlPanelHost, IRemoteDisplayHost
         if (_engine.Redo())
         {
             StatusText.Text = "REDONE · the action was put back";
+            _macroDock?.RefreshView();
+            RosterControl.RefreshView();
             AutoSave();
         }
         SyncHistory();

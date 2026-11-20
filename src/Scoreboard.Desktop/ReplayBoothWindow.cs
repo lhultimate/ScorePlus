@@ -55,7 +55,14 @@ public sealed class ReplayBoothWindow : Window
     readonly StackPanel _stoppagePanel = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed };
     readonly TextBlock _stoppageValue = new() { Text = "0:00", FontSize = 12, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x66)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 8, 0), MinWidth = 38 };
     readonly Button _stoppageToggle = new() { Content = "Start", MinWidth = 58, Margin = new Thickness(0, 0, 4, 0) };
-    readonly Button _stoppageReset = new() { Content = "Reset", MinWidth = 58 };
+    readonly Button _stoppageReset = new() { Content = "Reset", MinWidth = 58, Margin = new Thickness(0, 0, 4, 0) };
+    readonly Button _stoppageMinus = new() { Content = "−30s", MinWidth = 52, Margin = new Thickness(0, 0, 4, 0) };
+    readonly Button _stoppagePlus = new() { Content = "+30s", MinWidth = 52, Margin = new Thickness(0, 0, 4, 0) };
+    readonly Slider _speedSlider = new() { Minimum = 0.1, Maximum = 2.0, Value = 1, Width = 150, Margin = new Thickness(8, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock _speedText = new() { Text = "1.0×", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x66)), VerticalAlignment = VerticalAlignment.Center, MinWidth = 40 };
+    readonly StackPanel _wallCameraList = new();
+    readonly ComboBox _wallColumnsBox = new() { Width = 130, Margin = new Thickness(0, 0, 0, 6) };
+    bool _updatingLayout;
     int _wallColumns = 2;
     readonly Button _playButton = new() { Content = "Play", MinWidth = 70 };
     readonly Button _backButton = new() { Content = "◀ Wall", MinWidth = 76, Margin = new Thickness(0, 0, 6, 0), Visibility = Visibility.Collapsed };
@@ -99,6 +106,13 @@ public sealed class ReplayBoothWindow : Window
         _labelsCheck.IsChecked = _booth.ShowLabels;
         _labelsCheck.Checked += (_, _) => SetLabels(true);
         _labelsCheck.Unchecked += (_, _) => SetLabels(false);
+        _speedSlider.Value = _booth.Speed;
+        _speedText.Text = $"{_booth.Speed:0.0}×";
+        _speedSlider.ValueChanged += (_, e) =>
+        {
+            _booth.Speed = e.NewValue;
+            _speedText.Text = $"{_booth.Speed:0.0}×";
+        };
         Content = BuildChrome();
         BuildBigView();
         _booth.RefreshCameras();
@@ -159,7 +173,42 @@ public sealed class ReplayBoothWindow : Window
         done.Click += (_, _) => ToggleEditing();
         DockPanel.SetDock(done, Dock.Right);
         editorPanel.Children.Add(done);
-        editorPanel.Children.Add(_labelsCheck);
+        // The booth owns this layout, separately from the multiview wall: its own column count,
+        // its own camera order, and its own set of hidden cameras.
+        var editorStack = new StackPanel();
+        editorStack.Children.Add(_labelsCheck);
+        var columnsRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 7, 0, 0) };
+        columnsRow.Children.Add(new TextBlock
+        {
+            Text = "WALL COLUMNS",
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0xA0, 0xB4)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        });
+        columnsRow.Children.Add(_wallColumnsBox);
+        editorStack.Children.Add(columnsRow);
+        editorStack.Children.Add(new TextBlock
+        {
+            Text = "CAMERAS ON THIS WALL · ↑ ↓ ORDER",
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0xA0, 0xB4)),
+            Margin = new Thickness(0, 2, 0, 4)
+        });
+        var cameraScroll = new ScrollViewer
+        {
+            MaxHeight = 132,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = _wallCameraList
+        };
+        editorStack.Children.Add(cameraScroll);
+        editorPanel.Children.Add(editorStack);
+        _wallColumnsBox.ItemsSource = new[] { "Auto", "1 column", "2 columns", "3 columns", "4 columns" };
+        _wallColumnsBox.SelectedIndex = Math.Clamp(_booth.Columns, 0, 4);
+        _wallColumnsBox.SelectionChanged += (_, _) => ApplyWallEditor();
         DockPanel.SetDock(_editor, Dock.Top);
         root.Children.Add(header);
         Grid.SetRow(_editor, 1);
@@ -254,11 +303,25 @@ public sealed class ReplayBoothWindow : Window
         scrubRow.Children.Add(_windowLabel);
         scrubRow.Children.Add(_scrub);
         stack.Children.Add(scrubRow);
+        var speedRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 3, 0, 0) };
+        speedRow.Children.Add(new TextBlock
+        {
+            Text = "SPEED",
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0xA0, 0xB4)),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        speedRow.Children.Add(_speedSlider);
+        speedRow.Children.Add(_speedText);
+        stack.Children.Add(speedRow);
 
         // A compact added-time stopwatch beside the transport. It drives the live game engine, so
         // starting it here is exactly the same as pressing Stoppage on the console.
         _stoppageToggle.Click += (_, _) => { _booth.ToggleStoppage(); RefreshBigView(); };
         _stoppageReset.Click += (_, _) => { _booth.ResetStoppage(); RefreshBigView(); };
+        _stoppagePlus.Click += (_, _) => { _booth.AdjustStoppage(30); RefreshBigView(); };
+        _stoppageMinus.Click += (_, _) => { _booth.AdjustStoppage(-30); RefreshBigView(); };
         _stoppagePanel.Children.Add(new TextBlock
         {
             Text = "⏱ STOPPAGE",
@@ -268,6 +331,8 @@ public sealed class ReplayBoothWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
         _stoppagePanel.Children.Add(_stoppageValue);
+        _stoppagePanel.Children.Add(_stoppageMinus);
+        _stoppagePanel.Children.Add(_stoppagePlus);
         _stoppagePanel.Children.Add(_stoppageToggle);
         _stoppagePanel.Children.Add(_stoppageReset);
         controls.Child = stack;
@@ -306,8 +371,9 @@ public sealed class ReplayBoothWindow : Window
         _editor.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
         if (_editing)
         {
+            BuildWallEditor();
             _labelsCheck.Focus();
-            _status.Text = "EDIT · show or hide the source name on each camera tile";
+            _status.Text = "EDIT · wall columns, camera order and names on the booth's own layout";
         }
         else
         {
@@ -351,7 +417,7 @@ public sealed class ReplayBoothWindow : Window
             });
             return;
         }
-        _wallColumns = _booth.Cameras.Count <= 4 ? 2 : 3;
+        _wallColumns = _booth.Columns > 0 ? _booth.Columns : _booth.Cameras.Count <= 4 ? 2 : 3;
         _wallTiles.Columns = _wallColumns;
         foreach (var camera in _booth.Cameras)
         {
@@ -473,10 +539,98 @@ public sealed class ReplayBoothWindow : Window
 
     void RefreshStoppage()
     {
-        _stoppagePanel.Visibility = _booth.ShowStoppage ? Visibility.Visible : Visibility.Collapsed;
+        // The stoppage clock is part of the booth's top bar: it is there before a soccer match
+        // has any added time and on every sport, so the operator can always reach it.
+        _stoppagePanel.Visibility = Visibility.Visible;
         _stoppageValue.Text = _booth.StoppageText;
         _stoppageToggle.Content = _booth.StoppageRunning ? "Stop" : "Start";
     }
+
+    /// <summary>Rebuilds the booth's own layout editor from the saved wall.</summary>
+    void BuildWallEditor()
+    {
+        if (_wallCameraList is null) return;
+        _updatingLayout = true;
+        try
+        {
+            _wallColumnsBox.SelectedIndex = Math.Clamp(_booth.Columns, 0, 4);
+            _wallCameraList.Children.Clear();
+            var order = _booth.WallOrder.ToList();
+            var hidden = new HashSet<string>(_booth.WallHidden, StringComparer.OrdinalIgnoreCase);
+            var cameras = _booth.AllCameras
+                .OrderBy(camera =>
+                {
+                    var index = order.FindIndex(path => string.Equals(path, camera.Path, StringComparison.OrdinalIgnoreCase));
+                    return index < 0 ? int.MaxValue : index;
+                })
+                .ToList();
+            foreach (var camera in cameras)
+            {
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 3), Tag = camera.Path };
+                var up = new Button { Content = "↑", Width = 26, MinHeight = 22, Padding = new Thickness(0), Margin = new Thickness(3, 0, 0, 0) };
+                var down = new Button { Content = "↓", Width = 26, MinHeight = 22, Padding = new Thickness(0), Margin = new Thickness(3, 0, 0, 0) };
+                up.Click += (_, _) => MoveWallCamera(row, -1);
+                down.Click += (_, _) => MoveWallCamera(row, 1);
+                DockPanel.SetDock(up, Dock.Right);
+                DockPanel.SetDock(down, Dock.Right);
+                row.Children.Add(up);
+                row.Children.Add(down);
+                var check = new CheckBox
+                {
+                    Content = camera.Label,
+                    IsChecked = !hidden.Contains(camera.Path),
+                    Tag = camera.Path,
+                    FontSize = 11,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Foreground = _labelsCheck.Foreground
+                };
+                check.Checked += (_, _) => ApplyWallEditor();
+                check.Unchecked += (_, _) => ApplyWallEditor();
+                row.Children.Add(check);
+                _wallCameraList.Children.Add(row);
+            }
+        }
+        finally { _updatingLayout = false; }
+    }
+
+    void MoveWallCamera(DockPanel row, int delta)
+    {
+        if (_updatingLayout) return;
+        var index = _wallCameraList.Children.IndexOf(row);
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= _wallCameraList.Children.Count) return;
+        _updatingLayout = true;
+        try
+        {
+            _wallCameraList.Children.RemoveAt(index);
+            _wallCameraList.Children.Insert(target, row);
+        }
+        finally { _updatingLayout = false; }
+        ApplyWallEditor();
+    }
+
+    /// <summary>Saves the booth's wall from the editor: order is the row order, unchecked rows are hidden.</summary>
+    void ApplyWallEditor()
+    {
+        if (_updatingLayout) return;
+        var order = new List<string>();
+        var hidden = new List<string>();
+        foreach (var child in _wallCameraList.Children)
+        {
+            if (child is not DockPanel row) continue;
+            var path = row.Tag as string ?? "";
+            if (path.Length == 0) continue;
+            var check = row.Children.OfType<CheckBox>().FirstOrDefault();
+            if (check?.IsChecked == true) order.Add(path); else hidden.Add(path);
+        }
+        _booth.SetWallLayout(order, hidden, _wallColumnsBox.SelectedIndex);
+        // The column count and camera set are part of the wall's shape, so force the next render
+        // to rebuild the tiles instead of returning on an unchanged camera signature.
+        _cameraSignature = "";
+        RenderWall();
+        _status.Text = $"BOOTH LAYOUT · {order.Count} camera{(order.Count == 1 ? "" : "s")} · {(_booth.Columns == 0 ? "auto columns" : $"{_booth.Columns} column{(_booth.Columns == 1 ? "" : "s")}")}";
+    }
+
 
     void RefreshUi()
     {

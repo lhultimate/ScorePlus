@@ -64,7 +64,7 @@ public partial class GameControlWindow : Window
         if (host is DelegateHost detached) detached.NewPanel = () => NewPanelRequested?.Invoke();
         Panel = new ControlPanelView(engine, host);
         PanelHost.Content = Panel;
-        RosterControl.Attach(engine);
+        RosterControl.Attach(engine, null, () => host.LiveScoreClock, live => host.LiveScoreClock = live);
         BuildSoundMeter();
         _meterTimer.Tick += (_, _) => UpdateSoundMeter();
         _meterTimer.Start();
@@ -125,7 +125,7 @@ public partial class GameControlWindow : Window
         _macroDock = new MacroDock(engine, session, theme, Panel.Execute, catalog, publishGameState);
         _macroDock.Status += message => MediaStatus.Text = message;
         MacroHost.Content = _macroDock;
-        RosterControl.Attach(engine);
+        RosterControl.Attach(engine, null, () => host.LiveScoreClock, live => host.LiveScoreClock = live);
         AttachMedia(media);
         ApplyTheme(theme);
         SyncDisplayPicker();
@@ -172,7 +172,11 @@ public partial class GameControlWindow : Window
     /// <summary>Allows the host to keep the panel chain going without a production header button.</summary>
     public void RequestNewPanel() => NewPanelRequested?.Invoke();
 
-    public void SyncLiveState(bool live) => Panel.SyncLiveState(live);
+    public void SyncLiveState(bool live)
+    {
+        Panel.SyncLiveState(live);
+        _macroDock?.SyncLiveState(live);
+    }
 
     /// <summary>Repaints the program preview with the newest values, skipping any switch delay.</summary>
     public void RefreshPreview() => _preview?.ApplyNow();

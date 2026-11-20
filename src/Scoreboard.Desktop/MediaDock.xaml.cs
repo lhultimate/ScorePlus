@@ -50,7 +50,6 @@ public partial class MediaDock : UserControl
     // program preview. Both are painted by one small timer, not by the transport.
     readonly List<(MediaEntry Entry, Border Fill, Border Track)> _meters = [];
     readonly System.Windows.Threading.DispatcherTimer _meterTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
-    string _cameraMicSignature = "";
 
     MediaView _view = MediaView.Library;
     string? _openPlaylistName;
@@ -73,17 +72,9 @@ public partial class MediaDock : UserControl
     static readonly AudioRouter.OutputDevice DefaultOutput = new("", "Default output");
     IReadOnlyList<AudioRouter.OutputDevice> _audioDevices = [];
 
-    IReadOnlyList<CameraChoice> _cameraChoices = [];
-
     // A dock used as a full-width tab gets console-sized controls; the rail version stays compact.
     bool _large;
     double _tileWidth = 132, _tileHeight = 116, _thumbHeight = 70;
-
-    /// <summary>A capture device in the LIVE picker; <see cref="ToString"/> is what the combo shows.</summary>
-    sealed record CameraChoice(MediaEntry Entry)
-    {
-        public override string ToString() => Entry.Label;
-    }
 
     /// <summary>
     /// Opens the display's rule editor. The console host wires this to the studio's conditionals,
@@ -106,6 +97,8 @@ public partial class MediaDock : UserControl
         ThemeManager.SetSkipTheme(this, true);
         TagBox.ItemsSource = MediaLibrary.SuggestedTags;
         TagBox.Text = MediaLibrary.DefaultTag;
+        ReplayTagBox.ItemsSource = MediaLibrary.SuggestedTags;
+        ReplayTagBox.Text = MediaLibrary.ReplayTagName;
         TransitionBox.ItemsSource = MediaLibrary.TransitionOptions;
         TransitionBox.SelectedItem = "Cut";
         ApplyTheme("Dark");
@@ -269,7 +262,8 @@ public partial class MediaDock : UserControl
             AudioDeviceBox.IsEnabled = selected is not null;
             SyncSpeaker(selected);
 
-            SyncCameraPicker();
+            SyncReplaySpeed();
+            SyncReplayTag();
 
             // Replay can use the green-outlined camera even before it is on air. Jump to live in
             // the REPLAY section is the way back; Start replay wakes up once there is a preview.
@@ -336,22 +330,54 @@ public partial class MediaDock : UserControl
         AudioDeviceBox.SelectedItem = _audioDevices.FirstOrDefault(d => string.Equals(d.Id, device, StringComparison.OrdinalIgnoreCase)) ?? _audioDevices[0];
     }
 
-    /// <summary>Lists the capture devices already in the library and marks the one on air.</summary>
-    void SyncCameraPicker()
+    /// <summary>Keeps the rail's speed slider on the session's replay rate.</summary>
+    void SyncReplaySpeed()
     {
         if (_session is null) return;
-        var cameras = _session.Library.Where(entry => entry.IsCamera).Select(entry => new CameraChoice(entry)).ToArray();
-        if (!cameras.SequenceEqual(_cameraChoices))
-        {
-            _cameraChoices = cameras;
-            CameraBox.ItemsSource = _cameraChoices;
-        }
-        var active = _session.Current?.IsCamera == true ? _session.Current
-            : _session.Selected?.IsCamera == true ? _session.Selected : null;
-        CameraBox.IsEnabled = _cameraChoices.Count > 0;
-        CameraBox.SelectedItem = active is null
-            ? null
-            : _cameraChoices.FirstOrDefault(choice => string.Equals(choice.Entry.Path, active.Path, StringComparison.OrdinalIgnoreCase));
+        var speed = _session.ReplaySpeed;
+        var wasSyncing = _syncing;
+        _syncing = true;
+        try { ReplaySpeedSlider.Value = speed; }
+        finally { _syncing = wasSyncing; }
+        ReplaySpeedText.Text = $"{speed:0.0}×";
+    }
+
+    void ReplaySpeed_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing || _session is null) return;
+        _session.SetReplaySpeed(e.NewValue);
+        ReplaySpeedText.Text = $"{e.NewValue:0.0}×";
+    }
+
+    /// <summary>Keeps the rail's replay tag field on the session's choice without fighting typing.</summary>
+    void SyncReplayTag()
+    {
+        if (_session is null || ReplayTagBox.IsKeyboardFocusWithin) return;
+        var wasSyncing = _syncing;
+        _syncing = true;
+        try { ReplayTagBox.Text = _session.ReplayTag; }
+        finally { _syncing = wasSyncing; }
+    }
+
+    void ReplayTag_Changed(object sender, SelectionChangedEventArgs e) => ApplyReplayTag();
+
+    void ReplayTag_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => ApplyReplayTag();
+
+    void ReplayTag_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        ApplyReplayTag();
+        Keyboard.ClearFocus();
+        e.Handled = true;
+    }
+
+    void ApplyReplayTag()
+    {
+        if (_syncing || _session is null) return;
+        var text = (ReplayTagBox.Text ?? "").Trim();
+        if (text.Length == 0) { SyncReplayTag(); return; }
+        if (!string.Equals(text, _session.ReplayTag, StringComparison.OrdinalIgnoreCase)) _session.SetReplayTag(text);
+        SyncReplayTag();
     }
 
     void Transition_Changed(object sender, SelectionChangedEventArgs e)
@@ -1058,46 +1084,6 @@ public partial class MediaDock : UserControl
         // The master reads the loudest bus, which is what the program preview above shows too.
         var master = SoundLevelMeter.ReadMaster(_session.AudioDevicesInUse);
         MasterLevelText.Text = master <= 0 ? "−∞ dB" : $"{SoundLevelMeter.Decibels(master):0} dB · master mix";
-        RefreshCameraMics();
-    }
-
-    /// <summary>The camera's microphone picker, rebuilt only when the library actually changes.</summary>
-    void RefreshCameraMics()
-    {
-        if (_session is null) return;
-        var cameras = _session.Library.Where(entry => entry.IsCamera).ToArray();
-        var microphones = _session.Library.Where(entry => entry.IsMicrophone).ToArray();
-        var signature = string.Join("|", cameras.Select(camera => $"{camera.Path}={camera.MicrophoneLink}"))
-            + "#" + string.Join("|", microphones.Select(mic => mic.Path));
-        if (signature == _cameraMicSignature) return;
-        _cameraMicSignature = signature;
-        if (cameras.Length == 0)
-        {
-            CameraMicBox.ItemsSource = new[] { "No cameras in the library" };
-            CameraMicBox.SelectedIndex = 0;
-            CameraMicBox.IsEnabled = false;
-            return;
-        }
-        CameraMicBox.IsEnabled = true;
-        var selected = _session.Selected?.IsCamera == true ? _session.Selected : cameras[0];
-        CameraMicBox.ItemsSource = new[] { $"{selected.Label} · no microphone" }
-            .Concat(microphones.Select(mic => $"{selected.Label} · {mic.Label}")).ToArray();
-        var index = Array.FindIndex(microphones, mic =>
-            string.Equals(mic.Path, selected.MicrophoneLink, StringComparison.OrdinalIgnoreCase));
-        _syncing = true;
-        try { CameraMicBox.SelectedIndex = index < 0 ? 0 : index + 1; }
-        finally { _syncing = false; }
-    }
-
-    void CameraMic_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncing || _session is null) return;
-        var camera = _session.Selected?.IsCamera == true ? _session.Selected
-            : _session.Library.FirstOrDefault(entry => entry.IsCamera);
-        if (camera is null) return;
-        var microphones = _session.Library.Where(entry => entry.IsMicrophone).ToArray();
-        var index = CameraMicBox.SelectedIndex - 1;
-        _session.SetCameraMicrophone(camera, index >= 0 && index < microphones.Length ? microphones[index].Path : null);
     }
 
     void MasterVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -1178,11 +1164,6 @@ public partial class MediaDock : UserControl
             var back = Math.Clamp(_session.ReplayBack, 0, depth);
             ElapsedText.Text = $"-{Stamp(TimeSpan.FromSeconds(back))}";
             DurationText.Text = "LIVE";
-            ReplayHint.Text = _session.HasReplayPreview
-                ? $"  PREVIEW READY · {Stamp(TimeSpan.FromSeconds(back))} behind live · the first replay stays on air · Start replay switches"
-                : _session.ReplayOnAir
-                    ? $"  ON AIR · {Stamp(TimeSpan.FromSeconds(back))} behind live · press Replay to prepare another without leaving this one"
-                    : $"  PREVIEW ONLY · {Stamp(TimeSpan.FromSeconds(back))} behind live · Start replay goes to air";
             if (_scrubbing || _syncingBar || DateTime.UtcNow < _settleUntil || ScrubBar.IsMouseCaptureWithin || ScrubBar.IsKeyboardFocusWithin) return;
             _syncingBar = true;
             try
@@ -1193,7 +1174,6 @@ public partial class MediaDock : UserControl
             finally { _syncingBar = false; }
             return;
         }
-        ReplayHint.Text = "  scrub back, then save from there to now";
         if (_session.Current?.IsMicrophone == true)
         {
             // A microphone has no timeline and no picture: the bar is a status light.
@@ -1438,18 +1418,6 @@ public partial class MediaDock : UserControl
         var device = (AudioDeviceBox.SelectedItem as AudioRouter.OutputDevice)?.Id;
         if (selected.IsSpeaker) _session.SetSpeakerOutput(selected, selected.Name, string.IsNullOrWhiteSpace(device) ? null : device);
         else _session.SetClipAudioDevice(selected, string.IsNullOrWhiteSpace(device) ? null : device);
-    }
-
-    /// <summary>Switches which capture device is on air; the scorebug follows the new tag match.</summary>
-    void Camera_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncing || _session is null || CameraBox.SelectedItem is not CameraChoice choice) return;
-        if (_session.Current?.IsCamera == true) _session.Play(choice.Entry);
-        else
-        {
-            _session.Select(choice.Entry);
-            _session.Report($"{choice.Entry.Label} ready · press ▶ or double-click the tile to go live");
-        }
     }
 
     /// <summary>

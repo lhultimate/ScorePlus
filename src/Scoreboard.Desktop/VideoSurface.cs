@@ -248,7 +248,9 @@ public sealed class VideoSurface : Grid
             }
             catch { }
         }
-        if (colour is null)
+        // Zero tolerance means the key is off. The shader used to key the exact colour even at
+        // zero, so pixels still vanished on a picture the operator had deliberately un-keyed.
+        if (colour is null || _item.ChromaKeyTolerance <= 0)
         {
             _chromaKey = null;
             _video.Effect = null;
@@ -676,8 +678,16 @@ public sealed class VideoSurface : Grid
 
     void OnReplayFrame(System.Windows.Media.Imaging.BitmapSource frame)
     {
+        if (_replayFeed is null) return;
         _replayFrame = frame;
-        if (_replay.Visibility == Visibility.Visible) _replay.Source = CropFrame(frame);
+        // A prepared replay opens paused, so this may be the only frame the decoder ever sends.
+        // Draw it even if the surface was still on the live camera when it arrived; waiting for
+        // the next transport change left the preview black until the operator moved the scrubber.
+        _replay.Source = CropFrame(frame);
+        _replay.Visibility = Visibility.Visible;
+        _video.Visibility = Visibility.Collapsed;
+        _live.Visibility = Visibility.Collapsed;
+        if (_placeholder is not null) _placeholder.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>

@@ -29,6 +29,11 @@ public sealed class ReplayFeed : IDisposable
     double _duration;
     bool _failed;
     bool _framePending;
+    // The newest decoded frame, kept even while an earlier one is still on its way to the UI.
+    // Without it a prepared replay's first frame could be dropped by the one-in-flight guard, and
+    // the paused decoder had no next frame to send, so the preview stayed blank until a scrub.
+    BitmapSource? _pendingPicture;
+    double _speed = 1;
 
     public ReplayFeed(Dispatcher ui) => _ui = ui;
 
@@ -45,6 +50,16 @@ public sealed class ReplayFeed : IDisposable
     public string? Path { get; private set; }
 
     public bool IsPlaying => _playing;
+
+    /// <summary>
+    /// Playback rate, 0.1x to 2.0x. The decoder advances one recorded frame per step either way;
+    /// the speed only changes how long it waits between frames.
+    /// </summary>
+    public double Speed
+    {
+        get => Volatile.Read(ref _speed);
+        set => Volatile.Write(ref _speed, double.IsFinite(value) ? Math.Clamp(value, 0.1, 2.0) : 1);
+    }
 
     public double Position => Volatile.Read(ref _position);
 
@@ -70,6 +85,9 @@ public sealed class ReplayFeed : IDisposable
             _playing = playing;
             _failed = false;
             _run = true;
+            // Never hand a surface the previous replay's last picture while the new clip opens.
+            Frame = null;
+            _pendingPicture = null;
         }
         StartThread();
     }
@@ -109,6 +127,7 @@ public sealed class ReplayFeed : IDisposable
             _run = false;
             _playing = false;
             _restart = false;
+            _pendingPicture = null;
             Path = null;
             _generation++;
             thread = _thread;
@@ -184,7 +203,17 @@ public sealed class ReplayFeed : IDisposable
                     index = (long)Math.Round(Math.Max(0, seekTo) * fps);
                     try { capture.Set(VideoCaptureProperties.PosFrames, index); } catch { }
                     // Draw the frame at the new point even while paused: a scrub has to show.
-                    if (capture.Read(frame) && !frame.Empty()) Publish(frame);
+                    var read = capture.Read(frame) && !frame.Empty();
+                    // The live edge sits about one frame past the end of the newest recording, so a
+                    // prepared replay could land where Read has nothing and stay blank until the
+                    // operator scrubbed. Walk back a few frames until there is a picture.
+                    for (var attempt = 0; !read && attempt < 8 && index > 0; attempt++)
+                    {
+                        index--;
+                        try { capture.Set(VideoCaptureProperties.PosFrames, index); } catch { }
+                        read = capture.Read(frame) && !frame.Empty();
+                    }
+                    if (read) Publish(frame);
                     Report(index / fps);
                     index++;
                     clock.Restart();
@@ -199,6 +228,7 @@ public sealed class ReplayFeed : IDisposable
                 }
 
                 var started = clock.Elapsed.TotalMilliseconds;
+                var speed = Speed;
                 if (!capture.Read(frame) || frame.Empty())
                 {
                     // End of the clip: hold the last frame and let the session decide whether the
@@ -216,7 +246,7 @@ public sealed class ReplayFeed : IDisposable
                 Report(index / fps);
                 index++;
                 var spent = clock.Elapsed.TotalMilliseconds - started;
-                var wait = (1000.0 / fps) - spent;
+                var wait = (1000.0 / fps / Math.Max(0.1, speed)) - spent;
                 if (wait > 1) Thread.Sleep((int)Math.Round(wait));
             }
         }
@@ -230,9 +260,7 @@ public sealed class ReplayFeed : IDisposable
 
     void Publish(Mat image)
     {
-        // One frame in flight at a time: a replay drops a picture rather than queueing the UI.
-        if (_framePending) return;
-        BitmapSource? bitmap;
+        BitmapSource bitmap;
         try
         {
             var stride = (int)image.Step();
@@ -242,11 +270,26 @@ public sealed class ReplayFeed : IDisposable
             bitmap = picture;
         }
         catch { return; }
-        var ready = bitmap;
-        _framePending = true;
+        // Keep only the newest picture. One post is in flight at a time so the UI is never flooded,
+        // but a frame that arrives in the meantime replaces the waiting one instead of vanishing.
+        bool post;
+        lock (_gate)
+        {
+            _pendingPicture = bitmap;
+            post = !_framePending;
+            if (post) _framePending = true;
+        }
+        if (!post) return;
         _ui.BeginInvoke(() =>
         {
-            _framePending = false;
+            BitmapSource? ready;
+            lock (_gate)
+            {
+                ready = _pendingPicture;
+                _pendingPicture = null;
+                _framePending = false;
+            }
+            if (ready is null) return;
             Frame = ready;
             try { FrameReady?.Invoke(ready); } catch { }
         });

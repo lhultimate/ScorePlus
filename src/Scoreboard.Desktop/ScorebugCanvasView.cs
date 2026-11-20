@@ -915,7 +915,8 @@ public sealed class ScorebugCanvasView : Grid
         // The hand-over video can be shot against a green screen just like a camera or a replay.
         // The shader is the same one used by video elements, so the key colour reaches the pixels.
         var keyed=TryParseColor(incoming.TransitionVideoChromaKeyColor,out var keyColour);
-        if(keyed) video.Effect=new ChromaKeyEffect{KeyColor=keyColour,Tolerance=incoming.TransitionVideoChromaKeyTolerance};
+        // A zero tolerance is the off switch: keying the exact colour still removed pixels.
+        if(keyed&&incoming.TransitionVideoChromaKeyTolerance>0) video.Effect=new ChromaKeyEffect{KeyColor=keyColour,Tolerance=incoming.TransitionVideoChromaKeyTolerance};
         // The incoming layout is already underneath. Hold the outgoing still over it until the
         // video's first frame is ready, then until the operator's chosen cut beat. A keyed clip
         // needs this too: otherwise its transparent pixels reveal the new layout while the media
@@ -1260,7 +1261,7 @@ public sealed class ScorebugCanvasView : Grid
         var drawing=new VideoDrawing{Player=player,Rect=new Rect(0,0,1,1)};
         var brush=new DrawingBrush(drawing){Stretch=Stretch.Fill};
         var picture=new Rectangle{Width=width,Height=height,Fill=brush,IsHitTestVisible=false};
-        if(TryParseColor(video.ChromaKeyColor,out var keyColour))
+        if(TryParseColor(video.ChromaKeyColor,out var keyColour)&&video.ChromaKeyTolerance>0)
             picture.Effect=new ChromaKeyEffect{KeyColor=keyColour,Tolerance=video.ChromaKeyTolerance};
         var overlay=new Grid{Width=width,Height=height,IsHitTestVisible=false};
         overlay.Children.Add(picture);

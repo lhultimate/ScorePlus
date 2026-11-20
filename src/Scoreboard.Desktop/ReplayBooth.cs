@@ -8,7 +8,7 @@ using Scoreboard.Core;
 namespace Scoreboard.Desktop;
 
 /// <summary>One camera as the Replay Booth presents it to the operator and the browser.</summary>
-public sealed record ReplayBoothCamera(int Index, string Label);
+public sealed record ReplayBoothCamera(int Index, string Label, string Path = "");
 
 /// <summary>What the game clocks read at a point in the camera recording.</summary>
 public sealed record ReplayBoothClock(
@@ -103,6 +103,7 @@ public sealed class ReplayBoothController : IDisposable
     readonly Dispatcher _ui;
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(200) };
     readonly List<ReplayBoothCamera> _cameras = [];
+    readonly List<ReplayBoothCamera> _allCameras = [];
     // One decoder per camera. They are opened together and seeked together, which is the whole
     // point of a shared playhead.
     readonly Dictionary<int, ReplayFeed> _feeds = [];
@@ -128,6 +129,8 @@ public sealed class ReplayBoothController : IDisposable
     }
 
     public IReadOnlyList<ReplayBoothCamera> Cameras => _cameras;
+    /// <summary>Every camera, including the ones the booth's layout hides, so the editor can list them.</summary>
+    public IReadOnlyList<ReplayBoothCamera> AllCameras => _allCameras;
     public int SelectedIndex => _selected;
     public ReplayBoothCamera? SelectedCamera => _selected >= 0 && _selected < _cameras.Count ? _cameras[_selected] : null;
     public bool IsPlaying => _playing;
@@ -140,6 +143,41 @@ public sealed class ReplayBoothController : IDisposable
     public bool StoppageRunning => _engine.State.StoppageRunning;
     public string StoppageText => GameEngine.FormatClock(_engine.State.StoppageSeconds);
     public string SelectedLabel => SelectedCamera?.Label ?? "No camera";
+
+    /// <summary>The booth wall's own column count, or zero for an automatic grid.</summary>
+    public int Columns => Math.Clamp(_preferences.ReplayBoothColumns, 0, 6);
+
+    /// <summary>Replay playback rate, 0.1x to 2.0x, shared with the media rail.</summary>
+    public double Speed
+    {
+        get => Math.Clamp(_preferences.ReplaySpeed, 0.1, 2.0);
+        set
+        {
+            var clamped = Math.Clamp(double.IsFinite(value) ? value : 1, 0.1, 2.0);
+            if (Math.Abs(_preferences.ReplaySpeed - clamped) < 0.0001) return;
+            _preferences.ReplaySpeed = clamped;
+            PreferencesStore.Save(_preferences);
+            foreach (var feed in _feeds.Values) feed.Speed = clamped;
+        }
+    }
+
+    /// <summary>
+    /// The booth's own wall layout: which cameras are on it, in what order, and how many columns.
+    /// It is stored separately from the multiview wall, so editing one never rearranges the other.
+    /// </summary>
+    public void SetWallLayout(IEnumerable<string> order, IEnumerable<string> hidden, int columns)
+    {
+        _preferences.ReplayBoothOrder = order.Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
+        _preferences.ReplayBoothHidden = hidden.Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
+        _preferences.ReplayBoothColumns = Math.Clamp(columns, 0, 6);
+        PreferencesStore.Save(_preferences);
+        // The cached camera list has to be rebuilt even if the library did not change.
+        _cameras.Clear();
+        RefreshCameras();
+    }
+
+    public IReadOnlyList<string> WallOrder => _preferences.ReplayBoothOrder;
+    public IReadOnlyList<string> WallHidden => _preferences.ReplayBoothHidden;
 
     /// <summary>The live stoppage clock. It is a game clock, not a replay clock: starting it accrues
     /// added time in the same engine the console and the scorebug read.</summary>
@@ -207,8 +245,21 @@ public sealed class ReplayBoothController : IDisposable
         foreach (var entry in _session.Library.Where(entry => entry.IsCamera).OrderBy(entry => entry.CameraIndex))
         {
             if (!seen.Add(entry.CameraIndex)) continue;
-            next.Add(new ReplayBoothCamera(entry.CameraIndex, entry.Label));
+            next.Add(new ReplayBoothCamera(entry.CameraIndex, entry.Label, entry.Path));
         }
+        _allCameras.Clear();
+        _allCameras.AddRange(next);
+        // The booth's own order comes first; any camera added since the layout was saved follows
+        // in library order rather than disappearing from the wall.
+        var order = _preferences.ReplayBoothOrder;
+        if (order.Count > 0)
+        {
+            var rank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < order.Count; index++) rank[order[index]] = index;
+            next = next.OrderBy(camera => rank.TryGetValue(camera.Path, out var position) ? position : int.MaxValue).ToList();
+        }
+        var hidden = new HashSet<string>(_preferences.ReplayBoothHidden, StringComparer.OrdinalIgnoreCase);
+        if (hidden.Count > 0) next.RemoveAll(camera => hidden.Contains(camera.Path));
         var changed = next.Count != _cameras.Count
             || next.Where((camera, index) => camera.Index != _cameras[index].Index || camera.Label != _cameras[index].Label).Any();
         if (!changed) return;
@@ -412,7 +463,7 @@ public sealed class ReplayBoothController : IDisposable
     ReplayFeed FeedFor(int cameraIndex)
     {
         if (_feeds.TryGetValue(cameraIndex, out var feed)) return feed;
-        feed = new ReplayFeed(_ui);
+        feed = new ReplayFeed(_ui) { Speed = Speed };
         _feeds[cameraIndex] = feed;
         return feed;
     }

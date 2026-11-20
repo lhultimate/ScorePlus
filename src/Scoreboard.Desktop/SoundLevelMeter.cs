@@ -109,9 +109,9 @@ public static class SoundLevelMeter
     static readonly Dictionary<string, DeviceMeter> DeviceMeters = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The level coming out of one named speaker. It falls back to the default output when the
-    /// device cannot be listened to, so a bar never sticks at full or reads zero because a driver
-    /// refuses a loopback capture.
+    /// The level coming out of one named speaker. A device that refuses a loopback capture reads
+    /// zero rather than falling back to the machine's default mix: the fallback made every bus show
+    /// the same level, so speakers that were switched off appeared to be playing.
     /// </summary>
     public static double ReadDevice(string? deviceId)
     {
@@ -125,7 +125,7 @@ public static class SoundLevelMeter
                 DeviceMeters[deviceId] = meter;
             }
         }
-        return meter.Available ? meter.Read() : Read();
+        return meter.Available ? meter.Read() : 0;
     }
 
     /// <summary>

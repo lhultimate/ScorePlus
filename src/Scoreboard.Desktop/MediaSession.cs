@@ -89,7 +89,7 @@ public sealed class MediaSession
     {
         _preferences = preferences;
         Playback = new MediaPlayback();
-        _replay = new ReplayFeed(_ui);
+        _replay = new ReplayFeed(_ui) { Speed = ReplaySpeed };
         BindPrimaryReplay(_replay);
         Playback.AttachReplay(_replay);
         foreach (var entry in preferences.Media)
@@ -260,6 +260,57 @@ public sealed class MediaSession
     public MediaEntry? BackgroundAudio => _backgroundAudio;
 
     public bool IsCurrentPlaying => _playing;
+
+    /// <summary>The replay playback rate, 0.1x to 2.0x, shared with the booth.</summary>
+    public double ReplaySpeed => Math.Clamp(_preferences.ReplaySpeed, 0.1, 2.0);
+
+    /// <summary>Changes the replay speed and applies it to both decoders without moving the playhead.</summary>
+    public void SetReplaySpeed(double speed)
+    {
+        var clamped = Math.Clamp(double.IsFinite(speed) ? speed : 1, 0.1, 2.0);
+        if (Math.Abs(_preferences.ReplaySpeed - clamped) > 0.0001)
+        {
+            _preferences.ReplaySpeed = clamped;
+            PreferencesStore.Save(_preferences);
+        }
+        _replay.Speed = clamped;
+        if (_previewReplay is not null) _previewReplay.Speed = clamped;
+        StateChanged?.Invoke();
+        Status?.Invoke($"REPLAY SPEED · {clamped:0.0}×");
+        TransportChanged?.Invoke();
+    }
+
+    /// <summary>The tag every new replay carries, so a scorebug box can be set to show replays.</summary>
+    public string ReplayTag => MediaLibrary.NormalizeTag(_preferences.ReplayTag);
+
+    /// <summary>Changes the replay tag and moves the cue that is already open onto it.</summary>
+    public void SetReplayTag(string tag)
+    {
+        var normalized = MediaLibrary.NormalizeTag(tag);
+        if (string.Equals(_preferences.ReplayTag, normalized, StringComparison.OrdinalIgnoreCase)) return;
+        _preferences.ReplayTag = normalized;
+        PreferencesStore.Save(_preferences);
+        if (_onAirReplayEntry is { } air)
+        {
+            var updated = air with { Tag = normalized };
+            _onAirReplayEntry = updated;
+            if (!HasReplayPreview)
+            {
+                Current = updated;
+                // An on-air replay is swapped in place; a prepared one is re-staged, so the
+                // preview picks up the new tag without another scrub.
+                if (_replayOnAir) Playback.ShowOnAirReplay(updated);
+                else Playback.Stage(updated);
+            }
+        }
+        if (_previewReplayEntry is { } staged)
+        {
+            _previewReplayEntry = staged with { Tag = normalized };
+            Playback.Stage(_previewReplayEntry);
+        }
+        StateChanged?.Invoke();
+        Status?.Invoke($"REPLAY TAG · {normalized}");
+    }
 
     public bool IsBackgroundPlaying => _backgroundPlaying;
 
@@ -467,6 +518,7 @@ public sealed class MediaSession
     /// </summary>
     public void ClearAll()
     {
+        _pendingQuickMedia = null;
         Stop(keepStatus: true);
         Playlists.Clear();
         _folders.Clear();
@@ -487,6 +539,7 @@ public sealed class MediaSession
     /// </summary>
     public void ClearOnAir()
     {
+        _pendingQuickMedia = null;
         Stop(keepStatus: true);
         StopLiveSources();
         Playback.Stop();
@@ -1026,7 +1079,16 @@ public sealed class MediaSession
     /// </summary>
     public double LevelFor(MediaEntry entry)
     {
-        if (entry.IsSpeaker) return SoundLevelMeter.ReadDevice(entry.AudioDevice);
+        // A speaker bus only shows what the show is sending through it. Its device loopback also
+        // hears the rest of the machine, so an unmuted but idle bus would dance to unrelated sound;
+        // a switched-off bus never shows anything at all.
+        if (entry.IsSpeaker)
+        {
+            if (entry.SpeakerMuted) return 0;
+            var carries = Current is { } current && !current.IsSpeaker && !current.IsMicrophone
+                && _playing && string.Equals(SpeakerBusFor(current)?.Path, entry.Path, StringComparison.OrdinalIgnoreCase);
+            return carries ? SoundLevelMeter.ReadDevice(entry.AudioDevice) : 0;
+        }
         // A microphone is an input, not an output. A loopback capture of a capture device reads
         // silence, which is why a camera's sound bar never moved. The feed that listens to the
         // microphone already measures its true input level, so read that instead.
@@ -1094,7 +1156,7 @@ public sealed class MediaSession
         var tag = MediaLibrary.NormalizeTag(entry.Tag);
         var carrying = Library.Where(bus => bus.IsSpeaker
             && (string.Equals(MediaLibrary.NormalizeTag(bus.Tag), tag, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(MediaLibrary.NormalizeTag(bus.Tag), MediaLibrary.AnyTag, StringComparison.OrdinalIgnoreCase))).ToArray();
+                || MediaLibrary.IsAnyTag(bus.Tag))).ToArray();
         if (carrying.Length == 0) return null;
         // A bus already pointed at the clip's own device wins, so two buses on one tag stay apart.
         return carrying.FirstOrDefault(bus => bus.IsSpeakerOnAir
@@ -1308,6 +1370,9 @@ public sealed class MediaSession
         Current = entry;
         ScreenFeed.Get(entry.ScreenIndex).Start();
         SetTransportPlaying(true);
+        // A screen is a picture source like a camera: it retires a same-tag camera before taking
+        // its own place, and Playback.Start retires same-tag files.
+        RetireCamerasWithTag(entry.Tag);
         Playback.Start(entry);
         Playback.ReportAudio(null, 1);
         StateChanged?.Invoke();
@@ -1338,6 +1403,10 @@ public sealed class MediaSession
 
     void PlayCamera(MediaEntry entry, MediaPlaylist? playlist, int index)
     {
+        _pendingQuickMedia = null;
+        // One tag carries one picture. A camera cut over a video or screen wearing the same tag
+        // takes that source off air, so the camera is what the audience sees.
+        RetireFilesWithTag(entry.Tag);
         // Other live sources stay on air. A camera cue adds this feed rather than replacing the
         // others, so several cameras and microphones can run together.
         var keepRoutedAudio = PreserveCurrentAudio();
@@ -1435,6 +1504,7 @@ public sealed class MediaSession
         _replayOnAir = false;
         _onAirReplayEntry = null;
         _onAirReplayCamera = source;
+        _replay.Speed = ReplaySpeed;
         Playback.AttachReplay(_replay);
         Playback.AttachPreviewReplay(_replay);
         SeekPrimaryReplay(0);
@@ -1447,7 +1517,7 @@ public sealed class MediaSession
     void StartPreviewReplay(IReadOnlyList<CameraSegment> segments, MediaEntry camera)
     {
         ClosePreviewReplay();
-        var feed = new ReplayFeed(_ui);
+        var feed = new ReplayFeed(_ui) { Speed = ReplaySpeed };
         _previewReplay = feed;
         BindPreviewReplay(feed);
         _previewReplayBuffer.Clear();
@@ -1594,7 +1664,7 @@ public sealed class MediaSession
     /// <summary>The synthetic cue for one recorded segment. The camera's switch settings travel
     /// with it, so a replay enters with the same animation the operator chose for the camera.</summary>
     MediaEntry CreateReplayEntry(CameraSegment segment, int cue, MediaEntry? camera) =>
-        new(segment.Path, (camera ?? CameraEntry)?.Tag ?? MediaLibrary.DefaultTag)
+        new(segment.Path, ReplayTag)
         {
             Transition = MediaLibrary.NormalizeTransition((camera ?? CameraEntry)?.Transition),
             TransitionSeconds = MediaLibrary.NormalizeTransitionSeconds((camera ?? CameraEntry)?.TransitionSeconds ?? MediaLibrary.DefaultTransitionSeconds),
@@ -1676,7 +1746,14 @@ public sealed class MediaSession
         }
         else
         {
-            ReturnToLive();
+            // Do not cut to the camera by itself. The last frame stays on air until the operator
+            // presses Jump to Live, so the replay can end without the picture jumping mid-sentence.
+            _playing = false;
+            _replayBack = 0;
+            _replay.Pause();
+            StateChanged?.Invoke();
+            TransportChanged?.Invoke();
+            Status?.Invoke("REPLAY ENDED · holding the last frame · Jump to Live returns to the camera");
         }
     }
 
@@ -1815,11 +1892,52 @@ public sealed class MediaSession
 
     void StopCamera()
     {
+        _pendingQuickMedia = null;
         if (_camera is null) return;
         // Only this camera leaves the air; a second feed keeps running for its own element.
         _liveCameras.RemoveAll(camera => camera.CameraIndex == _camera.CameraIndex);
         _camera.Stop();
         _camera = null;
+        Playback.SetLiveCameras(_liveCameras);
+    }
+
+    /// <summary>
+    /// Takes every video or screen wearing a tag off air, so a camera cue can own that tag. Audio
+    /// beds and the other tags keep playing.
+    /// </summary>
+    void RetireFilesWithTag(string? tag)
+    {
+        var normalized = MediaLibrary.NormalizeTag(tag);
+        var retired = Playback.ActiveFiles
+            .Where(file => string.Equals(MediaLibrary.NormalizeTag(file.Tag), normalized, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        foreach (var file in retired) Playback.Stop(file);
+    }
+
+    /// <summary>
+    /// Takes every live camera wearing a tag off air, so a video or screen cue can own that tag.
+    /// A capture device still used by a camera on another tag keeps running.
+    /// </summary>
+    void RetireCamerasWithTag(string? tag)
+    {
+        var normalized = MediaLibrary.NormalizeTag(tag);
+        var retired = _liveCameras
+            .Where(camera => string.Equals(MediaLibrary.NormalizeTag(camera.Tag), normalized, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (retired.Length == 0) return;
+        _liveCameras.RemoveAll(camera => string.Equals(MediaLibrary.NormalizeTag(camera.Tag), normalized, StringComparison.OrdinalIgnoreCase));
+        foreach (var camera in retired)
+        {
+            if (_liveCameras.Any(remaining => remaining.CameraIndex == camera.CameraIndex)) continue;
+            if (_camera?.CameraIndex == camera.CameraIndex) _camera = null;
+            try { CameraFeed.Get(camera.CameraIndex).Stop(); } catch { }
+        }
+        if (CameraEntry is { } currentCamera
+            && string.Equals(MediaLibrary.NormalizeTag(currentCamera.Tag), normalized, StringComparison.OrdinalIgnoreCase))
+            CameraEntry = _liveCameras.LastOrDefault();
+        if (Current is { IsCamera: true } liveCamera
+            && string.Equals(MediaLibrary.NormalizeTag(liveCamera.Tag), normalized, StringComparison.OrdinalIgnoreCase))
+            Current = _liveCameras.LastOrDefault();
         Playback.SetLiveCameras(_liveCameras);
     }
 
@@ -1910,6 +2028,7 @@ public sealed class MediaSession
     /// </summary>
     void PlayMicrophone(MediaEntry entry)
     {
+        _pendingQuickMedia = null;
         var keepRoutedAudio = PreserveCurrentAudio();
         try { _player.Stop(); _player.Close(); } catch { }
         _seekApply.Stop();
@@ -1980,6 +2099,51 @@ public sealed class MediaSession
         Playback.SetPreview(entry);
         StateChanged?.Invoke();
         Status?.Invoke($"{entry.KindLabel} · {entry.Label} · tag {entry.Tag} · {entry.FolderLabel}");
+    }
+
+    // A quick-media press with the bypass preference off lands here: the item is previewed and
+    // waits for Update Output, exactly like a staged quick layout.
+    MediaEntry? _pendingQuickMedia;
+
+    /// <summary>The quick-media item waiting for Update Output, if any.</summary>
+    public MediaEntry? PendingQuickMedia => _pendingQuickMedia;
+
+    /// <summary>True when this exact item is the one waiting for Update Output.</summary>
+    public bool IsQuickMediaStaged(MediaEntry entry) =>
+        _pendingQuickMedia is not null && SameQuickCue(_pendingQuickMedia, entry);
+
+    static bool SameQuickCue(MediaEntry left, MediaEntry right) =>
+        string.Equals(left.Path, right.Path, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(MediaLibrary.NormalizeTag(left.Tag), MediaLibrary.NormalizeTag(right.Tag), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Stages a quick-media item in the preview. Pressing the same item again clears it.</summary>
+    public bool StageQuickMedia(MediaEntry entry)
+    {
+        entry = Resolve(entry);
+        if (_pendingQuickMedia is not null && SameQuickCue(_pendingQuickMedia, entry))
+        {
+            _pendingQuickMedia = null;
+            Playback.SetPreview(Selected);
+            StateChanged?.Invoke();
+            Status?.Invoke($"QUICK MEDIA · {entry.Label} no longer staged");
+            return false;
+        }
+        _pendingQuickMedia = entry;
+        Playback.SetPreview(entry);
+        StateChanged?.Invoke();
+        Status?.Invoke($"QUICK MEDIA · {entry.Label} staged in the preview · press Update Output to put it on air");
+        return true;
+    }
+
+    /// <summary>Puts the staged quick-media item on air. Update Output calls this.</summary>
+    public bool PublishQuickMedia()
+    {
+        var entry = _pendingQuickMedia;
+        if (entry is null) return false;
+        _pendingQuickMedia = null;
+        var onAir = ToggleOnAir(entry);
+        StateChanged?.Invoke();
+        return onAir;
     }
 
     /// <summary>True when this exact library item is one of the sources currently on air.</summary>
@@ -2136,6 +2300,8 @@ public sealed class MediaSession
 
     void PlayClip(MediaEntry entry, MediaPlaylist? playlist, int index)
     {
+        // Any explicit cue replaces the item that was waiting for Update Output.
+        _pendingQuickMedia = null;
         // A speaker bus is a level/routing control, not a file. Selecting it and pressing play
         // should not report a missing media file.
         if (entry.IsSpeaker)
@@ -2202,7 +2368,13 @@ public sealed class MediaSession
         SetTransportPlaying(true);
         // Audio-only clips must not fill a video overlay. They also must not clear a video that is
         // already on air under a different tag.
-        if (entry.IsVideo) Playback.Start(entry);
+        if (entry.IsVideo)
+        {
+            // A video and a camera on the same tag used to both stay on air; the camera won the
+            // picture, so the video never reached the audience. The tag now has one source.
+            RetireCamerasWithTag(entry.Tag);
+            Playback.Start(entry);
+        }
         // Routing comes after Start() so its success/failure is not reset by the new cue.
         Playback.ReportAudio(output, gain);
         if (!string.IsNullOrWhiteSpace(output) && !_backgroundRouted)
@@ -2273,14 +2445,16 @@ public sealed class MediaSession
                 SetTransportPlaying(false);
                 Status?.Invoke($"REPLAY PAUSED · {Math.Round(ReplayBack)}s behind live");
             }
-            // Play resumes a paused replay where it was scrubbed to. If it has not gone to air
-            // yet this also promotes it, so one press both starts it and rolls it.
+            // Play resumes a paused replay where it was scrubbed to and leaves it in the preview.
+            // Sending it to air is Start Replay's job: pressing Play to check a frame must never
+            // cut the audience, and the replay used to arrive on air frozen by that promotion.
             else
             {
-                if (!_replayOnAir) PlayReplay();
                 _replay.Play();
                 SetTransportPlaying(true);
-                Status?.Invoke($"REPLAY ON AIR · playing · {Math.Round(ReplayBack)}s behind live");
+                Status?.Invoke(_replayOnAir
+                    ? $"REPLAY ON AIR · playing · {Math.Round(ReplayBack)}s behind live"
+                    : $"REPLAY READY · playing in the preview · Start Replay sends it to air");
             }
             return;
         }
@@ -2521,6 +2695,7 @@ public sealed class MediaSession
 
     public    void Stop(bool keepStatus = false)
     {
+        _pendingQuickMedia = null;
         try { _player.Stop(); _player.Close(); } catch { }
         StopBackgroundAudio(silent: true);
         StopLiveSources();

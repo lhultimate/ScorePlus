@@ -1326,9 +1326,15 @@ public sealed class MultiviewWindow : Window
 
     void OnReplayFrame(BitmapSource frame)
     {
-        if (_replayPicture.Visibility != Visibility.Visible) return;
+        // A prepared replay is paused, so its first frame may be the only one that arrives. Show
+        // it even if the tile had not switched to the replay yet; the old guard dropped it and the
+        // operator had to scrub before the program preview filled in.
+        if (_replayFeed is null) return;
         _replayPicture.Source = frame;
+        _replayPicture.Visibility = Visibility.Visible;
         _replayHint.Visibility = Visibility.Collapsed;
+        _replayMirror.Visibility = Visibility.Collapsed;
+        StopMirror();
     }
 
     void MirrorCamera()
